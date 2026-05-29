@@ -1,0 +1,5 @@
+{"Modules":[
+  {"Key":"","Source":"","Dir":"."},
+  {"Key":"net","Source":"./modules/net","Dir":"modules/net"},
+  {"Key":"remote","Source":"app.terraform.io/x/y","Dir":".terraform/modules/remote"}
+]}

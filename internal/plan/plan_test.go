@@ -174,3 +174,19 @@ func TestParseCreateExtractsAfterAttrs(t *testing.T) {
 		t.Errorf("unique_id should be known-after-apply")
 	}
 }
+
+func TestParseCarriesModuleAndName(t *testing.T) {
+	data := []byte(`{"format_version":"1.2","resource_changes":[
+	  {"address":"module.net.google_compute_firewall.web","module_address":"module.net",
+	   "type":"google_compute_firewall","name":"web",
+	   "change":{"actions":["update"],"before":{"a":"1"},"after":{"a":"2"},
+	     "after_unknown":{},"before_sensitive":{},"after_sensitive":{}}}]}`)
+	rs, err := Parse("s", data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := rs.Changes[0]
+	if c.Name != "web" || c.ModuleAddress != "module.net" {
+		t.Fatalf("got name=%q module=%q", c.Name, c.ModuleAddress)
+	}
+}

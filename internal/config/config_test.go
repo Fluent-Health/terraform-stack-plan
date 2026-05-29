@@ -84,3 +84,22 @@ func TestUnknownTopLevelBlockFails(t *testing.T) {
 		t.Fatal("expected error for unknown top-level block")
 	}
 }
+
+func TestLoadLinks(t *testing.T) {
+	cfg, err := Load("testdata/links.hcl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Links == nil {
+		t.Fatal("expected Links to be parsed")
+	}
+	if cfg.Links.Resource != "https://gh/o/r/blob/{sha}/{file}#L{line}" {
+		t.Errorf("resource template = %q", cfg.Links.Resource)
+	}
+	if cfg.Links.Stack != "https://gh/o/r/tree/{sha}/{stack_dir}" {
+		t.Errorf("stack template = %q", cfg.Links.Stack)
+	}
+	if len(cfg.Links.Header) != 2 || cfg.Links.Header[0].Label != "Build #{build_id}" || cfg.Links.Header[1].URL != "https://gh/o/r/pull/{pr}" {
+		t.Errorf("header = %+v", cfg.Links.Header)
+	}
+}

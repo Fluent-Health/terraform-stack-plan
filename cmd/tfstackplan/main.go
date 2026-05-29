@@ -7,15 +7,19 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/classify"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/config"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/differ"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/fit"
+	"github.com/Fluent-Health/terraform-stack-plan/internal/links"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/manifest"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/model"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/plan"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/render"
+	"github.com/Fluent-Health/terraform-stack-plan/internal/source"
 )
 
 const defaultMaxBytes = 60000
@@ -41,6 +45,8 @@ type opts struct {
 	output       string
 	classJSON    string
 	details      string
+	repoRoot     string
+	linkVars     []string
 }
 
 func main() {
@@ -55,6 +61,9 @@ func main() {
 	flag.StringVar(&o.output, "output", "-", "output file ('-' = stdout)")
 	flag.StringVar(&o.classJSON, "emit-classification-json", "", "write computed classes as JSON")
 	flag.StringVar(&o.details, "details", "closed", "details disclosure: auto|open|closed")
+	flag.StringVar(&o.repoRoot, "repo-root", ".", "repo root for computing link file paths")
+	var lv stackFlags
+	flag.Var(&lv, "link-var", "link template variable as key=value (repeatable); sha=<sha> also derives sha_short")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
 	if *showVersion {
@@ -62,6 +71,7 @@ func main() {
 		return
 	}
 	o.stacks = sf
+	o.linkVars = lv
 
 	out, fits, err := run(o)
 	if err != nil {
@@ -128,6 +138,14 @@ func run(o opts) (string, bool, error) {
 	classified := cfg.Classification != nil
 
 	report := model.Report{Title: o.title, Marker: o.marker, Classified: classified}
+	base := baseVars(o.linkVars)
+	if cfg.Links != nil {
+		for _, l := range cfg.Links.Header {
+			if url := links.Resolve(l.URL, base); url != "" {
+				report.HeaderLinks = append(report.HeaderLinks, model.Link{Label: links.Resolve(l.Label, base), URL: url})
+			}
+		}
+	}
 	sidecar := map[string]classEntry{}
 	for _, ref := range refs {
 		data, err := os.ReadFile(ref.Plan)
@@ -139,6 +157,19 @@ func run(o opts) (string, bool, error) {
 			return "", false, err
 		}
 		st := model.Stack{Name: ref.Name, Counts: raw.Counts}
+
+		stackDir := ref.Dir
+		if stackDir == "" {
+			stackDir = filepath.Dir(ref.Plan)
+		}
+		stackVars := mergeVars(base, map[string]string{"stack": ref.Name, "stack_dir": relSlash(o.repoRoot, stackDir)})
+		var srcIdx *source.Index
+		if cfg.Links != nil {
+			st.URL = links.Resolve(cfg.Links.Stack, stackVars)
+			if cfg.Links.Resource != "" {
+				srcIdx = source.Build(stackDir, o.repoRoot)
+			}
+		}
 
 		if classified {
 			cl := classify.Classify(raw, cfg.Classification.Rules, cfg.Classification.Default)
@@ -170,6 +201,20 @@ func run(o opts) (string, bool, error) {
 					NoDetect:     !cfg.Diff.Detect,
 				})
 				ch.Fields = append(ch.Fields, f)
+			}
+			if cfg.Links != nil {
+				ch.URL = st.URL // fall back to the stack link
+				if srcIdx != nil {
+					if loc, ok := srcIdx.Lookup(rc.ModuleAddress, rc.Type, rc.Name); ok {
+						rv := mergeVars(stackVars, map[string]string{
+							"file": loc.File, "line": fmt.Sprintf("%d", loc.Line),
+							"type": rc.Type, "name": rc.Name, "address": rc.Address, "module": rc.ModuleAddress,
+						})
+						if u := links.Resolve(cfg.Links.Resource, rv); u != "" {
+							ch.URL = u
+						}
+					}
+				}
 			}
 			st.Changes = append(st.Changes, ch)
 		}
@@ -218,4 +263,44 @@ func nilable(s string) *string {
 		return nil
 	}
 	return &s
+}
+
+// baseVars parses run-level link variables from key=value pairs and derives
+// sha_short (first 7 chars of sha) when present.
+func baseVars(pairs []string) map[string]string {
+	v := map[string]string{}
+	for _, p := range pairs {
+		if i := strings.IndexByte(p, '='); i > 0 {
+			v[p[:i]] = p[i+1:]
+		}
+	}
+	if sha := v["sha"]; len(sha) >= 7 {
+		v["sha_short"] = sha[:7]
+	}
+	return v
+}
+
+func mergeVars(a, b map[string]string) map[string]string {
+	out := make(map[string]string, len(a)+len(b))
+	for k, v := range a {
+		out[k] = v
+	}
+	for k, v := range b {
+		out[k] = v
+	}
+	return out
+}
+
+// relSlash returns target relative to root as a forward-slash path, or "" on error.
+func relSlash(root, target string) string {
+	ra, e1 := filepath.Abs(root)
+	ta, e2 := filepath.Abs(target)
+	if e1 != nil || e2 != nil {
+		return ""
+	}
+	rel, err := filepath.Rel(ra, ta)
+	if err != nil {
+		return ""
+	}
+	return filepath.ToSlash(rel)
 }

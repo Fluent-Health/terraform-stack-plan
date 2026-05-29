@@ -31,6 +31,9 @@ type RawChange struct {
 	Action  model.Action
 	Attrs   []RawAttr // populated for create/delete/update/replace/forget
 
+	Name          string
+	ModuleAddress string
+
 	Moved           bool
 	PreviousAddress string
 	Imported        bool
@@ -96,12 +99,14 @@ func Parse(name string, data []byte) (RawStack, error) {
 		}
 
 		ch := RawChange{
-			Address:  rc.Address,
-			Type:     rc.Type,
-			Actions:  toStrings(act),
-			Action:   bucket,
-			Moved:    moved,
-			Imported: imported,
+			Address:       rc.Address,
+			Type:          rc.Type,
+			Actions:       toStrings(act),
+			Action:        bucket,
+			Moved:         moved,
+			Imported:      imported,
+			Name:          rc.Name,
+			ModuleAddress: rc.ModuleAddress,
 		}
 		if moved {
 			ch.PreviousAddress = rc.PreviousAddress

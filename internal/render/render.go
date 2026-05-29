@@ -48,6 +48,13 @@ func changedStacks(r model.Report) int {
 
 func renderHeader(b *strings.Builder, r model.Report) {
 	fmt.Fprintf(b, "### %s  (%d stacks changed)\n\n", r.Title, changedStacks(r))
+	if len(r.HeaderLinks) > 0 {
+		parts := make([]string, 0, len(r.HeaderLinks))
+		for _, l := range r.HeaderLinks {
+			parts = append(parts, fmt.Sprintf("[%s](%s)", l.Label, l.URL))
+		}
+		fmt.Fprintf(b, "%s\n\n", strings.Join(parts, " · "))
+	}
 }
 
 type columnSet struct{ add, change, destroy, replace bool }
@@ -134,7 +141,11 @@ func renderDetails(b *strings.Builder, r model.Report) {
 		if !s.Counts.AnyChange() {
 			continue
 		}
-		summary := s.Name
+		name := s.Name
+		if s.URL != "" {
+			name = fmt.Sprintf("<a href=%q>%s</a>", s.URL, s.Name)
+		}
+		summary := name
 		if s.Class != nil {
 			summary += " · " + s.Class.Label()
 		}
@@ -235,33 +246,37 @@ func renderResource(b *strings.Builder, c model.Change, forceOpen bool) {
 // operations take precedence over the underlying action: forget → moved →
 // imported → create/update/delete/replace.
 func resourceSummary(c model.Change) string {
+	addr := c.Address
+	if c.URL != "" {
+		addr = fmt.Sprintf("<a href=%q>%s</a>", c.URL, c.Address)
+	}
 	n := len(c.Fields)
 	switch {
 	case c.Action == model.ActionForget:
-		return fmt.Sprintf("⊘ %s · forgotten · %d attrs", c.Address, n)
+		return fmt.Sprintf("⊘ %s · forgotten · %d attrs", addr, n)
 	case c.Moved:
-		s := fmt.Sprintf("↪ %s · moved from %s", c.Address, c.PreviousAddress)
+		s := fmt.Sprintf("↪ %s · moved from %s", addr, c.PreviousAddress)
 		if n > 0 {
 			s += fmt.Sprintf(", %d changed", n)
 		}
 		return s
 	case c.Imported:
-		s := fmt.Sprintf("⤓ %s · imported", c.Address)
+		s := fmt.Sprintf("⤓ %s · imported", addr)
 		if c.ImportID != "" {
-			s = fmt.Sprintf("⤓ %s · imported (id=%q)", c.Address, c.ImportID)
+			s = fmt.Sprintf("⤓ %s · imported (id=%q)", addr, c.ImportID)
 		}
 		if n > 0 {
 			s += fmt.Sprintf(", %d changed", n)
 		}
 		return s
 	case c.Action == model.ActionAdd:
-		return fmt.Sprintf("+ %s · %d attrs", c.Address, n)
+		return fmt.Sprintf("+ %s · %d attrs", addr, n)
 	case c.Action == model.ActionDestroy:
-		return fmt.Sprintf("- %s · %d attrs", c.Address, n)
+		return fmt.Sprintf("- %s · %d attrs", addr, n)
 	case c.Action == model.ActionReplace:
-		return fmt.Sprintf("± %s · replace", c.Address)
+		return fmt.Sprintf("± %s · replace", addr)
 	default:
-		return fmt.Sprintf("~ %s · %d changed", c.Address, n)
+		return fmt.Sprintf("~ %s · %d changed", addr, n)
 	}
 }
 

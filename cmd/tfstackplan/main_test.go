@@ -128,3 +128,47 @@ func TestRunNoConfigNoClassColumn(t *testing.T) {
 		t.Fatalf("no config → no Class column:\n%s", out)
 	}
 }
+
+func TestRunEmitsLinks(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "main.tf"),
+		[]byte("resource \"google_project_iam_member\" \"editor\" {\n  role = \"x\"\n}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	planPath := filepath.Join(dir, "plan.json")
+	if err := os.WriteFile(planPath, []byte(planJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfgPath := filepath.Join(dir, "cfg.hcl")
+	if err := os.WriteFile(cfgPath, []byte(`links {
+  resource = "https://gh/o/r/blob/{sha}/{file}#L{line}"
+  stack    = "https://gh/o/r/tree/{sha}/{stack_dir}"
+  header {
+    label = "PR #{pr}"
+    url   = "https://gh/o/r/pull/{pr}"
+  }
+}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	out, _, err := run(opts{
+		stacks:   []string{"platform/nonprod:" + planPath},
+		config:   cfgPath,
+		maxBytes: 60000,
+		details:  "open",
+		repoRoot: dir,
+		linkVars: []string{"sha=abc1234", "pr=42"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "[PR #42](https://gh/o/r/pull/42)") {
+		t.Fatalf("header link missing:\n%s", out)
+	}
+	if !strings.Contains(out, "https://gh/o/r/blob/abc1234/main.tf#L1") {
+		t.Fatalf("resource link missing:\n%s", out)
+	}
+	if !strings.Contains(out, "tree/abc1234/") {
+		t.Fatalf("stack link missing:\n%s", out)
+	}
+}

@@ -14,6 +14,7 @@ import (
 type StackRef struct {
 	Name string `yaml:"name" json:"name"`
 	Plan string `yaml:"plan" json:"plan"`
+	Dir  string `yaml:"dir" json:"dir"` // source dir; defaults to the plan file's directory
 }
 
 // Manifest is the per-run input document.

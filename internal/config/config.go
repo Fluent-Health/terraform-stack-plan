@@ -25,6 +25,7 @@ const DefaultFilename = ".tfstackplan.hcl"
 type Config struct {
 	Classification *Classification // nil when no classification block present
 	Diff           DiffConfig
+	Links          *LinksConfig // nil when no links block present
 }
 
 // Classification holds the resolved, ordered rules and the fallback class.
@@ -82,6 +83,12 @@ func Load(path string) (*Config, error) {
 				return nil, err
 			}
 			cfg.Diff = d
+		case "links":
+			lc, err := decodeLinks(blk)
+			if err != nil {
+				return nil, err
+			}
+			cfg.Links = lc
 		default:
 			return nil, fmt.Errorf("%s: unknown top-level block %q", path, blk.Type)
 		}
@@ -208,6 +215,51 @@ type diffRuleBody struct {
 	TypePattern string `hcl:"resource_type_pattern,optional"`
 	Attribute   string `hcl:"attribute,optional"`
 	Differ      string `hcl:"differ,optional"`
+}
+
+// --- links ---
+
+// LinksConfig holds URL templates for header / stack / resource links.
+type LinksConfig struct {
+	Resource string
+	Stack    string
+	Header   []HeaderLink
+}
+
+// HeaderLink is one templated report-header link.
+type HeaderLink struct {
+	Label string
+	URL   string
+}
+
+type headerBlock struct {
+	Label string `hcl:"label"`
+	URL   string `hcl:"url"`
+}
+
+func decodeLinks(blk *hclsyntax.Block) (*LinksConfig, error) {
+	lc := &LinksConfig{}
+	body := blk.Body
+	for name, target := range map[string]*string{"resource": &lc.Resource, "stack": &lc.Stack} {
+		if a, ok := body.Attributes[name]; ok {
+			var s string
+			if d := gohcl.DecodeExpression(a.Expr, nil, &s); d.HasErrors() {
+				return nil, fmt.Errorf("links.%s: %s", name, d.Error())
+			}
+			*target = s
+		}
+	}
+	for _, b := range body.Blocks {
+		if b.Type != "header" {
+			return nil, fmt.Errorf("links: unknown block %q", b.Type)
+		}
+		var hb headerBlock
+		if d := gohcl.DecodeBody(b.Body, nil, &hb); d.HasErrors() {
+			return nil, fmt.Errorf("links.header: %s", d.Error())
+		}
+		lc.Header = append(lc.Header, HeaderLink{Label: hb.Label, URL: hb.URL})
+	}
+	return lc, nil
 }
 
 // Resolve returns the differ kind ("" = auto) for a resource type + attribute.
