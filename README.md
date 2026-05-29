@@ -46,16 +46,19 @@ Small changes are shown expanded; big ones collapse to a row you click to open.
 > <details open><summary>~ google_storage_bucket.tfstate · 2 changed</summary>
 >
 > ```diff
-> + labels.team    = "platform"
 > ~ retention_days = 7 → 30
+> ~ labels (yaml):
+>  env: nonprod
+> +team: platform
 > ```
 >
 > </details>
 
 </details>
 
-Creates and deletes look the same — one open row per resource showing its
-attributes:
+Scalars render as aligned `~ path = old → new` leaves; structured attributes
+(here `labels`) render as a contextual diff. Creates and deletes look the same —
+one open row per resource showing its attributes:
 
 <details open><summary>data/warehouse · 💣 destructive · 6 destroy</summary>
 
@@ -70,26 +73,37 @@ attributes:
 
 </details>
 
-Structured (YAML/JSON) fields show only the changed paths — inline when few
-change, and **collapsed** (a closed row) when many do:
+Structured values (JSON/YAML strings and native HCL maps/lists) render as a
+**contextual diff** — canonically re-formatted, 2 lines of context, changed
+lines as `-`/`+`, tagged with the kind. Small ones stay inline (open); big ones
+**collapse** to a closed row:
 
 <details open><summary>observability/grafana · ✅ safe · structured fields (excerpt)</summary>
 
 > <details open><summary>~ kubernetes_manifest.ingress · 1 changed</summary>
 >
 > ```diff
-> ~ manifest.spec.key_00 = "old" → "new"
-> ~ manifest.spec.key_01 = "old" → "new"
+> ~ manifest (yaml):
+>  spec:
+> -    key_00: old
+> -    key_01: old
+> +    key_00: new
+> +    key_01: new
+>      key_02: old
+>      key_03: old
 > ```
 >
 > </details>
 > <details><summary>~ kubernetes_manifest.configmap · 1 changed</summary>
 >
 > ```diff
-> ~ manifest:
->   ~ spec.key_00: old -> new
->   ~ spec.key_01: old -> new
->   ~ spec.key_02: old -> new
+> ~ manifest (yaml):
+>  spec:
+> -    key_00: old
+> -    key_01: old
+> +    key_00: new
+> +    key_01: new
+>   … (many paths changed → folds to a closed row)
 > ```
 >
 > </details>
