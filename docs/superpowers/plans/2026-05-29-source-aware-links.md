@@ -129,8 +129,14 @@ Create `internal/config/testdata/links.hcl`:
 links {
   resource = "https://gh/o/r/blob/{sha}/{file}#L{line}"
   stack    = "https://gh/o/r/tree/{sha}/{stack_dir}"
-  header { label = "Build #{build_id}", url = "https://cb/{build_id}" }
-  header { label = "PR #{pr}", url = "https://gh/o/r/pull/{pr}" }
+  header {
+    label = "Build #{build_id}"
+    url   = "https://cb/{build_id}"
+  }
+  header {
+    label = "PR #{pr}"
+    url   = "https://gh/o/r/pull/{pr}"
+  }
 }
 ```
 
@@ -764,7 +770,10 @@ func TestRunEmitsLinks(t *testing.T) {
 	os.WriteFile(cfgPath, []byte(`links {
   resource = "https://gh/o/r/blob/{sha}/{file}#L{line}"
   stack    = "https://gh/o/r/tree/{sha}/{stack_dir}"
-  header { label = "PR #{pr}", url = "https://gh/o/r/pull/{pr}" }
+  header {
+    label = "PR #{pr}"
+    url   = "https://gh/o/r/pull/{pr}"
+  }
 }`), 0o644)
 
 	out, _, err := run(opts{
