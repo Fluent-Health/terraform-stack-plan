@@ -1,5 +1,5 @@
 // Package plan parses a Terraform plan JSON document into a RawStack: reduced
-// action counts plus, for update/replace changes, the set of changed attributes.
+// action counts plus the set of affected attributes for each change action.
 package plan
 
 import (
@@ -29,7 +29,7 @@ type RawChange struct {
 	Type    string
 	Actions []string // raw tf actions, e.g. ["update"] or ["delete","create"]
 	Action  model.Action
-	Attrs   []RawAttr // populated for update/replace only
+	Attrs   []RawAttr // populated for all non-no-op actions (create/delete/update/replace)
 }
 
 // RawStack is a parsed plan for one stack (no-ops excluded).

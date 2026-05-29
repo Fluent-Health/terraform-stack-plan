@@ -109,14 +109,7 @@ func TestSensitiveAndUnknownAndPartialChange(t *testing.T) {
 }
 
 func TestParseCreateExtractsAfterAttrs(t *testing.T) {
-	data, err := os.ReadFile("testdata/create.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	rs, err := Parse("svc", data)
-	if err != nil {
-		t.Fatal(err)
-	}
+	rs := load(t, "create.json")
 	if rs.Counts.Add != 1 {
 		t.Fatalf("Add count = %d, want 1", rs.Counts.Add)
 	}
