@@ -270,16 +270,10 @@ func structural(in Input) model.Field {
 	return blockField(ladderFrom(in.Attr, model.LevelStructural, in))
 }
 
-// firstStr returns v as a string if it is one, else "".
-func firstStr(v any) string {
-	if s, ok := v.(string); ok {
-		return s
-	}
-	return ""
-}
-
-// structuralLeaves diffs two structured values into leaves, with paths prefixed
-// by the attribute name.
+// structuralLeaves diffs two structured values into leaves. flatten is seeded
+// with the attribute name so each Leaf.Path is fully qualified (e.g.
+// "labels.team"), which restores the attribute name that a bare structural diff
+// would drop.
 func structuralLeaves(attr string, before, after any) []model.Leaf {
 	bm, am := map[string]string{}, map[string]string{}
 	flatten(attr, before, bm)
@@ -312,6 +306,14 @@ func structuralLeaves(attr string, before, after any) []model.Leaf {
 		}
 	}
 	return leaves
+}
+
+// firstStr returns v as a string if it is one, else "".
+func firstStr(v any) string {
+	if s, ok := v.(string); ok {
+		return s
+	}
+	return ""
 }
 
 func isStructured(before, after any) bool {

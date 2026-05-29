@@ -188,3 +188,47 @@ func TestStructuralLargeStaysBlock(t *testing.T) {
 		t.Fatalf("40-leaf structural diff should stay a foldable block")
 	}
 }
+
+func TestStructuralFoldBoundary(t *testing.T) {
+	mk := func(n int) (map[string]any, map[string]any) {
+		b, a := map[string]any{}, map[string]any{}
+		for i := 0; i < n; i++ {
+			b[fmt.Sprintf("k%02d", i)] = "old"
+			a[fmt.Sprintf("k%02d", i)] = "new"
+		}
+		return b, a
+	}
+	b9, a9 := mk(9)
+	if f := Diff(Input{Attr: "s", Before: b9, After: a9}); f.IsBlock() {
+		t.Errorf("9 changed leaves should stay inline leaves, not a block")
+	}
+	b10, a10 := mk(10)
+	if f := Diff(Input{Attr: "s", Before: b10, After: a10}); !f.IsBlock() {
+		t.Errorf("10 changed leaves should fold into a block")
+	}
+}
+
+func TestStructuralLeafOps(t *testing.T) {
+	before := map[string]any{"keep": "x", "gone": "y", "num": 7.0}
+	after := map[string]any{"keep": "x", "num": 9.0, "added": "z"}
+	f := Diff(Input{Attr: "m", Before: before, After: after})
+	if f.IsBlock() {
+		t.Fatalf("small diff should be leaves")
+	}
+	got := map[string]model.Leaf{}
+	for _, l := range f.Leaves {
+		got[l.Path] = l
+	}
+	if l, ok := got["m.gone"]; !ok || l.Op != model.OpRemove || l.Value() != `"y"` {
+		t.Errorf("m.gone should be removed leaf, got %+v", l)
+	}
+	if l, ok := got["m.num"]; !ok || l.Op != model.OpChange || l.Value() != "7 → 9" {
+		t.Errorf("m.num should be change leaf 7 → 9, got %+v value=%q", l, l.Value())
+	}
+	if l, ok := got["m.added"]; !ok || l.Op != model.OpAdd || l.Value() != `"z"` {
+		t.Errorf("m.added should be add leaf, got %+v", l)
+	}
+	if _, ok := got["m.keep"]; ok {
+		t.Errorf("unchanged key should not appear")
+	}
+}
