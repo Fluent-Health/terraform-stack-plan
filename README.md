@@ -265,6 +265,39 @@ tfstackplan --manifest plan.yaml --config .tfstackplan.hcl \
 `icon` is `null` when the class has none; the flag is a no-op without
 classification.
 
+#### Emitting matched attributes
+
+A `rule` or `preset` can also surface attributes of the changes it matched, so
+CI can gate on *which subjects* triggered the class — e.g. the GCP projects with
+IAM changes:
+
+```hcl
+classification {
+  preset "iam" {
+    icon            = "🔐"
+    emit_attributes = ["project"]
+  }
+}
+```
+
+The sidecar then carries the sorted-unique, non-null values per stack:
+
+```json
+{
+  "platform/nonprod": {
+    "class": "iam", "icon": "🔐",
+    "attributes": { "project": ["fh-host-nonprod", "fh-svc-dev"] }
+  }
+}
+```
+
+- Values come from the **matched changes only** (a `safe` stack emits nothing),
+  read from each change's `after` (falling back to `before` for deletes).
+- **Top-level scalar attributes only**; nested paths are not supported.
+- **Sensitive values are never emitted.**
+- `attributes` is omitted when the firing rule declares no `emit_attributes` or
+  no values were found.
+
 ---
 
 ## Diff configuration (optional)

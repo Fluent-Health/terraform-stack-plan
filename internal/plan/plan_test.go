@@ -190,3 +190,90 @@ func TestParseCarriesModuleAndName(t *testing.T) {
 		t.Fatalf("got name=%q module=%q", c.Name, c.ModuleAddress)
 	}
 }
+
+func TestParseRawRetainsUnchangedScalarsSkipsSensitiveAndNested(t *testing.T) {
+	// In-place update: only "role" changes; "project" is unchanged; "secret"
+	// is sensitive; "labels" is a nested object. Raw must keep role+project
+	// (scalars), drop secret (sensitive) and labels (non-scalar).
+	data := []byte(`{
+	  "format_version": "1.2",
+	  "resource_changes": [
+	    {"address":"google_project_iam_member.x","type":"google_project_iam_member","name":"x",
+	     "change":{"actions":["update"],
+	       "before":{"role":"roles/viewer","project":"p1","secret":"old","labels":{"a":"b"}},
+	       "after":{"role":"roles/editor","project":"p1","secret":"new","labels":{"a":"b"}},
+	       "after_unknown":{},
+	       "before_sensitive":{"secret":true},"after_sensitive":{"secret":true}}}
+	  ]
+	}`)
+	rs, err := Parse("s", data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rs.Changes) != 1 {
+		t.Fatalf("want 1 change, got %d", len(rs.Changes))
+	}
+	raw := rs.Changes[0].Raw
+	if raw["project"] != "p1" {
+		t.Errorf("Raw[project] = %v, want p1 (must survive even though unchanged)", raw["project"])
+	}
+	if raw["role"] != "roles/editor" {
+		t.Errorf("Raw[role] = %v, want roles/editor (after wins)", raw["role"])
+	}
+	if _, ok := raw["secret"]; ok {
+		t.Error("Raw must not include sensitive attribute 'secret'")
+	}
+	if _, ok := raw["labels"]; ok {
+		t.Error("Raw must not include non-scalar attribute 'labels'")
+	}
+}
+
+func TestParseRawPrefersAfterFallsBackToBefore(t *testing.T) {
+	// Delete: after is null, so Raw comes from before.
+	data := []byte(`{
+	  "format_version": "1.2",
+	  "resource_changes": [
+	    {"address":"google_project_iam_member.x","type":"google_project_iam_member","name":"x",
+	     "change":{"actions":["delete"],
+	       "before":{"project":"p9"},"after":null,
+	       "before_sensitive":{},"after_sensitive":{}}}
+	  ]
+	}`)
+	rs, err := Parse("s", data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rs.Changes[0].Raw["project"] != "p9" {
+		t.Errorf("Raw[project] = %v, want p9 (from before on delete)", rs.Changes[0].Raw["project"])
+	}
+}
+
+func TestParseRawSkipsSensitiveEitherSideAndComputed(t *testing.T) {
+	// "mode" is sensitive on the after side only (value lives non-sensitive in
+	// before); "id" is known-after-apply. Both must be excluded; "role" kept.
+	data := []byte(`{
+	  "format_version": "1.2",
+	  "resource_changes": [
+	    {"address":"x.y","type":"t","name":"y",
+	     "change":{"actions":["update"],
+	       "before":{"role":"roles/a","mode":"old","id":"old-id"},
+	       "after":{"role":"roles/b","mode":null,"id":null},
+	       "after_unknown":{"id":true},
+	       "before_sensitive":{},"after_sensitive":{"mode":true}}}
+	  ]
+	}`)
+	rs, err := Parse("s", data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw := rs.Changes[0].Raw
+	if raw["role"] != "roles/b" {
+		t.Errorf("Raw[role] = %v, want roles/b", raw["role"])
+	}
+	if _, ok := raw["mode"]; ok {
+		t.Error("Raw must skip attr sensitive on the after side even if before value is non-sensitive")
+	}
+	if _, ok := raw["id"]; ok {
+		t.Error("Raw must skip known-after-apply (computed) attr")
+	}
+}

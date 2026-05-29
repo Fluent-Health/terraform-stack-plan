@@ -3,7 +3,7 @@ package presets
 import "testing"
 
 func TestIAMMatchesAcrossProviders(t *testing.T) {
-	r, ok := Get("iam", "")
+	r, ok := Get("iam", "", nil)
 	if !ok {
 		t.Fatal("iam preset should exist")
 	}
@@ -29,14 +29,21 @@ func TestIAMMatchesAcrossProviders(t *testing.T) {
 }
 
 func TestIconOverride(t *testing.T) {
-	r, _ := Get("iam", "⚠️")
+	r, _ := Get("iam", "⚠️", nil)
 	if r.Icon != "⚠️" {
 		t.Fatalf("icon override = %q, want ⚠️", r.Icon)
 	}
 }
 
 func TestUnknownPreset(t *testing.T) {
-	if _, ok := Get("nope", ""); ok {
+	if _, ok := Get("nope", "", nil); ok {
 		t.Fatal("unknown preset should return ok=false")
+	}
+}
+
+func TestEmitAttributesPropagated(t *testing.T) {
+	r, _ := Get("iam", "", []string{"project"})
+	if len(r.EmitAttributes) != 1 || r.EmitAttributes[0] != "project" {
+		t.Fatalf("EmitAttributes = %v, want [project]", r.EmitAttributes)
 	}
 }

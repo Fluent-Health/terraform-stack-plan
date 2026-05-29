@@ -1,6 +1,7 @@
 package classify
 
 import (
+	"reflect"
 	"regexp"
 	"testing"
 
@@ -21,8 +22,8 @@ func TestFirstHitWins(t *testing.T) {
 
 	iamChange := plan.RawChange{Type: "google_project_iam_member", Actions: []string{"update"}}
 	got := Classify(stack(iamChange), rules, def)
-	if got.Name != "iam" {
-		t.Fatalf("update to iam resource should classify iam, got %q", got.Name)
+	if got.Class.Name != "iam" {
+		t.Fatalf("update to iam resource should classify iam, got %q", got.Class.Name)
 	}
 }
 
@@ -31,14 +32,14 @@ func TestActionsAndMinCount(t *testing.T) {
 	def := model.Class{Name: "safe"}
 
 	oneDelete := stack(plan.RawChange{Type: "x", Actions: []string{"delete"}})
-	if Classify(oneDelete, rules, def).Name != "safe" {
+	if Classify(oneDelete, rules, def).Class.Name != "safe" {
 		t.Fatal("one delete should not meet min_count 2")
 	}
 	twoDeletes := stack(
 		plan.RawChange{Type: "x", Actions: []string{"delete"}},
 		plan.RawChange{Type: "y", Actions: []string{"delete"}},
 	)
-	if Classify(twoDeletes, rules, def).Name != "destructive" {
+	if Classify(twoDeletes, rules, def).Class.Name != "destructive" {
 		t.Fatal("two deletes should meet min_count 2")
 	}
 }
@@ -47,7 +48,107 @@ func TestDefaultWhenNoMatch(t *testing.T) {
 	rules := []Rule{{Name: "iam", TypePattern: regexp.MustCompile(`_iam_`), MinCount: 1}}
 	def := model.Class{Name: "safe", Icon: "✅"}
 	got := Classify(stack(plan.RawChange{Type: "google_storage_bucket", Actions: []string{"create"}}), rules, def)
-	if got != def {
-		t.Fatalf("no match should yield default %+v, got %+v", def, got)
+	if got.Class != def {
+		t.Fatalf("no match should yield default %+v, got %+v", def, got.Class)
+	}
+}
+
+func TestEmitAttributesFromMatchedChangesOnly(t *testing.T) {
+	rules := []Rule{{
+		Name: "iam", TypePattern: regexp.MustCompile(`_iam_`), MinCount: 1,
+		EmitAttributes: []string{"project"},
+	}}
+	def := model.Class{Name: "safe"}
+	s := stack(
+		plan.RawChange{Type: "google_project_iam_member", Actions: []string{"update"}, Raw: map[string]any{"project": "p1"}},
+		plan.RawChange{Type: "google_storage_bucket", Actions: []string{"create"}, Raw: map[string]any{"project": "p2"}},
+	)
+	got := Classify(s, rules, def)
+	if got.Class.Name != "iam" {
+		t.Fatalf("class = %q, want iam", got.Class.Name)
+	}
+	if len(got.Attributes["project"]) != 1 || got.Attributes["project"][0] != "p1" {
+		t.Fatalf("project = %v, want [p1] (bucket's p2 must NOT appear)", got.Attributes["project"])
+	}
+}
+
+func TestEmitAttributesDedupeAndSort(t *testing.T) {
+	rules := []Rule{{
+		Name: "iam", TypePattern: regexp.MustCompile(`_iam_`), MinCount: 1,
+		EmitAttributes: []string{"project"},
+	}}
+	s := stack(
+		plan.RawChange{Type: "google_project_iam_member", Actions: []string{"create"}, Raw: map[string]any{"project": "p2"}},
+		plan.RawChange{Type: "google_project_iam_member", Actions: []string{"create"}, Raw: map[string]any{"project": "p1"}},
+		plan.RawChange{Type: "google_project_iam_member", Actions: []string{"create"}, Raw: map[string]any{"project": "p2"}},
+	)
+	got := Classify(s, rules, model.Class{Name: "safe"})
+	want := []string{"p1", "p2"}
+	if !reflect.DeepEqual(got.Attributes["project"], want) {
+		t.Fatalf("project = %v, want %v", got.Attributes["project"], want)
+	}
+}
+
+func TestEmitAttributesNilWhenNoneConfigured(t *testing.T) {
+	rules := []Rule{{Name: "iam", TypePattern: regexp.MustCompile(`_iam_`), MinCount: 1}}
+	got := Classify(
+		stack(plan.RawChange{Type: "google_project_iam_member", Actions: []string{"create"}, Raw: map[string]any{"project": "p1"}}),
+		rules, model.Class{Name: "safe"})
+	if got.Attributes != nil {
+		t.Fatalf("Attributes = %v, want nil when no emit_attributes", got.Attributes)
+	}
+}
+
+func TestEmitAttributesNilWhenNoValuesFound(t *testing.T) {
+	rules := []Rule{{
+		Name: "iam", TypePattern: regexp.MustCompile(`_iam_`), MinCount: 1,
+		EmitAttributes: []string{"project"},
+	}}
+	// org-level binding: matches iam, but has no "project" attribute.
+	got := Classify(
+		stack(plan.RawChange{Type: "google_organization_iam_binding", Actions: []string{"create"}, Raw: map[string]any{"role": "roles/x"}}),
+		rules, model.Class{Name: "safe"})
+	if got.Class.Name != "iam" {
+		t.Fatalf("class = %q, want iam", got.Class.Name)
+	}
+	if got.Attributes != nil {
+		t.Fatalf("Attributes = %v, want nil when no project values", got.Attributes)
+	}
+}
+
+func TestEmitMultipleAttributes(t *testing.T) {
+	rules := []Rule{{
+		Name: "iam", TypePattern: regexp.MustCompile(`_iam_`), MinCount: 1,
+		EmitAttributes: []string{"project", "role"},
+	}}
+	s := stack(
+		plan.RawChange{Type: "google_project_iam_member", Actions: []string{"create"}, Raw: map[string]any{"project": "p1", "role": "roles/viewer"}},
+		plan.RawChange{Type: "google_project_iam_member", Actions: []string{"create"}, Raw: map[string]any{"project": "p2", "role": "roles/viewer"}},
+	)
+	got := Classify(s, rules, model.Class{Name: "safe"})
+	if !reflect.DeepEqual(got.Attributes["project"], []string{"p1", "p2"}) {
+		t.Errorf("project = %v, want [p1 p2]", got.Attributes["project"])
+	}
+	// role dedupes to a single value across the two changes
+	if !reflect.DeepEqual(got.Attributes["role"], []string{"roles/viewer"}) {
+		t.Errorf("role = %v, want [roles/viewer]", got.Attributes["role"])
+	}
+}
+
+func TestEmitAttributesNilWhenRuleBelowMinCount(t *testing.T) {
+	// Rule matches the type but MinCount (2) is not met → it doesn't fire, the
+	// stack falls through to default, and no attributes are emitted.
+	rules := []Rule{{
+		Name: "iam", TypePattern: regexp.MustCompile(`_iam_`), MinCount: 2,
+		EmitAttributes: []string{"project"},
+	}}
+	got := Classify(
+		stack(plan.RawChange{Type: "google_project_iam_member", Actions: []string{"create"}, Raw: map[string]any{"project": "p1"}}),
+		rules, model.Class{Name: "safe"})
+	if got.Class.Name != "safe" {
+		t.Fatalf("class = %q, want safe (rule below MinCount must not fire)", got.Class.Name)
+	}
+	if got.Attributes != nil {
+		t.Fatalf("Attributes = %v, want nil", got.Attributes)
 	}
 }
