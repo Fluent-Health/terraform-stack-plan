@@ -137,7 +137,7 @@ type Change struct {
 	Address string
 	Type    string
 	Action  Action
-	Attrs   []AttrDiff // populated for update/replace; empty for terse create/delete
+	Fields  []Field // populated for create/delete/update/replace
 }
 
 // Stack is one stack's parsed, classified plan.
