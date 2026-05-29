@@ -23,8 +23,8 @@ type Index struct {
 	m map[string]Loc
 }
 
-func key(moduleKey, typ, name string) string {
-	return moduleKey + "\x00" + typ + "\x00" + name
+func key(modKey, typ, name string) string {
+	return modKey + "\x00" + typ + "\x00" + name
 }
 
 // Build parses dir's *.tf (root module) plus any local modules listed in
@@ -46,14 +46,18 @@ func Build(dir, repoRoot string) *Index {
 				if m.Key == "" || underDotTerraform(m.Dir) {
 					continue
 				}
-				idx.parseDir(filepath.Join(dir, m.Dir), m.Key, repoRoot)
+				md := m.Dir
+				if !filepath.IsAbs(md) {
+					md = filepath.Join(dir, md)
+				}
+				idx.parseDir(md, m.Key, repoRoot)
 			}
 		}
 	}
 	return idx
 }
 
-func (idx *Index) parseDir(dir, moduleKey, repoRoot string) {
+func (idx *Index) parseDir(dir, modKey, repoRoot string) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return
@@ -83,7 +87,8 @@ func (idx *Index) parseDir(dir, moduleKey, repoRoot string) {
 			if blk.Type != "resource" || len(blk.Labels) != 2 {
 				continue
 			}
-			k := key(moduleKey, blk.Labels[0], blk.Labels[1])
+			k := key(modKey, blk.Labels[0], blk.Labels[1])
+			// first declaration wins (e.g. *_override.tf); duplicates are a user concern
 			if _, exists := idx.m[k]; exists {
 				continue
 			}
@@ -109,7 +114,11 @@ func moduleKey(moduleAddress string) string {
 	var keys []string
 	for i := 0; i < len(parts); i++ {
 		if parts[i] == "module" && i+1 < len(parts) {
-			keys = append(keys, parts[i+1])
+			name := parts[i+1]
+			if b := strings.IndexByte(name, '['); b >= 0 {
+				name = name[:b]
+			}
+			keys = append(keys, name)
 			i++
 		}
 	}

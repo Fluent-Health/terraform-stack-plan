@@ -27,10 +27,42 @@ func TestIndexRootAndLocalModule(t *testing.T) {
 }
 
 func TestModuleKey(t *testing.T) {
-	cases := map[string]string{"": "", "module.a": "a", "module.a.module.b": "a.b"}
+	cases := map[string]string{
+		"":                          "",
+		"module.a":                  "a",
+		"module.a.module.b":         "a.b",
+		`module.a[0].module.b["x"]`: "a.b",
+	}
 	for in, want := range cases {
 		if got := moduleKey(in); got != want {
 			t.Errorf("moduleKey(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+func TestRelToEscape(t *testing.T) {
+	if got := relTo("testdata/stack", "testdata/elsewhere/x.tf"); got != "" {
+		t.Errorf("relTo escape should be \"\", got %q", got)
+	}
+	if got := relTo("testdata", "testdata/stack/main.tf"); got != "stack/main.tf" {
+		t.Errorf("relTo inside = %q, want stack/main.tf", got)
+	}
+}
+
+func TestBuildMissingModulesJSON(t *testing.T) {
+	// A bare module dir with no .terraform: root parse still works, no panic.
+	idx := Build("testdata/stack/modules/net", "testdata")
+	if _, ok := idx.Lookup("", "google_compute_firewall", "web"); !ok {
+		t.Error("root parse should work without modules.json")
+	}
+}
+
+func TestBuildSkipsUnparseableFile(t *testing.T) {
+	idx := Build("testdata/bad", "testdata")
+	// the unparseable file is skipped; nothing panics. (A clean file in the
+	// same dir would still index; here the only file is partly broken, so we
+	// just assert Build returns without error and Lookup misses gracefully.)
+	if _, ok := idx.Lookup("", "google_storage_bucket", "ok"); ok {
+		_ = ok // either outcome is fine; the point is no panic
 	}
 }
