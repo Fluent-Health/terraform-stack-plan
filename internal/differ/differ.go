@@ -254,10 +254,64 @@ func blockField(ad model.AttrDiff) model.Field {
 	return model.Field{Name: ad.Name, Variants: ad.Variants}
 }
 
-// structural renders a map/JSON/YAML attribute. Task 5 turns small diffs into
-// leaves; for now it always produces the block ladder.
+// foldThreshold is the leaf/line count at or above which an attribute folds
+// into a block (its own <details>) instead of rendering inline.
+const foldThreshold = 10
+
+// structural emits aligned leaves for a map/JSON/YAML attribute when the change
+// is small; otherwise it keeps the block ladder (which fit can degrade).
 func structural(in Input) model.Field {
+	bv := parseStructured(in.Before, firstStr(in.Before))
+	av := parseStructured(in.After, firstStr(in.After))
+	leaves := structuralLeaves(in.Attr, bv, av)
+	if len(leaves) > 0 && len(leaves) < foldThreshold {
+		return model.Field{Name: in.Attr, Leaves: leaves}
+	}
 	return blockField(ladderFrom(in.Attr, model.LevelStructural, in))
+}
+
+// firstStr returns v as a string if it is one, else "".
+func firstStr(v any) string {
+	if s, ok := v.(string); ok {
+		return s
+	}
+	return ""
+}
+
+// structuralLeaves diffs two structured values into leaves, with paths prefixed
+// by the attribute name.
+func structuralLeaves(attr string, before, after any) []model.Leaf {
+	bm, am := map[string]string{}, map[string]string{}
+	flatten(attr, before, bm)
+	flatten(attr, after, am)
+
+	keys := map[string]struct{}{}
+	for k := range bm {
+		keys[k] = struct{}{}
+	}
+	for k := range am {
+		keys[k] = struct{}{}
+	}
+	var sorted []string
+	for k := range keys {
+		sorted = append(sorted, k)
+	}
+	sort.Strings(sorted)
+
+	var leaves []model.Leaf
+	for _, k := range sorted {
+		bvv, bok := bm[k]
+		avv, aok := am[k]
+		switch {
+		case bok && aok && bvv != avv:
+			leaves = append(leaves, model.Leaf{Op: model.OpChange, Path: k, Old: bvv, New: avv})
+		case bok && !aok:
+			leaves = append(leaves, model.Leaf{Op: model.OpRemove, Path: k, Old: bvv})
+		case !bok && aok:
+			leaves = append(leaves, model.Leaf{Op: model.OpAdd, Path: k, New: avv})
+		}
+	}
+	return leaves
 }
 
 func isStructured(before, after any) bool {
