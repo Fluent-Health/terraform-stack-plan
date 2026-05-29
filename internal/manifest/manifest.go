@@ -35,9 +35,6 @@ func Load(path string) (Manifest, error) {
 	if err := yaml.Unmarshal(data, &m); err != nil {
 		return Manifest{}, fmt.Errorf("parse manifest %s: %w", path, err)
 	}
-	if len(m.Stacks) == 0 {
-		return Manifest{}, fmt.Errorf("manifest %s: no stacks", path)
-	}
 	return m, nil
 }
 
