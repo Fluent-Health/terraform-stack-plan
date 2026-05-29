@@ -103,3 +103,22 @@ func TestLoadLinks(t *testing.T) {
 		t.Errorf("header = %+v", cfg.Links.Header)
 	}
 }
+
+func TestLoadEmitAttributes(t *testing.T) {
+	c, err := Load("testdata/emit.hcl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rules := c.Classification.Rules
+	if len(rules) != 2 {
+		t.Fatalf("want 2 rules, got %d", len(rules))
+	}
+	// preset "iam" carries emit_attributes
+	if len(rules[0].EmitAttributes) != 1 || rules[0].EmitAttributes[0] != "project" {
+		t.Fatalf("iam EmitAttributes = %v, want [project]", rules[0].EmitAttributes)
+	}
+	// custom rule "destructive" carries emit_attributes
+	if len(rules[1].EmitAttributes) != 2 || rules[1].EmitAttributes[0] != "name" || rules[1].EmitAttributes[1] != "id" {
+		t.Fatalf("destructive EmitAttributes = %v, want [name id]", rules[1].EmitAttributes)
+	}
+}

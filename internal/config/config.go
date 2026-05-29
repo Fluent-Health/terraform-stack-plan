@@ -104,14 +104,16 @@ type defaultBlock struct {
 }
 
 type ruleBody struct {
-	Icon        string   `hcl:"icon,optional"`
-	TypePattern string   `hcl:"resource_type_pattern,optional"`
-	Actions     []string `hcl:"actions,optional"`
-	MinCount    int      `hcl:"min_count,optional"`
+	Icon           string   `hcl:"icon,optional"`
+	TypePattern    string   `hcl:"resource_type_pattern,optional"`
+	Actions        []string `hcl:"actions,optional"`
+	MinCount       int      `hcl:"min_count,optional"`
+	EmitAttributes []string `hcl:"emit_attributes,optional"`
 }
 
 type presetBody struct {
-	Icon string `hcl:"icon,optional"`
+	Icon           string   `hcl:"icon,optional"`
+	EmitAttributes []string `hcl:"emit_attributes,optional"`
 }
 
 func decodeClassification(blk *hclsyntax.Block) (*Classification, error) {
@@ -142,7 +144,7 @@ func decodeClassification(blk *hclsyntax.Block) (*Classification, error) {
 			if d := gohcl.DecodeBody(b.Body, nil, &pb); d.HasErrors() {
 				return nil, fmt.Errorf("preset %q: %s", b.Labels[0], d.Error())
 			}
-			rule, ok := presets.Get(b.Labels[0], pb.Icon)
+			rule, ok := presets.Get(b.Labels[0], pb.Icon, pb.EmitAttributes)
 			if !ok {
 				return nil, fmt.Errorf("unknown preset %q (available: %v)", b.Labels[0], presets.Names)
 			}
@@ -155,7 +157,7 @@ func decodeClassification(blk *hclsyntax.Block) (*Classification, error) {
 			if d := gohcl.DecodeBody(b.Body, nil, &rb); d.HasErrors() {
 				return nil, fmt.Errorf("rule %q: %s", b.Labels[0], d.Error())
 			}
-			rule := classify.Rule{Name: b.Labels[0], Icon: rb.Icon, Actions: rb.Actions, MinCount: rb.MinCount}
+			rule := classify.Rule{Name: b.Labels[0], Icon: rb.Icon, Actions: rb.Actions, MinCount: rb.MinCount, EmitAttributes: rb.EmitAttributes}
 			if rb.TypePattern != "" {
 				re, err := regexp.Compile(rb.TypePattern)
 				if err != nil {
