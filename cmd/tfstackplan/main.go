@@ -150,8 +150,7 @@ func run(o opts) (string, bool, error) {
 			ch := model.Change{Address: rc.Address, Type: rc.Type, Action: rc.Action}
 			for _, ra := range rc.Attrs {
 				kind := cfg.Diff.Resolve(rc.Type, ra.Name)
-				maxLines := cfg.Diff.MaxAttributeLines
-				ad := differ.Diff(differ.Input{
+				f := differ.Diff(differ.Input{
 					ResourceType: rc.Type,
 					Attr:         ra.Name,
 					Before:       ra.Before,
@@ -159,10 +158,10 @@ func run(o opts) (string, bool, error) {
 					Sensitive:    ra.Sensitive,
 					Unknown:      ra.Unknown,
 					ForceDiffer:  kind,
-					MaxLines:     maxLines,
+					MaxLines:     cfg.Diff.MaxAttributeLines,
 					NoDetect:     !cfg.Diff.Detect,
 				})
-				ch.Attrs = append(ch.Attrs, ad)
+				ch.Fields = append(ch.Fields, f)
 			}
 			st.Changes = append(st.Changes, ch)
 		}
