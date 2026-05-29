@@ -1,0 +1,9 @@
+{
+  "format_version": "1.2",
+  "resource_changes": [
+    {"address":"google_service_account.api","type":"google_service_account","name":"api",
+     "change":{"actions":["create"],"before":null,
+       "after":{"account_id":"app-api","disabled":false},
+       "after_unknown":{"unique_id":true},"before_sensitive":{},"after_sensitive":{}}}
+  ]
+}

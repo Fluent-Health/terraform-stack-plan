@@ -15,55 +15,116 @@ that need extra review (IAM, destructive changes, …).
 
 ## What it looks like
 
-A run over three stacks with classification enabled, rendered the way GitHub
+A run over eight stacks with classification enabled, rendered the way GitHub
 shows it in a PR comment — a scannable summary table, then a collapsed
 drill-down per stack (click to expand):
 
 <!-- tfstackplan:nonprod -->
 
-### Terraform plan — nonprod  (3 stacks changed)
+### Terraform plan — nonprod  (8 stacks changed)
 
-| Stack | Add | Change | Destroy | Class |
-| --- | ---: | ---: | ---: | --- |
-| platform/nonprod | 0 | 2 | 0 | 🔐 iam |
-| service-projects/app-dev | 1 | 2 | 0 | ✅ safe |
-| data/warehouse | 0 | 0 | 2 | 💣 destructive |
+| Stack | Add | Change | Destroy | Replace | Class |
+| --- | ---: | ---: | ---: | ---: | --- |
+| platform/nonprod | 0 | 4 | 0 | 0 | 🔐 iam |
+| service-projects/app-dev | 4 | 3 | 0 | 0 | ✅ safe |
+| data/warehouse | 0 | 0 | 6 | 0 | 💣 destructive |
+| networking/shared-vpc | 0 | 5 | 0 | 2 | 💣 destructive |
+| observability/grafana | 5 | 6 | 0 | 0 | ✅ safe |
 
-<details><summary>platform/nonprod · 🔐 iam · 2 change</summary>
+<details><summary>platform/nonprod · 🔐 iam · 4 change</summary>
 
 ```diff
-# google_project_iam_member.data_engineers will be updated in-place
-~ role: "roles/bigquery.dataViewer" -> "roles/bigquery.dataEditor"
+# google_project_iam_member.data_engineers
+~ role = "roles/viewer" → "roles/editor"
+```
 
-# google_storage_bucket.tfstate will be updated in-place
-  + team: platform
-~ retention_days: 7 -> 30
-  ~ enabled: false -> true
+```diff
+# google_storage_bucket.tfstate
++ labels.team    = "platform"
+~ retention_days = 7 → 30
+```
+</details>
+
+<details><summary>service-projects/app-dev · ✅ safe · 4 add, 3 change</summary>
+
+<details><summary>+ google_service_account.api · 3 attrs</summary>
+
+```diff
++ disabled = false
++ location = "us-central1"
++ name     = "api"
 ```
 
 </details>
 
-<details><summary>service-projects/app-dev · ✅ safe · 1 add, 2 change</summary>
+<details><summary>+ google_cloud_run_service.api · 3 attrs</summary>
 
 ```diff
-+ google_service_account.api
-# kubernetes_deployment.api will be updated in-place
-  ~ replicas: 2 -> 4
-  ~ template.spec.container.image: api:1.4.2 -> api:1.5.0
-
-# google_secret_manager_secret_version.db_password will be updated in-place
-~ secret_data: (sensitive value)
++ disabled = false
++ location = "us-central1"
++ name     = "api"
 ```
 
 </details>
 
-<details><summary>data/warehouse · 💣 destructive · 2 destroy</summary>
+```diff
+# google_secret_manager_secret_version.db_password
+~ secret_data = (sensitive value)
+```
+</details>
+
+<details><summary>data/warehouse · 💣 destructive · 6 destroy</summary>
+
+<details><summary>- google_bigquery_dataset.legacy_events · 2 attrs</summary>
 
 ```diff
-- google_bigquery_dataset.legacy_events
-- google_storage_bucket.legacy_exports
+- location = "us-central1"
+- name     = "legacy_events"
 ```
 
+</details>
+
+<details><summary>- google_storage_bucket.legacy_exports · 2 attrs</summary>
+
+```diff
+- location = "us-central1"
+- name     = "legacy_exports"
+```
+
+</details>
+</details>
+
+<details><summary>observability/grafana · ✅ safe · 5 add, 6 change</summary>
+
+<details><summary>+ helm_release.grafana · 3 attrs</summary>
+
+```diff
++ disabled = false
++ location = "us-central1"
++ name     = "grafana"
+```
+
+</details>
+
+```diff
+# kubernetes_manifest.ingress
+~ manifest.spec.key_00 = "old" → "new"
+~ manifest.spec.key_01 = "old" → "new"
+```
+
+```diff
+# kubernetes_manifest.configmap
+```
+
+<details><summary>~ manifest · 11 lines</summary>
+
+```diff
+  ~ spec.key_00: old -> new
+  ~ spec.key_01: old -> new
+  ~ spec.key_02: old -> new
+```
+
+</details>
 </details>
 
 The first line of the real output is an HTML-comment marker
@@ -71,6 +132,29 @@ The first line of the real output is an HTML-comment marker
 comment per tier. `<details>` start collapsed (override with `--details
 open|auto`), zero-only columns are dropped, and without a classification policy
 the `Class` column and labels disappear — counts and diffs only.
+
+Key render behaviours shown above:
+- **Creates and deletes** fold into their own `<details><summary>+ addr · N attrs</summary>` with a `+`/`-` prefixed diff body.
+- **Updates** emit a `# addr` header with aligned `~ path = old → new` leaves; block-level changes (e.g. large structured diffs) fold into a nested `<details>`.
+- **Structured (YAML/JSON) attributes** with few changed paths render inline (`kubernetes_manifest.ingress`, 2 paths); those with many changed paths fold into a block (`kubernetes_manifest.configmap`, 11 paths).
+
+### More examples
+
+Larger reports stay under GitHub's 65,536-byte comment cap by degrading the
+biggest diffs first, then dropping detail. These files are real tool output
+(regenerated and byte-checked by `go test ./cmd/tfstackplan`):
+
+- [`examples/big-plan.md`](examples/big-plan.md) — 58 changes across 8 stacks,
+  full detail, fits the default 60 KB budget.
+- [`examples/over-budget-degraded.md`](examples/over-budget-degraded.md) —
+  tighter budget: large diffs collapse to one-line summaries
+  (`~ data · text · 120 lines · 240 changed (hidden to fit size limit)`), small
+  diffs kept.
+- [`examples/over-budget-summary-only.md`](examples/over-budget-summary-only.md) —
+  tighter still: all `<details>` dropped, summary table + a notice retained.
+- [`examples/over-budget-minimal.md`](examples/over-budget-minimal.md) — past
+  every simplification and still over budget: a one-line aggregate is emitted
+  and the tool exits non-zero so CI can surface it.
 
 ---
 

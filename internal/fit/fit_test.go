@@ -8,10 +8,10 @@ import (
 	"github.com/Fluent-Health/terraform-stack-plan/internal/render"
 )
 
-// attr builds an AttrDiff whose preferred variant is `big` bytes and which can
-// degrade to a tiny summary then hidden.
-func attr(name string, big int) model.AttrDiff {
-	return model.AttrDiff{
+// field builds a block Field whose preferred variant is `big` bytes and which
+// can degrade to a tiny summary then hidden.
+func field(name string, big int) model.Field {
+	return model.Field{
 		Name: name,
 		Variants: []model.Variant{
 			{Level: model.LevelStructural, Content: strings.Repeat("x", big), Bytes: big},
@@ -21,7 +21,7 @@ func attr(name string, big int) model.AttrDiff {
 	}
 }
 
-func reportWith(attrs ...model.AttrDiff) *model.Report {
+func reportWith(fields ...model.Field) *model.Report {
 	return &model.Report{
 		Title:  "t",
 		Marker: "m",
@@ -29,31 +29,31 @@ func reportWith(attrs ...model.AttrDiff) *model.Report {
 			Name:   "s",
 			Counts: model.Counts{Change: 1},
 			Changes: []model.Change{{
-				Address: "res.a", Type: "t", Action: model.ActionChange, Attrs: attrs,
+				Address: "res.a", Type: "t", Action: model.ActionChange, Fields: fields,
 			}},
 		}},
 	}
 }
 
 func TestNoChangeWhenUnderBudget(t *testing.T) {
-	r := reportWith(attr("a", 50))
+	r := reportWith(field("a", 50))
 	before := render.Render(*r)
 	Fit(r, 100000)
 	if render.Render(*r) != before {
 		t.Fatal("under budget: nothing should change")
 	}
-	if r.Stacks[0].Changes[0].Attrs[0].Selected != 0 {
+	if r.Stacks[0].Changes[0].Fields[0].Selected != 0 {
 		t.Fatal("under budget: should keep preferred variant")
 	}
 }
 
 func TestDegradesLargestFirst(t *testing.T) {
-	r := reportWith(attr("small", 100), attr("huge", 5000))
+	r := reportWith(field("small", 100), field("huge", 5000))
 	Fit(r, 800)
-	attrs := r.Stacks[0].Changes[0].Attrs
-	if attrs[1].Selected < attrs[0].Selected {
-		t.Fatalf("largest attr should degrade first: small=%d huge=%d",
-			attrs[0].Selected, attrs[1].Selected)
+	fields := r.Stacks[0].Changes[0].Fields
+	if fields[1].Selected < fields[0].Selected {
+		t.Fatalf("largest field should degrade first: small=%d huge=%d",
+			fields[0].Selected, fields[1].Selected)
 	}
 	if len(render.Render(*r)) > 800 {
 		t.Fatalf("result %d bytes exceeds budget 800", len(render.Render(*r)))
@@ -61,8 +61,8 @@ func TestDegradesLargestFirst(t *testing.T) {
 }
 
 func TestDeterministic(t *testing.T) {
-	r1 := reportWith(attr("a", 4000), attr("b", 4000))
-	r2 := reportWith(attr("a", 4000), attr("b", 4000))
+	r1 := reportWith(field("a", 4000), field("b", 4000))
+	r2 := reportWith(field("a", 4000), field("b", 4000))
 	Fit(r1, 500)
 	Fit(r2, 500)
 	if render.Render(*r1) != render.Render(*r2) {
@@ -71,11 +71,11 @@ func TestDeterministic(t *testing.T) {
 }
 
 func TestTerminalSummaryOnly(t *testing.T) {
-	r := reportWith(attr("a", 50))
+	r := reportWith(field("a", 50))
 	for i := 0; i < 50; i++ {
 		r.Stacks = append(r.Stacks, model.Stack{
 			Name: "stack-" + itoa(i), Counts: model.Counts{Change: 1},
-			Changes: []model.Change{{Address: "r", Type: "t", Action: model.ActionChange, Attrs: []model.AttrDiff{attr("x", 2000)}}},
+			Changes: []model.Change{{Address: "r", Type: "t", Action: model.ActionChange, Fields: []model.Field{field("x", 2000)}}},
 		})
 	}
 	Fit(r, 300)
@@ -88,7 +88,7 @@ func TestTerminalSummaryOnly(t *testing.T) {
 }
 
 func TestBestEffortFloorReportsOverflow(t *testing.T) {
-	r := reportWith(attr("a", 5000))
+	r := reportWith(field("a", 5000))
 	fits := Fit(r, 10) // absurdly tiny; even minimal line won't fit
 	if fits {
 		t.Fatal("expected fits=false for a budget too small for even the minimal summary")
@@ -96,6 +96,16 @@ func TestBestEffortFloorReportsOverflow(t *testing.T) {
 	if r.Mode != model.ModeMinimal {
 		t.Fatalf("expected ModeMinimal, got %v", r.Mode)
 	}
+}
+
+func TestFitSkipsLeafFields(t *testing.T) {
+	r := &model.Report{Stacks: []model.Stack{{
+		Name: "s", Counts: model.Counts{Change: 1},
+		Changes: []model.Change{{Address: "a", Action: model.ActionChange,
+			Fields: []model.Field{{Name: "x", Leaves: []model.Leaf{{Op: model.OpChange, Path: "x", Old: "1", New: "2"}}}}}},
+	}}}
+	// A leaf-only report must never panic and always "fits" once small enough.
+	_ = Fit(r, 100000)
 }
 
 func itoa(n int) string {

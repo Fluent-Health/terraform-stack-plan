@@ -11,3 +11,6 @@
 *.pfx
 service-account*.json
 *-sa-key.json
+
+# brainstorming visual companion
+.superpowers/

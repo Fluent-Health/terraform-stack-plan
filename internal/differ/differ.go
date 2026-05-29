@@ -174,37 +174,45 @@ type Input struct {
 }
 
 // Diff builds the ordered variant ladder for one attribute.
-func Diff(in Input) model.AttrDiff {
-	// Always-inline cases.
+func Diff(in Input) model.Field {
+	// Always-inline cases → single leaf.
 	switch {
 	case in.Unknown:
-		return inline(in.Attr, "(known after apply)")
+		return leafField(in, model.OpChange, "(known after apply)")
 	case in.Sensitive:
-		return inline(in.Attr, "(sensitive value)")
+		return leafField(in, model.OpChange, "(sensitive value)")
 	}
 
 	bs, bIsStr := in.Before.(string)
 	as, aIsStr := in.After.(string)
 
-	// Forced "hide"/"summary" short-circuit.
+	// Create-only / delete-only scalar (one side nil).
+	if in.Before == nil && in.After != nil && !isStructured(in.Before, in.After) {
+		return scalarLeaf(in.Attr, model.OpAdd, "", scalar(in.After))
+	}
+	if in.After == nil && in.Before != nil && !isStructured(in.Before, in.After) {
+		return scalarLeaf(in.Attr, model.OpRemove, scalar(in.Before), "")
+	}
+
+	// Forced "hide"/"summary" short-circuit (block).
 	switch in.ForceDiffer {
 	case "hide":
-		return single(in.Attr, model.LevelHidden, "")
+		return blockField(single(in.Attr, model.LevelHidden, ""))
 	case "summary":
-		return ladderFrom(in.Attr, model.LevelSummary, in)
+		return blockField(ladderFrom(in.Attr, model.LevelSummary, in))
 	}
 
-	// Non-string structured native values (maps/lists) → structural ladder.
+	// Native structured (maps/lists) → structural (Task 5 decides leaves vs block).
 	if !bIsStr && !aIsStr && isStructured(in.Before, in.After) {
-		return ladderFrom(in.Attr, model.LevelStructural, in)
+		return structural(in)
 	}
 
-	// Both scalar (non-string) → inline.
+	// Both scalar (non-string) → inline leaf.
 	if !isStructured(in.Before, in.After) && !bIsStr && !aIsStr {
-		return inline(in.Attr, fmt.Sprintf("%s -> %s", scalar(in.Before), scalar(in.After)))
+		return scalarLeaf(in.Attr, model.OpChange, scalar(in.Before), scalar(in.After))
 	}
 
-	// String values: decide by forced differ or detection.
+	// String values: detect → structural leaves (Task 5) or block.
 	kind := in.ForceDiffer
 	if kind == "" || kind == "auto" {
 		if in.NoDetect {
@@ -212,24 +220,104 @@ func Diff(in Input) model.AttrDiff {
 		} else {
 			switch detect(firstNonEmpty(bs, as)) {
 			case typeJSON, typeYAML:
-				kind = "structural"
+				return structural(in)
 			case typeBase64:
-				return ladderFrom(in.Attr, model.LevelSummary, in)
+				return blockField(ladderFrom(in.Attr, model.LevelSummary, in))
 			default:
 				kind = "line"
 			}
 		}
 	}
-
 	switch kind {
 	case "structural", "json", "yaml":
-		return ladderFrom(in.Attr, model.LevelStructural, in)
-	default: // "line"
+		return structural(in)
+	default: // line
 		if !strings.Contains(bs, "\n") && !strings.Contains(as, "\n") && len(bs) < 60 && len(as) < 60 {
-			return inline(in.Attr, fmt.Sprintf("%q -> %q", bs, as))
+			return scalarLeaf(in.Attr, model.OpChange, fmt.Sprintf("%q", bs), fmt.Sprintf("%q", as))
 		}
-		return ladderFrom(in.Attr, model.LevelLineDiff, in)
+		return blockField(ladderFrom(in.Attr, model.LevelLineDiff, in))
 	}
+}
+
+// leafField builds a one-leaf field whose value is rendered verbatim (markers).
+func leafField(in Input, op model.LeafOp, marker string) model.Field {
+	return model.Field{Name: in.Attr, Leaves: []model.Leaf{{Op: op, Path: in.Attr, Inline: marker}}}
+}
+
+// scalarLeaf builds a one-leaf field from already-rendered scalar strings.
+func scalarLeaf(attr string, op model.LeafOp, old, nw string) model.Field {
+	return model.Field{Name: attr, Leaves: []model.Leaf{{Op: op, Path: attr, Old: old, New: nw}}}
+}
+
+// blockField wraps a variant ladder (built by the existing helpers) as a Field.
+func blockField(ad model.AttrDiff) model.Field {
+	return model.Field{Name: ad.Name, Variants: ad.Variants}
+}
+
+// foldThreshold is the leaf/line count at or above which an attribute folds
+// into a block (its own <details>) instead of rendering inline.
+const foldThreshold = 10
+
+// structural emits aligned leaves for a map/JSON/YAML attribute when the change
+// is small; otherwise it keeps the block ladder (which fit can degrade).
+func structural(in Input) model.Field {
+	bv := parseStructured(in.Before, firstStr(in.Before))
+	av := parseStructured(in.After, firstStr(in.After))
+	leaves := structuralLeaves(in.Attr, bv, av)
+	if len(leaves) > 0 && len(leaves) < foldThreshold {
+		return model.Field{Name: in.Attr, Leaves: leaves}
+	}
+	return blockField(ladderFrom(in.Attr, model.LevelStructural, in))
+}
+
+// structuralLeaves diffs two structured values into leaves. flatten is seeded
+// with the attribute name so each Leaf.Path is fully qualified (e.g.
+// "labels.team"), which restores the attribute name that a bare structural diff
+// would drop.
+func structuralLeaves(attr string, before, after any) []model.Leaf {
+	bm, am := map[string]string{}, map[string]string{}
+	if before != nil {
+		flatten(attr, before, bm)
+	}
+	if after != nil {
+		flatten(attr, after, am)
+	}
+
+	keys := map[string]struct{}{}
+	for k := range bm {
+		keys[k] = struct{}{}
+	}
+	for k := range am {
+		keys[k] = struct{}{}
+	}
+	var sorted []string
+	for k := range keys {
+		sorted = append(sorted, k)
+	}
+	sort.Strings(sorted)
+
+	var leaves []model.Leaf
+	for _, k := range sorted {
+		bvv, bok := bm[k]
+		avv, aok := am[k]
+		switch {
+		case bok && aok && bvv != avv:
+			leaves = append(leaves, model.Leaf{Op: model.OpChange, Path: k, Old: bvv, New: avv})
+		case bok && !aok:
+			leaves = append(leaves, model.Leaf{Op: model.OpRemove, Path: k, Old: bvv})
+		case !bok && aok:
+			leaves = append(leaves, model.Leaf{Op: model.OpAdd, Path: k, New: avv})
+		}
+	}
+	return leaves
+}
+
+// firstStr returns v as a string if it is one, else "".
+func firstStr(v any) string {
+	if s, ok := v.(string); ok {
+		return s
+	}
+	return ""
 }
 
 func isStructured(before, after any) bool {
@@ -247,12 +335,6 @@ func firstNonEmpty(a, b string) string {
 		return a
 	}
 	return b
-}
-
-// inline returns a one-variant ladder.
-func inline(attr, body string) model.AttrDiff {
-	content := fmt.Sprintf("~ %s: %s", attr, body)
-	return single(attr, model.LevelInline, content)
 }
 
 func single(attr string, lvl model.Level, content string) model.AttrDiff {

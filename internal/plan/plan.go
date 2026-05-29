@@ -1,5 +1,5 @@
 // Package plan parses a Terraform plan JSON document into a RawStack: reduced
-// action counts plus, for update/replace changes, the set of changed attributes.
+// action counts plus the set of affected attributes for each change action.
 package plan
 
 import (
@@ -29,7 +29,7 @@ type RawChange struct {
 	Type    string
 	Actions []string // raw tf actions, e.g. ["update"] or ["delete","create"]
 	Action  model.Action
-	Attrs   []RawAttr // populated for update/replace only
+	Attrs   []RawAttr // populated for all non-no-op actions (create/delete/update/replace)
 }
 
 // RawStack is a parsed plan for one stack (no-ops excluded).
@@ -71,8 +71,13 @@ func Parse(name string, data []byte) (RawStack, error) {
 			Actions: toStrings(act),
 			Action:  bucket,
 		}
-		if bucket == model.ActionChange || bucket == model.ActionReplace {
+		switch bucket {
+		case model.ActionChange, model.ActionReplace:
 			ch.Attrs = changedAttrs(rc.Change)
+		case model.ActionAdd:
+			ch.Attrs = sideAttrs(rc.Change, true)
+		case model.ActionDestroy:
+			ch.Attrs = sideAttrs(rc.Change, false)
 		}
 		rs.Changes = append(rs.Changes, ch)
 	}
@@ -134,6 +139,40 @@ func changedAttrs(c *tfjson.Change) []RawAttr {
 			Sensitive: truthy(beforeSens[k]) || truthy(afterSens[k]),
 			Unknown:   isUnknown,
 		})
+	}
+	sort.Slice(attrs, func(i, j int) bool { return attrs[i].Name < attrs[j].Name })
+	return attrs
+}
+
+// sideAttrs lists every leaf attribute of a create (after=true) or delete
+// (after=false), carrying sensitive / known-after-apply markers.
+func sideAttrs(c *tfjson.Change, after bool) []RawAttr {
+	src, _ := c.After.(map[string]any)
+	sens, _ := c.AfterSensitive.(map[string]any)
+	unknown, _ := c.AfterUnknown.(map[string]any)
+	if !after {
+		src, _ = c.Before.(map[string]any)
+		sens, _ = c.BeforeSensitive.(map[string]any)
+		unknown = nil // deletes have no after_unknown
+	}
+
+	keys := map[string]struct{}{}
+	for k := range src {
+		keys[k] = struct{}{}
+	}
+	for k := range unknown {
+		keys[k] = struct{}{}
+	}
+
+	var attrs []RawAttr
+	for k := range keys {
+		ra := RawAttr{Name: k, Sensitive: truthy(sens[k]), Unknown: truthy(unknown[k])}
+		if after {
+			ra.After = src[k]
+		} else {
+			ra.Before = src[k]
+		}
+		attrs = append(attrs, ra)
 	}
 	sort.Slice(attrs, func(i, j int) bool { return attrs[i].Name < attrs[j].Name })
 	return attrs

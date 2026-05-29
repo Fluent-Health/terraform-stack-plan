@@ -47,9 +47,22 @@ func TestParseMixedActions(t *testing.T) {
 		t.Fatalf("got %d changes (no-op should be excluded), want 3", len(rs.Changes))
 	}
 	for _, c := range rs.Changes {
-		if c.Action == model.ActionAdd || c.Action == model.ActionDestroy {
-			if len(c.Attrs) != 0 {
-				t.Fatalf("create/delete should have no attrs, got %+v", c.Attrs)
+		switch c.Action {
+		case model.ActionAdd:
+			// create should expose after-attrs
+			if len(c.Attrs) == 0 {
+				t.Fatalf("create should have attrs, got none for %s", c.Address)
+			}
+			if c.Attrs[0].Name != "name" || c.Attrs[0].After != "b" {
+				t.Fatalf("create attr mismatch: %+v", c.Attrs)
+			}
+		case model.ActionDestroy:
+			// delete should expose before-attrs
+			if len(c.Attrs) == 0 {
+				t.Fatalf("delete should have attrs, got none for %s", c.Address)
+			}
+			if c.Attrs[0].Name != "name" || c.Attrs[0].Before != "b" {
+				t.Fatalf("delete attr mismatch: %+v", c.Attrs)
 			}
 		}
 	}
@@ -92,5 +105,22 @@ func TestSensitiveAndUnknownAndPartialChange(t *testing.T) {
 	ci, ok := byName["computed_id"]
 	if !ok || !ci.Unknown {
 		t.Fatalf("computed_id should be present and Unknown, got %+v", ci)
+	}
+}
+
+func TestParseCreateExtractsAfterAttrs(t *testing.T) {
+	rs := load(t, "create.json")
+	if rs.Counts.Add != 1 {
+		t.Fatalf("Add count = %d, want 1", rs.Counts.Add)
+	}
+	got := map[string]RawAttr{}
+	for _, a := range rs.Changes[0].Attrs {
+		got[a.Name] = a
+	}
+	if got["account_id"].After != "app-api" {
+		t.Errorf("account_id After = %v, want app-api", got["account_id"].After)
+	}
+	if !got["unique_id"].Unknown {
+		t.Errorf("unique_id should be known-after-apply")
 	}
 }

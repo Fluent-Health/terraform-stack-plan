@@ -37,6 +37,70 @@ func (c Class) Label() string {
 	return c.Icon + " " + c.Name
 }
 
+// LeafOp is the change kind for a single leaf attribute path.
+type LeafOp uint8
+
+const (
+	OpAdd    LeafOp = iota // added leaf
+	OpChange               // changed leaf
+	OpRemove               // removed leaf
+)
+
+// Sym returns the diff prefix for the op (+, ~, -).
+func (o LeafOp) Sym() string {
+	switch o {
+	case OpAdd:
+		return "+"
+	case OpRemove:
+		return "-"
+	default:
+		return "~"
+	}
+}
+
+// Leaf is one aligned `op path = value` row.
+type Leaf struct {
+	Op     LeafOp
+	Path   string // dotted, includes the attribute name (e.g. "labels.team")
+	Old    string // rendered scalar; used for change/remove
+	New    string // rendered scalar; used for add/change
+	Inline string // when set, rendered verbatim instead of Old/New (e.g. "(sensitive value)")
+}
+
+// Value returns the right-hand side of the `=`.
+func (l Leaf) Value() string {
+	if l.Inline != "" {
+		return l.Inline
+	}
+	switch l.Op {
+	case OpAdd:
+		return l.New
+	case OpRemove:
+		return l.Old
+	default:
+		return l.Old + " → " + l.New
+	}
+}
+
+// Field is one top-level attribute of a resource change. It renders either as
+// aligned Leaves (scalars, small structural diffs, sensitive/unknown) or, when
+// large, as a foldable block carrying the Variant ladder fit degrades.
+type Field struct {
+	Name     string
+	Leaves   []Leaf    // inline rows; empty when this is a block
+	Variants []Variant // block ladder; empty when this is leaves
+	Selected int       // chosen variant (block only); fit mutates
+}
+
+// IsBlock reports whether this field renders as a foldable block.
+func (f Field) IsBlock() bool { return len(f.Variants) > 0 }
+
+// Sel returns the selected block variant (block fields only).
+func (f Field) Sel() Variant { return f.Variants[f.Selected] }
+
+// AtLast reports whether the selected block variant is the least-detail one.
+func (f Field) AtLast() bool { return f.Selected >= len(f.Variants)-1 }
+
 // Level identifies a render variant, ordered most → least detail.
 type Level string
 
@@ -73,7 +137,7 @@ type Change struct {
 	Address string
 	Type    string
 	Action  Action
-	Attrs   []AttrDiff // populated for update/replace; empty for terse create/delete
+	Fields  []Field // populated for create/delete/update/replace
 }
 
 // Stack is one stack's parsed, classified plan.
