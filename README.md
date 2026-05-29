@@ -15,21 +15,12 @@ that need extra review (IAM, destructive changes, …).
 
 ## What it looks like
 
-A run over three stacks, with classification enabled. The reviewer sees a
-scannable summary table…
+A run over three stacks with classification enabled, rendered the way GitHub
+shows it in a PR comment — a scannable summary table, then a collapsed
+drill-down per stack (click to expand):
 
-> ### Terraform plan — nonprod  (3 stacks changed)
->
-> | Stack | Add | Change | Destroy | Class |
-> | --- | ---: | ---: | ---: | --- |
-> | platform/nonprod | 0 | 2 | 0 | 🔐 iam |
-> | service-projects/app-dev | 1 | 2 | 0 | ✅ safe |
-> | data/warehouse | 0 | 0 | 2 | 💣 destructive |
-
-…and expands each stack on demand. The full posted comment:
-
-````markdown
 <!-- tfstackplan:nonprod -->
+
 ### Terraform plan — nonprod  (3 stacks changed)
 
 | Stack | Add | Change | Destroy | Class |
@@ -74,12 +65,12 @@ scannable summary table…
 ```
 
 </details>
-````
 
-`<details>` start collapsed (override with `--details open|auto`), zero-only
-columns are dropped, and the marker comment on line 1 lets CI upsert one comment
-per tier. Without a classification policy the `Class` column and labels simply
-disappear — counts and diffs only.
+The first line of the real output is an HTML-comment marker
+(`<!-- tfstackplan:nonprod -->`, invisible above) that CI uses to upsert one
+comment per tier. `<details>` start collapsed (override with `--details
+open|auto`), zero-only columns are dropped, and without a classification policy
+the `Class` column and labels disappear — counts and diffs only.
 
 ---
 
