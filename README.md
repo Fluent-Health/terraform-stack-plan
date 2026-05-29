@@ -371,6 +371,9 @@ degradation cascade.
 go install github.com/Fluent-Health/terraform-stack-plan/cmd/tfstackplan@latest
 ```
 
+Or download a prebuilt binary for your platform from the
+[Releases](https://github.com/Fluent-Health/terraform-stack-plan/releases) page.
+
 ---
 
 ## Contributing

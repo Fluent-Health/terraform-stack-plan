@@ -20,6 +20,9 @@ import (
 
 const defaultMaxBytes = 60000
 
+// version is overridden at release time via -ldflags "-X main.version=...".
+var version = "dev"
+
 type stackFlags []string
 
 func (s *stackFlags) String() string { return fmt.Sprint(*s) }
@@ -52,7 +55,12 @@ func main() {
 	flag.StringVar(&o.output, "output", "-", "output file ('-' = stdout)")
 	flag.StringVar(&o.classJSON, "emit-classification-json", "", "write computed classes as JSON")
 	flag.StringVar(&o.details, "details", "closed", "details disclosure: auto|open|closed")
+	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
+	if *showVersion {
+		fmt.Println("tfstackplan", version)
+		return
+	}
 	o.stacks = sf
 
 	out, fits, err := run(o)
