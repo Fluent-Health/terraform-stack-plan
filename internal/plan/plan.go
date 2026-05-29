@@ -241,38 +241,41 @@ func truthy(v any) bool {
 }
 
 // rawScalars returns the change's top-level scalar attributes (string, bool,
-// number), preferring after over before and skipping any flagged sensitive.
-// Used by classification attribute extraction, which must see an attribute even
-// when it did not change (changedAttrs keeps only differing values).
+// number), preferring after over before. It skips any attribute flagged
+// sensitive on either side, and any attribute that is known-after-apply
+// (computed), so Raw never surfaces a sensitive or not-yet-known value. Used by
+// classification attribute extraction, which must see an attribute even when it
+// did not change (changedAttrs keeps only differing values).
 func rawScalars(c *tfjson.Change) map[string]any {
 	after, _ := c.After.(map[string]any)
 	before, _ := c.Before.(map[string]any)
 	afterSens, _ := c.AfterSensitive.(map[string]any)
 	beforeSens, _ := c.BeforeSensitive.(map[string]any)
+	unknown, _ := c.AfterUnknown.(map[string]any)
 
 	out := map[string]any{}
-	put := func(src, sens map[string]any) {
+	put := func(src map[string]any) {
 		for k, v := range src {
 			if _, ok := out[k]; ok {
 				continue // after already won
 			}
-			if truthy(sens[k]) {
-				continue // never surface a sensitive value
+			if truthy(afterSens[k]) || truthy(beforeSens[k]) || truthy(unknown[k]) {
+				continue // never surface a sensitive or computed value
 			}
 			if isScalar(v) {
 				out[k] = v
 			}
 		}
 	}
-	put(after, afterSens)
-	put(before, beforeSens)
+	put(after)
+	put(before)
 	if len(out) == 0 {
 		return nil
 	}
 	return out
 }
 
-// isScalar reports whether v is a JSON scalar we can stringify for the sidecar.
+// isScalar reports whether v is a JSON scalar we can retain in Raw.
 func isScalar(v any) bool {
 	switch v.(type) {
 	case string, bool, float64, json.Number:

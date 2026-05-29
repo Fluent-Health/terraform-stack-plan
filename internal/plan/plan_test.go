@@ -247,3 +247,33 @@ func TestParseRawPrefersAfterFallsBackToBefore(t *testing.T) {
 		t.Errorf("Raw[project] = %v, want p9 (from before on delete)", rs.Changes[0].Raw["project"])
 	}
 }
+
+func TestParseRawSkipsSensitiveEitherSideAndComputed(t *testing.T) {
+	// "mode" is sensitive on the after side only (value lives non-sensitive in
+	// before); "id" is known-after-apply. Both must be excluded; "role" kept.
+	data := []byte(`{
+	  "format_version": "1.2",
+	  "resource_changes": [
+	    {"address":"x.y","type":"t","name":"y",
+	     "change":{"actions":["update"],
+	       "before":{"role":"roles/a","mode":"old","id":"old-id"},
+	       "after":{"role":"roles/b","mode":null,"id":null},
+	       "after_unknown":{"id":true},
+	       "before_sensitive":{},"after_sensitive":{"mode":true}}}
+	  ]
+	}`)
+	rs, err := Parse("s", data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw := rs.Changes[0].Raw
+	if raw["role"] != "roles/b" {
+		t.Errorf("Raw[role] = %v, want roles/b", raw["role"])
+	}
+	if _, ok := raw["mode"]; ok {
+		t.Error("Raw must skip attr sensitive on the after side even if before value is non-sensitive")
+	}
+	if _, ok := raw["id"]; ok {
+		t.Error("Raw must skip known-after-apply (computed) attr")
+	}
+}
