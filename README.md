@@ -47,18 +47,22 @@ drill-down per stack (click to expand):
 
 <details><summary>service-projects/app-dev · ✅ safe · 4 add, 3 change</summary>
 
-<details><summary>+ google_service_account.api · 1 attrs</summary>
+<details><summary>+ google_service_account.api · 3 attrs</summary>
 
 ```diff
-+ id = "google_service_account.api"
++ disabled = false
++ location = "us-central1"
++ name     = "api"
 ```
 
 </details>
 
-<details><summary>+ google_cloud_run_service.api · 1 attrs</summary>
+<details><summary>+ google_cloud_run_service.api · 3 attrs</summary>
 
 ```diff
-+ id = "google_cloud_run_service.api"
++ disabled = false
++ location = "us-central1"
++ name     = "api"
 ```
 
 </details>
@@ -71,18 +75,20 @@ drill-down per stack (click to expand):
 
 <details><summary>data/warehouse · 💣 destructive · 6 destroy</summary>
 
-<details><summary>- google_bigquery_dataset.legacy_events · 1 attrs</summary>
+<details><summary>- google_bigquery_dataset.legacy_events · 2 attrs</summary>
 
 ```diff
-- id = "google_bigquery_dataset.legacy_events"
+- location = "us-central1"
+- name     = "legacy_events"
 ```
 
 </details>
 
-<details><summary>- google_storage_bucket.legacy_exports · 1 attrs</summary>
+<details><summary>- google_storage_bucket.legacy_exports · 2 attrs</summary>
 
 ```diff
-- id = "google_storage_bucket.legacy_exports"
+- location = "us-central1"
+- name     = "legacy_exports"
 ```
 
 </details>
@@ -90,10 +96,12 @@ drill-down per stack (click to expand):
 
 <details><summary>observability/grafana · ✅ safe · 5 add, 6 change</summary>
 
-<details><summary>+ helm_release.grafana · 1 attrs</summary>
+<details><summary>+ helm_release.grafana · 3 attrs</summary>
 
 ```diff
-+ id = "helm_release.grafana"
++ disabled = false
++ location = "us-central1"
++ name     = "grafana"
 ```
 
 </details>

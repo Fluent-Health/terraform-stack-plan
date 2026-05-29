@@ -39,34 +39,42 @@
 
 <details><summary>service-projects/app-dev · ✅ safe · 4 add, 3 change</summary>
 
-<details><summary>+ google_service_account.api · 1 attrs</summary>
+<details><summary>+ google_service_account.api · 3 attrs</summary>
 
 ```diff
-+ id = "google_service_account.api"
++ disabled = false
++ location = "us-central1"
++ name     = "api"
 ```
 
 </details>
 
-<details><summary>+ google_pubsub_topic.events · 1 attrs</summary>
+<details><summary>+ google_pubsub_topic.events · 3 attrs</summary>
 
 ```diff
-+ id = "google_pubsub_topic.events"
++ disabled = false
++ location = "us-central1"
++ name     = "events"
 ```
 
 </details>
 
-<details><summary>+ google_cloud_run_service.api · 1 attrs</summary>
+<details><summary>+ google_cloud_run_service.api · 3 attrs</summary>
 
 ```diff
-+ id = "google_cloud_run_service.api"
++ disabled = false
++ location = "us-central1"
++ name     = "api"
 ```
 
 </details>
 
-<details><summary>+ google_cloud_run_service.worker · 1 attrs</summary>
+<details><summary>+ google_cloud_run_service.worker · 3 attrs</summary>
 
 ```diff
-+ id = "google_cloud_run_service.worker"
++ disabled = false
++ location = "us-central1"
++ name     = "worker"
 ```
 
 </details>
@@ -186,50 +194,56 @@
 
 <details><summary>data/warehouse · 💣 destructive · 6 destroy</summary>
 
-<details><summary>- google_bigquery_dataset.legacy_events · 1 attrs</summary>
+<details><summary>- google_bigquery_dataset.legacy_events · 2 attrs</summary>
 
 ```diff
-- id = "google_bigquery_dataset.legacy_events"
+- location = "us-central1"
+- name     = "legacy_events"
 ```
 
 </details>
 
-<details><summary>- google_bigquery_dataset.legacy_users · 1 attrs</summary>
+<details><summary>- google_bigquery_dataset.legacy_users · 2 attrs</summary>
 
 ```diff
-- id = "google_bigquery_dataset.legacy_users"
+- location = "us-central1"
+- name     = "legacy_users"
 ```
 
 </details>
 
-<details><summary>- google_storage_bucket.legacy_exports · 1 attrs</summary>
+<details><summary>- google_storage_bucket.legacy_exports · 2 attrs</summary>
 
 ```diff
-- id = "google_storage_bucket.legacy_exports"
+- location = "us-central1"
+- name     = "legacy_exports"
 ```
 
 </details>
 
-<details><summary>- google_storage_bucket.legacy_imports · 1 attrs</summary>
+<details><summary>- google_storage_bucket.legacy_imports · 2 attrs</summary>
 
 ```diff
-- id = "google_storage_bucket.legacy_imports"
+- location = "us-central1"
+- name     = "legacy_imports"
 ```
 
 </details>
 
-<details><summary>- google_pubsub_topic.legacy_stream · 1 attrs</summary>
+<details><summary>- google_pubsub_topic.legacy_stream · 2 attrs</summary>
 
 ```diff
-- id = "google_pubsub_topic.legacy_stream"
+- location = "us-central1"
+- name     = "legacy_stream"
 ```
 
 </details>
 
-<details><summary>- google_pubsub_subscription.legacy_sub · 1 attrs</summary>
+<details><summary>- google_pubsub_subscription.legacy_sub · 2 attrs</summary>
 
 ```diff
-- id = "google_pubsub_subscription.legacy_sub"
+- location = "us-central1"
+- name     = "legacy_sub"
 ```
 
 </details>
@@ -280,42 +294,52 @@
 
 <details><summary>observability/grafana · ✅ safe · 5 add, 6 change</summary>
 
-<details><summary>+ helm_release.grafana · 1 attrs</summary>
+<details><summary>+ helm_release.grafana · 3 attrs</summary>
 
 ```diff
-+ id = "helm_release.grafana"
++ disabled = false
++ location = "us-central1"
++ name     = "grafana"
 ```
 
 </details>
 
-<details><summary>+ helm_release.loki · 1 attrs</summary>
+<details><summary>+ helm_release.loki · 3 attrs</summary>
 
 ```diff
-+ id = "helm_release.loki"
++ disabled = false
++ location = "us-central1"
++ name     = "loki"
 ```
 
 </details>
 
-<details><summary>+ kubernetes_namespace.observability · 1 attrs</summary>
+<details><summary>+ kubernetes_namespace.observability · 3 attrs</summary>
 
 ```diff
-+ id = "kubernetes_namespace.observability"
++ disabled = false
++ location = "us-central1"
++ name     = "observability"
 ```
 
 </details>
 
-<details><summary>+ kubernetes_service_account.grafana · 1 attrs</summary>
+<details><summary>+ kubernetes_service_account.grafana · 3 attrs</summary>
 
 ```diff
-+ id = "kubernetes_service_account.grafana"
++ disabled = false
++ location = "us-central1"
++ name     = "grafana"
 ```
 
 </details>
 
-<details><summary>+ kubernetes_secret.grafana_admin · 1 attrs</summary>
+<details><summary>+ kubernetes_secret.grafana_admin · 3 attrs</summary>
 
 ```diff
-+ id = "kubernetes_secret.grafana_admin"
++ disabled = false
++ location = "us-central1"
++ name     = "grafana_admin"
 ```
 
 </details>

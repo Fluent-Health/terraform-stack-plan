@@ -22,17 +22,32 @@ func resourceChange(addr, typ string, ch map[string]any) change {
 }
 
 func create(addr, typ string) change {
+	name := addr
+	if i := strings.LastIndex(addr, "."); i >= 0 {
+		name = addr[i+1:]
+	}
 	return resourceChange(addr, typ, map[string]any{
 		"actions": []string{"create"}, "before": nil,
-		"after":         map[string]any{"id": addr},
+		"after": map[string]any{
+			"name":     name,
+			"location": "us-central1",
+			"disabled": false,
+		},
 		"after_unknown": emptyObj(), "before_sensitive": emptyObj(), "after_sensitive": emptyObj(),
 	})
 }
 
 func del(addr, typ string) change {
+	name := addr
+	if i := strings.LastIndex(addr, "."); i >= 0 {
+		name = addr[i+1:]
+	}
 	return resourceChange(addr, typ, map[string]any{
 		"actions": []string{"delete"}, "after": nil,
-		"before":        map[string]any{"id": addr},
+		"before": map[string]any{
+			"name":     name,
+			"location": "us-central1",
+		},
 		"after_unknown": emptyObj(), "before_sensitive": emptyObj(), "after_sensitive": emptyObj(),
 	})
 }
