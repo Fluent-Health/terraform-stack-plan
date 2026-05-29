@@ -1,6 +1,7 @@
 package classify
 
 import (
+	"reflect"
 	"regexp"
 	"testing"
 
@@ -83,7 +84,7 @@ func TestEmitAttributesDedupeAndSort(t *testing.T) {
 	)
 	got := Classify(s, rules, model.Class{Name: "safe"})
 	want := []string{"p1", "p2"}
-	if len(got.Attributes["project"]) != 2 || got.Attributes["project"][0] != want[0] || got.Attributes["project"][1] != want[1] {
+	if !reflect.DeepEqual(got.Attributes["project"], want) {
 		t.Fatalf("project = %v, want %v", got.Attributes["project"], want)
 	}
 }
@@ -112,5 +113,24 @@ func TestEmitAttributesNilWhenNoValuesFound(t *testing.T) {
 	}
 	if got.Attributes != nil {
 		t.Fatalf("Attributes = %v, want nil when no project values", got.Attributes)
+	}
+}
+
+func TestEmitMultipleAttributes(t *testing.T) {
+	rules := []Rule{{
+		Name: "iam", TypePattern: regexp.MustCompile(`_iam_`), MinCount: 1,
+		EmitAttributes: []string{"project", "role"},
+	}}
+	s := stack(
+		plan.RawChange{Type: "google_project_iam_member", Actions: []string{"create"}, Raw: map[string]any{"project": "p1", "role": "roles/viewer"}},
+		plan.RawChange{Type: "google_project_iam_member", Actions: []string{"create"}, Raw: map[string]any{"project": "p2", "role": "roles/viewer"}},
+	)
+	got := Classify(s, rules, model.Class{Name: "safe"})
+	if !reflect.DeepEqual(got.Attributes["project"], []string{"p1", "p2"}) {
+		t.Errorf("project = %v, want [p1 p2]", got.Attributes["project"])
+	}
+	// role dedupes to a single value across the two changes
+	if !reflect.DeepEqual(got.Attributes["role"], []string{"roles/viewer"}) {
+		t.Errorf("role = %v, want [roles/viewer]", got.Attributes["role"])
 	}
 }

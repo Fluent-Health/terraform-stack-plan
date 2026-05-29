@@ -16,12 +16,12 @@ import (
 
 // Rule is a single classification rule with a deliberately small matcher.
 type Rule struct {
-	Name        string
-	Icon        string
-	TypePattern *regexp.Regexp // nil → match any resource type
-	Actions     []string       // nil/empty → match any action; else all listed must be present
-	MinCount    int            // minimum matching changes for the rule to fire (treated as 1 if <1)
-	EmitAttributes []string   // attribute names to extract from matched changes
+	Name           string
+	Icon           string
+	TypePattern    *regexp.Regexp // nil → match any resource type
+	Actions        []string       // nil/empty → match any action; else all listed must be present
+	MinCount       int            // minimum matching changes for the rule to fire (treated as 1 if <1)
+	EmitAttributes []string       // attribute names to extract from matched changes
 }
 
 // Result is the outcome of classifying a stack: the chosen class, plus — for
@@ -96,10 +96,7 @@ func scalarString(v any) string {
 	case string:
 		return t
 	case bool:
-		if t {
-			return "true"
-		}
-		return "false"
+		return strconv.FormatBool(t)
 	case float64:
 		return strconv.FormatFloat(t, 'f', -1, 64)
 	case json.Number:
