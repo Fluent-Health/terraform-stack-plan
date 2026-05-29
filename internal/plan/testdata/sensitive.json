@@ -1,0 +1,16 @@
+{
+  "format_version": "1.2",
+  "resource_changes": [
+    {
+      "address": "x.y", "type": "google_secret_manager_secret_version", "name": "y",
+      "change": {
+        "actions": ["update"],
+        "before": {"secret_data": "old", "unchanged": "same", "computed_id": "abc"},
+        "after":  {"secret_data": "new", "unchanged": "same", "computed_id": "abc"},
+        "after_unknown":    {"computed_id": true},
+        "before_sensitive": {"secret_data": true},
+        "after_sensitive":  {"secret_data": true}
+      }
+    }
+  ]
+}

@@ -1,0 +1,3 @@
+nonsense {
+  foo = 1
+}

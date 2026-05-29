@@ -1,0 +1,12 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: tfstackplan
+  description: Merge multiple Terraform plans into one reviewer-friendly markdown report
+  annotations:
+    # OSS tracking annotation. Set to "published" once the repo is made public.
+    fluentinhealth.com/oss: pending
+spec:
+  type: tool
+  lifecycle: production
+  owner: group:default/engineering

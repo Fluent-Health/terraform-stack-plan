@@ -1,0 +1,18 @@
+{
+  "format_version": "1.2",
+  "resource_changes": [
+    {
+      "address": "google_project_iam_member.editor",
+      "type": "google_project_iam_member",
+      "name": "editor",
+      "change": {
+        "actions": ["update"],
+        "before": {"role": "roles/viewer"},
+        "after": {"role": "roles/editor"},
+        "after_unknown": {},
+        "before_sensitive": {},
+        "after_sensitive": {}
+      }
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+# Build output
+/tfstackplan
+*.out
+/dist/
+
+# Secrets — never commit
+.env
+*.pem
+*.key
+*.p12
+*.pfx
+service-account*.json
+*-sa-key.json

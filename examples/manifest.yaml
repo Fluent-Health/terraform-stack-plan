@@ -1,0 +1,7 @@
+title: "Terraform plan — nonprod"
+marker: "tfstackplan:nonprod"
+stacks:
+  - name: platform/nonprod
+    plan: ./out/platform-nonprod/plan.json
+  - name: service-projects/app-dev
+    plan: ./out/app-dev/plan.json
