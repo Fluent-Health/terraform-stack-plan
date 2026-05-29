@@ -172,9 +172,9 @@ func run(o opts) (string, bool, error) {
 		}
 
 		if classified {
-			cl := classify.Classify(raw, cfg.Classification.Rules, cfg.Classification.Default)
-			st.Class = &cl
-			sidecar[ref.Name] = classEntry{Class: cl.Name, Icon: nilable(cl.Icon)}
+			res := classify.Classify(raw, cfg.Classification.Rules, cfg.Classification.Default)
+			st.Class = &res.Class
+			sidecar[ref.Name] = classEntry{Class: res.Class.Name, Icon: nilable(res.Class.Icon), Attributes: res.Attributes}
 		}
 
 		for _, rc := range raw.Changes {
@@ -254,8 +254,9 @@ func run(o opts) (string, bool, error) {
 }
 
 type classEntry struct {
-	Class string  `json:"class"`
-	Icon  *string `json:"icon"`
+	Class      string              `json:"class"`
+	Icon       *string             `json:"icon"`
+	Attributes map[string][]string `json:"attributes,omitempty"`
 }
 
 func nilable(s string) *string {

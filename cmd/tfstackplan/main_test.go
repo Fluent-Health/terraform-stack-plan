@@ -172,3 +172,87 @@ func TestRunEmitsLinks(t *testing.T) {
 		t.Fatalf("stack link missing:\n%s", out)
 	}
 }
+
+func TestRunEmitsClassificationAttributes(t *testing.T) {
+	dir := t.TempDir()
+
+	// IAM stack: two members across two projects; one safe stack with none.
+	iamPlan := `{
+	  "format_version": "1.2",
+	  "resource_changes": [
+	    {"address":"google_project_iam_member.a","type":"google_project_iam_member","name":"a",
+	     "change":{"actions":["create"],"after":{"role":"roles/x","project":"fh-host-nonprod"},
+	       "after_unknown":{},"before_sensitive":{},"after_sensitive":{}}},
+	    {"address":"google_project_iam_member.b","type":"google_project_iam_member","name":"b",
+	     "change":{"actions":["create"],"after":{"role":"roles/y","project":"fh-svc-dev"},
+	       "after_unknown":{},"before_sensitive":{},"after_sensitive":{}}}
+	  ]
+	}`
+	safePlan := `{
+	  "format_version": "1.2",
+	  "resource_changes": [
+	    {"address":"google_storage_bucket.b","type":"google_storage_bucket","name":"b",
+	     "change":{"actions":["create"],"after":{"name":"bkt","project":"fh-data"},
+	       "after_unknown":{},"before_sensitive":{},"after_sensitive":{}}}
+	  ]
+	}`
+	cfg := `
+classification {
+  default {
+    name = "safe"
+    icon = "✅"
+  }
+  preset "iam" {
+    icon            = "🔐"
+    emit_attributes = ["project"]
+  }
+}
+`
+	iamPath := filepath.Join(dir, "iam.json")
+	safePath := filepath.Join(dir, "safe.json")
+	cfgPath := filepath.Join(dir, "cfg.hcl")
+	classOut := filepath.Join(dir, "classes.json")
+	for p, c := range map[string]string{iamPath: iamPlan, safePath: safePlan, cfgPath: cfg} {
+		if err := os.WriteFile(p, []byte(c), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	_, _, err := run(opts{
+		stacks:    []string{"platform/nonprod:" + iamPath, "data/warehouse:" + safePath},
+		config:    cfgPath,
+		maxBytes:  60000,
+		classJSON: classOut,
+		details:   "closed",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(classOut)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]struct {
+		Class      string              `json:"class"`
+		Attributes map[string][]string `json:"attributes"`
+	}
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+
+	iam := got["platform/nonprod"]
+	want := []string{"fh-host-nonprod", "fh-svc-dev"}
+	if len(iam.Attributes["project"]) != 2 || iam.Attributes["project"][0] != want[0] || iam.Attributes["project"][1] != want[1] {
+		t.Fatalf("iam attributes.project = %v, want %v", iam.Attributes["project"], want)
+	}
+
+	// Safe stack: "attributes" key must be absent entirely (omitempty), even
+	// though its bucket has a "project" attribute.
+	if !strings.Contains(string(data), "platform/nonprod") {
+		t.Fatal("sidecar missing iam stack")
+	}
+	if strings.Contains(string(data), "fh-data") {
+		t.Fatal("safe stack must not emit attributes (omitempty); found its project")
+	}
+}
