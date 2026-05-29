@@ -20,11 +20,12 @@ var iamPattern = regexp.MustCompile(
 var Names = []string{"iam"}
 
 // Get returns the rule bundle for name. iconOverride replaces the preset's
-// default glyph when non-empty. ok is false for unknown names.
-func Get(name, iconOverride string) (classify.Rule, bool) {
+// default glyph when non-empty; emitAttributes is carried onto the rule. ok is
+// false for unknown names.
+func Get(name, iconOverride string, emitAttributes []string) (classify.Rule, bool) {
 	switch name {
 	case "iam":
-		r := classify.Rule{Name: "iam", Icon: "🔐", TypePattern: iamPattern, MinCount: 1}
+		r := classify.Rule{Name: "iam", Icon: "🔐", TypePattern: iamPattern, MinCount: 1, EmitAttributes: emitAttributes}
 		if iconOverride != "" {
 			r.Icon = iconOverride
 		}
