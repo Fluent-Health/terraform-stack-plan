@@ -174,37 +174,45 @@ type Input struct {
 }
 
 // Diff builds the ordered variant ladder for one attribute.
-func Diff(in Input) model.AttrDiff {
-	// Always-inline cases.
+func Diff(in Input) model.Field {
+	// Always-inline cases → single leaf.
 	switch {
 	case in.Unknown:
-		return inline(in.Attr, "(known after apply)")
+		return leafField(in, model.OpChange, "(known after apply)")
 	case in.Sensitive:
-		return inline(in.Attr, "(sensitive value)")
+		return leafField(in, model.OpChange, "(sensitive value)")
 	}
 
 	bs, bIsStr := in.Before.(string)
 	as, aIsStr := in.After.(string)
 
-	// Forced "hide"/"summary" short-circuit.
+	// Create-only / delete-only scalar (one side nil).
+	if in.Before == nil && in.After != nil && !isStructured(in.Before, in.After) {
+		return scalarLeaf(in.Attr, model.OpAdd, "", scalar(in.After))
+	}
+	if in.After == nil && in.Before != nil && !isStructured(in.Before, in.After) {
+		return scalarLeaf(in.Attr, model.OpRemove, scalar(in.Before), "")
+	}
+
+	// Forced "hide"/"summary" short-circuit (block).
 	switch in.ForceDiffer {
 	case "hide":
-		return single(in.Attr, model.LevelHidden, "")
+		return blockField(single(in.Attr, model.LevelHidden, ""))
 	case "summary":
-		return ladderFrom(in.Attr, model.LevelSummary, in)
+		return blockField(ladderFrom(in.Attr, model.LevelSummary, in))
 	}
 
-	// Non-string structured native values (maps/lists) → structural ladder.
+	// Native structured (maps/lists) → structural (Task 5 decides leaves vs block).
 	if !bIsStr && !aIsStr && isStructured(in.Before, in.After) {
-		return ladderFrom(in.Attr, model.LevelStructural, in)
+		return structural(in)
 	}
 
-	// Both scalar (non-string) → inline.
+	// Both scalar (non-string) → inline leaf.
 	if !isStructured(in.Before, in.After) && !bIsStr && !aIsStr {
-		return inline(in.Attr, fmt.Sprintf("%s -> %s", scalar(in.Before), scalar(in.After)))
+		return scalarLeaf(in.Attr, model.OpChange, scalar(in.Before), scalar(in.After))
 	}
 
-	// String values: decide by forced differ or detection.
+	// String values: detect → structural leaves (Task 5) or block.
 	kind := in.ForceDiffer
 	if kind == "" || kind == "auto" {
 		if in.NoDetect {
@@ -212,24 +220,44 @@ func Diff(in Input) model.AttrDiff {
 		} else {
 			switch detect(firstNonEmpty(bs, as)) {
 			case typeJSON, typeYAML:
-				kind = "structural"
+				return structural(in)
 			case typeBase64:
-				return ladderFrom(in.Attr, model.LevelSummary, in)
+				return blockField(ladderFrom(in.Attr, model.LevelSummary, in))
 			default:
 				kind = "line"
 			}
 		}
 	}
-
 	switch kind {
 	case "structural", "json", "yaml":
-		return ladderFrom(in.Attr, model.LevelStructural, in)
-	default: // "line"
+		return structural(in)
+	default: // line
 		if !strings.Contains(bs, "\n") && !strings.Contains(as, "\n") && len(bs) < 60 && len(as) < 60 {
-			return inline(in.Attr, fmt.Sprintf("%q -> %q", bs, as))
+			return scalarLeaf(in.Attr, model.OpChange, fmt.Sprintf("%q", bs), fmt.Sprintf("%q", as))
 		}
-		return ladderFrom(in.Attr, model.LevelLineDiff, in)
+		return blockField(ladderFrom(in.Attr, model.LevelLineDiff, in))
 	}
+}
+
+// leafField builds a one-leaf field whose value is rendered verbatim (markers).
+func leafField(in Input, op model.LeafOp, marker string) model.Field {
+	return model.Field{Name: in.Attr, Leaves: []model.Leaf{{Op: op, Path: in.Attr, Inline: marker}}}
+}
+
+// scalarLeaf builds a one-leaf field from already-rendered scalar strings.
+func scalarLeaf(attr string, op model.LeafOp, old, new string) model.Field {
+	return model.Field{Name: attr, Leaves: []model.Leaf{{Op: op, Path: attr, Old: old, New: new}}}
+}
+
+// blockField wraps a variant ladder (built by the existing helpers) as a Field.
+func blockField(ad model.AttrDiff) model.Field {
+	return model.Field{Name: ad.Name, Variants: ad.Variants}
+}
+
+// structural renders a map/JSON/YAML attribute. Task 5 turns small diffs into
+// leaves; for now it always produces the block ladder.
+func structural(in Input) model.Field {
+	return blockField(ladderFrom(in.Attr, model.LevelStructural, in))
 }
 
 func isStructured(before, after any) bool {
