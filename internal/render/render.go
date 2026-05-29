@@ -95,7 +95,13 @@ func renderTable(b *strings.Builder, r model.Report) {
 	fmt.Fprintf(b, "| %s |\n", strings.Join(aligns, " | "))
 
 	for _, s := range r.Stacks {
-		cells := []string{s.Name}
+		// Table choice B: move/import/forget have no columns; surface them as a
+		// dim suffix on the Stack cell instead.
+		name := s.Name
+		if extra := strings.Join(extrasParts(s.Counts), ", "); extra != "" {
+			name += " · " + extra
+		}
+		cells := []string{name}
 		if cs.add {
 			cells = append(cells, itoa(s.Counts.Add))
 		}
@@ -184,8 +190,15 @@ func renderResource(b *strings.Builder, c model.Change, forceOpen bool) {
 		}
 	}
 
+	// forget bodies use the ⊘ glyph so removed-from-state attributes read
+	// distinctly from a destroy's "-".
+	forceSym := ""
+	if c.Action == model.ActionForget {
+		forceSym = "⊘"
+	}
+
 	var body strings.Builder
-	for _, line := range alignLeaves(leaves) {
+	for _, line := range alignLeaves(leaves, forceSym) {
 		body.WriteString(line)
 		body.WriteString("\n")
 	}
@@ -197,6 +210,14 @@ func renderResource(b *strings.Builder, c model.Change, forceOpen bool) {
 		fmt.Fprintf(&body, "%s %s:\n%s\n", sym, f.Name, strings.TrimRight(v.Content, "\n"))
 	}
 	content := strings.TrimRight(body.String(), "\n")
+	if content == "" {
+		switch {
+		case c.Moved:
+			content = "(address change only)"
+		case c.Imported:
+			content = "(import only)"
+		}
+	}
 
 	open := ""
 	if forceOpen || lineCountOf(content) <= openThreshold {
@@ -206,17 +227,37 @@ func renderResource(b *strings.Builder, c model.Change, forceOpen bool) {
 		open, resourceSummary(c), content)
 }
 
-// resourceSummary is the one-line row label: glyph + address + magnitude.
+// resourceSummary is the one-line row label: glyph + address + magnitude. State
+// operations take precedence over the underlying action: forget → moved →
+// imported → create/update/delete/replace.
 func resourceSummary(c model.Change) string {
-	switch c.Action {
-	case model.ActionAdd:
-		return fmt.Sprintf("+ %s · %d attrs", c.Address, len(c.Fields))
-	case model.ActionDestroy:
-		return fmt.Sprintf("- %s · %d attrs", c.Address, len(c.Fields))
-	case model.ActionReplace:
+	n := len(c.Fields)
+	switch {
+	case c.Action == model.ActionForget:
+		return fmt.Sprintf("⊘ %s · forgotten · %d attrs", c.Address, n)
+	case c.Moved:
+		s := fmt.Sprintf("↪ %s · moved from %s", c.Address, c.PreviousAddress)
+		if n > 0 {
+			s += fmt.Sprintf(", %d changed", n)
+		}
+		return s
+	case c.Imported:
+		s := fmt.Sprintf("⤓ %s · imported", c.Address)
+		if c.ImportID != "" {
+			s = fmt.Sprintf("⤓ %s · imported (id=%q)", c.Address, c.ImportID)
+		}
+		if n > 0 {
+			s += fmt.Sprintf(", %d changed", n)
+		}
+		return s
+	case c.Action == model.ActionAdd:
+		return fmt.Sprintf("+ %s · %d attrs", c.Address, n)
+	case c.Action == model.ActionDestroy:
+		return fmt.Sprintf("- %s · %d attrs", c.Address, n)
+	case c.Action == model.ActionReplace:
 		return fmt.Sprintf("± %s · replace", c.Address)
 	default:
-		return fmt.Sprintf("~ %s · %d changed", c.Address, len(c.Fields))
+		return fmt.Sprintf("~ %s · %d changed", c.Address, n)
 	}
 }
 
@@ -228,14 +269,17 @@ func fieldSym(a model.Action) string {
 		return "+"
 	case model.ActionDestroy:
 		return "-"
+	case model.ActionForget:
+		return "⊘"
 	default:
 		return "~"
 	}
 }
 
-// alignLeaves renders leaves as `op path = value`, padding paths so the `=`
-// signs align.
-func alignLeaves(leaves []model.Leaf) []string {
+// alignLeaves renders leaves as "op path = value", padding paths so the "="
+// signs align. A non-empty forceSym overrides each leaf's own op glyph (used by
+// forget rows to mark every attribute with ⊘).
+func alignLeaves(leaves []model.Leaf, forceSym string) []string {
 	w := 0
 	for _, l := range leaves {
 		if len(l.Path) > w {
@@ -245,7 +289,11 @@ func alignLeaves(leaves []model.Leaf) []string {
 	out := make([]string, 0, len(leaves))
 	for _, l := range leaves {
 		pad := strings.Repeat(" ", w-len(l.Path))
-		out = append(out, fmt.Sprintf("%s %s%s = %s", l.Op.Sym(), l.Path, pad, l.Value()))
+		sym := l.Op.Sym()
+		if forceSym != "" {
+			sym = forceSym
+		}
+		out = append(out, fmt.Sprintf("%s %s%s = %s", sym, l.Path, pad, l.Value()))
 	}
 	return out
 }
@@ -264,9 +312,15 @@ func renderMinimal(b *strings.Builder, r model.Report) {
 		total.Change += s.Counts.Change
 		total.Destroy += s.Counts.Destroy
 		total.Replace += s.Counts.Replace
+		total.Import += s.Counts.Import
+		total.Move += s.Counts.Move
+		total.Forget += s.Counts.Forget
 	}
 	line := fmt.Sprintf("%d stacks · %d adds · %d changes · %d destroys · %d replaces",
 		len(r.Stacks), total.Add, total.Change, total.Destroy, total.Replace)
+	if total.Import+total.Move+total.Forget > 0 {
+		line += fmt.Sprintf(" · %d imports · %d moves · %d forgets", total.Import, total.Move, total.Forget)
+	}
 	fmt.Fprintf(b, "### %s\n\n%s\n", r.Title, line)
 	if r.Notice != "" {
 		fmt.Fprintf(b, "\n%s\n", r.Notice)
@@ -287,10 +341,26 @@ func changeWord(c model.Counts) string {
 	if c.Replace > 0 {
 		parts = append(parts, fmt.Sprintf("%d replace", c.Replace))
 	}
+	parts = append(parts, extrasParts(c)...)
 	if len(parts) == 0 {
 		return "no changes"
 	}
 	return strings.Join(parts, ", ")
+}
+
+// extrasParts returns the move/import/forget count phrases (empty when none).
+func extrasParts(c model.Counts) []string {
+	var parts []string
+	if c.Import > 0 {
+		parts = append(parts, fmt.Sprintf("%d import", c.Import))
+	}
+	if c.Move > 0 {
+		parts = append(parts, fmt.Sprintf("%d move", c.Move))
+	}
+	if c.Forget > 0 {
+		parts = append(parts, fmt.Sprintf("%d forget", c.Forget))
+	}
+	return parts
 }
 
 func itoa(n int) string { return fmt.Sprintf("%d", n) }

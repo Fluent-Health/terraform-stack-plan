@@ -68,17 +68,67 @@ func TestParseMixedActions(t *testing.T) {
 	}
 }
 
-func TestForgetActionExcluded(t *testing.T) {
+func TestForgetActionSurfaced(t *testing.T) {
 	rs := load(t, "forget.json")
-	// forget resource must be excluded; only the update should remain
-	if rs.Counts != (model.Counts{Change: 1}) {
-		t.Fatalf("counts = %+v, want Change:1 (forget excluded)", rs.Counts)
+	// forget is now surfaced: the update plus the forget, with Forget counted.
+	if rs.Counts != (model.Counts{Change: 1, Forget: 1}) {
+		t.Fatalf("counts = %+v, want Change:1 Forget:1", rs.Counts)
 	}
-	if len(rs.Changes) != 1 {
-		t.Fatalf("want 1 change (forget excluded), got %d", len(rs.Changes))
+	if len(rs.Changes) != 2 {
+		t.Fatalf("want 2 changes (update + forget), got %d", len(rs.Changes))
 	}
-	if rs.Changes[0].Address != "a.update" {
-		t.Fatalf("expected a.update, got %s", rs.Changes[0].Address)
+	var fg *RawChange
+	for i := range rs.Changes {
+		if rs.Changes[i].Address == "a.forget" {
+			fg = &rs.Changes[i]
+		}
+	}
+	if fg == nil {
+		t.Fatal("forget change missing")
+	}
+	if fg.Action != model.ActionForget {
+		t.Fatalf("forget action = %q, want forget", fg.Action)
+	}
+	if len(fg.Attrs) == 0 || fg.Attrs[0].Before != "b" {
+		t.Fatalf("forget should carry before-attrs, got %+v", fg.Attrs)
+	}
+}
+
+func TestMovedAndImported(t *testing.T) {
+	data := []byte(`{
+	  "format_version": "1.2",
+	  "resource_changes": [
+	    {"address":"a.new","previous_address":"a.old","type":"t","name":"new",
+	     "change":{"actions":["no-op"],"before":{"x":"1"},"after":{"x":"1"},
+	       "after_unknown":{},"before_sensitive":{},"after_sensitive":{}}},
+	    {"address":"b.imported","type":"t","name":"imported",
+	     "change":{"actions":["no-op"],"importing":{"id":"i-0abc"},
+	       "before":{"x":"1"},"after":{"x":"1"},
+	       "after_unknown":{},"before_sensitive":{},"after_sensitive":{}}},
+	    {"address":"c.skip","type":"t","name":"skip",
+	     "change":{"actions":["no-op"],"before":{"x":"1"},"after":{"x":"1"},
+	       "after_unknown":{},"before_sensitive":{},"after_sensitive":{}}}
+	  ]
+	}`)
+	rs, err := Parse("s", data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rs.Counts.Move != 1 || rs.Counts.Import != 1 {
+		t.Fatalf("counts = %+v, want Move:1 Import:1", rs.Counts)
+	}
+	if len(rs.Changes) != 2 { // plain no-op c.skip is dropped
+		t.Fatalf("want 2 changes (moved + imported), got %d", len(rs.Changes))
+	}
+	byAddr := map[string]RawChange{}
+	for _, c := range rs.Changes {
+		byAddr[c.Address] = c
+	}
+	if mv := byAddr["a.new"]; !mv.Moved || mv.PreviousAddress != "a.old" || mv.Action != model.ActionNoop {
+		t.Fatalf("moved parse wrong: %+v", mv)
+	}
+	if im := byAddr["b.imported"]; !im.Imported || im.ImportID != "i-0abc" || im.Action != model.ActionNoop {
+		t.Fatalf("imported parse wrong: %+v", im)
 	}
 }
 

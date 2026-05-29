@@ -10,18 +10,23 @@ const (
 	ActionChange  Action = "change"
 	ActionDestroy Action = "destroy"
 	ActionReplace Action = "replace"
+	ActionForget  Action = "forget" // removed from state, real resource kept
+	ActionNoop    Action = "noop"   // no config change; carries a move/import annotation
 )
 
-// Counts holds per-stack action tallies (no-ops excluded).
+// Counts holds per-stack action tallies (pure no-ops excluded). Move/Import/
+// Forget are tracked separately from the create/change/destroy/replace buckets.
 type Counts struct {
 	Add, Change, Destroy, Replace int
+	Move, Import, Forget          int
 }
 
-// Total returns the sum of all action counts.
+// Total returns the sum of the create/change/destroy/replace buckets.
 func (c Counts) Total() int { return c.Add + c.Change + c.Destroy + c.Replace }
 
-// AnyChange reports whether the stack has at least one non-no-op change.
-func (c Counts) AnyChange() bool { return c.Total() > 0 }
+// AnyChange reports whether the stack has anything worth rendering — a config
+// change, or a move / import / forget.
+func (c Counts) AnyChange() bool { return c.Total()+c.Move+c.Import+c.Forget > 0 }
 
 // Class is the classification result for a stack.
 type Class struct {
@@ -137,7 +142,14 @@ type Change struct {
 	Address string
 	Type    string
 	Action  Action
-	Fields  []Field // populated for create/delete/update/replace
+	Fields  []Field // populated for create/delete/update/replace/forget
+
+	// State operations (annotations on top of Action; Action may be ActionNoop
+	// when the only change is a move or import).
+	Moved           bool
+	PreviousAddress string // old address when Moved
+	Imported        bool
+	ImportID        string // import id when Imported
 }
 
 // Stack is one stack's parsed, classified plan.

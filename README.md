@@ -104,7 +104,8 @@ Key render behaviours:
 - **Every resource is a uniform `<details>` row** inside the stack's blockquote bar, giving a clear stack → resource hierarchy.
 - **Size-based folding:** a row is open when its body is small (≤ ~10 lines), collapsed when big — the same rule for creates, deletes, and updates.
 - **Aligned changes:** `~ path = old → new`, with `=` aligned and nested maps keeping their name via dotted paths (`+ labels.team = "platform"`).
-- **Structured (YAML/JSON) attributes** render only changed dotted paths; few changes stay inline, many collapse the row.
+- **Structured (YAML/JSON) attributes** render only changed dotted paths (with array indices like `containers[0].image`); few changes stay inline, many collapse the row.
+- **State operations** surface as rows too: moved (`↪ addr · moved from …`), imported (`⤓ addr · imported (id=…)`), and removed-from-state (`⊘ addr · forgotten`). These have no summary-table columns; their counts append to the stack's row text.
 - `--details open|auto` overrides the per-row default; zero-only columns are dropped; without a classification policy the `Class` column disappears.
 
 ### More examples
@@ -124,6 +125,10 @@ biggest diffs first, then dropping detail. These files are real tool output
 - [`examples/over-budget-minimal.md`](examples/over-budget-minimal.md) — past
   every simplification and still over budget: a one-line aggregate is emitted
   and the tool exits non-zero so CI can surface it.
+- [`examples/state-ops.md`](examples/state-ops.md) — **moved** (`↪`),
+  **imported** (`⤓`), and **removed-from-state / forget** (`⊘`) resources; a
+  nested-block change with array-index paths (`allow[0].ports[0]`); and rich
+  nested **JSON** and **YAML** diffs in small (inline) and big (folded) form.
 
 ---
 

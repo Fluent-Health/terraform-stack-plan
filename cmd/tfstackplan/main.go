@@ -147,7 +147,15 @@ func run(o opts) (string, bool, error) {
 		}
 
 		for _, rc := range raw.Changes {
-			ch := model.Change{Address: rc.Address, Type: rc.Type, Action: rc.Action}
+			ch := model.Change{
+				Address:         rc.Address,
+				Type:            rc.Type,
+				Action:          rc.Action,
+				Moved:           rc.Moved,
+				PreviousAddress: rc.PreviousAddress,
+				Imported:        rc.Imported,
+				ImportID:        rc.ImportID,
+			}
 			for _, ra := range rc.Attrs {
 				kind := cfg.Diff.Resolve(rc.Type, ra.Name)
 				f := differ.Diff(differ.Input{

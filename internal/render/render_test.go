@@ -177,6 +177,63 @@ func TestRenderBlockquoteBar(t *testing.T) {
 	}
 }
 
+func TestRenderForgetRow(t *testing.T) {
+	r := sampleReport()
+	r.Stacks[0].Counts = model.Counts{Forget: 1}
+	r.Stacks[0].Changes = []model.Change{{
+		Address: "aws_s3_bucket.legacy", Action: model.ActionForget,
+		Fields: []model.Field{
+			{Name: "bucket", Leaves: []model.Leaf{{Op: model.OpRemove, Path: "bucket", Old: `"legacy"`}}},
+			{Name: "region", Leaves: []model.Leaf{{Op: model.OpRemove, Path: "region", Old: `"us-east-1"`}}},
+		},
+	}}
+	out := Render(r)
+	if !strings.Contains(out, "⊘ aws_s3_bucket.legacy · forgotten · 2 attrs") {
+		t.Fatalf("forget row label wrong:\n%s", out)
+	}
+	if !strings.Contains(out, "⊘ bucket = \"legacy\"") {
+		t.Fatalf("forget body should use ⊘ glyph:\n%s", out)
+	}
+}
+
+func TestRenderMovedRow(t *testing.T) {
+	r := sampleReport()
+	r.Stacks[0].Counts = model.Counts{Move: 1}
+	r.Stacks[0].Changes = []model.Change{{
+		Address: "google_storage_bucket.assets", Action: model.ActionNoop,
+		Moved: true, PreviousAddress: "google_storage_bucket.legacy_assets",
+	}}
+	out := Render(r)
+	if !strings.Contains(out, "↪ google_storage_bucket.assets · moved from google_storage_bucket.legacy_assets") {
+		t.Fatalf("moved row label wrong:\n%s", out)
+	}
+	if !strings.Contains(out, "(address change only)") {
+		t.Fatalf("pure move should note address-only:\n%s", out)
+	}
+}
+
+func TestRenderImportedRow(t *testing.T) {
+	r := sampleReport()
+	r.Stacks[0].Counts = model.Counts{Import: 1}
+	r.Stacks[0].Changes = []model.Change{{
+		Address: "google_project.host", Action: model.ActionNoop,
+		Imported: true, ImportID: "my-host-project",
+	}}
+	out := Render(r)
+	if !strings.Contains(out, `⤓ google_project.host · imported (id="my-host-project")`) {
+		t.Fatalf("imported row label wrong:\n%s", out)
+	}
+}
+
+func TestRenderTableExtrasSuffix(t *testing.T) {
+	r := sampleReport()
+	r.Stacks[0].Counts = model.Counts{Move: 1, Import: 1, Forget: 1}
+	out := Render(r)
+	if !strings.Contains(out, "platform/nonprod · 1 import, 1 move, 1 forget |") {
+		t.Fatalf("table Stack cell should carry move/import/forget suffix:\n%s", out)
+	}
+}
+
 func TestRenderCreateBlockFieldRendered(t *testing.T) {
 	r := sampleReport()
 	r.Stacks[0].Changes = []model.Change{{
