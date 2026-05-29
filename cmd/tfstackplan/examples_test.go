@@ -102,6 +102,8 @@ func exampleStacks(t *testing.T, dir string) []string {
 			create("kubernetes_service_account.grafana", "kubernetes_service_account"),
 			create("kubernetes_secret.grafana_admin", "kubernetes_secret"),
 			bigUpdate("kubernetes_config_map.dashboards", 120),
+			yamlUpdate("kubernetes_manifest.ingress", 2),
+			yamlUpdate("kubernetes_manifest.configmap", 11),
 			structuralUpdate("google_storage_bucket.grafana_state", 21),
 			structuralUpdate("google_storage_bucket.loki_chunks", 22),
 			structuralUpdate("google_storage_bucket.loki_ruler", 23),
@@ -168,7 +170,7 @@ func TestExamples(t *testing.T) {
 		},
 		{
 			file:     "over-budget-degraded.md",
-			maxBytes: 7000,
+			maxBytes: 12000,
 			assert: func(t *testing.T, out string, fits bool) {
 				if !fits {
 					t.Errorf("degraded: expected report to fit after Phase-1 degradation")

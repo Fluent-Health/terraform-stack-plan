@@ -84,6 +84,26 @@ func sensitiveUpdate(addr string) change {
 	})
 }
 
+// yamlUpdate changes a few keys of a YAML string attribute — the structural
+// (changed-paths-only) case. changed controls how many keys differ (few →
+// inline structural leaves, many → folded block).
+func yamlUpdate(addr string, changed int) change {
+	var before, after strings.Builder
+	before.WriteString("spec:\n")
+	after.WriteString("spec:\n")
+	for i := 0; i < 12; i++ {
+		fmt.Fprintf(&before, "  key_%02d: old\n", i)
+		v := "old"
+		if i < changed {
+			v = "new"
+		}
+		fmt.Fprintf(&after, "  key_%02d: %s\n", i, v)
+	}
+	return update(addr, "kubernetes_manifest",
+		map[string]any{"manifest": before.String()},
+		map[string]any{"manifest": after.String()})
+}
+
 // bigUpdate produces an update whose attribute is a large multi-line string,
 // giving `fit` a big line-diff variant it can degrade to a summary line. The
 // resource type deliberately avoids "iam" so it doesn't perturb classification.
