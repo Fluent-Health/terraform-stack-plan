@@ -245,8 +245,8 @@ func leafField(in Input, op model.LeafOp, marker string) model.Field {
 }
 
 // scalarLeaf builds a one-leaf field from already-rendered scalar strings.
-func scalarLeaf(attr string, op model.LeafOp, old, new string) model.Field {
-	return model.Field{Name: attr, Leaves: []model.Leaf{{Op: op, Path: attr, Old: old, New: new}}}
+func scalarLeaf(attr string, op model.LeafOp, old, nw string) model.Field {
+	return model.Field{Name: attr, Leaves: []model.Leaf{{Op: op, Path: attr, Old: old, New: nw}}}
 }
 
 // blockField wraps a variant ladder (built by the existing helpers) as a Field.
@@ -275,12 +275,6 @@ func firstNonEmpty(a, b string) string {
 		return a
 	}
 	return b
-}
-
-// inline returns a one-variant ladder.
-func inline(attr, body string) model.AttrDiff {
-	content := fmt.Sprintf("~ %s: %s", attr, body)
-	return single(attr, model.LevelInline, content)
 }
 
 func single(attr string, lvl model.Level, content string) model.AttrDiff {
