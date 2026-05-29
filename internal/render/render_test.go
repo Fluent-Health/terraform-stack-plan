@@ -282,3 +282,25 @@ func TestRenderBlockFieldInResourceBody(t *testing.T) {
 		t.Fatalf("block field must not be a separate sub-details:\n%s", out)
 	}
 }
+
+func TestRenderHeaderLinks(t *testing.T) {
+	r := sampleReport()
+	r.HeaderLinks = []model.Link{{Label: "PR #1", URL: "https://x/1"}, {Label: "Build", URL: "https://x/b"}}
+	out := Render(r)
+	if !strings.Contains(out, "[PR #1](https://x/1) · [Build](https://x/b)") {
+		t.Fatalf("header links line missing:\n%s", out)
+	}
+}
+
+func TestRenderStackAndResourceLinks(t *testing.T) {
+	r := sampleReport()
+	r.Stacks[0].URL = "https://x/stack"
+	r.Stacks[0].Changes[0].URL = "https://x/res"
+	out := Render(r)
+	if !strings.Contains(out, `<a href="https://x/stack">platform/nonprod</a>`) {
+		t.Fatalf("stack link missing:\n%s", out)
+	}
+	if !strings.Contains(out, `<a href="https://x/res">google_storage_bucket.tfstate</a>`) {
+		t.Fatalf("resource link missing:\n%s", out)
+	}
+}
