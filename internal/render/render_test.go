@@ -160,4 +160,7 @@ func TestRenderLargeAttrFolds(t *testing.T) {
 	if !strings.Contains(out, "<details><summary>~ data") {
 		t.Fatalf("large attr should fold into a nested details:\n%s", out)
 	}
+	if !strings.Contains(out, "- old") || !strings.Contains(out, "+ new") {
+		t.Fatalf("folded block should contain the selected variant's diff:\n%s", out)
+	}
 }

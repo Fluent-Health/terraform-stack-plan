@@ -164,10 +164,10 @@ func renderResource(b *strings.Builder, c model.Change) {
 		return
 	}
 
-	// update / replace: inline leaves in a fence, then block fields fold.
-	verb := ""
+	// ActionChange and ActionReplace: inline leaves, then block fields fold.
+	suffix := ""
 	if c.Action == model.ActionReplace {
-		verb = " · replace"
+		suffix = " · replace"
 	}
 	var inline []model.Leaf
 	var blocks []model.Field
@@ -179,7 +179,7 @@ func renderResource(b *strings.Builder, c model.Change) {
 		}
 	}
 	b.WriteString("\n```diff\n")
-	fmt.Fprintf(b, "# %s%s\n", c.Address, verb)
+	fmt.Fprintf(b, "# %s%s\n", c.Address, suffix)
 	for _, line := range alignLeaves(inline) {
 		b.WriteString(line)
 		b.WriteString("\n")
