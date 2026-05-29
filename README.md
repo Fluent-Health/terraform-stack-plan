@@ -15,72 +15,71 @@ that need extra review (IAM, destructive changes, …).
 
 ## What it looks like
 
-A run over three stacks, with classification enabled:
+A run over three stacks, with classification enabled. The reviewer sees a
+scannable summary table…
+
+> ### Terraform plan — nonprod  (3 stacks changed)
+>
+> | Stack | Add | Change | Destroy | Class |
+> | --- | ---: | ---: | ---: | --- |
+> | platform/nonprod | 0 | 2 | 0 | 🔐 iam |
+> | service-projects/app-dev | 1 | 2 | 0 | ✅ safe |
+> | data/warehouse | 0 | 0 | 2 | 💣 destructive |
+
+…and expands each stack on demand. The full posted comment:
 
 ````markdown
 <!-- tfstackplan:nonprod -->
 ### Terraform plan — nonprod  (3 stacks changed)
 
-| Stack | Add | Change | Destroy | Replace | Class |
-| --- | ---: | ---: | ---: | ---: | --- |
-| platform/nonprod | 0 | 1 | 0 | 0 | 🔐 iam |
-| service-projects/app-dev | 1 | 0 | 1 | 1 | 💣 destructive |
-| service-projects/app-test | 0 | 1 | 0 | 0 | ✅ safe |
+| Stack | Add | Change | Destroy | Class |
+| --- | ---: | ---: | ---: | --- |
+| platform/nonprod | 0 | 2 | 0 | 🔐 iam |
+| service-projects/app-dev | 1 | 2 | 0 | ✅ safe |
+| data/warehouse | 0 | 0 | 2 | 💣 destructive |
 
-<details><summary>platform/nonprod · 🔐 iam · 1 change</summary>
+<details><summary>platform/nonprod · 🔐 iam · 2 change</summary>
 
 ```diff
-# google_project_iam_member.editor will be updated in-place
-~ role: "roles/viewer" -> "roles/editor"
+# google_project_iam_member.data_engineers will be updated in-place
+~ role: "roles/bigquery.dataViewer" -> "roles/bigquery.dataEditor"
+
+# google_storage_bucket.tfstate will be updated in-place
+  + team: platform
+~ retention_days: 7 -> 30
+  ~ enabled: false -> true
 ```
 
 </details>
 
-<details><summary>service-projects/app-dev · 💣 destructive · 1 add, 1 destroy, 1 replace</summary>
+<details><summary>service-projects/app-dev · ✅ safe · 1 add, 2 change</summary>
 
 ```diff
-+ a.create
-- a.del
-# a.repl will be replaced
-~ name: "x" -> "y"
++ google_service_account.api
+# kubernetes_deployment.api will be updated in-place
+  ~ replicas: 2 -> 4
+  ~ template.spec.container.image: api:1.4.2 -> api:1.5.0
+
+# google_secret_manager_secret_version.db_password will be updated in-place
+~ secret_data: (sensitive value)
+```
+
+</details>
+
+<details><summary>data/warehouse · 💣 destructive · 2 destroy</summary>
+
+```diff
+- google_bigquery_dataset.legacy_events
+- google_storage_bucket.legacy_exports
 ```
 
 </details>
 ````
 
-The reviewer sees a scannable summary table…
-
-> ### Terraform plan — nonprod  (3 stacks changed)
->
-> | Stack | Add | Change | Destroy | Replace | Class |
-> | --- | ---: | ---: | ---: | ---: | --- |
-> | platform/nonprod | 0 | 1 | 0 | 0 | 🔐 iam |
-> | service-projects/app-dev | 1 | 0 | 1 | 1 | 💣 destructive |
-> | service-projects/app-test | 0 | 1 | 0 | 0 | ✅ safe |
-
-…then expands each `▸ stack · class · summary` row to its diff on demand.
-
-With no classification configured, the `Class` column and per-stack class label
-simply disappear — counts and diffs only:
-
-```markdown
-<!-- tfstackplan:nonprod -->
-### Terraform plan  (2 stacks changed)
-
-| Stack | Add | Change | Destroy | Replace |
-| --- | ---: | ---: | ---: | ---: |
-| platform/nonprod | 0 | 1 | 0 | 0 |
-| service-projects/app-dev | 1 | 0 | 1 | 1 |
-```
-
-Details:
-
-- All `<details>` start **collapsed** (override with `--details open|auto`).
-- A column that is zero across every stack is omitted.
-- The first line is the marker HTML comment, so CI can upsert one comment per
-  tier.
-- The report is kept under GitHub's 65,536-byte comment cap — `fit` degrades the
-  largest diffs first (see [`docs/DESIGN.md`](docs/DESIGN.md)).
+`<details>` start collapsed (override with `--details open|auto`), zero-only
+columns are dropped, and the marker comment on line 1 lets CI upsert one comment
+per tier. Without a classification policy the `Class` column and labels simply
+disappear — counts and diffs only.
 
 ---
 
