@@ -442,6 +442,14 @@ the budget entirely.
   / `forget` (`⊘`); counts appended to the Stack cell (no new columns).
 - **Contextual diffs** for all structured values (JSON/YAML strings and native
   HCL maps/lists) — canonical reformat, 2 lines of context, `-`/`+` changes.
+- **Source-aware links** — header (build/PR/commit), stack (→ dir), and resource
+  (→ its `.tf` declaration `file#Lline`) links. URL templates live in a `links {}`
+  HCL block; run values come from `--link-var`/`--repo-root`. `internal/source`
+  parses each stack's `.tf` (+ `.terraform/modules/modules.json` for local
+  modules) to resolve a resource → file:line; unresolvable resources fall back
+  to the stack link. The plan JSON carries no source location, so the source
+  tree is the input. Deep-linking to the PR diff hunk is not possible (GitHub
+  limitation); links point at the block at `{sha}`.
 
 ## Future / deferred
 

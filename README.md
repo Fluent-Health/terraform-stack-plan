@@ -288,6 +288,54 @@ diff {
 
 ---
 
+## Links (optional)
+
+The report can link out to your code and CI. URL **templates** live in the HCL
+policy; per-run **values** are supplied with `--link-var key=value` (repeatable)
+and `--repo-root` (base for computing file paths). The tool runs alongside the
+source, so it parses each stack's `.tf` (and modules resolved via
+`.terraform/modules/modules.json`) to find where each changed resource is
+declared and links the resource address to that `file#Lline` at the commit.
+
+```hcl
+links {
+  resource = "https://github.com/org/infra/blob/{sha}/{file}#L{line}"
+  stack    = "https://github.com/org/infra/tree/{sha}/{stack_dir}"
+  header {
+    label = "Cloud Build #{build_id}"
+    url   = "https://console.cloud.google.com/cloud-build/builds/{build_id}?project={project}"
+  }
+  header {
+    label = "PR #{pr}"
+    url   = "https://github.com/org/infra/pull/{pr}"
+  }
+}
+```
+
+```bash
+tfstackplan --manifest plan.yaml --config .tfstackplan.hcl \
+  --repo-root . \
+  --link-var sha=$COMMIT_SHA --link-var pr=$_PR_NUMBER \
+  --link-var build_id=$BUILD_ID --link-var project=$PROJECT_ID
+```
+
+- **Three levels:** `header` (a line of links under the title), `stack` (the
+  stack heading → its directory at the commit), and `resource` (the resource
+  address → its `.tf` declaration at the commit).
+- **Template vars** are tool-computed — `{file}`, `{line}`, `{stack}`,
+  `{stack_dir}`, `{type}`, `{name}`, `{address}`, `{module}`, `{sha_short}` — or
+  supplied via `--link-var` (`{sha}`, `{build_id}`, `{pr}`, `{project}`, …). A
+  template that references a missing var renders empty, so that link is omitted
+  — partially-configured runs degrade cleanly.
+- **Stack source dir** is each stack's `dir` in the manifest, defaulting to the
+  directory of its `plan` file.
+- **Fallback:** a resource the tool can't resolve to a repo file (remote/cached
+  module, un-`init`-ed stack, parse gap) falls back to the **stack** link, never
+  a dead end. Deep-linking to the PR *diff hunk* isn't possible (GitHub
+  limitation) — the resource link points at its block at `{sha}`.
+
+---
+
 ## CLI reference
 
 ```
@@ -297,13 +345,15 @@ tfstackplan [--manifest FILE | --stack NAME:PATH ...]
             [--max-bytes N]                 # default 60000; 0 disables
             [--details auto|open|closed]    # default closed (auto = open iff one stack changed)
             [--emit-classification-json FILE]
+            [--repo-root DIR]               # base for link file paths (default ".")
+            [--link-var key=value]          # link template var (repeatable)
             [--output FILE | -]             # default '-' (stdout)
             [--version]
 ```
 
 `--manifest` and `--stack` are mutually exclusive. `--title` / `--marker` on the
 command line override the manifest. With no `--config` and no `.tfstackplan.hcl`
-present, classification is off and diffs use defaults.
+present, classification is off, diffs use defaults, and no links are emitted.
 
 ---
 
