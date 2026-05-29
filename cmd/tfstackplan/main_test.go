@@ -247,12 +247,15 @@ classification {
 		t.Fatalf("iam attributes.project = %v, want %v", iam.Attributes["project"], want)
 	}
 
-	// Safe stack: "attributes" key must be absent entirely (omitempty), even
-	// though its bucket has a "project" attribute.
+	// Safe stack: the "attributes" key must be absent entirely (omitempty),
+	// even though its bucket carries a "project" attribute.
+	if safe := got["data/warehouse"]; safe.Attributes != nil {
+		t.Fatalf("safe stack must not emit attributes, got %v", safe.Attributes)
+	}
 	if !strings.Contains(string(data), "platform/nonprod") {
 		t.Fatal("sidecar missing iam stack")
 	}
 	if strings.Contains(string(data), "fh-data") {
-		t.Fatal("safe stack must not emit attributes (omitempty); found its project")
+		t.Fatal("safe stack must not emit attributes (omitempty); found its project in raw JSON")
 	}
 }

@@ -134,3 +134,21 @@ func TestEmitMultipleAttributes(t *testing.T) {
 		t.Errorf("role = %v, want [roles/viewer]", got.Attributes["role"])
 	}
 }
+
+func TestEmitAttributesNilWhenRuleBelowMinCount(t *testing.T) {
+	// Rule matches the type but MinCount (2) is not met → it doesn't fire, the
+	// stack falls through to default, and no attributes are emitted.
+	rules := []Rule{{
+		Name: "iam", TypePattern: regexp.MustCompile(`_iam_`), MinCount: 2,
+		EmitAttributes: []string{"project"},
+	}}
+	got := Classify(
+		stack(plan.RawChange{Type: "google_project_iam_member", Actions: []string{"create"}, Raw: map[string]any{"project": "p1"}}),
+		rules, model.Class{Name: "safe"})
+	if got.Class.Name != "safe" {
+		t.Fatalf("class = %q, want safe (rule below MinCount must not fire)", got.Class.Name)
+	}
+	if got.Attributes != nil {
+		t.Fatalf("Attributes = %v, want nil", got.Attributes)
+	}
+}
