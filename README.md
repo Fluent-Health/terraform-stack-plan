@@ -109,47 +109,61 @@ each repo that needs it.
 
 ### Inputs
 
-The tool takes a set of `(stack-name, plan-json-path)` pairs plus optional
-metadata per stack:
+There are two kinds of input, kept deliberately separate:
 
-```bash
-tfstackplan \
-  --stack platform/nonprod:./out/platform-nonprod/plan.json:iam \
-  --stack service-projects/app-dev:./out/app-dev/plan.json:safe \
-  --title "Terraform plan — nonprod" \
-  --marker tfstackplan:nonprod \
-  --output report.md
-```
+1. **The per-run stack list** (the *what*) — which stacks changed and where
+   their plan JSON lives. Passed via repeated `--stack NAME:PATH` flags…
 
-Or via a manifest file (JSON / YAML) for ergonomics:
+   ```bash
+   tfstackplan \
+     --stack platform/nonprod:./out/platform-nonprod/plan.json \
+     --stack service-projects/app-dev:./out/app-dev/plan.json \
+     --title "Terraform plan — nonprod" \
+     --marker tfstackplan:nonprod \
+     --output report.md
+   ```
 
-```yaml
-title: "Terraform plan — nonprod"
-marker: "tfstackplan:nonprod"
-stacks:
-  - name: platform/nonprod
-    plan: ./out/platform-nonprod/plan.json
-  - name: service-projects/app-dev
-    plan: ./out/app-dev/plan.json
-```
+   …or, for ergonomics, a manifest file (JSON / YAML):
 
-If a `classification:` block is present, the tool computes the `class` per
-stack from the plan JSON (see next section). Otherwise stacks default to
-unclassified — adds/changes/destroys only, no class column or icon.
+   ```yaml
+   title: "Terraform plan — nonprod"
+   marker: "tfstackplan:nonprod"
+   stacks:
+     - name: platform/nonprod
+       plan: ./out/platform-nonprod/plan.json
+     - name: service-projects/app-dev
+       plan: ./out/app-dev/plan.json
+   ```
 
-A caller can also pin `class:` per-stack to override auto-classification.
+   The manifest carries *only* `title`, `marker`, and the `stacks` list. It
+   has no per-stack class, icon, or other metadata — that is computed, not
+   supplied (see below).
+
+2. **The policy** (the *how*) — an HCL file (`.tfstackplan.hcl`, auto-discovered
+   in the working directory or pointed at with `--config`) that declares
+   classification rules and diff handling. This is repo-level config, checked
+   in once, not part of any single run.
+
+> **Classification is an output, not an input.** Earlier drafts let callers
+> tag each stack with a `class:` in the manifest (or as a third `:CLASS` field
+> on `--stack`). That is gone. The tool *derives* a class per stack by running
+> the plan JSON against the policy's rules, then surfaces it in the Class
+> column, the `<details>` heading, and the optional
+> `--emit-classification-json` sidecar. If no policy file is present, stacks
+> are unclassified — adds/changes/destroys only, no Class column or icon.
 
 ### Behaviour
 
 - **Counts:** parse each plan.json and count `resource_changes` by primary
   action (`create`, `update`, `delete`, `replace`, `no-op`). Drive the summary
   table.
-- **Per-stack diff:** render each plan via either:
-  - A built-in renderer (sufficient for GCP/AWS, generic enough for Azure), or
-  - Shelling out to `tfplan2md` for compatibility (each invocation is one
-    plan in / one block out — exactly tfplan2md's sweet spot).
-- **Optional classification** (see next section): when the manifest defines
-  `classification:` rules, the tool computes a class per stack and shows it
+- **Per-stack diff:** render each plan with the built-in renderer — a
+  self-contained differ that sniffs attribute values (JSON, YAML, base64,
+  plain) and picks a sensible diff style per attribute. No external binary
+  is required. (The original plan was to shell out to `tfplan2md`; that was
+  dropped in favour of an in-process renderer — see Design decisions.)
+- **Optional classification** (see next section): when a policy file defines
+  classification rules, the tool computes a class per stack and shows it
   in the summary table + `<details>` heading. When absent, no class column —
   the tool degrades gracefully for simple use cases.
 - **Collapsed by default.** All `<details>` start closed. Reviewer expands what
@@ -164,62 +178,97 @@ A caller can also pin `class:` per-stack to override auto-classification.
 
 ## Classification (optional)
 
-A `classification:` block in the manifest turns on auto-classification. Each
-stack's plan JSON is scanned against ordered rules; the first matching rule
-sets the class. Stacks with no match fall back to `default:`.
+Classification is configured in the **HCL policy file** (`.tfstackplan.hcl`),
+*not* in the manifest. The presence of a `classification {}` block turns it on.
+Each stack's plan JSON is scanned against the block's ordered rules; the first
+rule that matches enough changes sets the class. Stacks with no match fall back
+to the configured `default`.
 
-```yaml
-classification:
-  default: safe                  # class used when no rule matches
-  rules:
-    - name: iam
-      icon: "⚠️"
-      resource_type_pattern: '^(google|google-beta)_[a-z_]*_iam_(policy|binding|member|audit_config)$'
-    - name: destructive
-      icon: "💣"
-      actions: ["delete"]
-      min_count: 1
-    - name: schema-migration
-      icon: "🗄️"
-      resource_type_pattern: '^google_sql_database$|^google_bigquery_dataset$'
-      actions: ["update", "replace"]
+```hcl
+# .tfstackplan.hcl
+classification {
+  default {
+    name = "safe"
+    icon = "✅"
+  }
 
-stacks:
-  - name: platform/nonprod
-    plan: ./out/platform-nonprod/plan.json
-  - name: service-projects/app-dev
-    plan: ./out/app-dev/plan.json
+  # A built-in preset: ships a ready-made matcher; you only choose the icon.
+  preset "iam" {
+    icon = "🔐"
+  }
+
+  # A hand-written rule.
+  rule "destructive" {
+    icon      = "💣"
+    actions   = ["delete"]
+    min_count = 1
+  }
+}
 ```
 
-**Rule matcher** stays deliberately small — no DSL, no boolean expressions:
+`preset` and `rule` blocks are evaluated **top-to-bottom in source order**;
+the first to fire wins, so put the most important classes first.
 
-| Field                   | Meaning                                                            | Default          |
-|-------------------------|--------------------------------------------------------------------|------------------|
-| `name`                  | The class name, shown in the summary table                         | required         |
-| `icon`                  | Glyph prepended to the name (e.g. `⚠️`)                            | none             |
-| `resource_type_pattern` | Regex matched against each change's `type` (e.g. `google_compute_instance`) | `.*` (any)       |
-| `actions`               | List of action strings; rule matches if ALL listed appear in change's `actions[]` | any action       |
-| `min_count`             | Minimum number of matching changes for the rule to apply           | 1                |
+### Presets
 
-Rules are evaluated top-to-bottom; first hit wins. A rule with no matcher
-fields is a catch-all.
+A `preset "<name>" {}` block pulls in a built-in, maintained matcher so a repo
+can classify common cases without hand-writing regexes. Only the `icon` is
+configurable; the matcher itself is fixed.
+
+| Preset | Matches | Default icon |
+|--------|---------|--------------|
+| `iam`  | IAM resources across GCP (`*_iam_{policy,binding,member,audit_config}`), AWS (`aws_iam_*`), and Azure (`azurerm_role_{assignment,definition}`). Any action — an in-place policy update still classifies as `iam`. | `🔐` |
+
+Referencing an unknown preset is an error that lists the available names.
+
+### Custom rules
+
+A `rule "<name>" {}` block is a hand-written matcher. The class name comes from
+the block label. The matcher stays deliberately small — no DSL, no boolean
+expressions:
+
+| Field                   | Meaning                                                                            | Default    |
+|-------------------------|------------------------------------------------------------------------------------|------------|
+| *(label)*               | The class name, shown in the summary table (e.g. `rule "destructive"`)             | required   |
+| `icon`                  | Glyph prepended to the name (e.g. `💣`)                                            | none       |
+| `resource_type_pattern` | Regex matched against each change's `type` (e.g. `google_compute_instance`)        | `.*` (any) |
+| `actions`               | List of action strings; a change matches only if ALL listed actions appear in it   | any action |
+| `min_count`             | Minimum number of matching changes for the rule to fire                            | 1          |
+
+A rule with no matcher fields is a catch-all (every change matches).
+
+### The `default` class
+
+`default` sets the class for stacks no rule matched. Use the block form for an
+icon, or the shorthand string form for name-only:
+
+```hcl
+classification {
+  default = "safe"          # shorthand: name only, no icon
+}
+```
 
 ### Sidecar JSON output
 
-When classification is enabled, the tool can emit a structured artefact for
-CI to consume programmatically:
+Because the class is computed, CI often wants it as structured data rather than
+re-parsing the markdown. With classification enabled, `--emit-classification-json`
+writes the computed class per stack:
 
 ```bash
-tfstackplan --manifest plan.yaml --output report.md \
+tfstackplan --manifest plan.yaml --config .tfstackplan.hcl \
+              --output report.md \
               --emit-classification-json classes.json
 ```
 
 ```json
 {
-  "platform/nonprod":             { "class": "iam",  "icon": "⚠️" },
-  "service-projects/app-dev": { "class": "safe", "icon": null }
+  "platform/nonprod":         { "class": "iam",  "icon": "🔐" },
+  "service-projects/app-dev": { "class": "safe", "icon": "✅" }
 }
 ```
+
+`icon` is `null` when the matched class has no glyph. The flag is a no-op when
+classification isn't configured.
 
 This is what lets a CI pipeline drive gating logic (e.g. "if any class is
 `iam`, request a PAM grant before merge") off the same source of truth that
@@ -229,67 +278,105 @@ code in bash.
 ### Why optional
 
 The simplest team — one stack per PR, no privileged-resource gating —
-should be able to use this tool with zero config beyond `stacks:` and get a
-clean tier-summary + diffs report. Classification is for teams running
+should be able to use this tool with zero config (no policy file at all) and
+get a clean tier-summary + diffs report. Classification is for teams running
 gated pipelines; it shouldn't be a tax on everyone else.
 
-### CLI surface (rough)
+---
+
+## Diff configuration (optional)
+
+The same HCL policy file can tune how per-attribute diffs are rendered, via a
+`diff {}` block. Like classification, it's entirely optional — with no policy
+file, sensible defaults apply.
+
+```hcl
+diff {
+  detect              = true   # sniff JSON/YAML/base64 values (default: true)
+  max_attribute_lines = 200    # optional skimmability ceiling; unset = global fit decides
+
+  # Force a specific differ for a (resource type, attribute) pair.
+  rule {
+    resource_type_pattern = "^kubernetes_manifest$"
+    attribute             = "manifest"
+    differ                = "yaml"
+  }
+}
+```
+
+| Field                     | Meaning                                                                   | Default        |
+|---------------------------|---------------------------------------------------------------------------|----------------|
+| `detect`                  | Auto-sniff structured attribute values (JSON / YAML / base64)             | `true`         |
+| `max_attribute_lines`     | Cap on lines rendered per attribute diff                                  | unset (fit decides) |
+| `rule.resource_type_pattern` | Regex selecting which resource types the override applies to            | any            |
+| `rule.attribute`          | Glob matched against the attribute name                                   | any            |
+| `rule.differ`             | Differ to force for matching attributes (e.g. `yaml`)                     | auto           |
+
+### CLI surface
 
 ```
-tfstackplan [--manifest FILE | --stack NAME:PATH[:CLASS] ...]
+tfstackplan [--manifest FILE | --stack NAME:PATH ...]
               [--title TEXT]
               [--marker TEXT]
-              [--render auto|builtin|tfplan2md]
-              [--max-bytes N]
-              [--details auto|open|closed]
+              [--config FILE]                 # HCL policy; default: auto-discover .tfstackplan.hcl
+              [--max-bytes N]                 # default 60000; 0 disables
+              [--details auto|open|closed]    # default closed
               [--emit-classification-json FILE]
-              [--output FILE | -]
+              [--output FILE | -]             # default '-' (stdout)
+              [--version]
 ```
 
-`--render=tfplan2md` shells out to the `tfplan2md` binary per stack.
-`--render=builtin` uses an in-process renderer (faster, no dependency).
-`--render=auto` picks `tfplan2md` if it's on PATH, else builtin.
+`--manifest` and `--stack` are mutually exclusive. `--title` and `--marker`
+on the command line override values from the manifest.
+
+`--config` points at the HCL policy file; if omitted, `.tfstackplan.hcl` in the
+working directory is auto-discovered. With no policy file, classification is off
+and diffs use defaults.
 
 `--emit-classification-json` writes the computed class per stack as JSON
 (see [§Classification](#classification-optional)). No-op when classification
 isn't configured.
 
+`--details` controls the `<details>` disclosure state: `closed` (default),
+`open`, or `auto` (open only when exactly one stack changed).
+
 ---
 
-## Design decisions to make before coding
+## Design decisions (resolved)
 
-1. **Language.** Go and Rust both compile to single static binaries — easy to
-   ship via Homebrew + Docker the way `tfplan2md` does. Python is faster to
-   prototype but ships less cleanly. **Lean: Go** (closest to the Terraform
-   ecosystem; `terraform-json` is a Go module, easy parsing of plan JSON).
+1. **Language → Go.** Compiles to a single static binary — easy to ship via
+   Homebrew + Docker the way `tfplan2md` does — and it's closest to the
+   Terraform ecosystem (plan JSON parses cleanly from Go).
 
-2. **Built-in renderer vs. always-shell-out.** Always-shell-out is the
-   simplest v1 (every renderer responsibility delegated to `tfplan2md`). A
-   built-in renderer is cleaner long-term but more work. **Lean: ship v1 with
-   shell-out only; add built-in renderer in v2** if/when `tfplan2md`'s upstream
-   direction diverges from what we need.
+2. **Built-in renderer, not shell-out.** The original lean was to shell out to
+   `tfplan2md` for per-stack rendering. We instead ship an **in-process
+   renderer** (the `internal/differ` package): no external binary on PATH, and
+   full control over the diff/fit cascade that keeps reports under GitHub's
+   comment cap. There is no `--render` flag.
 
-3. **Manifest format.** YAML, JSON, or HCL? **Lean: YAML** — humans-write +
-   common in CI configs. JSON falls out as a subset.
+3. **Two config surfaces, by concern.** The per-run *stack list* is YAML/JSON
+   (`--manifest`) — humans write it, it's common in CI. The repo-level
+   *policy* (classification + diff rules) is **HCL** (`.tfstackplan.hcl`) —
+   block-structured, labelled rules, and a natural fit for the Terraform
+   audience. Keeping the two separate means the per-PR input stays tiny and the
+   policy is checked in once.
 
-4. **Templating?** Don't repeat `tfplan2md`'s mistake of building a templating
-   surface that nobody uses. **Lean: no user templates in v1.** Reconsider if
-   real demand emerges. (Classification is a different shape — small
-   declarative ruleset, not free-form templates — and is in scope.)
+4. **No user templates.** We don't repeat `tfplan2md`'s templating surface that
+   nobody used. Classification is a different shape — a small declarative
+   ruleset, not free-form templates.
 
-7. **Classification scope.** The matcher could grow into a DSL. **Lean: keep
-   it three fields (`resource_type_pattern`, `actions`, `min_count`) and
-   resist temptation to add booleans, custom functions, or nested rules.**
-   If a team needs richer rules, they can pre-process the plan JSON and
-   inject a `class:` override per stack.
+5. **Classification matcher stays small.** Three fields
+   (`resource_type_pattern`, `actions`, `min_count`) plus built-in presets. No
+   booleans, custom functions, or nested rules. Teams needing richer logic can
+   consume the `--emit-classification-json` sidecar and gate in their pipeline.
 
-5. **Multi-tier in one comment?** The current shape is one comment per tier.
-   Should the tool know about tiers, or stay one-comment-per-invocation?
-   **Lean: one-comment-per-invocation.** Caller invokes once per tier.
-   Simpler tool, same outcome.
+6. **One comment per invocation.** The tool doesn't know about "tiers"; the
+   caller invokes it once per tier. Simpler tool, same outcome.
 
-6. **Diff between runs?** Optional v2 feature: take a previous run's report
-   and highlight what changed since. Useful but not v1.
+### Possible later work
+
+- **Diff between runs.** Take a previous run's report and highlight what changed
+  since. Useful, not yet built.
 
 ---
 
@@ -299,9 +386,9 @@ isn't configured.
   pipeline posts it. Reasoning: keeping the tool a pure renderer makes it
   reusable across platforms and easy to test offline.
 - Running `terraform plan` itself. Inputs are pre-existing `plan.json` files.
-- Replacing `tfplan2md`. v1 shells out to it; v2 may add a built-in renderer
-  to remove the dependency, but `tfplan2md` remains a perfectly good per-plan
-  renderer to delegate to.
+- Replacing `tfplan2md` head-on. It's strong inspiration and a perfectly good
+  single-plan renderer; this tool solves the multi-stack rollup it doesn't.
+  (We ship our own in-process renderer rather than delegating to it.)
 - Static analysis integration (Checkov, Trivy, etc.). `tfplan2md` already does
   this per-plan via SARIF. If we want a tier-level rollup of findings, that's
   a v2+ thing.
@@ -310,8 +397,9 @@ isn't configured.
 
 ## Related tools & prior art
 
-- [`tfplan2md`][tfplan2md] — single-plan markdown renderer. Strong inspiration;
-  this tool wraps it.
+- [`tfplan2md`][tfplan2md] — single-plan markdown renderer. Strong inspiration
+  for the per-stack diff style; this tool covers the multi-stack rollup it
+  doesn't.
 - [Atlantis](https://www.runatlantis.io/) — opinionated PR-comment-driven
   Terraform CI. Renders per-project; ties tightly to its own workflow.
 - [Terramate Cloud](https://terramate.io/cloud) — paid SaaS, renders
@@ -323,7 +411,11 @@ isn't configured.
 
 ## What this repo contains today
 
-Just this README. The brief is the artifact.
+A working Go implementation: the `tfstackplan` CLI (`cmd/tfstackplan`) plus the
+internal packages it's built from — `manifest` (stack list), `config` (HCL
+policy), `classify` + `presets` (classification), `plan` (plan-JSON parsing),
+`differ` (per-attribute diffs), `fit` (comment-budget cascade), and `render`
+(markdown output). See [`docs/DESIGN.md`](docs/DESIGN.md) for internals.
 
 ---
 
