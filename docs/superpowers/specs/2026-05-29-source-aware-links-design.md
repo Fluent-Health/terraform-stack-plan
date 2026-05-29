@@ -37,13 +37,14 @@ come from flags.
 links {
   resource = "https://github.com/org/infra/blob/{sha}/{file}#L{line}"
   stack    = "https://github.com/org/infra/tree/{sha}/{stack_dir}"
-  header = [
-    { label = "Cloud Build #{build_id}", url = "https://console.cloud.google.com/cloud-build/builds/{build_id}?project={project}" },
-    { label = "PR #{pr}",                url = "https://github.com/org/infra/pull/{pr}" },
-    { label = "{sha_short}",             url = "https://github.com/org/infra/commit/{sha}" },
-  ]
+  header { label = "Cloud Build #{build_id}", url = "https://console.cloud.google.com/cloud-build/builds/{build_id}?project={project}" }
+  header { label = "PR #{pr}",                url = "https://github.com/org/infra/pull/{pr}" }
+  header { label = "{sha_short}",             url = "https://github.com/org/infra/commit/{sha}" }
 }
 ```
+
+(`header` is a repeatable block — `label`/`url` attributes — which decodes
+cleanly with the existing HCL handling.)
 
 Placeholders resolve from two sources:
 
