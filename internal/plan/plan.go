@@ -34,6 +34,11 @@ type RawChange struct {
 	Name          string
 	ModuleAddress string
 
+	// Raw holds top-level scalar attributes (string/number/bool), after over
+	// before, sensitive values skipped. Retained for classification attribute
+	// extraction, which must see attributes even when they did not change.
+	Raw map[string]any
+
 	Moved           bool
 	PreviousAddress string
 	Imported        bool
@@ -107,6 +112,7 @@ func Parse(name string, data []byte) (RawStack, error) {
 			Imported:      imported,
 			Name:          rc.Name,
 			ModuleAddress: rc.ModuleAddress,
+			Raw:           rawScalars(rc.Change),
 		}
 		if moved {
 			ch.PreviousAddress = rc.PreviousAddress
@@ -231,5 +237,47 @@ func truthy(v any) bool {
 		return t
 	default:
 		return true
+	}
+}
+
+// rawScalars returns the change's top-level scalar attributes (string, bool,
+// number), preferring after over before and skipping any flagged sensitive.
+// Used by classification attribute extraction, which must see an attribute even
+// when it did not change (changedAttrs keeps only differing values).
+func rawScalars(c *tfjson.Change) map[string]any {
+	after, _ := c.After.(map[string]any)
+	before, _ := c.Before.(map[string]any)
+	afterSens, _ := c.AfterSensitive.(map[string]any)
+	beforeSens, _ := c.BeforeSensitive.(map[string]any)
+
+	out := map[string]any{}
+	put := func(src, sens map[string]any) {
+		for k, v := range src {
+			if _, ok := out[k]; ok {
+				continue // after already won
+			}
+			if truthy(sens[k]) {
+				continue // never surface a sensitive value
+			}
+			if isScalar(v) {
+				out[k] = v
+			}
+		}
+	}
+	put(after, afterSens)
+	put(before, beforeSens)
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// isScalar reports whether v is a JSON scalar we can stringify for the sidecar.
+func isScalar(v any) bool {
+	switch v.(type) {
+	case string, bool, float64, json.Number:
+		return true
+	default:
+		return false
 	}
 }
