@@ -92,6 +92,7 @@ func (l Leaf) Value() string {
 // large, as a foldable block carrying the Variant ladder fit degrades.
 type Field struct {
 	Name     string
+	Kind     string    // "json"/"yaml" for structured blocks; "" otherwise
 	Leaves   []Leaf    // inline rows; empty when this is a block
 	Variants []Variant // block ladder; empty when this is leaves
 	Selected int       // chosen variant (block only); fit mutates

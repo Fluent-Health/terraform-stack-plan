@@ -207,7 +207,11 @@ func renderResource(b *strings.Builder, c model.Change, forceOpen bool) {
 		if v.Level == model.LevelHidden || v.Content == "" {
 			continue
 		}
-		fmt.Fprintf(&body, "%s %s:\n%s\n", sym, f.Name, strings.TrimRight(v.Content, "\n"))
+		hdr := f.Name
+		if f.Kind != "" {
+			hdr = fmt.Sprintf("%s (%s)", f.Name, f.Kind)
+		}
+		fmt.Fprintf(&body, "%s %s:\n%s\n", sym, hdr, strings.TrimRight(v.Content, "\n"))
 	}
 	content := strings.TrimRight(body.String(), "\n")
 	if content == "" {

@@ -21,15 +21,24 @@ func TestDetectType(t *testing.T) {
 	}
 }
 
-func TestStructuralDiffOnlyChangedPaths(t *testing.T) {
-	before := map[string]any{"spec": map[string]any{"replicas": 3.0, "image": "v1"}}
-	after := map[string]any{"spec": map[string]any{"replicas": 5.0, "image": "v1"}}
-	out := structuralDiff(before, after)
-	if !strings.Contains(out, "spec.replicas: 3 -> 5") {
-		t.Fatalf("expected changed replicas path, got:\n%s", out)
+func TestContextDiff(t *testing.T) {
+	before := "a: 1\nb: 2\nc: 3\nd: 4\n"
+	after := "a: 1\nb: 2\nc: 9\nd: 4\n"
+	out := contextDiff(before, after)
+	if !strings.Contains(out, "-c: 3") || !strings.Contains(out, "+c: 9") {
+		t.Fatalf("expected -/+ for the changed line, got:\n%s", out)
 	}
-	if strings.Contains(out, "image") {
-		t.Fatalf("unchanged image should be omitted, got:\n%s", out)
+	if !strings.Contains(out, " b: 2") || !strings.Contains(out, " d: 4") {
+		t.Fatalf("expected 2 lines of context around the change, got:\n%s", out)
+	}
+}
+
+func TestContextDiffMultiHunkSeparator(t *testing.T) {
+	before := "a: 0\n" + strings.Repeat("x: 1\n", 10) + "z: 0\n"
+	after := "a: 9\n" + strings.Repeat("x: 1\n", 10) + "z: 9\n"
+	out := contextDiff(before, after)
+	if !strings.Contains(out, "⋮") {
+		t.Fatalf("expected ⋮ between non-adjacent hunks, got:\n%s", out)
 	}
 }
 

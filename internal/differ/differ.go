@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
-	"sort"
 	"strings"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/model"
@@ -52,26 +51,6 @@ func detect(s string) valueType {
 	return typePlain
 }
 
-// flatten produces dotted leaf paths for a parsed value.
-func flatten(prefix string, v any, out map[string]string) {
-	switch t := v.(type) {
-	case map[string]any:
-		for k, val := range t {
-			key := k
-			if prefix != "" {
-				key = prefix + "." + k
-			}
-			flatten(key, val, out)
-		}
-	case []any:
-		for i, val := range t {
-			flatten(fmt.Sprintf("%s[%d]", prefix, i), val, out)
-		}
-	default:
-		out[prefix] = scalar(v)
-	}
-}
-
 func scalar(v any) string {
 	switch t := v.(type) {
 	case nil:
@@ -88,47 +67,66 @@ func scalar(v any) string {
 	}
 }
 
-// structuralDiff renders only the changed/added/removed leaf paths.
-func structuralDiff(before, after any) string {
-	bm, am := map[string]string{}, map[string]string{}
-	flatten("", before, bm)
-	flatten("", after, am)
-
-	keys := map[string]struct{}{}
-	for k := range bm {
-		keys[k] = struct{}{}
-	}
-	for k := range am {
-		keys[k] = struct{}{}
-	}
-	var sorted []string
-	for k := range keys {
-		sorted = append(sorted, k)
-	}
-	sort.Strings(sorted)
-
-	var b strings.Builder
-	for _, k := range sorted {
-		bv, bok := bm[k]
-		av, aok := am[k]
-		switch {
-		case bok && aok && bv != av:
-			fmt.Fprintf(&b, "~ %s: %s -> %s\n", k, unquote(bv), unquote(av))
-		case bok && !aok:
-			fmt.Fprintf(&b, "- %s: %s\n", k, unquote(bv))
-		case !bok && aok:
-			fmt.Fprintf(&b, "+ %s: %s\n", k, unquote(av))
+// structuredKind picks the canonical format for a structured attribute: a
+// JSON-detected string → "json", a YAML-detected string → "yaml", and a native
+// map/list (no source text) → "yaml" (a clean, low-noise default).
+func structuredKind(in Input) string {
+	if s := firstNonEmpty(firstStr(in.Before), firstStr(in.After)); s != "" {
+		switch detect(s) {
+		case typeJSON:
+			return "json"
+		case typeYAML:
+			return "yaml"
 		}
 	}
-	return strings.TrimRight(b.String(), "\n")
+	return "yaml"
 }
 
-// unquote strips the surrounding quotes scalar() adds to strings, for readability.
-func unquote(s string) string {
-	if len(s) >= 2 && s[0] == '"' && s[len(s)-1] == '"' {
-		return s[1 : len(s)-1]
+// canonical renders a parsed value as stable, sorted-key text so the diff is
+// meaningful regardless of the provider's original formatting. A nil value
+// (create's before / delete's after) renders as empty.
+func canonical(v any, kind string) string {
+	if v == nil {
+		return ""
 	}
-	return s
+	if kind == "json" {
+		if b, err := json.MarshalIndent(v, "", "  "); err == nil {
+			return string(b) + "\n"
+		}
+	}
+	if b, err := yaml.Marshal(v); err == nil {
+		return string(b)
+	}
+	return fmt.Sprintf("%v\n", v)
+}
+
+// contextDiff renders a unified diff with 2 lines of context. The ---/+++ file
+// headers are dropped; each hunk's @@ header becomes a "⋮" separator (omitted
+// before the first hunk). Context lines keep their leading space; changed lines
+// keep -/+.
+func contextDiff(before, after string) string {
+	out, err := difflib.GetUnifiedDiffString(difflib.UnifiedDiff{
+		A: difflib.SplitLines(before), B: difflib.SplitLines(after), Context: 2,
+	})
+	if err != nil {
+		return ""
+	}
+	var keep []string
+	seenHunk := false
+	for _, ln := range strings.Split(strings.TrimRight(out, "\n"), "\n") {
+		switch {
+		case strings.HasPrefix(ln, "---") || strings.HasPrefix(ln, "+++"):
+			continue
+		case strings.HasPrefix(ln, "@@"):
+			if seenHunk {
+				keep = append(keep, "⋮")
+			}
+			seenHunk = true
+		default:
+			keep = append(keep, ln)
+		}
+	}
+	return strings.Join(keep, "\n")
 }
 
 // lineDiff renders a unified line diff with 3 lines of context.
@@ -254,62 +252,27 @@ func blockField(ad model.AttrDiff) model.Field {
 	return model.Field{Name: ad.Name, Variants: ad.Variants}
 }
 
-// foldThreshold is the leaf/line count at or above which an attribute folds
-// into a block (its own <details>) instead of rendering inline.
-const foldThreshold = 10
-
-// structural emits aligned leaves for a map/JSON/YAML attribute when the change
-// is small; otherwise it keeps the block ladder (which fit can degrade).
+// structural renders a map/JSON/YAML attribute as a contextual unified diff of
+// its canonically-formatted value (2 lines of context, -/+ for changes). It is
+// always a block (which fit can degrade to a summary), tagged with its kind.
 func structural(in Input) model.Field {
-	bv := parseStructured(in.Before, firstStr(in.Before))
-	av := parseStructured(in.After, firstStr(in.After))
-	leaves := structuralLeaves(in.Attr, bv, av)
-	if len(leaves) > 0 && len(leaves) < foldThreshold {
-		return model.Field{Name: in.Attr, Leaves: leaves}
-	}
-	return blockField(ladderFrom(in.Attr, model.LevelStructural, in))
-}
+	kind := structuredKind(in)
+	before := canonical(parseStructured(in.Before, firstStr(in.Before)), kind)
+	after := canonical(parseStructured(in.After, firstStr(in.After)), kind)
+	// No indent: the unified-diff lines must start with ' '/'-'/'+' so GitHub
+	// colours them inside the ```diff fence.
+	rich := contextDiff(before, after)
+	total, changed := magnitude(before, after)
 
-// structuralLeaves diffs two structured values into leaves. flatten is seeded
-// with the attribute name so each Leaf.Path is fully qualified (e.g.
-// "labels.team"), which restores the attribute name that a bare structural diff
-// would drop.
-func structuralLeaves(attr string, before, after any) []model.Leaf {
-	bm, am := map[string]string{}, map[string]string{}
-	if before != nil {
-		flatten(attr, before, bm)
+	var variants []model.Variant
+	if in.MaxLines == 0 || lineCount(rich) <= in.MaxLines {
+		variants = append(variants, variant(model.LevelStructural, rich))
 	}
-	if after != nil {
-		flatten(attr, after, am)
-	}
-
-	keys := map[string]struct{}{}
-	for k := range bm {
-		keys[k] = struct{}{}
-	}
-	for k := range am {
-		keys[k] = struct{}{}
-	}
-	var sorted []string
-	for k := range keys {
-		sorted = append(sorted, k)
-	}
-	sort.Strings(sorted)
-
-	var leaves []model.Leaf
-	for _, k := range sorted {
-		bvv, bok := bm[k]
-		avv, aok := am[k]
-		switch {
-		case bok && aok && bvv != avv:
-			leaves = append(leaves, model.Leaf{Op: model.OpChange, Path: k, Old: bvv, New: avv})
-		case bok && !aok:
-			leaves = append(leaves, model.Leaf{Op: model.OpRemove, Path: k, Old: bvv})
-		case !bok && aok:
-			leaves = append(leaves, model.Leaf{Op: model.OpAdd, Path: k, New: avv})
-		}
-	}
-	return leaves
+	variants = append(variants,
+		variant(model.LevelSummary, "  "+summaryLine(in.Attr, kind, total, changed)),
+		variant(model.LevelHidden, ""),
+	)
+	return model.Field{Name: in.Attr, Kind: kind, Variants: variants}
 }
 
 // firstStr returns v as a string if it is one, else "".
@@ -354,10 +317,6 @@ func ladderFrom(attr string, top model.Level, in Input) model.AttrDiff {
 	var richLevel model.Level
 	var kind string
 	switch top {
-	case model.LevelStructural:
-		richLevel = model.LevelStructural
-		kind = "structured"
-		rich = structuralDiff(parseStructured(in.Before, bs), parseStructured(in.After, as))
 	case model.LevelLineDiff:
 		richLevel = model.LevelLineDiff
 		kind = "text"

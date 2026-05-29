@@ -205,7 +205,7 @@ func TestExamples(t *testing.T) {
 		},
 		{
 			file:     "over-budget-degraded.md",
-			maxBytes: 12000,
+			maxBytes: 18000,
 			assert: func(t *testing.T, out string, fits bool) {
 				if !fits {
 					t.Errorf("degraded: expected report to fit after Phase-1 degradation")
@@ -335,16 +335,19 @@ func TestStateOpsExample(t *testing.T) {
 	if !strings.Contains(out, "move") || !strings.Contains(out, "import") || !strings.Contains(out, "forget") {
 		t.Errorf("state-ops: expected move/import/forget noted in the table")
 	}
-	// Nested-block change shows array-index paths.
-	if !strings.Contains(out, "allow[0].ports[0]") {
-		t.Errorf("state-ops: expected nested-block array-index path:\n%s", out)
+	// Structured values render as contextual diffs tagged with their kind.
+	if !strings.Contains(out, "(json)") || !strings.Contains(out, "(yaml)") {
+		t.Errorf("state-ops: expected (json)/(yaml) kind labels on structured blocks")
 	}
-	// Small structured changes render inline (open rows) with array-index paths.
-	if !strings.Contains(out, "Statement[0].Resource") {
-		t.Errorf("state-ops: expected inline JSON path")
+	// Context lines + changed -/+ lines, e.g. the firewall port and the policy arn.
+	if !strings.Contains(out, `"443"`) {
+		t.Errorf("state-ops: expected nested-block contextual diff (port 443):\n%s", out)
 	}
-	if !strings.Contains(out, "containers[0].image") {
-		t.Errorf("state-ops: expected inline YAML manifest path")
+	if !strings.Contains(out, "bucket-new-00") {
+		t.Errorf("state-ops: expected JSON contextual diff (new arn)")
+	}
+	if !strings.Contains(out, "app:1.5") {
+		t.Errorf("state-ops: expected YAML manifest contextual diff (new image)")
 	}
 	// A big structured change folds into a closed row.
 	if !strings.Contains(out, "<details><summary>~ aws_iam_policy.big") {

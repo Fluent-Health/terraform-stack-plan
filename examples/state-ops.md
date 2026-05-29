@@ -40,8 +40,16 @@
 > <details open><summary>~ google_compute_firewall.web · 2 changed</summary>
 >
 > ```diff
-> ~ allow[0].ports[0] = "80" → "443"
-> + source_ranges[1]  = "192.168.0.0/16"
+> ~ allow (yaml):
+>  - ports:
+> -    - "80"
+> +    - "443"
+>      - "8080"
+>    protocol: tcp
+> ~ source_ranges (yaml):
+>  - 10.0.0.0/8
+> +- 192.168.0.0/16
+>  
 > ```
 >
 > </details>
@@ -53,51 +61,166 @@
 > <details open><summary>~ aws_iam_policy.small · 1 changed</summary>
 >
 > ```diff
-> ~ policy.Statement[0].Resource = "arn:aws:s3:::bucket-old-00/*" → "arn:aws:s3:::bucket-new-00/*"
+> ~ policy (json):
+>        ],
+>        "Effect": "Allow",
+> -      "Resource": "arn:aws:s3:::bucket-old-00/*",
+> +      "Resource": "arn:aws:s3:::bucket-new-00/*",
+>        "Sid": "Stmt00"
+>      },
 > ```
 >
 > </details>
 > <details><summary>~ aws_iam_policy.big · 1 changed</summary>
 >
 > ```diff
-> ~ policy:
->   ~ Statement[0].Resource: arn:aws:s3:::bucket-old-00/* -> arn:aws:s3:::bucket-new-00/*
->   ~ Statement[10].Resource: arn:aws:s3:::bucket-old-10/* -> arn:aws:s3:::bucket-new-10/*
->   ~ Statement[11].Resource: arn:aws:s3:::bucket-old-11/* -> arn:aws:s3:::bucket-new-11/*
->   ~ Statement[1].Resource: arn:aws:s3:::bucket-old-01/* -> arn:aws:s3:::bucket-new-01/*
->   ~ Statement[2].Resource: arn:aws:s3:::bucket-old-02/* -> arn:aws:s3:::bucket-new-02/*
->   ~ Statement[3].Resource: arn:aws:s3:::bucket-old-03/* -> arn:aws:s3:::bucket-new-03/*
->   ~ Statement[4].Resource: arn:aws:s3:::bucket-old-04/* -> arn:aws:s3:::bucket-new-04/*
->   ~ Statement[5].Resource: arn:aws:s3:::bucket-old-05/* -> arn:aws:s3:::bucket-new-05/*
->   ~ Statement[6].Resource: arn:aws:s3:::bucket-old-06/* -> arn:aws:s3:::bucket-new-06/*
->   ~ Statement[7].Resource: arn:aws:s3:::bucket-old-07/* -> arn:aws:s3:::bucket-new-07/*
->   ~ Statement[8].Resource: arn:aws:s3:::bucket-old-08/* -> arn:aws:s3:::bucket-new-08/*
->   ~ Statement[9].Resource: arn:aws:s3:::bucket-old-09/* -> arn:aws:s3:::bucket-new-09/*
+> ~ policy (json):
+>        ],
+>        "Effect": "Allow",
+> -      "Resource": "arn:aws:s3:::bucket-old-00/*",
+> +      "Resource": "arn:aws:s3:::bucket-new-00/*",
+>        "Sid": "Stmt00"
+>      },
+> ⋮
+>        ],
+>        "Effect": "Allow",
+> -      "Resource": "arn:aws:s3:::bucket-old-01/*",
+> +      "Resource": "arn:aws:s3:::bucket-new-01/*",
+>        "Sid": "Stmt01"
+>      },
+> ⋮
+>        ],
+>        "Effect": "Allow",
+> -      "Resource": "arn:aws:s3:::bucket-old-02/*",
+> +      "Resource": "arn:aws:s3:::bucket-new-02/*",
+>        "Sid": "Stmt02"
+>      },
+> ⋮
+>        ],
+>        "Effect": "Allow",
+> -      "Resource": "arn:aws:s3:::bucket-old-03/*",
+> +      "Resource": "arn:aws:s3:::bucket-new-03/*",
+>        "Sid": "Stmt03"
+>      },
+> ⋮
+>        ],
+>        "Effect": "Allow",
+> -      "Resource": "arn:aws:s3:::bucket-old-04/*",
+> +      "Resource": "arn:aws:s3:::bucket-new-04/*",
+>        "Sid": "Stmt04"
+>      },
+> ⋮
+>        ],
+>        "Effect": "Allow",
+> -      "Resource": "arn:aws:s3:::bucket-old-05/*",
+> +      "Resource": "arn:aws:s3:::bucket-new-05/*",
+>        "Sid": "Stmt05"
+>      },
+> ⋮
+>        ],
+>        "Effect": "Allow",
+> -      "Resource": "arn:aws:s3:::bucket-old-06/*",
+> +      "Resource": "arn:aws:s3:::bucket-new-06/*",
+>        "Sid": "Stmt06"
+>      },
+> ⋮
+>        ],
+>        "Effect": "Allow",
+> -      "Resource": "arn:aws:s3:::bucket-old-07/*",
+> +      "Resource": "arn:aws:s3:::bucket-new-07/*",
+>        "Sid": "Stmt07"
+>      },
+> ⋮
+>        ],
+>        "Effect": "Allow",
+> -      "Resource": "arn:aws:s3:::bucket-old-08/*",
+> +      "Resource": "arn:aws:s3:::bucket-new-08/*",
+>        "Sid": "Stmt08"
+>      },
+> ⋮
+>        ],
+>        "Effect": "Allow",
+> -      "Resource": "arn:aws:s3:::bucket-old-09/*",
+> +      "Resource": "arn:aws:s3:::bucket-new-09/*",
+>        "Sid": "Stmt09"
+>      },
+> ⋮
+>        ],
+>        "Effect": "Allow",
+> -      "Resource": "arn:aws:s3:::bucket-old-10/*",
+> +      "Resource": "arn:aws:s3:::bucket-new-10/*",
+>        "Sid": "Stmt10"
+>      },
+> ⋮
+>        ],
+>        "Effect": "Allow",
+> -      "Resource": "arn:aws:s3:::bucket-old-11/*",
+> +      "Resource": "arn:aws:s3:::bucket-new-11/*",
+>        "Sid": "Stmt11"
+>      }
 > ```
 >
 > </details>
-> <details open><summary>~ kubernetes_manifest.app · 1 changed</summary>
+> <details><summary>~ kubernetes_manifest.app · 1 changed</summary>
 >
 > ```diff
-> ~ manifest.spec.replicas                          = 2 → 4
-> ~ manifest.spec.template.spec.containers[0].image = "app:1.4" → "app:1.5"
+> ~ manifest (yaml):
+>  kind: Deployment
+>  spec:
+> -    replicas: 2
+> +    replicas: 4
+>      template:
+>          spec:
+> ⋮
+>                      - name: VAR_7
+>                        value: old
+> -                  image: app:1.4
+> +                  image: app:1.5
+>                    name: app
+>  
 > ```
 >
 > </details>
 > <details><summary>~ kubernetes_manifest.platform · 1 changed</summary>
 >
 > ```diff
-> ~ manifest:
->   ~ spec.replicas: 2 -> 4
->   ~ spec.template.spec.containers[0].env[0].value: old -> new
->   ~ spec.template.spec.containers[0].env[1].value: old -> new
->   ~ spec.template.spec.containers[0].env[2].value: old -> new
->   ~ spec.template.spec.containers[0].env[3].value: old -> new
->   ~ spec.template.spec.containers[0].env[4].value: old -> new
->   ~ spec.template.spec.containers[0].env[5].value: old -> new
->   ~ spec.template.spec.containers[0].env[6].value: old -> new
->   ~ spec.template.spec.containers[0].env[7].value: old -> new
->   ~ spec.template.spec.containers[0].image: app:1.4 -> app:1.5
+> ~ manifest (yaml):
+>  kind: Deployment
+>  spec:
+> -    replicas: 2
+> +    replicas: 4
+>      template:
+>          spec:
+> ⋮
+>                  - env:
+>                      - name: VAR_0
+> -                      value: old
+> +                      value: new
+>                      - name: VAR_1
+> -                      value: old
+> +                      value: new
+>                      - name: VAR_2
+> -                      value: old
+> +                      value: new
+>                      - name: VAR_3
+> -                      value: old
+> +                      value: new
+>                      - name: VAR_4
+> -                      value: old
+> +                      value: new
+>                      - name: VAR_5
+> -                      value: old
+> +                      value: new
+>                      - name: VAR_6
+> -                      value: old
+> +                      value: new
+>                      - name: VAR_7
+> -                      value: old
+> -                  image: app:1.4
+> +                      value: new
+> +                  image: app:1.5
+>                    name: app
+>  
 > ```
 >
 > </details>

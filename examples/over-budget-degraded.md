@@ -31,16 +31,22 @@
 > <details open><summary>~ google_storage_bucket.tfstate · 2 changed</summary>
 >
 > ```diff
-> + labels.team    = "platform"
 > ~ retention_days = 7 → 30
+> ~ labels (yaml):
+>  env: nonprod
+> +team: platform
+>  
 > ```
 >
 > </details>
 > <details open><summary>~ google_storage_bucket.assets · 2 changed</summary>
 >
 > ```diff
-> + labels.team    = "platform"
 > ~ retention_days = 8 → 31
+> ~ labels (yaml):
+>  env: nonprod
+> +team: platform
+>  
 > ```
 >
 > </details>
@@ -88,16 +94,22 @@
 > <details open><summary>~ google_storage_bucket.uploads · 2 changed</summary>
 >
 > ```diff
-> + labels.team    = "platform"
 > ~ retention_days = 9 → 32
+> ~ labels (yaml):
+>  env: nonprod
+> +team: platform
+>  
 > ```
 >
 > </details>
 > <details open><summary>~ google_storage_bucket.exports · 2 changed</summary>
 >
 > ```diff
-> + labels.team    = "platform"
 > ~ retention_days = 10 → 33
+> ~ labels (yaml):
+>  env: nonprod
+> +team: platform
+>  
 > ```
 >
 > </details>
@@ -116,64 +128,88 @@
 > <details open><summary>~ google_storage_bucket.b0 · 2 changed</summary>
 >
 > ```diff
-> + labels.team    = "platform"
 > ~ retention_days = 11 → 34
+> ~ labels (yaml):
+>  env: nonprod
+> +team: platform
+>  
 > ```
 >
 > </details>
 > <details open><summary>~ google_storage_bucket.b1 · 2 changed</summary>
 >
 > ```diff
-> + labels.team    = "platform"
 > ~ retention_days = 12 → 35
+> ~ labels (yaml):
+>  env: nonprod
+> +team: platform
+>  
 > ```
 >
 > </details>
 > <details open><summary>~ google_storage_bucket.b2 · 2 changed</summary>
 >
 > ```diff
-> + labels.team    = "platform"
 > ~ retention_days = 13 → 36
+> ~ labels (yaml):
+>  env: nonprod
+> +team: platform
+>  
 > ```
 >
 > </details>
 > <details open><summary>~ google_storage_bucket.b3 · 2 changed</summary>
 >
 > ```diff
-> + labels.team    = "platform"
 > ~ retention_days = 14 → 37
+> ~ labels (yaml):
+>  env: nonprod
+> +team: platform
+>  
 > ```
 >
 > </details>
 > <details open><summary>~ google_storage_bucket.b4 · 2 changed</summary>
 >
 > ```diff
-> + labels.team    = "platform"
 > ~ retention_days = 15 → 38
+> ~ labels (yaml):
+>  env: nonprod
+> +team: platform
+>  
 > ```
 >
 > </details>
 > <details open><summary>~ google_storage_bucket.b5 · 2 changed</summary>
 >
 > ```diff
-> + labels.team    = "platform"
 > ~ retention_days = 16 → 39
+> ~ labels (yaml):
+>  env: nonprod
+> +team: platform
+>  
 > ```
 >
 > </details>
 > <details open><summary>~ google_storage_bucket.b6 · 2 changed</summary>
 >
 > ```diff
-> + labels.team    = "platform"
 > ~ retention_days = 17 → 40
+> ~ labels (yaml):
+>  env: nonprod
+> +team: platform
+>  
 > ```
 >
 > </details>
 > <details open><summary>~ google_storage_bucket.b7 · 2 changed</summary>
 >
 > ```diff
-> + labels.team    = "platform"
 > ~ retention_days = 18 → 41
+> ~ labels (yaml):
+>  env: nonprod
+> +team: platform
+>  
 > ```
 >
 > </details>
@@ -200,32 +236,44 @@
 > <details open><summary>~ google_storage_bucket.prod_state · 2 changed</summary>
 >
 > ```diff
-> + labels.team    = "platform"
 > ~ retention_days = 19 → 42
+> ~ labels (yaml):
+>  env: nonprod
+> +team: platform
+>  
 > ```
 >
 > </details>
 > <details open><summary>~ google_storage_bucket.prod_assets · 2 changed</summary>
 >
 > ```diff
-> + labels.team    = "platform"
 > ~ retention_days = 20 → 43
+> ~ labels (yaml):
+>  env: nonprod
+> +team: platform
+>  
 > ```
 >
 > </details>
 > <details open><summary>~ google_storage_bucket.prod_logs · 2 changed</summary>
 >
 > ```diff
-> + labels.team    = "platform"
 > ~ retention_days = 21 → 44
+> ~ labels (yaml):
+>  env: nonprod
+> +team: platform
+>  
 > ```
 >
 > </details>
 > <details open><summary>~ google_storage_bucket.prod_backups · 2 changed</summary>
 >
 > ```diff
-> + labels.team    = "platform"
 > ~ retention_days = 22 → 45
+> ~ labels (yaml):
+>  env: nonprod
+> +team: platform
+>  
 > ```
 >
 > </details>
@@ -290,40 +338,55 @@
 > <details open><summary>~ google_compute_subnetwork.s0 · 2 changed</summary>
 >
 > ```diff
-> + labels.team    = "platform"
 > ~ retention_days = 23 → 46
+> ~ labels (yaml):
+>  env: nonprod
+> +team: platform
+>  
 > ```
 >
 > </details>
 > <details open><summary>~ google_compute_subnetwork.s1 · 2 changed</summary>
 >
 > ```diff
-> + labels.team    = "platform"
 > ~ retention_days = 24 → 47
+> ~ labels (yaml):
+>  env: nonprod
+> +team: platform
+>  
 > ```
 >
 > </details>
 > <details open><summary>~ google_compute_subnetwork.s2 · 2 changed</summary>
 >
 > ```diff
-> + labels.team    = "platform"
 > ~ retention_days = 25 → 48
+> ~ labels (yaml):
+>  env: nonprod
+> +team: platform
+>  
 > ```
 >
 > </details>
 > <details open><summary>~ google_compute_firewall.allow_internal · 2 changed</summary>
 >
 > ```diff
-> + labels.team    = "platform"
 > ~ retention_days = 26 → 49
+> ~ labels (yaml):
+>  env: nonprod
+> +team: platform
+>  
 > ```
 >
 > </details>
 > <details open><summary>~ google_compute_firewall.allow_health · 2 changed</summary>
 >
 > ```diff
-> + labels.team    = "platform"
 > ~ retention_days = 27 → 50
+> ~ labels (yaml):
+>  env: nonprod
+> +team: platform
+>  
 > ```
 >
 > </details>
@@ -402,50 +465,79 @@
 > <details open><summary>~ kubernetes_manifest.ingress · 1 changed</summary>
 >
 > ```diff
-> ~ manifest.spec.key_00 = "old" → "new"
-> ~ manifest.spec.key_01 = "old" → "new"
+> ~ manifest (yaml):
+>  spec:
+> -    key_00: old
+> -    key_01: old
+> +    key_00: new
+> +    key_01: new
+>      key_02: old
+>      key_03: old
 > ```
 >
 > </details>
 > <details><summary>~ kubernetes_manifest.configmap · 1 changed</summary>
 >
 > ```diff
-> ~ manifest:
->   ~ spec.key_00: old -> new
->   ~ spec.key_01: old -> new
->   ~ spec.key_02: old -> new
->   ~ spec.key_03: old -> new
->   ~ spec.key_04: old -> new
->   ~ spec.key_05: old -> new
->   ~ spec.key_06: old -> new
->   ~ spec.key_07: old -> new
->   ~ spec.key_08: old -> new
->   ~ spec.key_09: old -> new
->   ~ spec.key_10: old -> new
+> ~ manifest (yaml):
+>  spec:
+> -    key_00: old
+> -    key_01: old
+> -    key_02: old
+> -    key_03: old
+> -    key_04: old
+> -    key_05: old
+> -    key_06: old
+> -    key_07: old
+> -    key_08: old
+> -    key_09: old
+> -    key_10: old
+> +    key_00: new
+> +    key_01: new
+> +    key_02: new
+> +    key_03: new
+> +    key_04: new
+> +    key_05: new
+> +    key_06: new
+> +    key_07: new
+> +    key_08: new
+> +    key_09: new
+> +    key_10: new
+>      key_11: old
+>  
 > ```
 >
 > </details>
 > <details open><summary>~ google_storage_bucket.grafana_state · 2 changed</summary>
 >
 > ```diff
-> + labels.team    = "platform"
 > ~ retention_days = 28 → 51
+> ~ labels (yaml):
+>  env: nonprod
+> +team: platform
+>  
 > ```
 >
 > </details>
 > <details open><summary>~ google_storage_bucket.loki_chunks · 2 changed</summary>
 >
 > ```diff
-> + labels.team    = "platform"
 > ~ retention_days = 29 → 52
+> ~ labels (yaml):
+>  env: nonprod
+> +team: platform
+>  
 > ```
 >
 > </details>
 > <details open><summary>~ google_storage_bucket.loki_ruler · 2 changed</summary>
 >
 > ```diff
-> + labels.team    = "platform"
 > ~ retention_days = 30 → 53
+> ~ labels (yaml):
+>  env: nonprod
+> +team: platform
+>  
 > ```
 >
 > </details>
@@ -499,24 +591,33 @@
 > <details open><summary>~ google_storage_bucket.audit_logs · 2 changed</summary>
 >
 > ```diff
-> + labels.team    = "platform"
 > ~ retention_days = 31 → 54
+> ~ labels (yaml):
+>  env: nonprod
+> +team: platform
+>  
 > ```
 >
 > </details>
 > <details open><summary>~ google_storage_bucket.backups · 2 changed</summary>
 >
 > ```diff
-> + labels.team    = "platform"
 > ~ retention_days = 32 → 55
+> ~ labels (yaml):
+>  env: nonprod
+> +team: platform
+>  
 > ```
 >
 > </details>
 > <details open><summary>~ google_storage_bucket.archive · 2 changed</summary>
 >
 > ```diff
-> + labels.team    = "platform"
 > ~ retention_days = 33 → 56
+> ~ labels (yaml):
+>  env: nonprod
+> +team: platform
+>  
 > ```
 >
 > </details>
