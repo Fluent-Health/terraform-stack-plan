@@ -18,13 +18,13 @@ func sampleReport() model.Report {
 				Counts: model.Counts{Change: 1},
 				Class:  &model.Class{Name: "iam", Icon: "🔐"},
 				Changes: []model.Change{{
-					Address: "google_project_iam_member.editor",
-					Type:    "google_project_iam_member",
+					Address: "google_storage_bucket.tfstate",
+					Type:    "google_storage_bucket",
 					Action:  model.ActionChange,
-					Attrs: []model.AttrDiff{{
-						Name:     "role",
-						Variants: []model.Variant{{Level: model.LevelInline, Content: `~ role: "roles/viewer" -> "roles/editor"`}},
-					}},
+					Fields: []model.Field{
+						{Name: "labels", Leaves: []model.Leaf{{Op: model.OpAdd, Path: "labels.team", New: `"platform"`}}},
+						{Name: "retention_days", Leaves: []model.Leaf{{Op: model.OpChange, Path: "retention_days", Old: "7", New: "30"}}},
+					},
 				}},
 			},
 			{Name: "svc/dev", Counts: model.Counts{Add: 2}, Class: &model.Class{Name: "safe", Icon: "✅"}},
@@ -106,5 +106,58 @@ func TestRenderMinimalMode(t *testing.T) {
 	}
 	if !strings.Contains(out, "2 stacks") {
 		t.Fatalf("minimal mode should show aggregate count:\n%s", out)
+	}
+}
+
+func TestRenderUpdateLeavesAligned(t *testing.T) {
+	out := Render(sampleReport())
+	if !strings.Contains(out, "+ labels.team    = \"platform\"") {
+		t.Fatalf("labels.team not aligned:\n%s", out)
+	}
+	if !strings.Contains(out, "~ retention_days = 7 → 30") {
+		t.Fatalf("retention_days line wrong:\n%s", out)
+	}
+}
+
+func TestRenderCreateFolds(t *testing.T) {
+	r := sampleReport()
+	r.Stacks[0].Changes = []model.Change{{
+		Address: "google_service_account.api",
+		Type:    "google_service_account",
+		Action:  model.ActionAdd,
+		Fields: []model.Field{
+			{Name: "account_id", Leaves: []model.Leaf{{Op: model.OpAdd, Path: "account_id", New: `"app-api"`}}},
+			{Name: "disabled", Leaves: []model.Leaf{{Op: model.OpAdd, Path: "disabled", New: "false"}}},
+		},
+	}}
+	r.Stacks[0].Counts = model.Counts{Add: 1}
+	out := Render(r)
+	if !strings.Contains(out, "<details><summary>+ google_service_account.api · 2 attrs</summary>") {
+		t.Fatalf("create should fold into a nested details:\n%s", out)
+	}
+	if !strings.Contains(out, "+ account_id = \"app-api\"") {
+		t.Fatalf("create body should list attributes:\n%s", out)
+	}
+}
+
+func TestRenderLargeAttrFolds(t *testing.T) {
+	r := sampleReport()
+	r.Stacks[0].Changes = []model.Change{{
+		Address: "kubernetes_config_map.app",
+		Type:    "kubernetes_config_map",
+		Action:  model.ActionChange,
+		Fields: []model.Field{{
+			Name: "data",
+			Variants: []model.Variant{
+				{Level: model.LevelLineDiff, Content: "- old\n+ new", Bytes: 9},
+				{Level: model.LevelSummary, Content: "  ~ data · text · 2 lines · 2 changed (hidden to fit size limit)"},
+				{Level: model.LevelHidden, Content: ""},
+			},
+		}},
+	}}
+	r.Stacks[0].Counts = model.Counts{Change: 1}
+	out := Render(r)
+	if !strings.Contains(out, "<details><summary>~ data") {
+		t.Fatalf("large attr should fold into a nested details:\n%s", out)
 	}
 }

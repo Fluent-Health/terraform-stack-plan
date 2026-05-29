@@ -133,40 +133,90 @@ func renderDetails(b *strings.Builder, r model.Report) {
 		if r.DetailsOpen {
 			open = " open"
 		}
-		fmt.Fprintf(b, "\n<details%s><summary>%s</summary>\n\n", open, summary)
-		b.WriteString("```diff\n")
+		fmt.Fprintf(b, "\n<details%s><summary>%s</summary>\n", open, summary)
 		for _, c := range s.Changes {
-			renderChange(b, c)
+			renderResource(b, c)
 		}
-		b.WriteString("```\n\n</details>\n")
+		b.WriteString("</details>\n")
 	}
 }
 
-func renderChange(b *strings.Builder, c model.Change) {
+// renderResource emits one resource: a folded <details> for create/delete, or
+// (for update/replace) an inline diff fence plus a folded <details> per block
+// field.
+func renderResource(b *strings.Builder, c model.Change) {
 	switch c.Action {
-	case model.ActionAdd:
-		fmt.Fprintf(b, "+ %s\n", c.Address)
-		return
-	case model.ActionDestroy:
-		fmt.Fprintf(b, "- %s\n", c.Address)
+	case model.ActionAdd, model.ActionDestroy:
+		op := model.OpAdd
+		if c.Action == model.ActionDestroy {
+			op = model.OpRemove
+		}
+		var leaves []model.Leaf
+		for _, f := range c.Fields {
+			leaves = append(leaves, f.Leaves...)
+		}
+		fmt.Fprintf(b, "\n<details><summary>%s %s · %d attrs</summary>\n\n```diff\n", op.Sym(), c.Address, len(leaves))
+		for _, line := range alignLeaves(leaves) {
+			b.WriteString(line)
+			b.WriteString("\n")
+		}
+		b.WriteString("```\n\n</details>\n")
 		return
 	}
-	verb := "will be updated in-place"
+
+	// update / replace: inline leaves in a fence, then block fields fold.
+	verb := ""
 	if c.Action == model.ActionReplace {
-		verb = "will be replaced"
+		verb = " · replace"
 	}
-	fmt.Fprintf(b, "# %s %s\n", c.Address, verb)
-	for _, a := range c.Attrs {
-		v := a.Sel()
+	var inline []model.Leaf
+	var blocks []model.Field
+	for _, f := range c.Fields {
+		if f.IsBlock() {
+			blocks = append(blocks, f)
+		} else {
+			inline = append(inline, f.Leaves...)
+		}
+	}
+	b.WriteString("\n```diff\n")
+	fmt.Fprintf(b, "# %s%s\n", c.Address, verb)
+	for _, line := range alignLeaves(inline) {
+		b.WriteString(line)
+		b.WriteString("\n")
+	}
+	b.WriteString("```\n")
+	for _, f := range blocks {
+		v := f.Sel()
 		if v.Level == model.LevelHidden || v.Content == "" {
 			continue
 		}
-		b.WriteString(v.Content)
-		if !strings.HasSuffix(v.Content, "\n") {
-			b.WriteString("\n")
+		lines := lineCountOf(v.Content)
+		fmt.Fprintf(b, "\n<details><summary>~ %s · %d lines</summary>\n\n```diff\n%s\n```\n\n</details>\n", f.Name, lines, strings.TrimRight(v.Content, "\n"))
+	}
+}
+
+// alignLeaves renders leaves as `op path = value`, padding paths so the `=`
+// signs align.
+func alignLeaves(leaves []model.Leaf) []string {
+	w := 0
+	for _, l := range leaves {
+		if len(l.Path) > w {
+			w = len(l.Path)
 		}
 	}
-	b.WriteString("\n")
+	out := make([]string, 0, len(leaves))
+	for _, l := range leaves {
+		pad := strings.Repeat(" ", w-len(l.Path))
+		out = append(out, fmt.Sprintf("%s %s%s = %s", l.Op.Sym(), l.Path, pad, l.Value()))
+	}
+	return out
+}
+
+func lineCountOf(s string) int {
+	if s == "" {
+		return 0
+	}
+	return strings.Count(strings.TrimRight(s, "\n"), "\n") + 1
 }
 
 func renderMinimal(b *strings.Builder, r model.Report) {
