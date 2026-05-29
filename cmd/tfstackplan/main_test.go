@@ -136,16 +136,20 @@ func TestRunEmitsLinks(t *testing.T) {
 		t.Fatal(err)
 	}
 	planPath := filepath.Join(dir, "plan.json")
-	os.WriteFile(planPath, []byte(planJSON), 0o644)
+	if err := os.WriteFile(planPath, []byte(planJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	cfgPath := filepath.Join(dir, "cfg.hcl")
-	os.WriteFile(cfgPath, []byte(`links {
+	if err := os.WriteFile(cfgPath, []byte(`links {
   resource = "https://gh/o/r/blob/{sha}/{file}#L{line}"
   stack    = "https://gh/o/r/tree/{sha}/{stack_dir}"
   header {
     label = "PR #{pr}"
     url   = "https://gh/o/r/pull/{pr}"
   }
-}`), 0o644)
+}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	out, _, err := run(opts{
 		stacks:   []string{"platform/nonprod:" + planPath},

@@ -63,7 +63,7 @@ func main() {
 	flag.StringVar(&o.details, "details", "closed", "details disclosure: auto|open|closed")
 	flag.StringVar(&o.repoRoot, "repo-root", ".", "repo root for computing link file paths")
 	var lv stackFlags
-	flag.Var(&lv, "link-var", "link template variable as key=value (repeatable)")
+	flag.Var(&lv, "link-var", "link template variable as key=value (repeatable); sha=<sha> also derives sha_short")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
 	if *showVersion {
@@ -265,7 +265,8 @@ func nilable(s string) *string {
 	return &s
 }
 
-// baseVars holds run-level link variables (sha, pr, build_id, …) plus sha_short.
+// baseVars parses run-level link variables from key=value pairs and derives
+// sha_short (first 7 chars of sha) when present.
 func baseVars(pairs []string) map[string]string {
 	v := map[string]string{}
 	for _, p := range pairs {
@@ -290,6 +291,7 @@ func mergeVars(a, b map[string]string) map[string]string {
 	return out
 }
 
+// relSlash returns target relative to root as a forward-slash path, or "" on error.
 func relSlash(root, target string) string {
 	ra, e1 := filepath.Abs(root)
 	ta, e2 := filepath.Abs(target)
