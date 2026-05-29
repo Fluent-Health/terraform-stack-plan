@@ -140,6 +140,25 @@ func TestRenderCreateFolds(t *testing.T) {
 	}
 }
 
+func TestRenderCreateBlockFieldRendered(t *testing.T) {
+	r := sampleReport()
+	r.Stacks[0].Changes = []model.Change{{
+		Address: "x.y", Action: model.ActionAdd,
+		Fields: []model.Field{
+			{Name: "n", Leaves: []model.Leaf{{Op: model.OpAdd, Path: "n", New: `"1"`}}},
+			{Name: "data", Variants: []model.Variant{{Level: model.LevelLineDiff, Content: "+ a\n+ b", Bytes: 4}}},
+		},
+	}}
+	r.Stacks[0].Counts = model.Counts{Add: 1}
+	out := Render(r)
+	if !strings.Contains(out, "· 2 attrs") {
+		t.Fatalf("attr count should be 2 (fields), got:\n%s", out)
+	}
+	if !strings.Contains(out, "+ a") || !strings.Contains(out, "+ b") {
+		t.Fatalf("block field content must not be dropped:\n%s", out)
+	}
+}
+
 func TestRenderLargeAttrFolds(t *testing.T) {
 	r := sampleReport()
 	r.Stacks[0].Changes = []model.Change{{

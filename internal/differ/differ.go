@@ -276,8 +276,12 @@ func structural(in Input) model.Field {
 // would drop.
 func structuralLeaves(attr string, before, after any) []model.Leaf {
 	bm, am := map[string]string{}, map[string]string{}
-	flatten(attr, before, bm)
-	flatten(attr, after, am)
+	if before != nil {
+		flatten(attr, before, bm)
+	}
+	if after != nil {
+		flatten(attr, after, am)
+	}
 
 	keys := map[string]struct{}{}
 	for k := range bm {

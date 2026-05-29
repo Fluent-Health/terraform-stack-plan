@@ -208,6 +208,31 @@ func TestStructuralFoldBoundary(t *testing.T) {
 	}
 }
 
+func TestStructuralCreateNoNullLeaf(t *testing.T) {
+	f := Diff(Input{Attr: "labels", After: map[string]any{"team": "platform", "env": "prod"}})
+	if f.IsBlock() {
+		t.Fatalf("small created map should be leaves")
+	}
+	if len(f.Leaves) != 2 {
+		t.Fatalf("want 2 add leaves, got %d: %+v", len(f.Leaves), f.Leaves)
+	}
+	for _, l := range f.Leaves {
+		if l.Path == "labels" || l.Value() == "null" {
+			t.Fatalf("spurious null/root leaf: %+v", l)
+		}
+		if l.Op != model.OpAdd {
+			t.Fatalf("created map leaves should be adds: %+v", l)
+		}
+	}
+}
+
+func TestStructuralDeleteNoNullLeaf(t *testing.T) {
+	f := Diff(Input{Attr: "labels", Before: map[string]any{"team": "platform"}})
+	if len(f.Leaves) != 1 || f.Leaves[0].Op != model.OpRemove || f.Leaves[0].Path != "labels.team" {
+		t.Fatalf("deleted map should be a remove leaf labels.team, got %+v", f.Leaves)
+	}
+}
+
 func TestStructuralLeafOps(t *testing.T) {
 	before := map[string]any{"keep": "x", "gone": "y", "num": 7.0}
 	after := map[string]any{"keep": "x", "num": 9.0, "added": "z"}

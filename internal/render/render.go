@@ -152,13 +152,25 @@ func renderResource(b *strings.Builder, c model.Change) {
 			op = model.OpRemove
 		}
 		var leaves []model.Leaf
+		var blocks []model.Field
 		for _, f := range c.Fields {
-			leaves = append(leaves, f.Leaves...)
+			if f.IsBlock() {
+				blocks = append(blocks, f)
+			} else {
+				leaves = append(leaves, f.Leaves...)
+			}
 		}
-		fmt.Fprintf(b, "\n<details><summary>%s %s · %d attrs</summary>\n\n```diff\n", op.Sym(), c.Address, len(leaves))
+		fmt.Fprintf(b, "\n<details><summary>%s %s · %d attrs</summary>\n\n```diff\n", op.Sym(), c.Address, len(c.Fields))
 		for _, line := range alignLeaves(leaves) {
 			b.WriteString(line)
 			b.WriteString("\n")
+		}
+		for _, f := range blocks {
+			v := f.Sel()
+			if v.Level == model.LevelHidden || v.Content == "" {
+				continue
+			}
+			fmt.Fprintf(b, "%s %s:\n%s\n", op.Sym(), f.Name, strings.TrimRight(v.Content, "\n"))
 		}
 		b.WriteString("```\n\n</details>\n")
 		return
