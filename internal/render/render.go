@@ -119,6 +119,10 @@ func renderTable(b *strings.Builder, r model.Report) {
 	}
 }
 
+// openThreshold is the rendered-body line count at or below which a resource's
+// <details> row is open by default; larger bodies collapse to a row you expand.
+const openThreshold = 10
+
 func renderDetails(b *strings.Builder, r model.Report) {
 	for _, s := range r.Stacks {
 		if !s.Counts.AnyChange() {
@@ -133,77 +137,99 @@ func renderDetails(b *strings.Builder, r model.Report) {
 		if r.DetailsOpen {
 			open = " open"
 		}
-		fmt.Fprintf(b, "\n<details%s><summary>%s</summary>\n", open, summary)
+		fmt.Fprintf(b, "\n<details%s><summary>%s</summary>\n\n", open, summary)
+		var body strings.Builder
 		for _, c := range s.Changes {
-			renderResource(b, c)
+			renderResource(&body, c, r.DetailsOpen)
 		}
-		b.WriteString("</details>\n")
+		// Wrap the resource rows in a blockquote so GitHub draws an indented
+		// left bar marking the stack scope ("you are inside this stack").
+		b.WriteString(blockquote(body.String()))
+		b.WriteString("\n</details>\n")
 	}
 }
 
-// renderResource emits one resource: a folded <details> for create/delete, or
-// (for update/replace) an inline diff fence plus a folded <details> per block
-// field.
-func renderResource(b *strings.Builder, c model.Change) {
-	switch c.Action {
-	case model.ActionAdd, model.ActionDestroy:
-		op := model.OpAdd
-		if c.Action == model.ActionDestroy {
-			op = model.OpRemove
-		}
-		var leaves []model.Leaf
-		var blocks []model.Field
-		for _, f := range c.Fields {
-			if f.IsBlock() {
-				blocks = append(blocks, f)
-			} else {
-				leaves = append(leaves, f.Leaves...)
-			}
-		}
-		fmt.Fprintf(b, "\n<details><summary>%s %s · %d attrs</summary>\n\n```diff\n", op.Sym(), c.Address, len(c.Fields))
-		for _, line := range alignLeaves(leaves) {
-			b.WriteString(line)
-			b.WriteString("\n")
-		}
-		for _, f := range blocks {
-			v := f.Sel()
-			if v.Level == model.LevelHidden || v.Content == "" {
-				continue
-			}
-			fmt.Fprintf(b, "%s %s:\n%s\n", op.Sym(), f.Name, strings.TrimRight(v.Content, "\n"))
-		}
-		b.WriteString("```\n\n</details>\n")
-		return
+// blockquote prefixes every line with "> " (blank lines become ">") so GitHub
+// renders the block as an indented, left-bordered quote.
+func blockquote(s string) string {
+	s = strings.TrimRight(s, "\n")
+	if s == "" {
+		return ""
 	}
+	lines := strings.Split(s, "\n")
+	for i, ln := range lines {
+		if ln == "" {
+			lines[i] = ">"
+		} else {
+			lines[i] = "> " + ln
+		}
+	}
+	return strings.Join(lines, "\n") + "\n"
+}
 
-	// ActionChange and ActionReplace: inline leaves, then block fields fold.
-	suffix := ""
-	if c.Action == model.ActionReplace {
-		suffix = " · replace"
-	}
-	var inline []model.Leaf
+// renderResource emits one resource as a uniform <details> row. The row is open
+// when its body is small (<= openThreshold lines) or forceOpen is set; otherwise
+// it collapses to a summary line. The body holds the aligned leaf changes
+// followed by any block-field diffs.
+func renderResource(b *strings.Builder, c model.Change, forceOpen bool) {
+	sym := fieldSym(c.Action)
+
+	var leaves []model.Leaf
 	var blocks []model.Field
 	for _, f := range c.Fields {
 		if f.IsBlock() {
 			blocks = append(blocks, f)
 		} else {
-			inline = append(inline, f.Leaves...)
+			leaves = append(leaves, f.Leaves...)
 		}
 	}
-	b.WriteString("\n```diff\n")
-	fmt.Fprintf(b, "# %s%s\n", c.Address, suffix)
-	for _, line := range alignLeaves(inline) {
-		b.WriteString(line)
-		b.WriteString("\n")
+
+	var body strings.Builder
+	for _, line := range alignLeaves(leaves) {
+		body.WriteString(line)
+		body.WriteString("\n")
 	}
-	b.WriteString("```\n")
 	for _, f := range blocks {
 		v := f.Sel()
 		if v.Level == model.LevelHidden || v.Content == "" {
 			continue
 		}
-		lines := lineCountOf(v.Content)
-		fmt.Fprintf(b, "\n<details><summary>~ %s · %d lines</summary>\n\n```diff\n%s\n```\n\n</details>\n", f.Name, lines, strings.TrimRight(v.Content, "\n"))
+		fmt.Fprintf(&body, "%s %s:\n%s\n", sym, f.Name, strings.TrimRight(v.Content, "\n"))
+	}
+	content := strings.TrimRight(body.String(), "\n")
+
+	open := ""
+	if forceOpen || lineCountOf(content) <= openThreshold {
+		open = " open"
+	}
+	fmt.Fprintf(b, "<details%s><summary>%s</summary>\n\n```diff\n%s\n```\n\n</details>\n",
+		open, resourceSummary(c), content)
+}
+
+// resourceSummary is the one-line row label: glyph + address + magnitude.
+func resourceSummary(c model.Change) string {
+	switch c.Action {
+	case model.ActionAdd:
+		return fmt.Sprintf("+ %s · %d attrs", c.Address, len(c.Fields))
+	case model.ActionDestroy:
+		return fmt.Sprintf("- %s · %d attrs", c.Address, len(c.Fields))
+	case model.ActionReplace:
+		return fmt.Sprintf("± %s · replace", c.Address)
+	default:
+		return fmt.Sprintf("~ %s · %d changed", c.Address, len(c.Fields))
+	}
+}
+
+// fieldSym is the diff glyph used to label a block field's body within a
+// resource of the given action.
+func fieldSym(a model.Action) string {
+	switch a {
+	case model.ActionAdd:
+		return "+"
+	case model.ActionDestroy:
+		return "-"
+	default:
+		return "~"
 	}
 }
 

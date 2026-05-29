@@ -1,6 +1,7 @@
 package render
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -119,7 +120,7 @@ func TestRenderUpdateLeavesAligned(t *testing.T) {
 	}
 }
 
-func TestRenderCreateFolds(t *testing.T) {
+func TestRenderCreateSmallIsOpenRow(t *testing.T) {
 	r := sampleReport()
 	r.Stacks[0].Changes = []model.Change{{
 		Address: "google_service_account.api",
@@ -132,11 +133,47 @@ func TestRenderCreateFolds(t *testing.T) {
 	}}
 	r.Stacks[0].Counts = model.Counts{Add: 1}
 	out := Render(r)
-	if !strings.Contains(out, "<details><summary>+ google_service_account.api · 2 attrs</summary>") {
-		t.Fatalf("create should fold into a nested details:\n%s", out)
+	// Small create (2 attrs) is an open row with its attributes shown.
+	if !strings.Contains(out, "<details open><summary>+ google_service_account.api · 2 attrs</summary>") {
+		t.Fatalf("small create should be an open row:\n%s", out)
 	}
 	if !strings.Contains(out, "+ account_id = \"app-api\"") {
 		t.Fatalf("create body should list attributes:\n%s", out)
+	}
+}
+
+func TestRenderResourceClosedWhenBig(t *testing.T) {
+	var big strings.Builder
+	for i := 0; i < 15; i++ {
+		fmt.Fprintf(&big, "- line %d\n+ line %d\n", i, i)
+	}
+	r := sampleReport()
+	r.Stacks[0].Changes = []model.Change{{
+		Address: "kubernetes_config_map.app",
+		Type:    "kubernetes_config_map",
+		Action:  model.ActionChange,
+		Fields: []model.Field{{
+			Name:     "data",
+			Variants: []model.Variant{{Level: model.LevelLineDiff, Content: big.String(), Bytes: big.Len()}},
+		}},
+	}}
+	r.Stacks[0].Counts = model.Counts{Change: 1}
+	out := Render(r)
+	if !strings.Contains(out, "<details><summary>~ kubernetes_config_map.app · 1 changed</summary>") {
+		t.Fatalf("big resource should be a closed row:\n%s", out)
+	}
+	if strings.Contains(out, "<details open><summary>~ kubernetes_config_map.app") {
+		t.Fatalf("big resource must not be open:\n%s", out)
+	}
+	if !strings.Contains(out, "+ line 0") {
+		t.Fatalf("closed row should still contain the diff body:\n%s", out)
+	}
+}
+
+func TestRenderBlockquoteBar(t *testing.T) {
+	out := Render(sampleReport())
+	if !strings.Contains(out, "> <details") {
+		t.Fatalf("resource rows should be wrapped in a stack blockquote:\n%s", out)
 	}
 }
 
@@ -159,7 +196,7 @@ func TestRenderCreateBlockFieldRendered(t *testing.T) {
 	}
 }
 
-func TestRenderLargeAttrFolds(t *testing.T) {
+func TestRenderBlockFieldInResourceBody(t *testing.T) {
 	r := sampleReport()
 	r.Stacks[0].Changes = []model.Change{{
 		Address: "kubernetes_config_map.app",
@@ -176,10 +213,15 @@ func TestRenderLargeAttrFolds(t *testing.T) {
 	}}
 	r.Stacks[0].Counts = model.Counts{Change: 1}
 	out := Render(r)
-	if !strings.Contains(out, "<details><summary>~ data") {
-		t.Fatalf("large attr should fold into a nested details:\n%s", out)
+	// The block field renders inside the resource row's body (labelled "~ data:"),
+	// not as a separate sub-details. The resource row itself is the only fold level.
+	if !strings.Contains(out, "~ data:") {
+		t.Fatalf("block field should be labelled in the resource body:\n%s", out)
 	}
 	if !strings.Contains(out, "- old") || !strings.Contains(out, "+ new") {
-		t.Fatalf("folded block should contain the selected variant's diff:\n%s", out)
+		t.Fatalf("resource body should contain the selected variant's diff:\n%s", out)
+	}
+	if strings.Contains(out, "<details open><summary>~ data") || strings.Contains(out, "<details><summary>~ data") {
+		t.Fatalf("block field must not be a separate sub-details:\n%s", out)
 	}
 }
