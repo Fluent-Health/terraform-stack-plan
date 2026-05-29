@@ -16,8 +16,11 @@ that need extra review (IAM, destructive changes, …).
 ## What it looks like
 
 A run over eight stacks with classification enabled, rendered the way GitHub
-shows it in a PR comment — a scannable summary table, then a collapsed
-drill-down per stack (click to expand):
+shows it in a PR comment: a scannable summary table, then a per-stack
+drill-down. Inside a stack, **each resource is its own row within an indented
+blockquote bar** — so it's always clear which stack/resource you're reading.
+Small changes are shown expanded; big ones collapse to a row you click to open.
+(The stacks below are shown expanded for illustration.)
 
 <!-- tfstackplan:nonprod -->
 
@@ -31,112 +34,93 @@ drill-down per stack (click to expand):
 | networking/shared-vpc | 0 | 5 | 0 | 2 | 💣 destructive |
 | observability/grafana | 5 | 6 | 0 | 0 | ✅ safe |
 
-<details><summary>platform/nonprod · 🔐 iam · 4 change</summary>
+<details open><summary>platform/nonprod · 🔐 iam · 4 change</summary>
 
-```diff
-# google_project_iam_member.data_engineers
-~ role = "roles/viewer" → "roles/editor"
-```
-
-```diff
-# google_storage_bucket.tfstate
-+ labels.team    = "platform"
-~ retention_days = 7 → 30
-```
-</details>
-
-<details><summary>service-projects/app-dev · ✅ safe · 4 add, 3 change</summary>
-
-<details><summary>+ google_service_account.api · 3 attrs</summary>
-
-```diff
-+ disabled = false
-+ location = "us-central1"
-+ name     = "api"
-```
+> <details open><summary>~ google_project_iam_member.data_engineers · 1 changed</summary>
+>
+> ```diff
+> ~ role = "roles/viewer" → "roles/editor"
+> ```
+>
+> </details>
+> <details open><summary>~ google_storage_bucket.tfstate · 2 changed</summary>
+>
+> ```diff
+> ~ retention_days = 7 → 30
+> ~ labels (yaml):
+>  env: nonprod
+> +team: platform
+> ```
+>
+> </details>
 
 </details>
 
-<details><summary>+ google_cloud_run_service.api · 3 attrs</summary>
+Scalars render as aligned `~ path = old → new` leaves; structured attributes
+(here `labels`) render as a contextual diff. Creates and deletes look the same —
+one open row per resource showing its attributes:
 
-```diff
-+ disabled = false
-+ location = "us-central1"
-+ name     = "api"
-```
+<details open><summary>data/warehouse · 💣 destructive · 6 destroy</summary>
 
-</details>
-
-```diff
-# google_secret_manager_secret_version.db_password
-~ secret_data = (sensitive value)
-```
-</details>
-
-<details><summary>data/warehouse · 💣 destructive · 6 destroy</summary>
-
-<details><summary>- google_bigquery_dataset.legacy_events · 2 attrs</summary>
-
-```diff
-- location = "us-central1"
-- name     = "legacy_events"
-```
+> <details open><summary>- google_bigquery_dataset.legacy_events · 2 attrs</summary>
+>
+> ```diff
+> - location = "us-central1"
+> - name     = "legacy_events"
+> ```
+>
+> </details>
 
 </details>
 
-<details><summary>- google_storage_bucket.legacy_exports · 2 attrs</summary>
+Structured values (JSON/YAML strings and native HCL maps/lists) render as a
+**contextual diff** — canonically re-formatted, 2 lines of context, changed
+lines as `-`/`+`, tagged with the kind. Small ones stay inline (open); big ones
+**collapse** to a closed row:
 
-```diff
-- location = "us-central1"
-- name     = "legacy_exports"
-```
+<details open><summary>observability/grafana · ✅ safe · structured fields (excerpt)</summary>
 
-</details>
-</details>
+> <details open><summary>~ kubernetes_manifest.ingress · 1 changed</summary>
+>
+> ```diff
+> ~ manifest (yaml):
+>  spec:
+> -    key_00: old
+> -    key_01: old
+> +    key_00: new
+> +    key_01: new
+>      key_02: old
+>      key_03: old
+> ```
+>
+> </details>
+> <details><summary>~ kubernetes_manifest.configmap · 1 changed</summary>
+>
+> ```diff
+> ~ manifest (yaml):
+>  spec:
+> -    key_00: old
+> -    key_01: old
+> +    key_00: new
+> +    key_01: new
+>   … (many paths changed → folds to a closed row)
+> ```
+>
+> </details>
 
-<details><summary>observability/grafana · ✅ safe · 5 add, 6 change</summary>
-
-<details><summary>+ helm_release.grafana · 3 attrs</summary>
-
-```diff
-+ disabled = false
-+ location = "us-central1"
-+ name     = "grafana"
-```
-
-</details>
-
-```diff
-# kubernetes_manifest.ingress
-~ manifest.spec.key_00 = "old" → "new"
-~ manifest.spec.key_01 = "old" → "new"
-```
-
-```diff
-# kubernetes_manifest.configmap
-```
-
-<details><summary>~ manifest · 11 lines</summary>
-
-```diff
-  ~ spec.key_00: old -> new
-  ~ spec.key_01: old -> new
-  ~ spec.key_02: old -> new
-```
-
-</details>
 </details>
 
 The first line of the real output is an HTML-comment marker
 (`<!-- tfstackplan:nonprod -->`, invisible above) that CI uses to upsert one
-comment per tier. `<details>` start collapsed (override with `--details
-open|auto`), zero-only columns are dropped, and without a classification policy
-the `Class` column and labels disappear — counts and diffs only.
+comment per tier.
 
-Key render behaviours shown above:
-- **Creates and deletes** fold into their own `<details><summary>+ addr · N attrs</summary>` with a `+`/`-` prefixed diff body.
-- **Updates** emit a `# addr` header with aligned `~ path = old → new` leaves; block-level changes (e.g. large structured diffs) fold into a nested `<details>`.
-- **Structured (YAML/JSON) attributes** with few changed paths render inline (`kubernetes_manifest.ingress`, 2 paths); those with many changed paths fold into a block (`kubernetes_manifest.configmap`, 11 paths).
+Key render behaviours:
+- **Every resource is a uniform `<details>` row** inside the stack's blockquote bar, giving a clear stack → resource hierarchy.
+- **Size-based folding:** a row is open when its body is small (≤ ~10 lines), collapsed when big — the same rule for creates, deletes, and updates.
+- **Aligned changes:** `~ path = old → new`, with `=` aligned and nested maps keeping their name via dotted paths (`+ labels.team = "platform"`).
+- **Structured values** (JSON/YAML strings and native HCL maps/lists) render as a **contextual diff** — the value canonically re-formatted, 2 lines of context, changed lines as `-`/`+`, tagged with its kind (`~ policy (json):`). Small diffs stay inline; big ones collapse the row.
+- **State operations** surface as rows too: moved (`↪ addr · moved from …`), imported (`⤓ addr · imported (id=…)`), and removed-from-state (`⊘ addr · forgotten`). These have no summary-table columns; their counts append to the stack's row text.
+- `--details open|auto` overrides the per-row default; zero-only columns are dropped; without a classification policy the `Class` column disappears.
 
 ### More examples
 
@@ -155,6 +139,10 @@ biggest diffs first, then dropping detail. These files are real tool output
 - [`examples/over-budget-minimal.md`](examples/over-budget-minimal.md) — past
   every simplification and still over budget: a one-line aggregate is emitted
   and the tool exits non-zero so CI can surface it.
+- [`examples/state-ops.md`](examples/state-ops.md) — **moved** (`↪`),
+  **imported** (`⤓`), and **removed-from-state / forget** (`⊘`) resources; and
+  **contextual diffs** for nested JSON, YAML, and native HCL blocks (2 lines of
+  context, `-`/`+` changes), in small (inline) and big (folded) form.
 
 ---
 

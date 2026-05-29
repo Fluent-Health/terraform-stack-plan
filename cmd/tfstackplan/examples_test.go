@@ -133,6 +133,41 @@ func exampleStacks(t *testing.T, dir string) []string {
 	return flags
 }
 
+// stateOpsStacks writes the input for the state-ops / structured-diff example:
+// moved / imported / forget / nested-block resources, plus rich nested JSON and
+// YAML diffs in small (inline) and big (folded) variants.
+func stateOpsStacks(t *testing.T, dir string) []string {
+	t.Helper()
+	stacks := []struct {
+		name    string
+		changes []change
+	}{
+		{"infra/migrations", []change{
+			moved("google_storage_bucket.assets", "google_storage_bucket.legacy_assets", "google_storage_bucket"),
+			movedUpdate("google_storage_bucket.state", "module.old.google_storage_bucket.state"),
+			imported("google_project.host", "google_project", "my-host-project"),
+			forget("aws_s3_bucket.legacy", "aws_s3_bucket"),
+			nestedBlockUpdate("google_compute_firewall.web"),
+		}},
+		{"platform/policies", []change{
+			jsonUpdate("aws_iam_policy.small", 1),                    // few paths → inline
+			jsonUpdate("aws_iam_policy.big", 12),                     // many paths → folded
+			yamlManifestUpdate("kubernetes_manifest.app", false),     // small → inline
+			yamlManifestUpdate("kubernetes_manifest.platform", true), // big → folded
+		}},
+	}
+	var flags []string
+	for _, s := range stacks {
+		fname := strings.ReplaceAll(s.name, "/", "_") + ".json"
+		p := filepath.Join(dir, fname)
+		if err := os.WriteFile(p, genPlan(s.changes...), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		flags = append(flags, s.name+":"+p)
+	}
+	return flags
+}
+
 // TestExamples renders the shared input at four byte budgets, exercising the
 // full size-budget cascade. The committed examples/*.md files are the goldens:
 // each scenario asserts an invariant proving its rendering, then is compared to
@@ -170,7 +205,7 @@ func TestExamples(t *testing.T) {
 		},
 		{
 			file:     "over-budget-degraded.md",
-			maxBytes: 12000,
+			maxBytes: 18000,
 			assert: func(t *testing.T, out string, fits bool) {
 				if !fits {
 					t.Errorf("degraded: expected report to fit after Phase-1 degradation")
@@ -238,24 +273,87 @@ func TestExamples(t *testing.T) {
 				t.Fatal(err)
 			}
 			sc.assert(t, out, fits)
-
-			golden := filepath.Join("..", "..", "examples", sc.file)
-			if *updateGolden {
-				if err := os.WriteFile(golden, []byte(out), 0o644); err != nil {
-					t.Fatal(err)
-				}
-				return
-			}
-			want, err := os.ReadFile(golden)
-			if err != nil {
-				t.Fatalf("read golden %s: %v (run `go test ./cmd/tfstackplan -update`)", sc.file, err)
-			}
-			if string(want) != out {
-				t.Errorf("%s is stale; run `go test ./cmd/tfstackplan -update`.\n%s",
-					sc.file, firstDiff(string(want), out))
-			}
+			checkGolden(t, sc.file, out)
 		})
 	}
+}
+
+// checkGolden compares out to examples/<file>, or rewrites it under -update.
+func checkGolden(t *testing.T, file, out string) {
+	t.Helper()
+	golden := filepath.Join("..", "..", "examples", file)
+	if *updateGolden {
+		if err := os.WriteFile(golden, []byte(out), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+	want, err := os.ReadFile(golden)
+	if err != nil {
+		t.Fatalf("read golden %s: %v (run `go test ./cmd/tfstackplan -update`)", file, err)
+	}
+	if string(want) != out {
+		t.Errorf("%s is stale; run `go test ./cmd/tfstackplan -update`.\n%s",
+			file, firstDiff(string(want), out))
+	}
+}
+
+// TestStateOpsExample renders moved / imported / forget / nested-block resources
+// and rich nested JSON & YAML diffs (small inline + big folded) into the
+// examples/state-ops.md golden.
+func TestStateOpsExample(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "policy.hcl")
+	if err := os.WriteFile(cfgPath, []byte(exampleCfgHCL), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stacks := stateOpsStacks(t, dir)
+
+	out, fits, err := run(opts{
+		stacks:   stacks,
+		title:    "Terraform plan — state ops & structured diffs",
+		marker:   "tfstackplan:state-ops",
+		config:   cfgPath,
+		maxBytes: 60000,
+		details:  "closed",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !fits {
+		t.Errorf("state-ops: expected report to fit")
+	}
+	// State operations.
+	for _, want := range []string{
+		"↪ ", " · moved from ", "⤓ ", " · imported (id=", "⊘ ", " · forgotten · ",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("state-ops: missing %q in output", want)
+		}
+	}
+	// Move/import/forget surfaced in a Stack cell (table choice B, no columns).
+	if !strings.Contains(out, "move") || !strings.Contains(out, "import") || !strings.Contains(out, "forget") {
+		t.Errorf("state-ops: expected move/import/forget noted in the table")
+	}
+	// Structured values render as contextual diffs tagged with their kind.
+	if !strings.Contains(out, "(json)") || !strings.Contains(out, "(yaml)") {
+		t.Errorf("state-ops: expected (json)/(yaml) kind labels on structured blocks")
+	}
+	// Context lines + changed -/+ lines, e.g. the firewall port and the policy arn.
+	if !strings.Contains(out, `"443"`) {
+		t.Errorf("state-ops: expected nested-block contextual diff (port 443):\n%s", out)
+	}
+	if !strings.Contains(out, "bucket-new-00") {
+		t.Errorf("state-ops: expected JSON contextual diff (new arn)")
+	}
+	if !strings.Contains(out, "app:1.5") {
+		t.Errorf("state-ops: expected YAML manifest contextual diff (new image)")
+	}
+	// A big structured change folds into a closed row.
+	if !strings.Contains(out, "<details><summary>~ aws_iam_policy.big") {
+		t.Errorf("state-ops: big JSON should fold to a closed row:\n%s", out)
+	}
+	checkGolden(t, "state-ops.md", out)
 }
 
 // firstDiff returns a short description of where two strings first differ.

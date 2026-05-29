@@ -133,6 +133,125 @@ func bigUpdate(addr string, lines int) change {
 		map[string]any{"data": after.String()})
 }
 
+func lastSeg(addr string) string {
+	if i := strings.LastIndex(addr, "."); i >= 0 {
+		return addr[i+1:]
+	}
+	return addr
+}
+
+// moved is a pure rename (no-op + previous_address).
+func moved(addr, prev, typ string) change {
+	c := resourceChange(addr, typ, map[string]any{
+		"actions": []string{"no-op"}, "before": map[string]any{"id": addr},
+		"after":         map[string]any{"id": addr},
+		"after_unknown": emptyObj(), "before_sensitive": emptyObj(), "after_sensitive": emptyObj(),
+	})
+	c["previous_address"] = prev
+	return c
+}
+
+// movedUpdate is a rename combined with an in-place attribute change.
+func movedUpdate(addr, prev string) change {
+	c := resourceChange(addr, "google_storage_bucket", map[string]any{
+		"actions":       []string{"update"},
+		"before":        map[string]any{"retention_days": float64(7)},
+		"after":         map[string]any{"retention_days": float64(30)},
+		"after_unknown": emptyObj(), "before_sensitive": emptyObj(), "after_sensitive": emptyObj(),
+	})
+	c["previous_address"] = prev
+	return c
+}
+
+// imported brings an existing resource under management (no-op + importing).
+func imported(addr, typ, id string) change {
+	return resourceChange(addr, typ, map[string]any{
+		"actions": []string{"no-op"}, "importing": map[string]any{"id": id},
+		"before":        map[string]any{"id": addr},
+		"after":         map[string]any{"id": addr},
+		"after_unknown": emptyObj(), "before_sensitive": emptyObj(), "after_sensitive": emptyObj(),
+	})
+}
+
+// forget removes a resource from state without destroying it.
+func forget(addr, typ string) change {
+	return resourceChange(addr, typ, map[string]any{
+		"actions": []string{"forget"}, "after": nil,
+		"before":        map[string]any{"name": lastSeg(addr), "region": "us-east-1"},
+		"after_unknown": emptyObj(), "before_sensitive": emptyObj(), "after_sensitive": emptyObj(),
+	})
+}
+
+// nestedBlockUpdate changes a native nested block list, so the diff shows
+// array-index paths (e.g. allow[0].ports[0]).
+func nestedBlockUpdate(addr string) change {
+	before := map[string]any{
+		"allow":         []any{map[string]any{"protocol": "tcp", "ports": []any{"80", "8080"}}},
+		"source_ranges": []any{"10.0.0.0/8"},
+	}
+	after := map[string]any{
+		"allow":         []any{map[string]any{"protocol": "tcp", "ports": []any{"443", "8080"}}},
+		"source_ranges": []any{"10.0.0.0/8", "192.168.0.0/16"},
+	}
+	return update(addr, "google_compute_firewall", before, after)
+}
+
+// jsonUpdate changes a JSON policy-document string attribute. `changed` controls
+// how many statement Resources differ (few → inline structural leaves with array
+// indices, many → folded block).
+func jsonUpdate(addr string, changed int) change {
+	mk := func(newN int) string {
+		stmts := make([]any, 0, 12)
+		for i := 0; i < 12; i++ {
+			res := fmt.Sprintf("arn:aws:s3:::bucket-old-%02d/*", i)
+			if i < newN {
+				res = fmt.Sprintf("arn:aws:s3:::bucket-new-%02d/*", i)
+			}
+			stmts = append(stmts, map[string]any{
+				"Sid": fmt.Sprintf("Stmt%02d", i), "Effect": "Allow",
+				"Action": []any{"s3:GetObject"}, "Resource": res,
+			})
+		}
+		b, err := json.Marshal(map[string]any{"Version": "2012-10-17", "Statement": stmts})
+		if err != nil {
+			panic(err)
+		}
+		return string(b)
+	}
+	return update(addr, "aws_iam_policy",
+		map[string]any{"policy": mk(0)},
+		map[string]any{"policy": mk(changed)})
+}
+
+// yamlManifestUpdate changes a nested Kubernetes-manifest YAML string. small →
+// image + replicas (inline); big → also rewrites the env list (folds).
+func yamlManifestUpdate(addr string, big bool) change {
+	mk := func(image, replicas string, envNew int) string {
+		var b strings.Builder
+		b.WriteString("apiVersion: apps/v1\nkind: Deployment\nspec:\n")
+		fmt.Fprintf(&b, "  replicas: %s\n", replicas)
+		b.WriteString("  template:\n    spec:\n      containers:\n        - name: app\n")
+		fmt.Fprintf(&b, "          image: %s\n", image)
+		b.WriteString("          env:\n")
+		for i := 0; i < 8; i++ {
+			v := "old"
+			if i < envNew {
+				v = "new"
+			}
+			fmt.Fprintf(&b, "            - name: VAR_%d\n              value: %s\n", i, v)
+		}
+		return b.String()
+	}
+	before := mk("app:1.4", "2", 0)
+	after := mk("app:1.5", "4", 0)
+	if big {
+		after = mk("app:1.5", "4", 8)
+	}
+	return update(addr, "kubernetes_manifest",
+		map[string]any{"manifest": before},
+		map[string]any{"manifest": after})
+}
+
 // genPlan marshals changes into a `terraform show -json`-shaped document.
 func genPlan(changes ...change) []byte {
 	rc := make([]change, len(changes))

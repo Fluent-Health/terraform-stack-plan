@@ -95,7 +95,13 @@ func renderTable(b *strings.Builder, r model.Report) {
 	fmt.Fprintf(b, "| %s |\n", strings.Join(aligns, " | "))
 
 	for _, s := range r.Stacks {
-		cells := []string{s.Name}
+		// Table choice B: move/import/forget have no columns; surface them as a
+		// dim suffix on the Stack cell instead.
+		name := s.Name
+		if extra := strings.Join(extrasParts(s.Counts), ", "); extra != "" {
+			name += " · " + extra
+		}
+		cells := []string{name}
 		if cs.add {
 			cells = append(cells, itoa(s.Counts.Add))
 		}
@@ -119,6 +125,10 @@ func renderTable(b *strings.Builder, r model.Report) {
 	}
 }
 
+// openThreshold is the rendered-body line count at or below which a resource's
+// <details> row is open by default; larger bodies collapse to a row you expand.
+const openThreshold = 10
+
 func renderDetails(b *strings.Builder, r model.Report) {
 	for _, s := range r.Stacks {
 		if !s.Counts.AnyChange() {
@@ -133,83 +143,147 @@ func renderDetails(b *strings.Builder, r model.Report) {
 		if r.DetailsOpen {
 			open = " open"
 		}
-		fmt.Fprintf(b, "\n<details%s><summary>%s</summary>\n", open, summary)
+		fmt.Fprintf(b, "\n<details%s><summary>%s</summary>\n\n", open, summary)
+		var body strings.Builder
 		for _, c := range s.Changes {
-			renderResource(b, c)
+			renderResource(&body, c, r.DetailsOpen)
 		}
-		b.WriteString("</details>\n")
+		// Wrap the resource rows in a blockquote so GitHub draws an indented
+		// left bar marking the stack scope ("you are inside this stack").
+		b.WriteString(blockquote(body.String()))
+		b.WriteString("\n</details>\n")
 	}
 }
 
-// renderResource emits one resource: a folded <details> for create/delete, or
-// (for update/replace) an inline diff fence plus a folded <details> per block
-// field.
-func renderResource(b *strings.Builder, c model.Change) {
-	switch c.Action {
-	case model.ActionAdd, model.ActionDestroy:
-		op := model.OpAdd
-		if c.Action == model.ActionDestroy {
-			op = model.OpRemove
-		}
-		var leaves []model.Leaf
-		var blocks []model.Field
-		for _, f := range c.Fields {
-			if f.IsBlock() {
-				blocks = append(blocks, f)
-			} else {
-				leaves = append(leaves, f.Leaves...)
-			}
-		}
-		fmt.Fprintf(b, "\n<details><summary>%s %s · %d attrs</summary>\n\n```diff\n", op.Sym(), c.Address, len(c.Fields))
-		for _, line := range alignLeaves(leaves) {
-			b.WriteString(line)
-			b.WriteString("\n")
-		}
-		for _, f := range blocks {
-			v := f.Sel()
-			if v.Level == model.LevelHidden || v.Content == "" {
-				continue
-			}
-			fmt.Fprintf(b, "%s %s:\n%s\n", op.Sym(), f.Name, strings.TrimRight(v.Content, "\n"))
-		}
-		b.WriteString("```\n\n</details>\n")
-		return
+// blockquote prefixes every line with "> " (blank lines become ">") so GitHub
+// renders the block as an indented, left-bordered quote.
+func blockquote(s string) string {
+	s = strings.TrimRight(s, "\n")
+	if s == "" {
+		return ""
 	}
+	lines := strings.Split(s, "\n")
+	for i, ln := range lines {
+		if ln == "" {
+			lines[i] = ">"
+		} else {
+			lines[i] = "> " + ln
+		}
+	}
+	return strings.Join(lines, "\n") + "\n"
+}
 
-	// ActionChange and ActionReplace: inline leaves, then block fields fold.
-	suffix := ""
-	if c.Action == model.ActionReplace {
-		suffix = " · replace"
-	}
-	var inline []model.Leaf
+// renderResource emits one resource as a uniform <details> row. The row is open
+// when its body is small (<= openThreshold lines) or forceOpen is set; otherwise
+// it collapses to a summary line. The body holds the aligned leaf changes
+// followed by any block-field diffs.
+func renderResource(b *strings.Builder, c model.Change, forceOpen bool) {
+	sym := fieldSym(c.Action)
+
+	var leaves []model.Leaf
 	var blocks []model.Field
 	for _, f := range c.Fields {
 		if f.IsBlock() {
 			blocks = append(blocks, f)
 		} else {
-			inline = append(inline, f.Leaves...)
+			leaves = append(leaves, f.Leaves...)
 		}
 	}
-	b.WriteString("\n```diff\n")
-	fmt.Fprintf(b, "# %s%s\n", c.Address, suffix)
-	for _, line := range alignLeaves(inline) {
-		b.WriteString(line)
-		b.WriteString("\n")
+
+	// forget bodies use the ⊘ glyph so removed-from-state attributes read
+	// distinctly from a destroy's "-".
+	forceSym := ""
+	if c.Action == model.ActionForget {
+		forceSym = "⊘"
 	}
-	b.WriteString("```\n")
+
+	var body strings.Builder
+	for _, line := range alignLeaves(leaves, forceSym) {
+		body.WriteString(line)
+		body.WriteString("\n")
+	}
 	for _, f := range blocks {
 		v := f.Sel()
 		if v.Level == model.LevelHidden || v.Content == "" {
 			continue
 		}
-		lines := lineCountOf(v.Content)
-		fmt.Fprintf(b, "\n<details><summary>~ %s · %d lines</summary>\n\n```diff\n%s\n```\n\n</details>\n", f.Name, lines, strings.TrimRight(v.Content, "\n"))
+		hdr := f.Name
+		if f.Kind != "" {
+			hdr = fmt.Sprintf("%s (%s)", f.Name, f.Kind)
+		}
+		fmt.Fprintf(&body, "%s %s:\n%s\n", sym, hdr, strings.TrimRight(v.Content, "\n"))
+	}
+	content := strings.TrimRight(body.String(), "\n")
+	if content == "" {
+		switch {
+		case c.Moved:
+			content = "(address change only)"
+		case c.Imported:
+			content = "(import only)"
+		}
+	}
+
+	open := ""
+	if forceOpen || lineCountOf(content) <= openThreshold {
+		open = " open"
+	}
+	fmt.Fprintf(b, "<details%s><summary>%s</summary>\n\n```diff\n%s\n```\n\n</details>\n",
+		open, resourceSummary(c), content)
+}
+
+// resourceSummary is the one-line row label: glyph + address + magnitude. State
+// operations take precedence over the underlying action: forget → moved →
+// imported → create/update/delete/replace.
+func resourceSummary(c model.Change) string {
+	n := len(c.Fields)
+	switch {
+	case c.Action == model.ActionForget:
+		return fmt.Sprintf("⊘ %s · forgotten · %d attrs", c.Address, n)
+	case c.Moved:
+		s := fmt.Sprintf("↪ %s · moved from %s", c.Address, c.PreviousAddress)
+		if n > 0 {
+			s += fmt.Sprintf(", %d changed", n)
+		}
+		return s
+	case c.Imported:
+		s := fmt.Sprintf("⤓ %s · imported", c.Address)
+		if c.ImportID != "" {
+			s = fmt.Sprintf("⤓ %s · imported (id=%q)", c.Address, c.ImportID)
+		}
+		if n > 0 {
+			s += fmt.Sprintf(", %d changed", n)
+		}
+		return s
+	case c.Action == model.ActionAdd:
+		return fmt.Sprintf("+ %s · %d attrs", c.Address, n)
+	case c.Action == model.ActionDestroy:
+		return fmt.Sprintf("- %s · %d attrs", c.Address, n)
+	case c.Action == model.ActionReplace:
+		return fmt.Sprintf("± %s · replace", c.Address)
+	default:
+		return fmt.Sprintf("~ %s · %d changed", c.Address, n)
 	}
 }
 
-// alignLeaves renders leaves as `op path = value`, padding paths so the `=`
-// signs align.
-func alignLeaves(leaves []model.Leaf) []string {
+// fieldSym is the diff glyph used to label a block field's body within a
+// resource of the given action.
+func fieldSym(a model.Action) string {
+	switch a {
+	case model.ActionAdd:
+		return "+"
+	case model.ActionDestroy:
+		return "-"
+	case model.ActionForget:
+		return "⊘"
+	default:
+		return "~"
+	}
+}
+
+// alignLeaves renders leaves as "op path = value", padding paths so the "="
+// signs align. A non-empty forceSym overrides each leaf's own op glyph (used by
+// forget rows to mark every attribute with ⊘).
+func alignLeaves(leaves []model.Leaf, forceSym string) []string {
 	w := 0
 	for _, l := range leaves {
 		if len(l.Path) > w {
@@ -219,7 +293,11 @@ func alignLeaves(leaves []model.Leaf) []string {
 	out := make([]string, 0, len(leaves))
 	for _, l := range leaves {
 		pad := strings.Repeat(" ", w-len(l.Path))
-		out = append(out, fmt.Sprintf("%s %s%s = %s", l.Op.Sym(), l.Path, pad, l.Value()))
+		sym := l.Op.Sym()
+		if forceSym != "" {
+			sym = forceSym
+		}
+		out = append(out, fmt.Sprintf("%s %s%s = %s", sym, l.Path, pad, l.Value()))
 	}
 	return out
 }
@@ -238,9 +316,15 @@ func renderMinimal(b *strings.Builder, r model.Report) {
 		total.Change += s.Counts.Change
 		total.Destroy += s.Counts.Destroy
 		total.Replace += s.Counts.Replace
+		total.Import += s.Counts.Import
+		total.Move += s.Counts.Move
+		total.Forget += s.Counts.Forget
 	}
 	line := fmt.Sprintf("%d stacks · %d adds · %d changes · %d destroys · %d replaces",
 		len(r.Stacks), total.Add, total.Change, total.Destroy, total.Replace)
+	if total.Import+total.Move+total.Forget > 0 {
+		line += fmt.Sprintf(" · %d imports · %d moves · %d forgets", total.Import, total.Move, total.Forget)
+	}
 	fmt.Fprintf(b, "### %s\n\n%s\n", r.Title, line)
 	if r.Notice != "" {
 		fmt.Fprintf(b, "\n%s\n", r.Notice)
@@ -261,10 +345,26 @@ func changeWord(c model.Counts) string {
 	if c.Replace > 0 {
 		parts = append(parts, fmt.Sprintf("%d replace", c.Replace))
 	}
+	parts = append(parts, extrasParts(c)...)
 	if len(parts) == 0 {
 		return "no changes"
 	}
 	return strings.Join(parts, ", ")
+}
+
+// extrasParts returns the move/import/forget count phrases (empty when none).
+func extrasParts(c model.Counts) []string {
+	var parts []string
+	if c.Import > 0 {
+		parts = append(parts, fmt.Sprintf("%d import", c.Import))
+	}
+	if c.Move > 0 {
+		parts = append(parts, fmt.Sprintf("%d move", c.Move))
+	}
+	if c.Forget > 0 {
+		parts = append(parts, fmt.Sprintf("%d forget", c.Forget))
+	}
+	return parts
 }
 
 func itoa(n int) string { return fmt.Sprintf("%d", n) }

@@ -29,7 +29,12 @@ type RawChange struct {
 	Type    string
 	Actions []string // raw tf actions, e.g. ["update"] or ["delete","create"]
 	Action  model.Action
-	Attrs   []RawAttr // populated for all non-no-op actions (create/delete/update/replace)
+	Attrs   []RawAttr // populated for create/delete/update/replace/forget
+
+	Moved           bool
+	PreviousAddress string
+	Imported        bool
+	ImportID        string
 }
 
 // RawStack is a parsed plan for one stack (no-ops excluded).
@@ -51,10 +56,26 @@ func Parse(name string, data []byte) (RawStack, error) {
 			continue
 		}
 		act := rc.Change.Actions
-		if act.NoOp() || act.Read() || act.Forget() {
+		if act.Read() {
 			continue
 		}
-		bucket := bucketOf(act)
+		moved := rc.PreviousAddress != "" && rc.PreviousAddress != rc.Address
+		imported := rc.Change.Importing != nil
+		// Pure no-op (no move, no import) carries nothing to show.
+		if act.NoOp() && !moved && !imported {
+			continue
+		}
+
+		var bucket model.Action
+		switch {
+		case act.Forget():
+			bucket = model.ActionForget
+		case act.NoOp():
+			bucket = model.ActionNoop // move/import only
+		default:
+			bucket = bucketOf(act)
+		}
+
 		switch bucket {
 		case model.ActionAdd:
 			rs.Counts.Add++
@@ -64,19 +85,36 @@ func Parse(name string, data []byte) (RawStack, error) {
 			rs.Counts.Destroy++
 		case model.ActionReplace:
 			rs.Counts.Replace++
+		case model.ActionForget:
+			rs.Counts.Forget++
 		}
+		if moved {
+			rs.Counts.Move++
+		}
+		if imported {
+			rs.Counts.Import++
+		}
+
 		ch := RawChange{
-			Address: rc.Address,
-			Type:    rc.Type,
-			Actions: toStrings(act),
-			Action:  bucket,
+			Address:  rc.Address,
+			Type:     rc.Type,
+			Actions:  toStrings(act),
+			Action:   bucket,
+			Moved:    moved,
+			Imported: imported,
+		}
+		if moved {
+			ch.PreviousAddress = rc.PreviousAddress
+		}
+		if imported {
+			ch.ImportID = rc.Change.Importing.ID
 		}
 		switch bucket {
 		case model.ActionChange, model.ActionReplace:
 			ch.Attrs = changedAttrs(rc.Change)
 		case model.ActionAdd:
 			ch.Attrs = sideAttrs(rc.Change, true)
-		case model.ActionDestroy:
+		case model.ActionDestroy, model.ActionForget:
 			ch.Attrs = sideAttrs(rc.Change, false)
 		}
 		rs.Changes = append(rs.Changes, ch)

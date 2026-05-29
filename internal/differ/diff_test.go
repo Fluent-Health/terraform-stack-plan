@@ -160,100 +160,60 @@ func TestForcedSummary(t *testing.T) {
 	}
 }
 
-func TestStructuralSmallBecomesLeaves(t *testing.T) {
-	before := map[string]any{"env": "nonprod"}
-	after := map[string]any{"env": "nonprod", "team": "platform"}
+func TestStructuralIsContextDiffBlock(t *testing.T) {
+	before := map[string]any{"env": "nonprod", "team": "old"}
+	after := map[string]any{"env": "nonprod", "team": "new"}
 	f := Diff(Input{Attr: "labels", Before: before, After: after})
-	if f.IsBlock() {
-		t.Fatalf("small structural diff should be leaves, not a block")
+	if !f.IsBlock() {
+		t.Fatalf("structured change should be a block")
 	}
-	if len(f.Leaves) != 1 {
-		t.Fatalf("want 1 changed leaf, got %d (%+v)", len(f.Leaves), f.Leaves)
+	if f.Kind != "yaml" {
+		t.Fatalf("native map kind = %q, want yaml", f.Kind)
 	}
-	l := f.Leaves[0]
-	if l.Op != model.OpAdd || l.Path != "labels.team" || l.Value() != `"platform"` {
-		t.Fatalf("leaf should be `+ labels.team = \"platform\"`, got %+v value=%q", l, l.Value())
+	rich := f.Variants[0].Content
+	// 2 lines of context, changed line as -/+, unchanged env kept as context.
+	if !strings.Contains(rich, "-team: old") || !strings.Contains(rich, "+team: new") {
+		t.Fatalf("expected -/+ for changed line, got:\n%s", rich)
+	}
+	if !strings.Contains(rich, "env: nonprod") {
+		t.Fatalf("expected context line for unchanged key, got:\n%s", rich)
 	}
 }
 
-func TestStructuralLargeStaysBlock(t *testing.T) {
+func TestStructuralKindJSON(t *testing.T) {
+	f := Diff(Input{Attr: "policy", Before: `{"a":1}`, After: `{"a":2}`})
+	if f.Kind != "json" {
+		t.Fatalf("json string kind = %q, want json", f.Kind)
+	}
+	if !f.IsBlock() {
+		t.Fatalf("json change should be a block")
+	}
+}
+
+func TestStructuralCreateAllAdd(t *testing.T) {
+	f := Diff(Input{Attr: "labels", After: map[string]any{"team": "platform", "env": "prod"}})
+	if !f.IsBlock() {
+		t.Fatalf("created map should be a block")
+	}
+	rich := f.Variants[0].Content
+	if strings.Contains(rich, "null") {
+		t.Fatalf("created map must not show a null before-side:\n%s", rich)
+	}
+	if !strings.Contains(rich, "+env: prod") || !strings.Contains(rich, "+team: platform") {
+		t.Fatalf("created map should be all-add lines:\n%s", rich)
+	}
+}
+
+func TestStructuralLadder(t *testing.T) {
 	before := map[string]any{}
 	after := map[string]any{}
-	for i := 0; i < 40; i++ {
+	for i := 0; i < 12; i++ {
 		before[fmt.Sprintf("k%02d", i)] = "old"
 		after[fmt.Sprintf("k%02d", i)] = "new"
 	}
 	f := Diff(Input{Attr: "settings", Before: before, After: after})
-	if !f.IsBlock() {
-		t.Fatalf("40-leaf structural diff should stay a foldable block")
-	}
-}
-
-func TestStructuralFoldBoundary(t *testing.T) {
-	mk := func(n int) (map[string]any, map[string]any) {
-		b, a := map[string]any{}, map[string]any{}
-		for i := 0; i < n; i++ {
-			b[fmt.Sprintf("k%02d", i)] = "old"
-			a[fmt.Sprintf("k%02d", i)] = "new"
-		}
-		return b, a
-	}
-	b9, a9 := mk(9)
-	if f := Diff(Input{Attr: "s", Before: b9, After: a9}); f.IsBlock() {
-		t.Errorf("9 changed leaves should stay inline leaves, not a block")
-	}
-	b10, a10 := mk(10)
-	if f := Diff(Input{Attr: "s", Before: b10, After: a10}); !f.IsBlock() {
-		t.Errorf("10 changed leaves should fold into a block")
-	}
-}
-
-func TestStructuralCreateNoNullLeaf(t *testing.T) {
-	f := Diff(Input{Attr: "labels", After: map[string]any{"team": "platform", "env": "prod"}})
-	if f.IsBlock() {
-		t.Fatalf("small created map should be leaves")
-	}
-	if len(f.Leaves) != 2 {
-		t.Fatalf("want 2 add leaves, got %d: %+v", len(f.Leaves), f.Leaves)
-	}
-	for _, l := range f.Leaves {
-		if l.Path == "labels" || l.Value() == "null" {
-			t.Fatalf("spurious null/root leaf: %+v", l)
-		}
-		if l.Op != model.OpAdd {
-			t.Fatalf("created map leaves should be adds: %+v", l)
-		}
-	}
-}
-
-func TestStructuralDeleteNoNullLeaf(t *testing.T) {
-	f := Diff(Input{Attr: "labels", Before: map[string]any{"team": "platform"}})
-	if len(f.Leaves) != 1 || f.Leaves[0].Op != model.OpRemove || f.Leaves[0].Path != "labels.team" {
-		t.Fatalf("deleted map should be a remove leaf labels.team, got %+v", f.Leaves)
-	}
-}
-
-func TestStructuralLeafOps(t *testing.T) {
-	before := map[string]any{"keep": "x", "gone": "y", "num": 7.0}
-	after := map[string]any{"keep": "x", "num": 9.0, "added": "z"}
-	f := Diff(Input{Attr: "m", Before: before, After: after})
-	if f.IsBlock() {
-		t.Fatalf("small diff should be leaves")
-	}
-	got := map[string]model.Leaf{}
-	for _, l := range f.Leaves {
-		got[l.Path] = l
-	}
-	if l, ok := got["m.gone"]; !ok || l.Op != model.OpRemove || l.Value() != `"y"` {
-		t.Errorf("m.gone should be removed leaf, got %+v", l)
-	}
-	if l, ok := got["m.num"]; !ok || l.Op != model.OpChange || l.Value() != "7 → 9" {
-		t.Errorf("m.num should be change leaf 7 → 9, got %+v value=%q", l, l.Value())
-	}
-	if l, ok := got["m.added"]; !ok || l.Op != model.OpAdd || l.Value() != `"z"` {
-		t.Errorf("m.added should be add leaf, got %+v", l)
-	}
-	if _, ok := got["m.keep"]; ok {
-		t.Errorf("unchanged key should not appear")
+	want := []model.Level{model.LevelStructural, model.LevelSummary, model.LevelHidden}
+	if got := levels(f); !equalLevels(got, want) {
+		t.Fatalf("structural ladder = %v, want %v", got, want)
 	}
 }

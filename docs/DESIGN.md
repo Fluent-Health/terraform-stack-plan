@@ -161,9 +161,17 @@ Parse each `plan.json` with the `terraform-json` module. For each entry in
 | `["update"]`                      | Change    |
 | `["delete"]`                      | Destroy   |
 | `["create","delete"]` / `["delete","create"]` | Replace |
-| `["no-op"]`                       | *ignored* |
+| `["forget"]`                      | Forget (removed from state) |
+| `["no-op"]` + `previous_address` or `importing` | Noop (move / import only) |
+| `["no-op"]` (plain) / `["read"]`  | *ignored* |
 
-`no-op` changes are not counted and not rendered.
+**State operations.** A resource is also annotated as *moved* when
+`previous_address` is set, and *imported* when `change.importing` is present —
+on top of any underlying action (a move can be a pure rename `no-op` or a
+move+update). `forget` (the `removed {}` block with `lifecycle { destroy =
+false }`) is its own bucket. `Counts` tracks `Move`, `Import`, and `Forget`
+alongside the create/change/destroy/replace buckets. Plain `no-op` (no
+move/import) and `read` are dropped.
 
 ### Summary table
 
@@ -180,9 +188,11 @@ Parse each `plan.json` with the `terraform-json` module. For each entry in
 
 - Columns: `Add`, `Change`, `Destroy`, `Replace`. **Any column that is zero
   across all stacks is omitted** (so the common no-replace case shows three
-  count columns).
+  count columns). Move / import / forget get **no columns**; when present, their
+  counts are appended to the Stack cell (`platform/prod · 1 import, 1 move, 1
+  forget`).
 - The `Class` column appears only when classification is enabled.
-- "(N stacks changed)" counts stacks with ≥1 non-no-op change.
+- "(N stacks changed)" counts stacks with ≥1 change, move, import, or forget.
 
 ## Classification (optional)
 
@@ -274,34 +284,53 @@ collapsing helps *reviewer ergonomics* (not scrolling past 40 diffs) but does
 **not** save bytes. Fitting the budget therefore requires actually
 *summarizing or omitting* content, which is what `fit` does.
 
-### Document shape
+### Document shape — fractal, per-resource nesting
 
 ```
 <!-- tfstackplan:nonprod -->     ← marker, always line 1 (CI upsert key)
 ### Terraform plan — nonprod  (3 stacks changed)
 | summary table |
-<details>…per stack…</details>     ← closed by default; --details = auto|open|closed
+<details> stack ▾                ← closed by default; --details = auto|open|closed
+> <details> resource ▸          ← each resource its own row, inside a blockquote
+>   ```diff … ```               ← bar so the stack scope is visible
+> </details>
+</details>
 ```
 
-Each stack's `<details>` heading mirrors the README: `platform/nonprod · 🔐 iam ·
-1 change`. The body is a single fenced ` ```diff ` block (GitHub colorizes
-`+`/`-`), grouped by action.
+Each **stack** is a `<details>` whose heading mirrors the README
+(`platform/nonprod · 🔐 iam · 4 change`). Its body is wrapped in a **blockquote**
+(`>`) so GitHub draws an indented left bar marking the stack scope. Inside,
+**every resource is its own uniform `<details>` row** with a one-line summary:
 
-### The differ — ordered variants per attribute
+- create → `+ <addr> · N attrs`, delete → `- <addr> · N attrs`
+- update → `~ <addr> · N changed`, replace → `± <addr> · replace`
+- moved → `↪ <addr> · moved from <prev>`, imported → `⤓ <addr> · imported
+  (id="…")`, forget → `⊘ <addr> · forgotten · N attrs` (state ops take
+  precedence over the underlying action)
 
-For each changed attribute, `differ` detects the value type and emits an ordered
-list of render variants, **preferred → minimal**, each with a precomputed byte
-cost:
+**Size-based folding (one rule, all actions):** a resource row is **open** when
+its rendered body is small (≤ ~10 lines) and **collapsed** when big. The body
+holds aligned scalar leaves (`~ path = old → new`) followed by any structured /
+line-diff blocks. `--details open` forces all rows open.
 
-| Detected type            | Variant ladder (preferred → minimal)          |
+### The differ — leaves and ordered block variants
+
+Each changed attribute becomes a `model.Field`: either **leaves** (aligned
+`op path = value` rows — scalars, sensitive, known-after-apply) or a foldable
+**block** carrying an ordered variant ladder (preferred → minimal), each with a
+precomputed byte cost:
+
+| Value                    | Rendering                                      |
 |--------------------------|-----------------------------------------------|
-| JSON / YAML (structured) | `Structural` (changed paths only) → `Summary` → `Hidden` |
-| Plain multi-line text    | `LineDiff` (limited context) → `Summary` → `Hidden` |
-| base64 / binary          | `Summary` (byte delta) → `Hidden`             |
-| scalar / sensitive / known-after-apply | single inline variant (`a -> b`, `(sensitive value)`, `(known after apply)`) |
+| scalar / sensitive / known-after-apply | a single aligned **leaf** (`~ k = a → b`, `(sensitive value)`, `(known after apply)`) |
+| JSON / YAML string, or native HCL map/list | **block:** `Structural` = a *contextual unified diff* of the canonically re-formatted value (2 lines context, `-`/`+`, tagged `~ attr (json|yaml):`) → `Summary` → `Hidden` |
+| Plain multi-line text    | **block:** `LineDiff` (limited context) → `Summary` → `Hidden` |
+| base64 / binary          | **block:** `Summary` (byte delta) → `Hidden`  |
 
-- **Structural is the *preferred* start for structured types**, not a fallback —
-  a 400-line manifest with one changed field renders as one path line.
+- **Structured values render as a contextual diff** (not changed-paths) so a
+  policy/manifest reads naturally; the value is canonicalized (sorted keys,
+  stable indent) before diffing. Diff lines are line-initial so GitHub colours
+  the `-`/`+`.
 - **No default per-attribute size cap.** Every attribute starts at full detail;
   the global `fit` pass is the *sole* fit mechanism. A stack whose only change is
   one large attribute is shown in full when there's budget for it, and only
@@ -405,6 +434,15 @@ the budget entirely.
 - `render`: golden-file markdown tests — zero-column omission, classification-off
   mode, each variant level, and the cascade notices.
 
+## Shipped since v1
+
+- **Fractal per-resource nesting** — every resource is its own `<details>` row
+  inside a per-stack blockquote bar, with one size-based open/closed rule.
+- **State operations** surfaced — moved (`↪`), imported (`⤓`), removed-from-state
+  / `forget` (`⊘`); counts appended to the Stack cell (no new columns).
+- **Contextual diffs** for all structured values (JSON/YAML strings and native
+  HCL maps/lists) — canonical reformat, 2 lines of context, `-`/`+` changes.
+
 ## Future / deferred
 
 - `tfplan2md` shell-out renderer behind a `--render` flag.
@@ -414,4 +452,3 @@ the budget entirely.
 - Run-to-run diffing (highlight what changed since the last report).
 - Multi-tier in one comment.
 - SARIF / static-analysis rollup.
-- First-class handling of the Terraform `forget` action (`removed {}` blocks). v1 excludes `forget` from counts/rendering like `no-op`/`read` to avoid mislabeling it as an update; surfacing it as its own bucket is a future enhancement.
