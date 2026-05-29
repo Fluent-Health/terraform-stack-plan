@@ -46,3 +46,12 @@ func TestFieldIsBlock(t *testing.T) {
 		t.Errorf("variant field should be a block")
 	}
 }
+
+func TestLinkFields(t *testing.T) {
+	r := Report{HeaderLinks: []Link{{Label: "PR #1", URL: "https://x/1"}}}
+	r.Stacks = []Stack{{Name: "s", URL: "https://x/s"}}
+	r.Stacks[0].Changes = []Change{{Address: "a.b", URL: "https://x/a"}}
+	if r.HeaderLinks[0].URL != "https://x/1" || r.Stacks[0].URL == "" || r.Stacks[0].Changes[0].URL == "" {
+		t.Fatal("link fields not wired")
+	}
+}

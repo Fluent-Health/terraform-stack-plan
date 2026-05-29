@@ -138,12 +138,19 @@ func (a AttrDiff) Sel() Variant { return a.Variants[a.Selected] }
 // AtLast reports whether the selected variant is already the least-detail one.
 func (a AttrDiff) AtLast() bool { return a.Selected >= len(a.Variants)-1 }
 
+// Link is a labelled report-header link.
+type Link struct {
+	Label string
+	URL   string
+}
+
 // Change is one resource change within a stack.
 type Change struct {
 	Address string
 	Type    string
 	Action  Action
 	Fields  []Field // populated for create/delete/update/replace/forget
+	URL     string
 
 	// State operations (annotations on top of Action; Action may be ActionNoop
 	// when the only change is a move or import).
@@ -156,6 +163,7 @@ type Change struct {
 // Stack is one stack's parsed, classified plan.
 type Stack struct {
 	Name    string
+	URL     string
 	Counts  Counts
 	Class   *Class // nil when classification is disabled
 	Changes []Change
@@ -179,4 +187,5 @@ type Report struct {
 	Mode        RenderMode
 	Notice      string // cascade notice (set by fit when degrading)
 	DetailsOpen bool   // render <details open> when true
+	HeaderLinks []Link
 }
