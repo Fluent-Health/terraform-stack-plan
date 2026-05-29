@@ -1,7 +1,7 @@
 # Golden example tests for the render cascade
 
 **Date:** 2026-05-29
-**Status:** Approved (design)
+**Status:** Implemented
 
 ## Problem
 

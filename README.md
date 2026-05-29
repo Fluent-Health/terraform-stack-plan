@@ -72,6 +72,24 @@ comment per tier. `<details>` start collapsed (override with `--details
 open|auto`), zero-only columns are dropped, and without a classification policy
 the `Class` column and labels disappear — counts and diffs only.
 
+### More examples
+
+Larger reports stay under GitHub's 65,536-byte comment cap by degrading the
+biggest diffs first, then dropping detail. These files are real tool output
+(regenerated and byte-checked by `go test ./cmd/tfstackplan`):
+
+- [`examples/big-plan.md`](examples/big-plan.md) — 56 changes across 8 stacks,
+  full detail, fits the default 60 KB budget.
+- [`examples/over-budget-degraded.md`](examples/over-budget-degraded.md) —
+  tighter budget: large diffs collapse to one-line summaries
+  (`~ data · text · 90 lines · 180 changed (hidden to fit size limit)`), small
+  diffs kept.
+- [`examples/over-budget-summary-only.md`](examples/over-budget-summary-only.md) —
+  tighter still: all `<details>` dropped, summary table + a notice retained.
+- [`examples/over-budget-minimal.md`](examples/over-budget-minimal.md) — past
+  every simplification and still over budget: a one-line aggregate is emitted
+  and the tool exits non-zero so CI can surface it.
+
 ---
 
 ## Install
