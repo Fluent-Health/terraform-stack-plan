@@ -93,3 +93,14 @@ func TestScanNonDirErrors(t *testing.T) {
 		t.Fatal("expected error when path is a file, not a directory")
 	}
 }
+
+func TestScanRootPlanErrors(t *testing.T) {
+	dir := t.TempDir()
+	// A tfplan.json directly in the scan root has no stack name.
+	if err := os.WriteFile(filepath.Join(dir, "tfplan.json"), []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Scan(dir); err == nil {
+		t.Fatal("expected error for a tfplan.json at the scan root (no stack name)")
+	}
+}

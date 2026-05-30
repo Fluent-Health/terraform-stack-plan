@@ -24,7 +24,8 @@ type Stack struct {
 
 // Scan walks dir and returns one Stack per tfplan.json found, sorted
 // lexicographically by Name. A nonexistent dir is an error; an existing dir
-// with no plan files returns an empty slice and no error.
+// with no plan files returns an empty slice and no error. Each plan must live
+// in a subdirectory of dir; a plan file at the scan root is an error.
 func Scan(dir string) ([]Stack, error) {
 	info, err := os.Stat(dir)
 	if err != nil {
@@ -45,6 +46,9 @@ func Scan(dir string) ([]Stack, error) {
 		rel, err := filepath.Rel(dir, filepath.Dir(path))
 		if err != nil {
 			return err
+		}
+		if rel == "." {
+			return fmt.Errorf("plandir: %s sits at the scan root; plans must live in a subdirectory (<stack>/%s)", PlanFile, PlanFile)
 		}
 		stacks = append(stacks, Stack{Name: filepath.ToSlash(rel), Plan: path})
 		return nil

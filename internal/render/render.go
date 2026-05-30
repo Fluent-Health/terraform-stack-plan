@@ -15,7 +15,7 @@ func Render(r model.Report) string {
 	fmt.Fprintf(&b, "<!-- %s -->\n", r.Marker)
 
 	// Nothing changed: heading ("(0 stacks changed)") + header links only —
-	// no summary table, no details. Reachable via an explicit empty manifest.
+	// no summary table, no details. Reachable via an empty plans-dir.
 	if len(r.Stacks) == 0 {
 		renderHeader(&b, r)
 		return b.String()
