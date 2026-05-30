@@ -1,6 +1,6 @@
 // Package classify applies an ordered list of rules to a parsed stack and
-// returns its class. It is pure: it does not know whether a rule originated
-// from a preset or a custom config block.
+// returns the set of matching categories. It is pure: it does not know whether
+// a rule originated from a preset or a custom config block.
 package classify
 
 import (
@@ -10,7 +10,6 @@ import (
 	"sort"
 	"strconv"
 
-	"github.com/Fluent-Health/terraform-stack-plan/internal/model"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/plan"
 )
 
@@ -24,17 +23,20 @@ type Rule struct {
 	EmitAttributes []string       // attribute names to extract from matched changes
 }
 
-// Result is the outcome of classifying a stack: the chosen class, plus — for
-// the firing rule's EmitAttributes — the sorted-unique non-null values found
-// across the changes that rule matched. Attributes is nil when nothing emits.
-type Result struct {
-	Class      model.Class
+// Category is one matched rule's outcome: its name, icon, and — for the rule's
+// EmitAttributes — the sorted-unique non-null values across the changes it
+// matched. Attributes is nil when nothing was emitted.
+type Category struct {
+	Name       string
+	Icon       string
 	Attributes map[string][]string
 }
 
-// Classify returns the Result for the first rule that matches enough changes,
-// or def (with no attributes) when none match.
-func Classify(s plan.RawStack, rules []Rule, def model.Class) Result {
+// Classify returns a Category for every rule that matches enough changes, in
+// rule order. The slice is empty when no rule fires — the caller supplies the
+// display fallback. Rules are independent; there is no first-match-wins.
+func Classify(s plan.RawStack, rules []Rule) []Category {
+	var cats []Category
 	for _, r := range rules {
 		min := r.MinCount
 		if min < 1 {
@@ -47,13 +49,66 @@ func Classify(s plan.RawStack, rules []Rule, def model.Class) Result {
 			}
 		}
 		if len(matched) >= min {
-			return Result{
-				Class:      model.Class{Name: r.Name, Icon: r.Icon},
+			cats = append(cats, Category{
+				Name:       r.Name,
+				Icon:       r.Icon,
 				Attributes: extract(matched, r.EmitAttributes),
+			})
+		}
+	}
+	return cats
+}
+
+// Summarize unions categories across stacks: for each rule (in rules order)
+// that any stack matched, it returns one Category whose Attributes merge every
+// matching stack's values (sorted-unique per key). Categories no stack matched
+// are omitted.
+func Summarize(perStack [][]Category, rules []Rule) []Category {
+	agg := map[string]*Category{}
+	for _, cats := range perStack {
+		for _, c := range cats {
+			a, ok := agg[c.Name]
+			if !ok {
+				a = &Category{Name: c.Name, Icon: c.Icon}
+				agg[c.Name] = a
+			}
+			a.Attributes = mergeAttrs(a.Attributes, c.Attributes)
+		}
+	}
+	var out []Category
+	for _, r := range rules {
+		if a, ok := agg[r.Name]; ok {
+			out = append(out, *a)
+		}
+	}
+	return out
+}
+
+// mergeAttrs returns the per-key sorted-unique union of two attribute maps,
+// or nil when the result is empty.
+func mergeAttrs(a, b map[string][]string) map[string][]string {
+	out := map[string][]string{}
+	for _, m := range []map[string][]string{a, b} {
+		for k, vs := range m {
+			seen := map[string]struct{}{}
+			for _, x := range out[k] {
+				seen[x] = struct{}{}
+			}
+			for _, v := range vs {
+				if _, dup := seen[v]; !dup {
+					seen[v] = struct{}{}
+					out[k] = append(out[k], v)
+				}
 			}
 		}
 	}
-	return Result{Class: def}
+	for k := range out {
+		sort.Strings(out[k])
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // extract collects sorted-unique non-null scalar values of each requested

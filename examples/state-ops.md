@@ -1,7 +1,7 @@
 <!-- tfstackplan:state-ops -->
 ### Terraform plan — state ops & structured diffs  (2 stacks changed)
 
-| Stack | Change | Class |
+| Stack | Change | Categories |
 | --- | ---: | --- |
 | infra/migrations · 1 import, 2 move, 1 forget | 2 | ✅ safe |
 | platform/policies | 4 | 🔐 iam |

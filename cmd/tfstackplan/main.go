@@ -117,6 +117,9 @@ func run(o opts) (string, bool, error) {
 	classified := cfg.Classification != nil
 
 	report := model.Report{Title: o.title, Marker: o.marker, Classified: classified}
+	if classified {
+		report.Default = cfg.Classification.Default
+	}
 	base := baseVars(o.linkVars)
 	if cfg.Links != nil {
 		for _, l := range cfg.Links.Header {
@@ -125,7 +128,8 @@ func run(o opts) (string, bool, error) {
 			}
 		}
 	}
-	sidecar := map[string]classEntry{}
+	doc := sidecarDoc{Stacks: map[string]stackEntry{}}
+	var allCats [][]classify.Category
 	for _, ref := range refs {
 		data, err := os.ReadFile(ref.Plan)
 		if err != nil {
@@ -148,9 +152,10 @@ func run(o opts) (string, bool, error) {
 		}
 
 		if classified {
-			res := classify.Classify(raw, cfg.Classification.Rules, cfg.Classification.Default)
-			st.Class = &res.Class
-			sidecar[ref.Name] = classEntry{Class: res.Class.Name, Icon: nilable(res.Class.Icon), Attributes: res.Attributes}
+			cats := classify.Classify(raw, cfg.Classification.Rules)
+			st.Categories = toClasses(cats)
+			allCats = append(allCats, cats)
+			doc.Stacks[ref.Name] = stackEntry{Categories: toEntries(cats)}
 		}
 
 		for _, rc := range raw.Changes {
@@ -217,7 +222,8 @@ func run(o opts) (string, bool, error) {
 	fits := fit.Fit(&report, o.maxBytes)
 
 	if o.classJSON != "" && classified {
-		data, err := json.MarshalIndent(sidecar, "", "  ")
+		doc.Summary.Categories = toEntries(classify.Summarize(allCats, cfg.Classification.Rules))
+		data, err := json.MarshalIndent(doc, "", "  ")
 		if err != nil {
 			return "", false, err
 		}
@@ -229,10 +235,40 @@ func run(o opts) (string, bool, error) {
 	return render.Render(report), fits, nil
 }
 
-type classEntry struct {
-	Class      string              `json:"class"`
+type categoryEntry struct {
+	Category   string              `json:"category"`
 	Icon       *string             `json:"icon"`
 	Attributes map[string][]string `json:"attributes,omitempty"`
+}
+
+type stackEntry struct {
+	Categories []categoryEntry `json:"categories"`
+}
+
+type sidecarDoc struct {
+	Stacks  map[string]stackEntry `json:"stacks"`
+	Summary struct {
+		Categories []categoryEntry `json:"categories"`
+	} `json:"summary"`
+}
+
+// toEntries maps classify categories to their JSON form. Always returns a
+// non-nil slice so a category-less stack marshals as [] rather than null.
+func toEntries(cats []classify.Category) []categoryEntry {
+	out := make([]categoryEntry, 0, len(cats))
+	for _, c := range cats {
+		out = append(out, categoryEntry{Category: c.Name, Icon: nilable(c.Icon), Attributes: c.Attributes})
+	}
+	return out
+}
+
+// toClasses maps classify categories to render-model classes (name+icon only).
+func toClasses(cats []classify.Category) []model.Class {
+	out := make([]model.Class, len(cats))
+	for i, c := range cats {
+		out[i] = model.Class{Name: c.Name, Icon: c.Icon}
+	}
+	return out
 }
 
 func nilable(s string) *string {

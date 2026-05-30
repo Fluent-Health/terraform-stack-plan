@@ -27,11 +27,12 @@ files and writes markdown (and an optional sidecar JSON). It does not run
 - Merge many `plan.json` files into one marker-keyed markdown document.
 - Top-level summary table with per-stack action counts.
 - Collapsed per-stack `<details>` with a built-in rendered diff.
-- **Optional** classification: tag each stack as `iam` / `safe` / custom classes
-  via a declarative ruleset, primarily to gate IAM changes in CI.
+- **Optional** classification: tag each stack with the **set** of categories it
+  matches (multi-label) via a declarative ruleset, primarily to gate IAM changes
+  in CI.
 - Built-in, configurable presets for common rulesets (`iam` now).
 - Comment-size budget handling (GitHub's 65,536-byte cap).
-- Sidecar JSON of computed classes for CI gating logic.
+- Sidecar JSON of computed categories for CI gating logic.
 
 ## Non-goals (v1)
 
@@ -51,7 +52,7 @@ files and writes markdown (and an optional sidecar JSON). It does not run
 | 3 | **Input: directory scan for `tfplan.json`** | Matches the natural output shape of Terramate scripts and Terragrunt's `--json-out-dir`; no per-run manifest to maintain; stack name is derived from the directory path, not from a config file. |
 | 4 | **Classification lives in a separate HCL config file** | Classification is *repo policy* (stable, git-tracked), with a different lifecycle from the per-run manifest. HCL is idiomatic for the Terraform ecosystem (cf. `.tflint.hcl`, terramate's `.tm.hcl`). |
 | 5 | **Presets** as built-in named rule bundles | Repos opt into `iam` (and future `data`, `cluster`) without rewriting regexes. |
-| 6 | **Declaration-order rule evaluation, first-hit-wins** | `preset` and `rule` blocks evaluate top-to-bottom; explicit and one mental model. |
+| 6 | **Multi-label rule evaluation, declaration order is badge display order** | Every matching `preset`/`rule` fires independently — a stack can carry several categories; declaration order determines the display order of the badges (no first-hit-wins). |
 | 7 | **No user templating** | Avoid tfplan2md's abandoned templating surface. Classification is a small declarative ruleset, not free-form templates. |
 | 8 | **No per-stack manual `class:` override in v1** | Single source of truth for policy (the HCL config). Revisit only if a real need emerges; a sharp custom `rule` usually covers it. |
 | 9 | **Functional pipeline: gather → fit → render**, all pure | Build a complete, budget-agnostic model first; reduce it to fit the budget; then render. Each stage is a pure function, independently testable; budgeting is decoupled from both parsing and markdown generation. |
@@ -69,7 +70,7 @@ load (I/O)  →  gather → Model (pure)  →  fit → Model' (pure)  →  rende
 
 - **load** — scan `--plans-dir` for `tfplan.json` files, read each one, and load the HCL config.
 - **gather** — build a complete, **budget-agnostic** `Model`: per-stack action
-  counts, the classification (class + icon), and for every changed attribute an
+  counts, the classification (the set of matched categories), and for every changed attribute an
   ordered list of candidate render *variants* with their byte sizes.
 - **fit** — pure `Fit(Model, budget) → Model'`: pick one variant per attribute
   so the estimated total fits, degrading the largest first. Touches diff depth
@@ -84,7 +85,7 @@ internal/plandir/    — recursively scan --plans-dir for tfplan.json files; der
 internal/config/     — parse + validate the HCL config (classification {} + diff {})
 internal/presets/    — built-in named rule bundles (iam, …) as []classify.Rule
 internal/plan/       — parse plan.json (terraform-json) → action counts + raw attr changes
-internal/classify/   — apply resolved ordered rules → Class{Name, Icon}  (gather)
+internal/classify/   — apply resolved ordered rules → []Category  (gather)
 internal/differ/     — type detect + emit ordered render variants per attribute  (gather)
 internal/model/      — Model/Stack/Change/AttrDiff/Variant types (the shared spine)
 internal/fit/        — pure budget reduction over the model (largest-first degradation)
@@ -94,8 +95,10 @@ internal/render/     — Model' → markdown
 **Key boundaries:**
 
 - `config` + `presets` resolve into a single ordered `[]classify.Rule`.
-  `classify` consumes that list and a parsed plan and returns `Class{Name,Icon}` —
-  it neither knows nor cares whether a rule came from a preset or a custom block.
+  `classify` consumes that list and a parsed plan and returns `[]Category` (the
+  set of all matching categories, in declaration order) — it neither knows nor
+  cares whether a rule came from a preset or a custom block. `Summarize` produces
+  the run-level union of categories across all stacks.
 - `differ` owns all type-specific knowledge (JSON/YAML/base64/plain) and emits,
   per attribute, an ordered `[]Variant{Level, Bytes, Content}` from preferred →
   minimal. `fit` is generic arithmetic over those variants and knows nothing
@@ -141,7 +144,7 @@ tfstackplan --plans-dir DIR
 - `--plans-dir` is required; it is scanned recursively for `tfplan.json` files.
 - `--config` overrides config discovery. If neither `--config` nor an
   auto-discovered `.tfstackplan.hcl` exists, **classification is off** (no
-  class column / icons) and `diff {}` falls back to defaults (detection on, no
+  categories column / icons) and `diff {}` falls back to defaults (detection on, no
   per-attribute cap) — the tool degrades gracefully with zero config.
 - `--emit-classification-json` is a no-op when classification is off.
 
@@ -174,7 +177,7 @@ move/import) and `read` are dropped.
 <!-- tfstackplan:nonprod -->
 ### Terraform plan — nonprod  (3 stacks changed)
 
-| Stack                          | Add | Change | Destroy | Class   |
+| Stack                          | Add | Change | Destroy | Categories   |
 |--------------------------------|----:|-------:|--------:|---------|
 | platform/nonprod                  |   0 |      1 |       0 | 🔐 iam  |
 | service-projects/app-dev    |   2 |      0 |       0 | ✅ safe |
@@ -186,7 +189,7 @@ move/import) and `read` are dropped.
   count columns). Move / import / forget get **no columns**; when present, their
   counts are appended to the Stack cell (`platform/prod · 1 import, 1 move, 1
   forget`).
-- The `Class` column appears only when classification is enabled.
+- The `Categories` column appears only when classification is enabled.
 - "(N stacks changed)" counts stacks with ≥1 change, move, import, or forget.
 
 ## Classification (optional)
@@ -201,7 +204,7 @@ directory. Absent → classification disabled.
 ```hcl
 # .tfstackplan.hcl  (repo policy — checked into git)
 classification {
-  default {                 # the fallback class when no block matches
+  default {                 # the display fallback shown when a stack matches no rule
     name = "safe"
     icon = "✅"
   }
@@ -224,30 +227,35 @@ classification {
 
 | Field                   | Meaning                                                                       | Default     |
 |-------------------------|-------------------------------------------------------------------------------|-------------|
-| `name` (rule label / preset name) | The class name shown in the table                                   | required    |
-| `icon`                  | Glyph prepended to the class name                                             | none        |
+| `name` (rule label / preset name) | The category name shown in the table                                | required    |
+| `icon`                  | Glyph prepended to the category name                                          | none        |
 | `resource_type_pattern` | Regex matched against each change's `type` (e.g. `google_compute_instance`)   | `.*` (any)  |
 | `actions`               | List of action strings; rule matches a change if **all** listed appear in its `actions[]` | any action |
 | `min_count`             | Minimum number of matching changes for the rule to apply                      | 1           |
 
 - A change with `update` matches a rule whose `actions` is unset — so an in-place
-  IAM-policy update classifies as `iam`, not just creates. (The `iam` preset
-  leaves `actions` unset by design.)
+  IAM-policy update contributes the `iam` category, not just creates. (The `iam`
+  preset leaves `actions` unset by design.)
 - Rules with no matcher fields are catch-alls.
+
+The result for each stack is the **set of all matching categories**, in
+declaration order (display order = declaration order). `default` is shown only
+when that set is empty and never appears in the sidecar JSON or summary.
 
 ### Evaluation order
 
-`preset` and `rule` blocks evaluate **top-to-bottom in source order**; a
-`preset` block expands to its bundled rules at its declared position. First rule
-whose matcher is satisfied for a stack sets that stack's class (name + icon). No
-match → the `default` class.
+Every `preset` and `rule` block is evaluated independently against each stack;
+a `preset` block expands to its bundled rules at its declared position. All
+rules whose matchers fire contribute their category — a stack can carry several.
+Declaration order determines the badge display order. No match → the `default`
+is displayed (display-only; never in the sidecar or summary).
 
 ### Presets (built-in)
 
 - **`iam`** (v1): one rule matching IAM resource types across providers, e.g.
   `_iam_(policy|binding|member|audit_config)$` for google/google-beta,
   `^aws_iam_`, `^azurerm_role_(assignment|definition)$`. `actions` unset (any).
-  Default class name `iam`, default icon `🔐` (overridable via the block's `icon`).
+  Default category name `iam`, default icon `🔐` (overridable via the block's `icon`).
 - Future bundles (`data`, `cluster`) follow the same shape; out of v1 scope but
   the `presets` package is structured to add them as named `[]Rule`.
 
@@ -260,14 +268,25 @@ tfstackplan --plans-dir out/ --output report.md \
 
 ```json
 {
-  "platform/nonprod":              { "class": "iam",  "icon": "🔐" },
-  "service-projects/app-dev": { "class": "safe", "icon": "✅" }
+  "stacks": {
+    "platform/nonprod": { "categories": [
+      { "category": "iam",         "icon": "🔐", "attributes": { "project": ["fh-host-nonprod"] } },
+      { "category": "destructive", "icon": "💣" }
+    ]},
+    "service-projects/app-dev": { "categories": [] }
+  },
+  "summary": { "categories": [
+    { "category": "iam",         "icon": "🔐", "attributes": { "project": ["fh-host-nonprod", "fh-svc-dev"] } },
+    { "category": "destructive", "icon": "💣" }
+  ]}
 }
 ```
 
-Lets a CI pipeline drive gating off the same source of truth that renders the
-comment (e.g. "if any class is `iam`, require a PAM grant before merge") — no
-re-grepping the markdown.
+Each stack lists its matched `categories` (`[]` when it matched nothing — the
+`default` fallback is display-only and never appears here). `icon` is `null`
+when the category has none. `summary.categories` lists every category present
+across the run with the per-key sorted-unique union of its attributes — lets a
+CI pipeline gate on category subjects without re-parsing the markdown.
 
 ## Rendering, the differ, and the size budget
 
@@ -411,8 +430,8 @@ the budget entirely.
 - `plan`: table tests over fixture `plan.json` files covering each action,
   replace ordering, and no-op.
 - `classify`: table tests feeding a resolved `[]Rule` + a synthetic change set,
-  asserting class + icon and first-hit-wins / default fallback / `min_count` /
-  `actions`-all-present semantics.
+  asserting the returned `[]Category` and multi-label / default fallback /
+  `min_count` / `actions`-all-present semantics.
 - `config`: parse fixtures for the `default` block + shorthand, preset expansion,
   declaration-order interleaving, and each error case.
 - `presets`: assert the `iam` bundle matches representative resource types and

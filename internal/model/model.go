@@ -162,11 +162,11 @@ type Change struct {
 
 // Stack is one stack's parsed, classified plan.
 type Stack struct {
-	Name    string
-	URL     string
-	Counts  Counts
-	Class   *Class // nil when classification is disabled
-	Changes []Change
+	Name       string
+	URL        string
+	Counts     Counts
+	Categories []Class // matched categories in rule order; empty → render the default
+	Changes    []Change
 }
 
 // RenderMode is the terminal-cascade level chosen by fit.
@@ -182,7 +182,8 @@ const (
 type Report struct {
 	Title       string
 	Marker      string
-	Classified  bool // whether to show the Class column
+	Classified  bool  // whether to show the Categories column
+	Default     Class // fallback badge shown for a stack that matched no category
 	Stacks      []Stack
 	Mode        RenderMode
 	Notice      string // cascade notice (set by fit when degrading)

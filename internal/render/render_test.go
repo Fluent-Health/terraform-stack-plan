@@ -13,11 +13,12 @@ func sampleReport() model.Report {
 		Title:      "Terraform plan — nonprod",
 		Marker:     "tfstackplan:nonprod",
 		Classified: true,
+		Default:    model.Class{Name: "safe", Icon: "✅"},
 		Stacks: []model.Stack{
 			{
-				Name:   "platform/nonprod",
-				Counts: model.Counts{Change: 1},
-				Class:  &model.Class{Name: "iam", Icon: "🔐"},
+				Name:       "platform/nonprod",
+				Counts:     model.Counts{Change: 1},
+				Categories: []model.Class{{Name: "iam", Icon: "🔐"}, {Name: "destructive", Icon: "💣"}},
 				Changes: []model.Change{{
 					Address: "google_storage_bucket.tfstate",
 					Type:    "google_storage_bucket",
@@ -28,7 +29,7 @@ func sampleReport() model.Report {
 					},
 				}},
 			},
-			{Name: "svc/dev", Counts: model.Counts{Add: 2}, Class: &model.Class{Name: "safe", Icon: "✅"}},
+			{Name: "svc/dev", Counts: model.Counts{Add: 2}}, // no Categories → renders the default
 		},
 	}
 }
@@ -50,10 +51,22 @@ func TestRenderZeroColumnOmitted(t *testing.T) {
 	}
 }
 
-func TestRenderClassColumnAndDetails(t *testing.T) {
+func TestRenderCategoriesColumnAndDetails(t *testing.T) {
 	out := Render(sampleReport())
-	if !strings.Contains(out, "🔐 iam") {
-		t.Fatalf("expected class label in table:\n%s", out)
+	if !strings.Contains(out, "Categories") {
+		t.Fatalf("expected Categories column header:\n%s", out)
+	}
+	if !strings.Contains(out, "🔐 iam") || !strings.Contains(out, "💣 destructive") {
+		t.Fatalf("expected both category badges in the multi-category row:\n%s", out)
+	}
+	if !strings.Contains(out, "🔐 iam  💣 destructive") {
+		t.Fatalf("expected both badges joined by two spaces in one cell:\n%s", out)
+	}
+	if !strings.Contains(out, "svc/dev · ✅ safe") {
+		t.Fatalf("expected the default badge in the details summary of a no-category stack:\n%s", out)
+	}
+	if !strings.Contains(out, "✅ safe") {
+		t.Fatalf("expected the default badge for the no-category stack:\n%s", out)
 	}
 	if !strings.Contains(out, "<details><summary>platform/nonprod") {
 		t.Fatalf("expected details for changed stack:\n%s", out)
@@ -63,15 +76,15 @@ func TestRenderClassColumnAndDetails(t *testing.T) {
 	}
 }
 
-func TestRenderNoClassColumnWhenUnclassified(t *testing.T) {
+func TestRenderNoCategoriesColumnWhenUnclassified(t *testing.T) {
 	r := sampleReport()
 	r.Classified = false
 	for i := range r.Stacks {
-		r.Stacks[i].Class = nil
+		r.Stacks[i].Categories = nil
 	}
 	out := Render(r)
-	if strings.Contains(out, "Class") {
-		t.Fatalf("Class column must be absent when unclassified:\n%s", out)
+	if strings.Contains(out, "Categories") {
+		t.Fatalf("Categories column must be absent when unclassified:\n%s", out)
 	}
 }
 

@@ -93,14 +93,14 @@ func renderTable(b *strings.Builder, r model.Report) {
 		headers = append(headers, "Replace")
 	}
 	if r.Classified {
-		headers = append(headers, "Class")
+		headers = append(headers, "Categories")
 	}
 
 	fmt.Fprintf(b, "| %s |\n", strings.Join(headers, " | "))
 	aligns := make([]string, len(headers))
 	for i, h := range headers {
 		switch h {
-		case "Stack", "Class":
+		case "Stack", "Categories":
 			aligns[i] = "---"
 		default:
 			aligns[i] = "---:"
@@ -129,14 +129,23 @@ func renderTable(b *strings.Builder, r model.Report) {
 			cells = append(cells, itoa(s.Counts.Replace))
 		}
 		if r.Classified {
-			label := ""
-			if s.Class != nil {
-				label = s.Class.Label()
-			}
-			cells = append(cells, label)
+			cells = append(cells, categoriesCell(s, r))
 		}
 		fmt.Fprintf(b, "| %s |\n", strings.Join(cells, " | "))
 	}
+}
+
+// categoriesCell renders a stack's category badges joined by two spaces, or the
+// report's default badge when the stack matched no category.
+func categoriesCell(s model.Stack, r model.Report) string {
+	if len(s.Categories) == 0 {
+		return r.Default.Label()
+	}
+	parts := make([]string, len(s.Categories))
+	for i, c := range s.Categories {
+		parts[i] = c.Label()
+	}
+	return strings.Join(parts, "  ")
 }
 
 // openThreshold is the rendered-body line count at or below which a resource's
@@ -153,8 +162,8 @@ func renderDetails(b *strings.Builder, r model.Report) {
 			name = fmt.Sprintf("<a href=%q>%s</a>", s.URL, s.Name)
 		}
 		summary := name
-		if s.Class != nil {
-			summary += " · " + s.Class.Label()
+		if r.Classified {
+			summary += " · " + categoriesCell(s, r)
 		}
 		summary += " · " + changeWord(s.Counts)
 		open := ""

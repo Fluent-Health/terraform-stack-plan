@@ -26,7 +26,7 @@ Small changes are shown expanded; big ones collapse to a row you click to open.
 
 ### Terraform plan — nonprod  (8 stacks changed)
 
-| Stack | Add | Change | Destroy | Replace | Class |
+| Stack | Add | Change | Destroy | Replace | Categories |
 | --- | ---: | ---: | ---: | ---: | --- |
 | platform/nonprod | 0 | 4 | 0 | 0 | 🔐 iam |
 | service-projects/app-dev | 4 | 3 | 0 | 0 | ✅ safe |
@@ -120,7 +120,7 @@ Key render behaviours:
 - **Aligned changes:** `~ path = old → new`, with `=` aligned and nested maps keeping their name via dotted paths (`+ labels.team = "platform"`).
 - **Structured values** (JSON/YAML strings and native HCL maps/lists) render as a **contextual diff** — the value canonically re-formatted, 2 lines of context, changed lines as `-`/`+`, tagged with its kind (`~ policy (json):`). Small diffs stay inline; big ones collapse the row.
 - **State operations** surface as rows too: moved (`↪ addr · moved from …`), imported (`⤓ addr · imported (id=…)`), and removed-from-state (`⊘ addr · forgotten`). These have no summary-table columns; their counts append to the stack's row text.
-- `--details open|auto` overrides the per-row default; zero-only columns are dropped; without a classification policy the `Class` column disappears.
+- `--details open|auto` overrides the per-row default; zero-only columns are dropped; without a classification policy the `Categories` column disappears.
 
 ### More examples
 
@@ -216,8 +216,9 @@ elsewhere.
 
 Classification is **computed by the tool**, not supplied per stack: each stack's
 plan is matched against rules in an HCL policy file (`--config`, or
-auto-discovered `.tfstackplan.hcl` in the working directory). The first rule that
-fires sets the class; unmatched stacks get the `default`.
+auto-discovered `.tfstackplan.hcl` in the working directory). Every rule whose
+matcher fires contributes a category, so a stack carries the set of categories it
+matched; a stack that matches nothing is shown as the `default`.
 
 ```hcl
 # .tfstackplan.hcl  — repo policy, checked into git
@@ -239,8 +240,9 @@ classification {
 }
 ```
 
-`preset` and `rule` blocks evaluate **top-to-bottom in source order**, first hit
-wins — put the most important classes first.
+Every matching `preset`/`rule` fires independently (a stack can carry several
+categories); declaration order controls the **display order** of the badges, so
+put the most important first.
 
 **Presets** ship a maintained matcher so you don't hand-write regexes; only the
 icon is configurable:
@@ -249,11 +251,11 @@ icon is configurable:
 |--------|---------|--------------|
 | `iam`  | IAM resources on GCP (`*_iam_{policy,binding,member,audit_config}`), AWS (`aws_iam_*`), Azure (`azurerm_role_{assignment,definition}`). Any action, so an in-place policy update still flags as `iam`. | `🔐` |
 
-**Custom rules** take the class name from the block label, plus a small matcher:
+**Custom rules** take the category name from the block label, plus a small matcher:
 
 | Field                   | Meaning                                                          | Default    |
 |-------------------------|------------------------------------------------------------------|------------|
-| `icon`                  | Glyph prepended to the class name                               | none       |
+| `icon`                  | Glyph prepended to the category name                            | none       |
 | `resource_type_pattern` | Regex matched against each change's `type`                      | `.*` (any) |
 | `actions`               | A change matches only if ALL listed actions appear in it        | any action |
 | `min_count`             | Minimum matching changes for the rule to fire                   | 1          |
@@ -263,8 +265,8 @@ don't want an icon.
 
 ### Sidecar JSON for CI gating
 
-Because the class is computed, `--emit-classification-json` hands CI the result
-as data — gate on it instead of re-parsing the markdown:
+`--emit-classification-json` hands CI the result as data — the sidecar nests
+per-stack categories under `stacks` plus a run-level `summary`:
 
 ```bash
 tfstackplan --plans-dir out/ --config .tfstackplan.hcl \
@@ -273,18 +275,31 @@ tfstackplan --plans-dir out/ --config .tfstackplan.hcl \
 
 ```json
 {
-  "platform/nonprod":         { "class": "iam",  "icon": "🔐" },
-  "service-projects/app-dev": { "class": "safe", "icon": "✅" }
+  "stacks": {
+    "platform/nonprod": { "categories": [
+      { "category": "iam",         "icon": "🔐", "attributes": { "project": ["fh-host-nonprod"] } },
+      { "category": "destructive", "icon": "💣" }
+    ]},
+    "service-projects/app-dev": { "categories": [] }
+  },
+  "summary": { "categories": [
+    { "category": "iam",         "icon": "🔐", "attributes": { "project": ["fh-host-nonprod", "fh-svc-dev"] } },
+    { "category": "destructive", "icon": "💣" }
+  ]}
 }
 ```
 
-`icon` is `null` when the class has none; the flag is a no-op without
-classification.
+Each stack lists its matched `categories` (`[]` when it matched nothing — the
+`default`/`safe` fallback is display-only and never appears here). `icon` is
+`null` when the category has none. `summary.categories` lists every category
+present across the run with the per-key sorted-unique union of its attributes —
+this is what a CI gate consumes (one category → its subjects). The flag is a
+no-op without classification.
 
 #### Emitting matched attributes
 
 A `rule` or `preset` can also surface attributes of the changes it matched, so
-CI can gate on *which subjects* triggered the class — e.g. the GCP projects with
+CI can gate on *which subjects* triggered the category — e.g. the GCP projects with
 IAM changes:
 
 ```hcl
@@ -300,9 +315,10 @@ The sidecar then carries the sorted-unique, non-null values per stack:
 
 ```json
 {
-  "platform/nonprod": {
-    "class": "iam", "icon": "🔐",
-    "attributes": { "project": ["fh-host-nonprod", "fh-svc-dev"] }
+  "stacks": {
+    "platform/nonprod": { "categories": [
+      { "category": "iam", "icon": "🔐", "attributes": { "project": ["fh-host-nonprod", "fh-svc-dev"] } }
+    ]}
   }
 }
 ```
