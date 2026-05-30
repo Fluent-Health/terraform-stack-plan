@@ -75,7 +75,7 @@ func exampleStacks(t *testing.T, dir string) string {
 			structuralUpdate("google_storage_bucket.prod_backups", 15),
 		}},
 		{"data/warehouse", []change{
-			del("google_bigquery_dataset.legacy_events", "google_bigquery_dataset"),
+			del("google_project_iam_member.legacy_admins", "google_project_iam_member"),
 			del("google_bigquery_dataset.legacy_users", "google_bigquery_dataset"),
 			del("google_storage_bucket.legacy_exports", "google_storage_bucket"),
 			del("google_storage_bucket.legacy_imports", "google_storage_bucket"),

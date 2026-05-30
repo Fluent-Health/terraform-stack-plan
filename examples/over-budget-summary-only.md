@@ -1,9 +1,9 @@
 <!-- tfstackplan:nonprod -->
 ### Terraform plan — nonprod  (8 stacks changed)
 
-| Stack | Add | Change | Destroy | Replace | Class |
+| Stack | Add | Change | Destroy | Replace | Categories |
 | --- | ---: | ---: | ---: | ---: | --- |
-| data/warehouse | 0 | 0 | 6 | 0 | 💣 destructive |
+| data/warehouse | 0 | 0 | 6 | 0 | 🔐 iam  💣 destructive |
 | networking/shared-vpc | 0 | 5 | 0 | 2 | 💣 destructive |
 | observability/grafana | 5 | 6 | 0 | 0 | ✅ safe |
 | platform/nonprod | 0 | 4 | 0 | 0 | 🔐 iam |

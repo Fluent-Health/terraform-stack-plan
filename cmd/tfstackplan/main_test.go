@@ -73,15 +73,13 @@ func TestRunPlansDir(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var got map[string]struct {
-		Class string `json:"class"`
-		Icon  string `json:"icon"`
-	}
+	var got sidecarDoc
 	if err := json.Unmarshal(data, &got); err != nil {
 		t.Fatal(err)
 	}
-	if got["platform/nonprod"].Class != "iam" {
-		t.Fatalf("sidecar class = %q, want iam", got["platform/nonprod"].Class)
+	cats := got.Stacks["platform/nonprod"].Categories
+	if len(cats) != 1 || cats[0].Category != "iam" {
+		t.Fatalf("platform/nonprod categories = %+v, want one iam", cats)
 	}
 }
 
@@ -171,22 +169,24 @@ func TestRunEmitsClassificationAttributes(t *testing.T) {
 	dir := t.TempDir()
 	plansDir := filepath.Join(dir, "out")
 
+	// platform/nonprod: deleted IAM members → match BOTH iam and destructive.
 	iamPlan := `{
 	  "format_version": "1.2",
 	  "resource_changes": [
 	    {"address":"google_project_iam_member.a","type":"google_project_iam_member","name":"a",
-	     "change":{"actions":["create"],"after":{"role":"roles/x","project":"fh-host-nonprod"},
+	     "change":{"actions":["delete"],"before":{"role":"roles/x","project":"fh-host-nonprod"},"after":null,
 	       "after_unknown":{},"before_sensitive":{},"after_sensitive":{}}},
 	    {"address":"google_project_iam_member.b","type":"google_project_iam_member","name":"b",
-	     "change":{"actions":["create"],"after":{"role":"roles/y","project":"fh-svc-dev"},
+	     "change":{"actions":["delete"],"before":{"role":"roles/y","project":"fh-svc-dev"},"after":null,
 	       "after_unknown":{},"before_sensitive":{},"after_sensitive":{}}}
 	  ]
 	}`
+	// data/warehouse: a single bucket delete → destructive only.
 	safePlan := `{
 	  "format_version": "1.2",
 	  "resource_changes": [
 	    {"address":"google_storage_bucket.b","type":"google_storage_bucket","name":"b",
-	     "change":{"actions":["create"],"after":{"name":"bkt","project":"fh-data"},
+	     "change":{"actions":["delete"],"before":{"name":"bkt"},"after":null,
 	       "after_unknown":{},"before_sensitive":{},"after_sensitive":{}}}
 	  ]
 	}`
@@ -199,6 +199,11 @@ classification {
   preset "iam" {
     icon            = "🔐"
     emit_attributes = ["project"]
+  }
+  rule "destructive" {
+    icon      = "💣"
+    actions   = ["delete"]
+    min_count = 1
   }
 }
 `
@@ -225,24 +230,38 @@ classification {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var got map[string]struct {
-		Class      string              `json:"class"`
-		Attributes map[string][]string `json:"attributes"`
-	}
+	var got sidecarDoc
 	if err := json.Unmarshal(data, &got); err != nil {
 		t.Fatal(err)
 	}
 
-	iam := got["platform/nonprod"]
-	want := []string{"fh-host-nonprod", "fh-svc-dev"}
-	if len(iam.Attributes["project"]) != 2 || iam.Attributes["project"][0] != want[0] || iam.Attributes["project"][1] != want[1] {
-		t.Fatalf("iam attributes.project = %v, want %v", iam.Attributes["project"], want)
+	// platform/nonprod carries both categories, in rule order (iam, destructive).
+	pcats := got.Stacks["platform/nonprod"].Categories
+	if len(pcats) != 2 || pcats[0].Category != "iam" || pcats[1].Category != "destructive" {
+		t.Fatalf("platform/nonprod categories = %+v, want [iam destructive]", pcats)
 	}
-	if safe := got["data/warehouse"]; safe.Attributes != nil {
-		t.Fatalf("safe stack must not emit attributes, got %v", safe.Attributes)
+	if iam := pcats[0]; len(iam.Attributes["project"]) != 2 ||
+		iam.Attributes["project"][0] != "fh-host-nonprod" || iam.Attributes["project"][1] != "fh-svc-dev" {
+		t.Fatalf("iam project = %v, want [fh-host-nonprod fh-svc-dev]", iam.Attributes["project"])
 	}
-	if strings.Contains(string(data), "fh-data") {
-		t.Fatal("safe stack must not emit attributes (omitempty); found its project in raw JSON")
+
+	// data/warehouse is destructive only.
+	dcats := got.Stacks["data/warehouse"].Categories
+	if len(dcats) != 1 || dcats[0].Category != "destructive" {
+		t.Fatalf("data/warehouse categories = %+v, want [destructive]", dcats)
+	}
+
+	// Summary unions both categories present, in rule order.
+	if len(got.Summary.Categories) != 2 ||
+		got.Summary.Categories[0].Category != "iam" || got.Summary.Categories[1].Category != "destructive" {
+		t.Fatalf("summary categories = %+v, want [iam destructive]", got.Summary.Categories)
+	}
+	if proj := got.Summary.Categories[0].Attributes["project"]; len(proj) != 2 {
+		t.Fatalf("summary iam project union = %v, want 2 values", proj)
+	}
+	// destructive declares no emit_attributes → its attributes field is omitted.
+	if got.Summary.Categories[1].Attributes != nil {
+		t.Fatalf("destructive must have no attributes, got %v", got.Summary.Categories[1].Attributes)
 	}
 }
 
@@ -286,7 +305,11 @@ func TestRunEmptyPlansDir(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.TrimSpace(string(data)) != "{}" {
-		t.Fatalf("sidecar should be empty object, got: %s", data)
+	var got sidecarDoc
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Stacks) != 0 || len(got.Summary.Categories) != 0 {
+		t.Fatalf("empty run should have no stacks and no summary categories, got: %s", data)
 	}
 }

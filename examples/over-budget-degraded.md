@@ -1,9 +1,9 @@
 <!-- tfstackplan:nonprod -->
 ### Terraform plan — nonprod  (8 stacks changed)
 
-| Stack | Add | Change | Destroy | Replace | Class |
+| Stack | Add | Change | Destroy | Replace | Categories |
 | --- | ---: | ---: | ---: | ---: | --- |
-| data/warehouse | 0 | 0 | 6 | 0 | 💣 destructive |
+| data/warehouse | 0 | 0 | 6 | 0 | 🔐 iam  💣 destructive |
 | networking/shared-vpc | 0 | 5 | 0 | 2 | 💣 destructive |
 | observability/grafana | 5 | 6 | 0 | 0 | ✅ safe |
 | platform/nonprod | 0 | 4 | 0 | 0 | 🔐 iam |
@@ -12,13 +12,13 @@
 | service-projects/app-prod | 0 | 6 | 0 | 0 | 🔐 iam |
 | service-projects/app-test | 0 | 8 | 0 | 0 | ✅ safe |
 
-<details><summary>data/warehouse · 💣 destructive · 6 destroy</summary>
+<details><summary>data/warehouse · 🔐 iam  💣 destructive · 6 destroy</summary>
 
-> <details open><summary>- google_bigquery_dataset.legacy_events · 2 attrs</summary>
+> <details open><summary>- google_project_iam_member.legacy_admins · 2 attrs</summary>
 >
 > ```diff
 > - location = "us-central1"
-> - name     = "legacy_events"
+> - name     = "legacy_admins"
 > ```
 >
 > </details>
