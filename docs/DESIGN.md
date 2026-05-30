@@ -18,9 +18,9 @@ The report has three levels of detail:
 2. **Per-stack drill-down** — a collapsed `<details>` block per stack.
 3. **Diff detail** — the actual resource changes inside each block.
 
-The tool is a **pure renderer**: it reads `plan.json` files and writes markdown
-(and an optional sidecar JSON). It does not run `terraform plan` and does not
-post to GitHub — the CI pipeline does that.
+The tool is a **pure renderer**: it scans a directory of per-stack `tfplan.json`
+files and writes markdown (and an optional sidecar JSON). It does not run
+`terraform plan` and does not post to GitHub — the CI pipeline does that.
 
 ## Goals (v1)
 
@@ -48,7 +48,7 @@ post to GitHub — the CI pipeline does that.
 |---|----------|-----------|
 | 1 | **Language: Go** | Single static binary; first-party `terraform-json` module for plan parsing; ships cleanly via Homebrew + Docker like tfplan2md. |
 | 2 | **Built-in renderer for v1** (no tfplan2md dependency) | No external .NET runtime dependency in CI; fully testable offline; full control of the collapsed-details format. tfplan2md shell-out can be added later if upstream diverges. |
-| 3 | **Manifest format: YAML** (JSON is a subset) | Human-writable, common in CI. The manifest is per-run/ephemeral. |
+| 3 | **Input: directory scan for `tfplan.json`** | Matches the natural output shape of Terramate scripts and Terragrunt's `--json-out-dir`; no per-run manifest to maintain; stack name is derived from the directory path, not from a config file. |
 | 4 | **Classification lives in a separate HCL config file** | Classification is *repo policy* (stable, git-tracked), with a different lifecycle from the per-run manifest. HCL is idiomatic for the Terraform ecosystem (cf. `.tflint.hcl`, terramate's `.tm.hcl`). |
 | 5 | **Presets** as built-in named rule bundles | Repos opt into `iam` (and future `data`, `cluster`) without rewriting regexes. |
 | 6 | **Declaration-order rule evaluation, first-hit-wins** | `preset` and `rule` blocks evaluate top-to-bottom; explicit and one mental model. |
@@ -67,7 +67,7 @@ model. Only the edges touch the filesystem.
 load (I/O)  →  gather → Model (pure)  →  fit → Model' (pure)  →  render (pure)  →  write (I/O)
 ```
 
-- **load** — read the manifest, every `plan.json`, and the HCL config.
+- **load** — scan `--plans-dir` for `tfplan.json` files, read each one, and load the HCL config.
 - **gather** — build a complete, **budget-agnostic** `Model`: per-stack action
   counts, the classification (class + icon), and for every changed attribute an
   ordered list of candidate render *variants* with their byte sizes.
@@ -80,7 +80,7 @@ load (I/O)  →  gather → Model (pure)  →  fit → Model' (pure)  →  rende
 
 ```
 cmd/tfstackplan/   — CLI entry; orchestrate load → gather → fit → render → write
-internal/manifest/   — load + validate per-run YAML/JSON manifest and --stack flags
+internal/plandir/    — recursively scan --plans-dir for tfplan.json files; derive stack names
 internal/config/     — parse + validate the HCL config (classification {} + diff {})
 internal/presets/    — built-in named rule bundles (iam, …) as []classify.Rule
 internal/plan/       — parse plan.json (terraform-json) → action counts + raw attr changes
@@ -105,45 +105,40 @@ internal/render/     — Model' → markdown
 
 ## Inputs
 
-### Manifest (per-run, YAML or JSON)
+### Plans directory
 
-```yaml
-title: "Terraform plan — nonprod"
-marker: "tfstackplan:nonprod"
-stacks:
-  - name: platform/nonprod
-    plan: ./out/platform-nonprod/plan.json
-  - name: service-projects/app-dev
-    plan: ./out/app-dev/plan.json
-```
+The tool's only input is `--plans-dir DIR`: a directory that is scanned
+recursively for files named exactly `tfplan.json`. Each file found contributes
+one stack to the report:
 
-### Or via flags
+- **Stack name** — the directory containing the `tfplan.json`, expressed as a
+  forward-slash path relative to `--plans-dir`
+  (e.g. `out/platform/nonprod/tfplan.json` → `platform/nonprod`).
+- **Ordering** — stacks are sorted alphabetically by name before rendering.
+- **Source dir for links** — `join(--repo-root, stack name)`; `--repo-root`
+  defaults to `.` (the working directory).
+- **Empty / absent plans** — if no `tfplan.json` files are found, the tool
+  renders a header-only "0 stacks changed" report and exits zero.
 
-```bash
-tfstackplan \
-  --stack platform/nonprod:./out/platform-nonprod/plan.json \
-  --stack service-projects/app-dev:./out/app-dev/plan.json \
-  --title "Terraform plan — nonprod" \
-  --marker tfstackplan:nonprod \
-  --output report.md
-```
-
-`--stack` is `NAME:PATH` (no class suffix; classification comes from config).
+Background and the orchestrator-integration rationale: `docs/terramate-integration.md`.
 
 ### CLI surface
 
 ```
-tfstackplan [--manifest FILE | --stack NAME:PATH ...]
+tfstackplan --plans-dir DIR
               [--config FILE]                  # HCL policy (classification {} + diff {}); auto-discovers .tfstackplan.hcl in CWD
               [--title TEXT]
               [--marker TEXT]
               [--max-bytes N]                  # default ~60000 (under GitHub's 65536 cap); 0 disables
               [--details auto|open|closed]     # default: closed
               [--emit-classification-json FILE]
+              [--repo-root DIR]                # base for link file paths (default ".")
+              [--link-var key=value]           # link template var (repeatable)
               [--output FILE | -]              # default: stdout
+              [--version]
 ```
 
-- `--manifest` and `--stack` are mutually exclusive ways to list stacks.
+- `--plans-dir` is required; it is scanned recursively for `tfplan.json` files.
 - `--config` overrides config discovery. If neither `--config` nor an
   auto-discovered `.tfstackplan.hcl` exists, **classification is off** (no
   class column / icons) and `diff {}` falls back to defaults (detection on, no
@@ -259,7 +254,7 @@ match → the `default` class.
 ### Sidecar JSON
 
 ```bash
-tfstackplan --manifest plan.yaml --output report.md \
+tfstackplan --plans-dir out/ --output report.md \
               --emit-classification-json classes.json
 ```
 

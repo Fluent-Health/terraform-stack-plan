@@ -160,39 +160,55 @@ or build from source: `go build -o tfstackplan ./cmd/tfstackplan`.
 
 ## Usage
 
-Each stack contributes one `plan.json` (from `terraform show -json plan.bin`).
-List them inline:
+Each stack contributes one `tfplan.json` (`terraform show -json plan.bin`).
+Collect them under one directory that mirrors your stack tree —
+`out/<stack>/tfplan.json` — and point the tool at it:
 
 ```bash
-tfstackplan \
-  --stack platform/nonprod:./out/platform-nonprod/plan.json \
-  --stack service-projects/app-dev:./out/app-dev/plan.json \
+tfstackplan --plans-dir out/ \
   --title  "Terraform plan — nonprod" \
   --marker tfstackplan:nonprod \
   --output report.md
 ```
 
-Or describe the run in a manifest (YAML or JSON):
+Each `tfplan.json` found defines a stack; its **name** is the directory holding
+it, relative to `--plans-dir` (so `out/platform/nonprod/tfplan.json` →
+`platform/nonprod`). Stacks render in alphabetical order. An empty (or absent)
+set of plans renders a header-only "0 stacks changed" report.
 
-```yaml
-# plan.yaml
-title: "Terraform plan — nonprod"
-marker: "tfstackplan:nonprod"
-stacks:
-  - name: platform/nonprod
-    plan: ./out/platform-nonprod/plan.json
-  - name: service-projects/app-dev
-    plan: ./out/app-dev/plan.json
+### Driving from your orchestrator
+
+**Terramate** — a per-stack `script` writes each plan into the central tree
+(`terramate.stack.path.to_root` climbs back to the repo root), then one render
+step rolls them up:
+
+```hcl
+script "plan-report" {
+  job {
+    commands = [
+      ["terraform", "plan", "-out", "tfplan.bin"],
+      ["sh", "-c", "mkdir -p ${terramate.stack.path.to_root}/out/${terramate.stack.path.relative} && terraform show -json tfplan.bin > ${terramate.stack.path.to_root}/out/${terramate.stack.path.relative}/tfplan.json"],
+    ]
+  }
+}
 ```
 
 ```bash
-tfstackplan --manifest plan.yaml --output report.md
+terramate script run plan-report
+tfstackplan --plans-dir out/ --output report.md
 ```
 
-The manifest carries **only** the run's `title`, `marker`, and stack list.
-Classification and diff handling are repo policy and live in a separate HCL file
-(below). With no policy file, the tool runs with zero config — counts and diffs,
-no `Class` column.
+**Terragrunt** — its native `--json-out-dir` already produces the right shape:
+
+```bash
+terragrunt run --all --filter-affected plan --json-out-dir out
+tfstackplan --plans-dir out --output report.md
+```
+
+The source-aware links feature resolves each resource against
+`<repo-root>/<stack name>`, so it works automatically when `out/` mirrors the
+stack tree (the default above). Set `--repo-root` if you run the tool from
+elsewhere.
 
 ---
 
@@ -251,7 +267,7 @@ Because the class is computed, `--emit-classification-json` hands CI the result
 as data — gate on it instead of re-parsing the markdown:
 
 ```bash
-tfstackplan --manifest plan.yaml --config .tfstackplan.hcl \
+tfstackplan --plans-dir out/ --config .tfstackplan.hcl \
             --output report.md --emit-classification-json classes.json
 ```
 
@@ -346,7 +362,7 @@ links {
 ```
 
 ```bash
-tfstackplan --manifest plan.yaml --config .tfstackplan.hcl \
+tfstackplan --plans-dir out/ --config .tfstackplan.hcl \
   --repo-root . \
   --link-var sha=$COMMIT_SHA --link-var pr=$_PR_NUMBER \
   --link-var build_id=$BUILD_ID --link-var project=$PROJECT_ID
@@ -360,8 +376,8 @@ tfstackplan --manifest plan.yaml --config .tfstackplan.hcl \
   supplied via `--link-var` (`{sha}`, `{build_id}`, `{pr}`, `{project}`, …). A
   template that references a missing var renders empty, so that link is omitted
   — partially-configured runs degrade cleanly.
-- **Stack source dir** is each stack's `dir` in the manifest, defaulting to the
-  directory of its `plan` file.
+- **Stack source dir** is `<repo-root>/<stack name>`, where the stack name is
+  the directory of the `tfplan.json` relative to `--plans-dir`.
 - **Fallback:** a resource the tool can't resolve to a repo file (remote/cached
   module, un-`init`-ed stack, parse gap) falls back to the **stack** link, never
   a dead end. Deep-linking to the PR *diff hunk* isn't possible (GitHub
@@ -372,7 +388,7 @@ tfstackplan --manifest plan.yaml --config .tfstackplan.hcl \
 ## CLI reference
 
 ```
-tfstackplan [--manifest FILE | --stack NAME:PATH ...]
+tfstackplan --plans-dir DIR
             [--title TEXT] [--marker TEXT]
             [--config FILE]                 # HCL policy; default: auto-discover .tfstackplan.hcl
             [--max-bytes N]                 # default 60000; 0 disables
@@ -384,9 +400,9 @@ tfstackplan [--manifest FILE | --stack NAME:PATH ...]
             [--version]
 ```
 
-`--manifest` and `--stack` are mutually exclusive. `--title` / `--marker` on the
-command line override the manifest. With no `--config` and no `.tfstackplan.hcl`
-present, classification is off, diffs use defaults, and no links are emitted.
+`--plans-dir` is required; it is scanned for `tfplan.json` files. With no
+`--config` and no `.tfstackplan.hcl` present, classification is off, diffs use
+defaults, and no links are emitted.
 
 ---
 

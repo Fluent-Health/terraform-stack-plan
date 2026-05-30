@@ -3,282 +3,14 @@
 
 | Stack | Add | Change | Destroy | Replace | Class |
 | --- | ---: | ---: | ---: | ---: | --- |
-| platform/nonprod | 0 | 4 | 0 | 0 | 🔐 iam |
-| service-projects/app-dev | 4 | 3 | 0 | 0 | ✅ safe |
-| service-projects/app-test | 0 | 8 | 0 | 0 | ✅ safe |
-| service-projects/app-prod | 0 | 6 | 0 | 0 | 🔐 iam |
 | data/warehouse | 0 | 0 | 6 | 0 | 💣 destructive |
 | networking/shared-vpc | 0 | 5 | 0 | 2 | 💣 destructive |
 | observability/grafana | 5 | 6 | 0 | 0 | ✅ safe |
+| platform/nonprod | 0 | 4 | 0 | 0 | 🔐 iam |
 | security/secrets | 0 | 9 | 0 | 0 | 🔐 iam |
-
-<details><summary>platform/nonprod · 🔐 iam · 4 change</summary>
-
-> <details open><summary>~ google_project_iam_member.data_engineers · 1 changed</summary>
->
-> ```diff
-> ~ role = "roles/viewer" → "roles/editor"
-> ```
->
-> </details>
-> <details open><summary>~ google_project_iam_member.viewers · 1 changed</summary>
->
-> ```diff
-> ~ role = "roles/viewer" → "roles/editor"
-> ```
->
-> </details>
-> <details open><summary>~ google_storage_bucket.tfstate · 2 changed</summary>
->
-> ```diff
-> ~ retention_days = 7 → 30
-> ~ labels (yaml):
->  env: nonprod
-> +team: platform
->  
-> ```
->
-> </details>
-> <details open><summary>~ google_storage_bucket.assets · 2 changed</summary>
->
-> ```diff
-> ~ retention_days = 8 → 31
-> ~ labels (yaml):
->  env: nonprod
-> +team: platform
->  
-> ```
->
-> </details>
-
-</details>
-
-<details><summary>service-projects/app-dev · ✅ safe · 4 add, 3 change</summary>
-
-> <details open><summary>+ google_service_account.api · 3 attrs</summary>
->
-> ```diff
-> + disabled = false
-> + location = "us-central1"
-> + name     = "api"
-> ```
->
-> </details>
-> <details open><summary>+ google_pubsub_topic.events · 3 attrs</summary>
->
-> ```diff
-> + disabled = false
-> + location = "us-central1"
-> + name     = "events"
-> ```
->
-> </details>
-> <details open><summary>+ google_cloud_run_service.api · 3 attrs</summary>
->
-> ```diff
-> + disabled = false
-> + location = "us-central1"
-> + name     = "api"
-> ```
->
-> </details>
-> <details open><summary>+ google_cloud_run_service.worker · 3 attrs</summary>
->
-> ```diff
-> + disabled = false
-> + location = "us-central1"
-> + name     = "worker"
-> ```
->
-> </details>
-> <details open><summary>~ google_storage_bucket.uploads · 2 changed</summary>
->
-> ```diff
-> ~ retention_days = 9 → 32
-> ~ labels (yaml):
->  env: nonprod
-> +team: platform
->  
-> ```
->
-> </details>
-> <details open><summary>~ google_storage_bucket.exports · 2 changed</summary>
->
-> ```diff
-> ~ retention_days = 10 → 33
-> ~ labels (yaml):
->  env: nonprod
-> +team: platform
->  
-> ```
->
-> </details>
-> <details open><summary>~ google_secret_manager_secret_version.db_password · 1 changed</summary>
->
-> ```diff
-> ~ secret_data = (sensitive value)
-> ```
->
-> </details>
-
-</details>
-
-<details><summary>service-projects/app-test · ✅ safe · 8 change</summary>
-
-> <details open><summary>~ google_storage_bucket.b0 · 2 changed</summary>
->
-> ```diff
-> ~ retention_days = 11 → 34
-> ~ labels (yaml):
->  env: nonprod
-> +team: platform
->  
-> ```
->
-> </details>
-> <details open><summary>~ google_storage_bucket.b1 · 2 changed</summary>
->
-> ```diff
-> ~ retention_days = 12 → 35
-> ~ labels (yaml):
->  env: nonprod
-> +team: platform
->  
-> ```
->
-> </details>
-> <details open><summary>~ google_storage_bucket.b2 · 2 changed</summary>
->
-> ```diff
-> ~ retention_days = 13 → 36
-> ~ labels (yaml):
->  env: nonprod
-> +team: platform
->  
-> ```
->
-> </details>
-> <details open><summary>~ google_storage_bucket.b3 · 2 changed</summary>
->
-> ```diff
-> ~ retention_days = 14 → 37
-> ~ labels (yaml):
->  env: nonprod
-> +team: platform
->  
-> ```
->
-> </details>
-> <details open><summary>~ google_storage_bucket.b4 · 2 changed</summary>
->
-> ```diff
-> ~ retention_days = 15 → 38
-> ~ labels (yaml):
->  env: nonprod
-> +team: platform
->  
-> ```
->
-> </details>
-> <details open><summary>~ google_storage_bucket.b5 · 2 changed</summary>
->
-> ```diff
-> ~ retention_days = 16 → 39
-> ~ labels (yaml):
->  env: nonprod
-> +team: platform
->  
-> ```
->
-> </details>
-> <details open><summary>~ google_storage_bucket.b6 · 2 changed</summary>
->
-> ```diff
-> ~ retention_days = 17 → 40
-> ~ labels (yaml):
->  env: nonprod
-> +team: platform
->  
-> ```
->
-> </details>
-> <details open><summary>~ google_storage_bucket.b7 · 2 changed</summary>
->
-> ```diff
-> ~ retention_days = 18 → 41
-> ~ labels (yaml):
->  env: nonprod
-> +team: platform
->  
-> ```
->
-> </details>
-
-</details>
-
-<details><summary>service-projects/app-prod · 🔐 iam · 6 change</summary>
-
-> <details open><summary>~ google_project_iam_member.deployers · 1 changed</summary>
->
-> ```diff
-> ~ role = "roles/viewer" → "roles/editor"
-> ```
->
-> </details>
-> <details open><summary>~ kubernetes_config_map.app_config · 1 changed</summary>
->
-> ```diff
-> ~ data:
->   ~ data · text · 90 lines · 180 changed (hidden to fit size limit)
-> ```
->
-> </details>
-> <details open><summary>~ google_storage_bucket.prod_state · 2 changed</summary>
->
-> ```diff
-> ~ retention_days = 19 → 42
-> ~ labels (yaml):
->  env: nonprod
-> +team: platform
->  
-> ```
->
-> </details>
-> <details open><summary>~ google_storage_bucket.prod_assets · 2 changed</summary>
->
-> ```diff
-> ~ retention_days = 20 → 43
-> ~ labels (yaml):
->  env: nonprod
-> +team: platform
->  
-> ```
->
-> </details>
-> <details open><summary>~ google_storage_bucket.prod_logs · 2 changed</summary>
->
-> ```diff
-> ~ retention_days = 21 → 44
-> ~ labels (yaml):
->  env: nonprod
-> +team: platform
->  
-> ```
->
-> </details>
-> <details open><summary>~ google_storage_bucket.prod_backups · 2 changed</summary>
->
-> ```diff
-> ~ retention_days = 22 → 45
-> ~ labels (yaml):
->  env: nonprod
-> +team: platform
->  
-> ```
->
-> </details>
-
-</details>
+| service-projects/app-dev | 4 | 3 | 0 | 0 | ✅ safe |
+| service-projects/app-prod | 0 | 6 | 0 | 0 | 🔐 iam |
+| service-projects/app-test | 0 | 8 | 0 | 0 | ✅ safe |
 
 <details><summary>data/warehouse · 💣 destructive · 6 destroy</summary>
 
@@ -544,6 +276,47 @@
 
 </details>
 
+<details><summary>platform/nonprod · 🔐 iam · 4 change</summary>
+
+> <details open><summary>~ google_project_iam_member.data_engineers · 1 changed</summary>
+>
+> ```diff
+> ~ role = "roles/viewer" → "roles/editor"
+> ```
+>
+> </details>
+> <details open><summary>~ google_project_iam_member.viewers · 1 changed</summary>
+>
+> ```diff
+> ~ role = "roles/viewer" → "roles/editor"
+> ```
+>
+> </details>
+> <details open><summary>~ google_storage_bucket.tfstate · 2 changed</summary>
+>
+> ```diff
+> ~ retention_days = 7 → 30
+> ~ labels (yaml):
+>  env: nonprod
+> +team: platform
+>  
+> ```
+>
+> </details>
+> <details open><summary>~ google_storage_bucket.assets · 2 changed</summary>
+>
+> ```diff
+> ~ retention_days = 8 → 31
+> ~ labels (yaml):
+>  env: nonprod
+> +team: platform
+>  
+> ```
+>
+> </details>
+
+</details>
+
 <details><summary>security/secrets · 🔐 iam · 9 change</summary>
 
 > <details open><summary>~ google_secret_manager_secret_version.api_key · 1 changed</summary>
@@ -614,6 +387,233 @@
 >
 > ```diff
 > ~ retention_days = 33 → 56
+> ~ labels (yaml):
+>  env: nonprod
+> +team: platform
+>  
+> ```
+>
+> </details>
+
+</details>
+
+<details><summary>service-projects/app-dev · ✅ safe · 4 add, 3 change</summary>
+
+> <details open><summary>+ google_service_account.api · 3 attrs</summary>
+>
+> ```diff
+> + disabled = false
+> + location = "us-central1"
+> + name     = "api"
+> ```
+>
+> </details>
+> <details open><summary>+ google_pubsub_topic.events · 3 attrs</summary>
+>
+> ```diff
+> + disabled = false
+> + location = "us-central1"
+> + name     = "events"
+> ```
+>
+> </details>
+> <details open><summary>+ google_cloud_run_service.api · 3 attrs</summary>
+>
+> ```diff
+> + disabled = false
+> + location = "us-central1"
+> + name     = "api"
+> ```
+>
+> </details>
+> <details open><summary>+ google_cloud_run_service.worker · 3 attrs</summary>
+>
+> ```diff
+> + disabled = false
+> + location = "us-central1"
+> + name     = "worker"
+> ```
+>
+> </details>
+> <details open><summary>~ google_storage_bucket.uploads · 2 changed</summary>
+>
+> ```diff
+> ~ retention_days = 9 → 32
+> ~ labels (yaml):
+>  env: nonprod
+> +team: platform
+>  
+> ```
+>
+> </details>
+> <details open><summary>~ google_storage_bucket.exports · 2 changed</summary>
+>
+> ```diff
+> ~ retention_days = 10 → 33
+> ~ labels (yaml):
+>  env: nonprod
+> +team: platform
+>  
+> ```
+>
+> </details>
+> <details open><summary>~ google_secret_manager_secret_version.db_password · 1 changed</summary>
+>
+> ```diff
+> ~ secret_data = (sensitive value)
+> ```
+>
+> </details>
+
+</details>
+
+<details><summary>service-projects/app-prod · 🔐 iam · 6 change</summary>
+
+> <details open><summary>~ google_project_iam_member.deployers · 1 changed</summary>
+>
+> ```diff
+> ~ role = "roles/viewer" → "roles/editor"
+> ```
+>
+> </details>
+> <details open><summary>~ kubernetes_config_map.app_config · 1 changed</summary>
+>
+> ```diff
+> ~ data:
+>   ~ data · text · 90 lines · 180 changed (hidden to fit size limit)
+> ```
+>
+> </details>
+> <details open><summary>~ google_storage_bucket.prod_state · 2 changed</summary>
+>
+> ```diff
+> ~ retention_days = 19 → 42
+> ~ labels (yaml):
+>  env: nonprod
+> +team: platform
+>  
+> ```
+>
+> </details>
+> <details open><summary>~ google_storage_bucket.prod_assets · 2 changed</summary>
+>
+> ```diff
+> ~ retention_days = 20 → 43
+> ~ labels (yaml):
+>  env: nonprod
+> +team: platform
+>  
+> ```
+>
+> </details>
+> <details open><summary>~ google_storage_bucket.prod_logs · 2 changed</summary>
+>
+> ```diff
+> ~ retention_days = 21 → 44
+> ~ labels (yaml):
+>  env: nonprod
+> +team: platform
+>  
+> ```
+>
+> </details>
+> <details open><summary>~ google_storage_bucket.prod_backups · 2 changed</summary>
+>
+> ```diff
+> ~ retention_days = 22 → 45
+> ~ labels (yaml):
+>  env: nonprod
+> +team: platform
+>  
+> ```
+>
+> </details>
+
+</details>
+
+<details><summary>service-projects/app-test · ✅ safe · 8 change</summary>
+
+> <details open><summary>~ google_storage_bucket.b0 · 2 changed</summary>
+>
+> ```diff
+> ~ retention_days = 11 → 34
+> ~ labels (yaml):
+>  env: nonprod
+> +team: platform
+>  
+> ```
+>
+> </details>
+> <details open><summary>~ google_storage_bucket.b1 · 2 changed</summary>
+>
+> ```diff
+> ~ retention_days = 12 → 35
+> ~ labels (yaml):
+>  env: nonprod
+> +team: platform
+>  
+> ```
+>
+> </details>
+> <details open><summary>~ google_storage_bucket.b2 · 2 changed</summary>
+>
+> ```diff
+> ~ retention_days = 13 → 36
+> ~ labels (yaml):
+>  env: nonprod
+> +team: platform
+>  
+> ```
+>
+> </details>
+> <details open><summary>~ google_storage_bucket.b3 · 2 changed</summary>
+>
+> ```diff
+> ~ retention_days = 14 → 37
+> ~ labels (yaml):
+>  env: nonprod
+> +team: platform
+>  
+> ```
+>
+> </details>
+> <details open><summary>~ google_storage_bucket.b4 · 2 changed</summary>
+>
+> ```diff
+> ~ retention_days = 15 → 38
+> ~ labels (yaml):
+>  env: nonprod
+> +team: platform
+>  
+> ```
+>
+> </details>
+> <details open><summary>~ google_storage_bucket.b5 · 2 changed</summary>
+>
+> ```diff
+> ~ retention_days = 16 → 39
+> ~ labels (yaml):
+>  env: nonprod
+> +team: platform
+>  
+> ```
+>
+> </details>
+> <details open><summary>~ google_storage_bucket.b6 · 2 changed</summary>
+>
+> ```diff
+> ~ retention_days = 17 → 40
+> ~ labels (yaml):
+>  env: nonprod
+> +team: platform
+>  
+> ```
+>
+> </details>
+> <details open><summary>~ google_storage_bucket.b7 · 2 changed</summary>
+>
+> ```diff
+> ~ retention_days = 18 → 41
 > ~ labels (yaml):
 >  env: nonprod
 > +team: platform

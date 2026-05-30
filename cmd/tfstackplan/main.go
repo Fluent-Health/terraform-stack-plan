@@ -15,9 +15,9 @@ import (
 	"github.com/Fluent-Health/terraform-stack-plan/internal/differ"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/fit"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/links"
-	"github.com/Fluent-Health/terraform-stack-plan/internal/manifest"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/model"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/plan"
+	"github.com/Fluent-Health/terraform-stack-plan/internal/plandir"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/render"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/source"
 )
@@ -27,33 +27,31 @@ const defaultMaxBytes = 60000
 // version is overridden at release time via -ldflags "-X main.version=...".
 var version = "dev"
 
-type stackFlags []string
+// repeatedFlag is a generic repeatable string flag value.
+type repeatedFlag []string
 
-func (s *stackFlags) String() string { return fmt.Sprint(*s) }
-func (s *stackFlags) Set(v string) error {
+func (s *repeatedFlag) String() string { return fmt.Sprint(*s) }
+func (s *repeatedFlag) Set(v string) error {
 	*s = append(*s, v)
 	return nil
 }
 
 type opts struct {
-	manifestPath string
-	stacks       []string
-	title        string
-	marker       string
-	config       string
-	maxBytes     int
-	output       string
-	classJSON    string
-	details      string
-	repoRoot     string
-	linkVars     []string
+	plansDir  string
+	title     string
+	marker    string
+	config    string
+	maxBytes  int
+	output    string
+	classJSON string
+	details   string
+	repoRoot  string
+	linkVars  []string
 }
 
 func main() {
 	var o opts
-	var sf stackFlags
-	flag.StringVar(&o.manifestPath, "manifest", "", "manifest file (YAML/JSON)")
-	flag.Var(&sf, "stack", "stack as NAME:PATH (repeatable)")
+	flag.StringVar(&o.plansDir, "plans-dir", "", "directory of per-stack plans (each <stack>/tfplan.json)")
 	flag.StringVar(&o.title, "title", "Terraform plan", "report title")
 	flag.StringVar(&o.marker, "marker", "tfstackplan", "HTML-comment marker for CI upsert")
 	flag.StringVar(&o.config, "config", "", "HCL policy file (default: auto-discover .tfstackplan.hcl)")
@@ -62,7 +60,7 @@ func main() {
 	flag.StringVar(&o.classJSON, "emit-classification-json", "", "write computed classes as JSON")
 	flag.StringVar(&o.details, "details", "closed", "details disclosure: auto|open|closed")
 	flag.StringVar(&o.repoRoot, "repo-root", ".", "repo root for computing link file paths")
-	var lv stackFlags
+	var lv repeatedFlag
 	flag.Var(&lv, "link-var", "link template variable as key=value (repeatable); sha=<sha> also derives sha_short")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
@@ -70,7 +68,6 @@ func main() {
 		fmt.Println("tfstackplan", version)
 		return
 	}
-	o.stacks = sf
 	o.linkVars = lv
 
 	out, fits, err := run(o)
@@ -93,30 +90,12 @@ func main() {
 // run executes the whole pipeline and returns the markdown document and whether
 // it fits the configured byte budget.
 func run(o opts) (string, bool, error) {
-	var refs []manifest.StackRef
-	switch {
-	case o.manifestPath != "" && len(o.stacks) > 0:
-		return "", false, fmt.Errorf("--manifest and --stack are mutually exclusive")
-	case o.manifestPath != "":
-		m, err := manifest.Load(o.manifestPath)
-		if err != nil {
-			return "", false, err
-		}
-		refs = m.Stacks
-		if o.title == "Terraform plan" && m.Title != "" {
-			o.title = m.Title
-		}
-		if o.marker == "tfstackplan" && m.Marker != "" {
-			o.marker = m.Marker
-		}
-	case len(o.stacks) > 0:
-		r, err := manifest.ParseStackFlags(o.stacks)
-		if err != nil {
-			return "", false, err
-		}
-		refs = r
-	default:
-		return "", false, fmt.Errorf("no stacks: pass --manifest or --stack")
+	if o.plansDir == "" {
+		return "", false, fmt.Errorf("no input: pass --plans-dir")
+	}
+	refs, err := plandir.Scan(o.plansDir)
+	if err != nil {
+		return "", false, err
 	}
 
 	var cfg *config.Config
@@ -158,10 +137,7 @@ func run(o opts) (string, bool, error) {
 		}
 		st := model.Stack{Name: ref.Name, Counts: raw.Counts}
 
-		stackDir := ref.Dir
-		if stackDir == "" {
-			stackDir = filepath.Dir(ref.Plan)
-		}
+		stackDir := filepath.Join(o.repoRoot, filepath.FromSlash(ref.Name))
 		stackVars := mergeVars(base, map[string]string{"stack": ref.Name, "stack_dir": relSlash(o.repoRoot, stackDir)})
 		var srcIdx *source.Index
 		if cfg.Links != nil {
