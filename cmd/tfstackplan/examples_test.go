@@ -34,8 +34,8 @@ const exampleCfgHCL = `classification {
 
 // exampleStacks writes the shared multi-stack input (56 changes across 8 stacks,
 // including IAM, sensitive, destructive, structural and large-diff resources)
-// and returns the --stack NAME:PATH flags pointing at it.
-func exampleStacks(t *testing.T, dir string) []string {
+// into an out/<name>/tfplan.json tree and returns the plans dir.
+func exampleStacks(t *testing.T, dir string) string {
 	t.Helper()
 	stacks := []struct {
 		name    string
@@ -121,22 +121,23 @@ func exampleStacks(t *testing.T, dir string) []string {
 		}},
 	}
 
-	var flags []string
+	plansDir := filepath.Join(dir, "out")
 	for _, s := range stacks {
-		fname := strings.ReplaceAll(s.name, "/", "_") + ".json"
-		p := filepath.Join(dir, fname)
+		p := filepath.Join(plansDir, filepath.FromSlash(s.name), "tfplan.json")
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
 		if err := os.WriteFile(p, genPlan(s.changes...), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		flags = append(flags, s.name+":"+p)
 	}
-	return flags
+	return plansDir
 }
 
 // stateOpsStacks writes the input for the state-ops / structured-diff example:
 // moved / imported / forget / nested-block resources, plus rich nested JSON and
 // YAML diffs in small (inline) and big (folded) variants.
-func stateOpsStacks(t *testing.T, dir string) []string {
+func stateOpsStacks(t *testing.T, dir string) string {
 	t.Helper()
 	stacks := []struct {
 		name    string
@@ -156,16 +157,17 @@ func stateOpsStacks(t *testing.T, dir string) []string {
 			yamlManifestUpdate("kubernetes_manifest.platform", true), // big → folded
 		}},
 	}
-	var flags []string
+	plansDir := filepath.Join(dir, "out")
 	for _, s := range stacks {
-		fname := strings.ReplaceAll(s.name, "/", "_") + ".json"
-		p := filepath.Join(dir, fname)
+		p := filepath.Join(plansDir, filepath.FromSlash(s.name), "tfplan.json")
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
 		if err := os.WriteFile(p, genPlan(s.changes...), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		flags = append(flags, s.name+":"+p)
 	}
-	return flags
+	return plansDir
 }
 
 // TestExamples renders the shared input at four byte budgets, exercising the
@@ -262,7 +264,7 @@ func TestExamples(t *testing.T) {
 	for _, sc := range scenarios {
 		t.Run(sc.file, func(t *testing.T) {
 			out, fits, err := run(opts{
-				stacks:   stacks,
+				plansDir: stacks,
 				title:    "Terraform plan — nonprod",
 				marker:   "tfstackplan:nonprod",
 				config:   cfgPath,
@@ -310,7 +312,7 @@ func TestStateOpsExample(t *testing.T) {
 	stacks := stateOpsStacks(t, dir)
 
 	out, fits, err := run(opts{
-		stacks:   stacks,
+		plansDir: stacks,
 		title:    "Terraform plan — state ops & structured diffs",
 		marker:   "tfstackplan:state-ops",
 		config:   cfgPath,

@@ -29,12 +29,22 @@ classification {
 }
 `
 
-func TestRunEndToEnd(t *testing.T) {
-	dir := t.TempDir()
-	planPath := filepath.Join(dir, "plan.json")
-	if err := os.WriteFile(planPath, []byte(planJSON), 0o644); err != nil {
+// writePlan creates <root>/<name>/tfplan.json (name may contain forward slashes).
+func writePlan(t *testing.T, root, name, body string) {
+	t.Helper()
+	p := filepath.Join(root, filepath.FromSlash(name), "tfplan.json")
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRunPlansDir(t *testing.T) {
+	dir := t.TempDir()
+	plansDir := filepath.Join(dir, "out")
+	writePlan(t, plansDir, "platform/nonprod", planJSON)
 	cfgPath := filepath.Join(dir, "cfg.hcl")
 	if err := os.WriteFile(cfgPath, []byte(cfgHCL), 0o644); err != nil {
 		t.Fatal(err)
@@ -42,7 +52,7 @@ func TestRunEndToEnd(t *testing.T) {
 	classOut := filepath.Join(dir, "classes.json")
 
 	out, _, err := run(opts{
-		stacks:    []string{"platform/nonprod:" + planPath},
+		plansDir:  plansDir,
 		title:     "Terraform plan — nonprod",
 		marker:    "tfstackplan:nonprod",
 		config:    cfgPath,
@@ -75,47 +85,26 @@ func TestRunEndToEnd(t *testing.T) {
 	}
 }
 
-func TestRunBothInputsError(t *testing.T) {
-	_, _, err := run(opts{manifestPath: "x.yaml", stacks: []string{"a:b"}, maxBytes: 60000})
-	if err == nil || !strings.Contains(err.Error(), "mutually exclusive") {
-		t.Fatalf("expected mutually-exclusive error, got %v", err)
-	}
-}
-
-func TestRunNeitherInputError(t *testing.T) {
+func TestRunMissingPlansDirFlag(t *testing.T) {
 	_, _, err := run(opts{maxBytes: 60000})
-	if err == nil {
-		t.Fatal("expected error when no stacks given")
+	if err == nil || !strings.Contains(err.Error(), "--plans-dir") {
+		t.Fatalf("expected --plans-dir hint, got %v", err)
 	}
 }
 
-func TestRunManifestTitleMarkerOverride(t *testing.T) {
-	dir := t.TempDir()
-	planPath := filepath.Join(dir, "plan.json")
-	if err := os.WriteFile(planPath, []byte(planJSON), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	manPath := filepath.Join(dir, "m.yaml")
-	man := "title: \"From Manifest\"\nmarker: \"mk\"\nstacks:\n  - name: s\n    plan: " + planPath + "\n"
-	if err := os.WriteFile(manPath, []byte(man), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	// CLI title/marker left at defaults → manifest values fill in.
-	out, _, err := run(opts{manifestPath: manPath, title: "Terraform plan", marker: "tfstackplan", maxBytes: 60000, details: "closed"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(out, "From Manifest") || !strings.Contains(out, "<!-- mk -->") {
-		t.Fatalf("manifest title/marker should fill defaults:\n%s", out)
+func TestRunNonexistentPlansDir(t *testing.T) {
+	_, _, err := run(opts{plansDir: filepath.Join(t.TempDir(), "nope"), maxBytes: 60000})
+	if err == nil {
+		t.Fatal("expected error for nonexistent plans-dir")
 	}
 }
 
 func TestRunNoConfigNoClassColumn(t *testing.T) {
 	dir := t.TempDir()
-	planPath := filepath.Join(dir, "plan.json")
-	os.WriteFile(planPath, []byte(planJSON), 0o644)
+	plansDir := filepath.Join(dir, "out")
+	writePlan(t, plansDir, "s", planJSON)
 	out, _, err := run(opts{
-		stacks:   []string{"s:" + planPath},
+		plansDir: plansDir,
 		title:    "T",
 		marker:   "m",
 		maxBytes: 60000,
@@ -131,14 +120,18 @@ func TestRunNoConfigNoClassColumn(t *testing.T) {
 
 func TestRunEmitsLinks(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "main.tf"),
+	// Source tree lives at the repo root, under the stack's path.
+	srcDir := filepath.Join(dir, "platform", "nonprod")
+	if err := os.MkdirAll(srcDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(srcDir, "main.tf"),
 		[]byte("resource \"google_project_iam_member\" \"editor\" {\n  role = \"x\"\n}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	planPath := filepath.Join(dir, "plan.json")
-	if err := os.WriteFile(planPath, []byte(planJSON), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	// Plans live in a separate out/ tree.
+	plansDir := filepath.Join(dir, "out")
+	writePlan(t, plansDir, "platform/nonprod", planJSON)
 	cfgPath := filepath.Join(dir, "cfg.hcl")
 	if err := os.WriteFile(cfgPath, []byte(`links {
   resource = "https://gh/o/r/blob/{sha}/{file}#L{line}"
@@ -152,7 +145,7 @@ func TestRunEmitsLinks(t *testing.T) {
 	}
 
 	out, _, err := run(opts{
-		stacks:   []string{"platform/nonprod:" + planPath},
+		plansDir: plansDir,
 		config:   cfgPath,
 		maxBytes: 60000,
 		details:  "open",
@@ -165,18 +158,19 @@ func TestRunEmitsLinks(t *testing.T) {
 	if !strings.Contains(out, "[PR #42](https://gh/o/r/pull/42)") {
 		t.Fatalf("header link missing:\n%s", out)
 	}
-	if !strings.Contains(out, "https://gh/o/r/blob/abc1234/main.tf#L1") {
+	// Source dir is join(repoRoot, name), so the file path is name-relative.
+	if !strings.Contains(out, "https://gh/o/r/blob/abc1234/platform/nonprod/main.tf#L1") {
 		t.Fatalf("resource link missing:\n%s", out)
 	}
-	if !strings.Contains(out, "tree/abc1234/") {
+	if !strings.Contains(out, "tree/abc1234/platform/nonprod") {
 		t.Fatalf("stack link missing:\n%s", out)
 	}
 }
 
 func TestRunEmitsClassificationAttributes(t *testing.T) {
 	dir := t.TempDir()
+	plansDir := filepath.Join(dir, "out")
 
-	// IAM stack: two members across two projects; one safe stack with none.
 	iamPlan := `{
 	  "format_version": "1.2",
 	  "resource_changes": [
@@ -208,18 +202,16 @@ classification {
   }
 }
 `
-	iamPath := filepath.Join(dir, "iam.json")
-	safePath := filepath.Join(dir, "safe.json")
+	writePlan(t, plansDir, "platform/nonprod", iamPlan)
+	writePlan(t, plansDir, "data/warehouse", safePlan)
 	cfgPath := filepath.Join(dir, "cfg.hcl")
 	classOut := filepath.Join(dir, "classes.json")
-	for p, c := range map[string]string{iamPath: iamPlan, safePath: safePlan, cfgPath: cfg} {
-		if err := os.WriteFile(p, []byte(c), 0o644); err != nil {
-			t.Fatal(err)
-		}
+	if err := os.WriteFile(cfgPath, []byte(cfg), 0o644); err != nil {
+		t.Fatal(err)
 	}
 
 	_, _, err := run(opts{
-		stacks:    []string{"platform/nonprod:" + iamPath, "data/warehouse:" + safePath},
+		plansDir:  plansDir,
 		config:    cfgPath,
 		maxBytes:  60000,
 		classJSON: classOut,
@@ -246,25 +238,18 @@ classification {
 	if len(iam.Attributes["project"]) != 2 || iam.Attributes["project"][0] != want[0] || iam.Attributes["project"][1] != want[1] {
 		t.Fatalf("iam attributes.project = %v, want %v", iam.Attributes["project"], want)
 	}
-
-	// Safe stack: the "attributes" key must be absent entirely (omitempty),
-	// even though its bucket carries a "project" attribute.
 	if safe := got["data/warehouse"]; safe.Attributes != nil {
 		t.Fatalf("safe stack must not emit attributes, got %v", safe.Attributes)
-	}
-	if !strings.Contains(string(data), "platform/nonprod") {
-		t.Fatal("sidecar missing iam stack")
 	}
 	if strings.Contains(string(data), "fh-data") {
 		t.Fatal("safe stack must not emit attributes (omitempty); found its project in raw JSON")
 	}
 }
 
-func TestRunEmptyManifest(t *testing.T) {
+func TestRunEmptyPlansDir(t *testing.T) {
 	dir := t.TempDir()
-	manPath := filepath.Join(dir, "empty.yaml")
-	if err := os.WriteFile(manPath,
-		[]byte("title: \"Terraform plan — nonprod\"\nmarker: \"tf-plan:nonprod\"\nstacks: []\n"), 0o644); err != nil {
+	plansDir := filepath.Join(dir, "out")
+	if err := os.MkdirAll(plansDir, 0o755); err != nil { // exists, no plans
 		t.Fatal(err)
 	}
 	cfgPath := filepath.Join(dir, "cfg.hcl")
@@ -274,15 +259,16 @@ func TestRunEmptyManifest(t *testing.T) {
 	classOut := filepath.Join(dir, "classes.json")
 
 	out, fits, err := run(opts{
-		manifestPath: manPath,
-		config:       cfgPath,
-		maxBytes:     60000,
-		classJSON:    classOut,
-		details:      "closed",
-		marker:       "tfstackplan",
+		plansDir:  plansDir,
+		config:    cfgPath,
+		maxBytes:  60000,
+		classJSON: classOut,
+		details:   "closed",
+		title:     "Terraform plan — nonprod",
+		marker:    "tf-plan:nonprod",
 	})
 	if err != nil {
-		t.Fatalf("empty manifest run should not error: %v", err)
+		t.Fatalf("empty plans-dir run should not error: %v", err)
 	}
 	if !fits {
 		t.Fatal("empty report should fit the budget")
