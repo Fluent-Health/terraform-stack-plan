@@ -304,3 +304,26 @@ func TestRenderStackAndResourceLinks(t *testing.T) {
 		t.Fatalf("resource link missing:\n%s", out)
 	}
 }
+
+func TestRenderEmptyReport(t *testing.T) {
+	r := model.Report{
+		Title:       "Terraform plan — nonprod",
+		Marker:      "tf-plan:nonprod",
+		Classified:  true,
+		Stacks:      nil,
+		HeaderLinks: []model.Link{{Label: "PR #42", URL: "https://gh/o/r/pull/42"}},
+	}
+	out := Render(r)
+	if !strings.HasPrefix(out, "<!-- tf-plan:nonprod -->\n") {
+		t.Fatalf("missing marker line:\n%s", out)
+	}
+	if !strings.Contains(out, "### Terraform plan — nonprod  (0 stacks changed)") {
+		t.Fatalf("missing 0-stacks heading:\n%s", out)
+	}
+	if strings.Contains(out, "| Stack |") {
+		t.Fatalf("empty report must not render a table:\n%s", out)
+	}
+	if !strings.Contains(out, "[PR #42](https://gh/o/r/pull/42)") {
+		t.Fatalf("header links should still render:\n%s", out)
+	}
+}
