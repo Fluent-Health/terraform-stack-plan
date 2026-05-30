@@ -111,8 +111,8 @@ func TestRunNoConfigNoClassColumn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(out, "Class") {
-		t.Fatalf("no config → no Class column:\n%s", out)
+	if strings.Contains(out, "Categories") {
+		t.Fatalf("no config → no Categories column:\n%s", out)
 	}
 }
 
@@ -207,8 +207,17 @@ classification {
   }
 }
 `
+	safeCreate := `{
+	  "format_version": "1.2",
+	  "resource_changes": [
+	    {"address":"google_storage_bucket.new","type":"google_storage_bucket","name":"new",
+	     "change":{"actions":["create"],"before":null,"after":{"name":"newbkt"},
+	       "after_unknown":{},"before_sensitive":{},"after_sensitive":{}}}
+	  ]
+	}`
 	writePlan(t, plansDir, "platform/nonprod", iamPlan)
 	writePlan(t, plansDir, "data/warehouse", safePlan)
+	writePlan(t, plansDir, "service-projects/app-dev", safeCreate)
 	cfgPath := filepath.Join(dir, "cfg.hcl")
 	classOut := filepath.Join(dir, "classes.json")
 	if err := os.WriteFile(cfgPath, []byte(cfg), 0o644); err != nil {
@@ -249,6 +258,13 @@ classification {
 	dcats := got.Stacks["data/warehouse"].Categories
 	if len(dcats) != 1 || dcats[0].Category != "destructive" {
 		t.Fatalf("data/warehouse categories = %+v, want [destructive]", dcats)
+	}
+
+	// A stack matching no rule serializes an empty categories list (not null),
+	// and contributes nothing to the summary.
+	scats := got.Stacks["service-projects/app-dev"].Categories
+	if scats == nil || len(scats) != 0 {
+		t.Fatalf("service-projects/app-dev categories = %v, want non-nil empty []", scats)
 	}
 
 	// Summary unions both categories present, in rule order.
