@@ -465,6 +465,23 @@ the budget entirely.
   tree is the input. Deep-linking to the PR diff hunk is not possible (GitHub
   limitation); links point at the block at `{sha}`.
 
+## Known limitations / gotchas
+
+- **`--plans-dir` couples a stack's name to its directory** (name = dir relative
+  to the scan root; source-aware links resolve against `repo-root/name`). So the
+  plans tree must mirror the stack tree, and names carry whatever prefix the tree
+  has (e.g. `stacks/…`). Decoupling name from dir is intentionally not supported.
+- **Canonical plan filename is hardcoded `tfplan.json`** — matches Terragrunt's
+  `--json-out-dir`; Terramate is scripted to emit the same. A tool that writes a
+  different name needs a rename step.
+- **`default`/`safe` is a display-only fallback** — rendered for a stack that
+  matched no rule, but it **never appears in the `--emit-classification-json`
+  sidecar or the summary** (those carry only the matched-rule categories).
+- **The run summary unions attributes per category but does not record which
+  stacks contributed** them — consumers gate on subjects, not stack lists.
+- **A `tfplan.json` at the scan root errors** (no stack name) — plans must live
+  in a subdirectory of `--plans-dir`.
+
 ## Future / deferred
 
 - `tfplan2md` shell-out renderer behind a `--render` flag.
