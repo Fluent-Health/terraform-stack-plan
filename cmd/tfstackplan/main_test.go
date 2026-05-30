@@ -259,3 +259,48 @@ classification {
 		t.Fatal("safe stack must not emit attributes (omitempty); found its project in raw JSON")
 	}
 }
+
+func TestRunEmptyManifest(t *testing.T) {
+	dir := t.TempDir()
+	manPath := filepath.Join(dir, "empty.yaml")
+	if err := os.WriteFile(manPath,
+		[]byte("title: \"Terraform plan — nonprod\"\nmarker: \"tf-plan:nonprod\"\nstacks: []\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfgPath := filepath.Join(dir, "cfg.hcl")
+	if err := os.WriteFile(cfgPath, []byte(cfgHCL), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	classOut := filepath.Join(dir, "classes.json")
+
+	out, fits, err := run(opts{
+		manifestPath: manPath,
+		config:       cfgPath,
+		maxBytes:     60000,
+		classJSON:    classOut,
+		details:      "closed",
+		marker:       "tfstackplan",
+	})
+	if err != nil {
+		t.Fatalf("empty manifest run should not error: %v", err)
+	}
+	if !fits {
+		t.Fatal("empty report should fit the budget")
+	}
+	if !strings.HasPrefix(out, "<!-- tf-plan:nonprod -->") {
+		t.Fatalf("missing marker:\n%s", out)
+	}
+	if !strings.Contains(out, "(0 stacks changed)") {
+		t.Fatalf("missing 0-stacks heading:\n%s", out)
+	}
+	if strings.Contains(out, "| Stack |") {
+		t.Fatalf("empty report must not render a table:\n%s", out)
+	}
+	data, err := os.ReadFile(classOut)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(string(data)) != "{}" {
+		t.Fatalf("sidecar should be empty object, got: %s", data)
+	}
+}

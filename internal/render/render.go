@@ -14,6 +14,13 @@ func Render(r model.Report) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "<!-- %s -->\n", r.Marker)
 
+	// Nothing changed: heading ("(0 stacks changed)") + header links only —
+	// no summary table, no details. Reachable via an explicit empty manifest.
+	if len(r.Stacks) == 0 {
+		renderHeader(&b, r)
+		return b.String()
+	}
+
 	switch r.Mode {
 	case model.ModeMinimal:
 		renderMinimal(&b, r)

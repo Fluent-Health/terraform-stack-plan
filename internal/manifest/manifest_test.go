@@ -1,6 +1,10 @@
 package manifest
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestLoadYAML(t *testing.T) {
 	m, err := Load("testdata/plan.yaml")
@@ -35,5 +39,23 @@ func TestParseStackFlags(t *testing.T) {
 func TestParseStackFlagInvalid(t *testing.T) {
 	if _, err := ParseStackFlags([]string{"noseparator"}); err == nil {
 		t.Fatal("expected error for missing ':' separator")
+	}
+}
+
+func TestLoadEmptyStacksIsValid(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "empty.yaml")
+	if err := os.WriteFile(p, []byte("title: \"T\"\nmarker: \"m\"\nstacks: []\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m, err := Load(p)
+	if err != nil {
+		t.Fatalf("empty manifest should load, got error: %v", err)
+	}
+	if len(m.Stacks) != 0 {
+		t.Fatalf("want 0 stacks, got %d", len(m.Stacks))
+	}
+	if m.Title != "T" || m.Marker != "m" {
+		t.Fatalf("title/marker not parsed: %+v", m)
 	}
 }
