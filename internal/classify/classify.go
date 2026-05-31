@@ -44,6 +44,9 @@ func Classify(s plan.RawStack, rules []Rule) []Category {
 		}
 		var matched []plan.RawChange
 		for _, c := range s.Changes {
+			if !c.Action.Mutates() {
+				continue // pure move/import/forget: no apply-time mutation to classify
+			}
 			if ruleMatchesChange(r, c) {
 				matched = append(matched, c)
 			}
