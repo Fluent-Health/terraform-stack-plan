@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"testing"
 
+	"github.com/Fluent-Health/terraform-stack-plan/internal/model"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/plan"
 )
 
@@ -28,7 +29,7 @@ func TestAllMatchingRulesFire(t *testing.T) {
 		{Name: "destructive", Icon: "💣", Actions: []string{"delete"}, MinCount: 1},
 	}
 	// A deleted IAM member matches BOTH rules.
-	s := stack(plan.RawChange{Type: "google_project_iam_member", Actions: []string{"delete"}})
+	s := stack(plan.RawChange{Type: "google_project_iam_member", Action: model.ActionDestroy, Actions: []string{"delete"}})
 	got := Classify(s, rules)
 	if len(got) != 2 {
 		t.Fatalf("expected 2 categories, got %d: %+v", len(got), got)
@@ -40,7 +41,7 @@ func TestAllMatchingRulesFire(t *testing.T) {
 
 func TestNoMatchYieldsEmpty(t *testing.T) {
 	rules := []Rule{{Name: "iam", TypePattern: regexp.MustCompile(`_iam_`), MinCount: 1}}
-	got := Classify(stack(plan.RawChange{Type: "google_storage_bucket", Actions: []string{"create"}}), rules)
+	got := Classify(stack(plan.RawChange{Type: "google_storage_bucket", Action: model.ActionAdd, Actions: []string{"create"}}), rules)
 	if len(got) != 0 {
 		t.Fatalf("no match should yield empty slice, got %+v", got)
 	}
@@ -48,12 +49,12 @@ func TestNoMatchYieldsEmpty(t *testing.T) {
 
 func TestActionsAndMinCount(t *testing.T) {
 	rules := []Rule{{Name: "destructive", Actions: []string{"delete"}, MinCount: 2}}
-	if cats := Classify(stack(plan.RawChange{Type: "x", Actions: []string{"delete"}}), rules); len(cats) != 0 {
+	if cats := Classify(stack(plan.RawChange{Type: "x", Action: model.ActionDestroy, Actions: []string{"delete"}}), rules); len(cats) != 0 {
 		t.Fatalf("one delete must not meet min_count 2, got %+v", cats)
 	}
 	two := stack(
-		plan.RawChange{Type: "x", Actions: []string{"delete"}},
-		plan.RawChange{Type: "y", Actions: []string{"delete"}},
+		plan.RawChange{Type: "x", Action: model.ActionDestroy, Actions: []string{"delete"}},
+		plan.RawChange{Type: "y", Action: model.ActionDestroy, Actions: []string{"delete"}},
 	)
 	if _, ok := find(Classify(two, rules), "destructive"); !ok {
 		t.Fatal("two deletes should meet min_count 2")
@@ -66,8 +67,8 @@ func TestEmitAttributesFromMatchedChangesOnly(t *testing.T) {
 		EmitAttributes: []string{"project"},
 	}}
 	s := stack(
-		plan.RawChange{Type: "google_project_iam_member", Actions: []string{"update"}, Raw: map[string]any{"project": "p1"}},
-		plan.RawChange{Type: "google_storage_bucket", Actions: []string{"create"}, Raw: map[string]any{"project": "p2"}},
+		plan.RawChange{Type: "google_project_iam_member", Action: model.ActionChange, Actions: []string{"update"}, Raw: map[string]any{"project": "p1"}},
+		plan.RawChange{Type: "google_storage_bucket", Action: model.ActionAdd, Actions: []string{"create"}, Raw: map[string]any{"project": "p2"}},
 	)
 	iam, ok := find(Classify(s, rules), "iam")
 	if !ok {
@@ -84,9 +85,9 @@ func TestEmitAttributesDedupeAndSort(t *testing.T) {
 		EmitAttributes: []string{"project"},
 	}}
 	s := stack(
-		plan.RawChange{Type: "google_project_iam_member", Actions: []string{"create"}, Raw: map[string]any{"project": "p2"}},
-		plan.RawChange{Type: "google_project_iam_member", Actions: []string{"create"}, Raw: map[string]any{"project": "p1"}},
-		plan.RawChange{Type: "google_project_iam_member", Actions: []string{"create"}, Raw: map[string]any{"project": "p2"}},
+		plan.RawChange{Type: "google_project_iam_member", Action: model.ActionAdd, Actions: []string{"create"}, Raw: map[string]any{"project": "p2"}},
+		plan.RawChange{Type: "google_project_iam_member", Action: model.ActionAdd, Actions: []string{"create"}, Raw: map[string]any{"project": "p1"}},
+		plan.RawChange{Type: "google_project_iam_member", Action: model.ActionAdd, Actions: []string{"create"}, Raw: map[string]any{"project": "p2"}},
 	)
 	iam, _ := find(Classify(s, rules), "iam")
 	if !reflect.DeepEqual(iam.Attributes["project"], []string{"p1", "p2"}) {
@@ -97,7 +98,7 @@ func TestEmitAttributesDedupeAndSort(t *testing.T) {
 func TestEmitAttributesNilWhenNoneConfigured(t *testing.T) {
 	rules := []Rule{{Name: "iam", TypePattern: regexp.MustCompile(`_iam_`), MinCount: 1}}
 	iam, _ := find(Classify(
-		stack(plan.RawChange{Type: "google_project_iam_member", Actions: []string{"create"}, Raw: map[string]any{"project": "p1"}}),
+		stack(plan.RawChange{Type: "google_project_iam_member", Action: model.ActionAdd, Actions: []string{"create"}, Raw: map[string]any{"project": "p1"}}),
 		rules), "iam")
 	if iam.Attributes != nil {
 		t.Fatalf("Attributes = %v, want nil when no emit_attributes", iam.Attributes)
@@ -110,7 +111,7 @@ func TestEmitAttributesNilWhenNoValuesFound(t *testing.T) {
 		EmitAttributes: []string{"project"},
 	}}
 	iam, ok := find(Classify(
-		stack(plan.RawChange{Type: "google_organization_iam_binding", Actions: []string{"create"}, Raw: map[string]any{"role": "roles/x"}}),
+		stack(plan.RawChange{Type: "google_organization_iam_binding", Action: model.ActionAdd, Actions: []string{"create"}, Raw: map[string]any{"role": "roles/x"}}),
 		rules), "iam")
 	if !ok {
 		t.Fatal("expected iam category")
@@ -126,8 +127,8 @@ func TestEmitMultipleAttributes(t *testing.T) {
 		EmitAttributes: []string{"project", "role"},
 	}}
 	s := stack(
-		plan.RawChange{Type: "google_project_iam_member", Actions: []string{"create"}, Raw: map[string]any{"project": "p1", "role": "roles/viewer"}},
-		plan.RawChange{Type: "google_project_iam_member", Actions: []string{"create"}, Raw: map[string]any{"project": "p2", "role": "roles/viewer"}},
+		plan.RawChange{Type: "google_project_iam_member", Action: model.ActionAdd, Actions: []string{"create"}, Raw: map[string]any{"project": "p1", "role": "roles/viewer"}},
+		plan.RawChange{Type: "google_project_iam_member", Action: model.ActionAdd, Actions: []string{"create"}, Raw: map[string]any{"project": "p2", "role": "roles/viewer"}},
 	)
 	iam, _ := find(Classify(s, rules), "iam")
 	if !reflect.DeepEqual(iam.Attributes["project"], []string{"p1", "p2"}) {
@@ -144,10 +145,44 @@ func TestBelowMinCountDoesNotFire(t *testing.T) {
 		EmitAttributes: []string{"project"},
 	}}
 	got := Classify(
-		stack(plan.RawChange{Type: "google_project_iam_member", Actions: []string{"create"}, Raw: map[string]any{"project": "p1"}}),
+		stack(plan.RawChange{Type: "google_project_iam_member", Action: model.ActionAdd, Actions: []string{"create"}, Raw: map[string]any{"project": "p1"}}),
 		rules)
 	if len(got) != 0 {
 		t.Fatalf("rule below MinCount must not fire, got %+v", got)
+	}
+}
+
+// TestStateOpsDoNotClassify pins the core behaviour: a pure move / import /
+// forget of an IAM resource needs no apply-time write permission, so it must
+// NOT contribute the iam category.
+func TestStateOpsDoNotClassify(t *testing.T) {
+	rules := []Rule{{Name: "iam", Icon: "🔐", TypePattern: regexp.MustCompile(`_iam_`), MinCount: 1}}
+	cases := []struct {
+		name string
+		ch   plan.RawChange
+	}{
+		{"move-only", plan.RawChange{Type: "google_project_iam_member", Action: model.ActionNoop, Actions: []string{"no-op"}, Moved: true, PreviousAddress: "google_project_iam_member.old"}},
+		{"import-only", plan.RawChange{Type: "google_project_iam_member", Action: model.ActionNoop, Actions: []string{"no-op"}, Imported: true, ImportID: "x"}},
+		{"forget", plan.RawChange{Type: "google_project_iam_member", Action: model.ActionForget, Actions: []string{"forget"}}},
+	}
+	for _, c := range cases {
+		if got := Classify(stack(c.ch), rules); len(got) != 0 {
+			t.Errorf("%s: pure state-op must not classify, got %+v", c.name, got)
+		}
+	}
+}
+
+// TestMutatingChangeStillClassifiesWhenAlsoMoved confirms the move annotation
+// does not suppress a real mutation: an updated-and-moved IAM binding still
+// needs the grant, so it must classify.
+func TestMutatingChangeStillClassifiesWhenAlsoMoved(t *testing.T) {
+	rules := []Rule{{Name: "iam", Icon: "🔐", TypePattern: regexp.MustCompile(`_iam_`), MinCount: 1}}
+	s := stack(plan.RawChange{
+		Type: "google_project_iam_member", Action: model.ActionChange, Actions: []string{"update"},
+		Moved: true, PreviousAddress: "google_project_iam_member.old",
+	})
+	if _, ok := find(Classify(s, rules), "iam"); !ok {
+		t.Fatal("update+move IAM change must still classify as iam")
 	}
 }
 

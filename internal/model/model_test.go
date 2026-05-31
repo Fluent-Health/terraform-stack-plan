@@ -47,6 +47,26 @@ func TestFieldIsBlock(t *testing.T) {
 	}
 }
 
+func TestActionMutates(t *testing.T) {
+	cases := []struct {
+		action Action
+		want   bool
+	}{
+		{ActionAdd, true},
+		{ActionChange, true},
+		{ActionDestroy, true},
+		{ActionReplace, true},
+		{ActionForget, false},
+		{ActionNoop, false},
+		{Action(""), false}, // zero value
+	}
+	for _, c := range cases {
+		if got := c.action.Mutates(); got != c.want {
+			t.Errorf("Action(%q).Mutates() = %v, want %v", c.action, got, c.want)
+		}
+	}
+}
+
 func TestLinkFields(t *testing.T) {
 	r := Report{HeaderLinks: []Link{{Label: "PR #1", URL: "https://x/1"}}}
 	r.Stacks = []Stack{{Name: "s", URL: "https://x/s"}}

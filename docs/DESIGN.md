@@ -237,6 +237,14 @@ classification {
   IAM-policy update contributes the `iam` category, not just creates. (The `iam`
   preset leaves `actions` unset by design.)
 - Rules with no matcher fields are catch-alls.
+- **Classification considers only changes that mutate the real resource**
+  (`add`/`change`/`destroy`/`replace`). Pure state operations — `move`, `import`,
+  and `forget` — never contribute to any category, because they make no
+  apply-time provider write and so need no elevated permission. (The `iam` guard
+  exists to gate write-capable applies behind a PAM grant; a move/import/forget
+  requires no such grant.) A change that is *both* moved and updated still
+  classifies on its underlying `update`. See the PR linked under Known
+  limitations for the full rationale.
 
 The result for each stack is the **set of all matching categories**, in
 declaration order (display order = declaration order). `default` is shown only
@@ -481,6 +489,14 @@ the budget entirely.
   stacks contributed** them — consumers gate on subjects, not stack lists.
 - **A `tfplan.json` at the scan root errors** (no stack name) — plans must live
   in a subdirectory of `--plans-dir`.
+- **A `move` / `import` / `forget` of an IAM resource is not flagged by the `iam`
+  guard.** Classification is mutation-only (see the Rule-matcher section): these
+  state operations make no apply-time provider write, so they need no IAM-write
+  permission / PAM grant. The notable case is `forget` (`removed {}`), which
+  drops a resource from state while leaving the live cloud binding in place —
+  real drift (now-unmanaged access) that the guard intentionally does not
+  surface, since the apply itself requires no elevated permission. Tracked in
+  [PR #9](https://github.com/Fluent-Health/terraform-stack-plan/pull/9).
 
 ## Future / deferred
 

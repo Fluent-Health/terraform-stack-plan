@@ -3,10 +3,10 @@
 
 | Stack | Change | Categories |
 | --- | ---: | --- |
-| infra/migrations · 1 import, 2 move, 1 forget | 2 | ✅ safe |
+| infra/migrations · 1 import, 3 move, 1 forget | 2 | ✅ safe |
 | platform/policies | 4 | 🔐 iam |
 
-<details><summary>infra/migrations · ✅ safe · 2 change, 1 import, 2 move, 1 forget</summary>
+<details><summary>infra/migrations · ✅ safe · 2 change, 1 import, 3 move, 1 forget</summary>
 
 > <details open><summary>↪ google_storage_bucket.assets · moved from google_storage_bucket.legacy_assets</summary>
 >
@@ -19,6 +19,13 @@
 >
 > ```diff
 > ~ retention_days = 7 → 30
+> ```
+>
+> </details>
+> <details open><summary>↪ google_project_iam_member.viewers · moved from google_project_iam_member.legacy_viewers</summary>
+>
+> ```diff
+> (address change only)
 > ```
 >
 > </details>
