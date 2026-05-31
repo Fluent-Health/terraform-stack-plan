@@ -14,6 +14,22 @@ const (
 	ActionNoop    Action = "noop"   // no config change; carries a move/import annotation
 )
 
+// Mutates reports whether the action changes the real resource
+// (create/update/delete/replace), as opposed to pure state bookkeeping
+// (move/import → noop, and forget) that makes no apply-time provider write and
+// so needs no elevated permission. Classification keys off this: a guard
+// category such as `iam` fires only when the apply actually requires the gated
+// (PAM-granted) write permission, not when a resource is merely moved,
+// imported, or forgotten.
+func (a Action) Mutates() bool {
+	switch a {
+	case ActionAdd, ActionChange, ActionDestroy, ActionReplace:
+		return true
+	default: // ActionForget, ActionNoop, and the zero value
+		return false
+	}
+}
+
 // Counts holds per-stack action tallies (pure no-ops excluded). Move/Import/
 // Forget are tracked separately from the create/change/destroy/replace buckets.
 type Counts struct {
