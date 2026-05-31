@@ -496,7 +496,7 @@ the budget entirely.
   drops a resource from state while leaving the live cloud binding in place —
   real drift (now-unmanaged access) that the guard intentionally does not
   surface, since the apply itself requires no elevated permission. Tracked in
-  PR <link>.
+  [PR #9](https://github.com/Fluent-Health/terraform-stack-plan/pull/9).
 
 ## Future / deferred
 
