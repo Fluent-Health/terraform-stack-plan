@@ -146,6 +146,8 @@ func stateOpsStacks(t *testing.T, dir string) string {
 		{"infra/migrations", []change{
 			moved("google_storage_bucket.assets", "google_storage_bucket.legacy_assets", "google_storage_bucket"),
 			movedUpdate("google_storage_bucket.state", "module.old.google_storage_bucket.state"),
+			// A moved IAM binding: a pure state op, so it must NOT badge the stack iam.
+			moved("google_project_iam_member.viewers", "google_project_iam_member.legacy_viewers", "google_project_iam_member"),
 			imported("google_project.host", "google_project", "my-host-project"),
 			forget("aws_s3_bucket.legacy", "aws_s3_bucket"),
 			nestedBlockUpdate("google_compute_firewall.web"),
@@ -332,6 +334,11 @@ func TestStateOpsExample(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("state-ops: missing %q in output", want)
 		}
+	}
+	// A moved IAM resource is a pure state op (needs no apply-time write
+	// permission), so it must NOT flip infra/migrations into the iam guard.
+	if !strings.Contains(out, "infra/migrations · ✅ safe") {
+		t.Errorf("state-ops: moved IAM resource must not classify infra/migrations as iam:\n%s", out)
 	}
 	// Move/import/forget surfaced in a Stack cell (table choice B, no columns).
 	if !strings.Contains(out, "move") || !strings.Contains(out, "import") || !strings.Contains(out, "forget") {
