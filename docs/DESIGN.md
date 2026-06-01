@@ -353,6 +353,14 @@ precomputed byte cost:
   policy/manifest reads naturally; the value is canonicalized (sorted keys,
   stable indent) before diffing. Diff lines are line-initial so GitHub colours
   the `-`/`+`.
+- **Sensitivity is per-path inside a structured value.** Terraform's
+  `before_sensitive`/`after_sensitive` is a *tree* mirroring the value, marking
+  only the sensitive leaves. A bare `true` (the whole attribute is sensitive) is
+  rendered as the `(sensitive value)` leaf; a *nested* marker is carried as a
+  subtree and the differ redacts just those leaves before canonicalizing, so a
+  single sensitive field (e.g. a container `env` secret) no longer smears
+  `(sensitive value)` across an entire `kubernetes_deployment_v1.spec` and hides
+  the real (non-sensitive) change beside it.
 - **No default per-attribute size cap.** Every attribute starts at full detail;
   the global `fit` pass is the *sole* fit mechanism. A stack whose only change is
   one large attribute is shown in full when there's budget for it, and only
@@ -489,6 +497,17 @@ the budget entirely.
   stacks contributed** them — consumers gate on subjects, not stack lists.
 - **A `tfplan.json` at the scan root errors** (no stack name) — plans must live
   in a subdirectory of `--plans-dir`.
+- **A *changed* sensitive leaf inside a structured value shows no visible diff
+  line.** Per-path redaction replaces the leaf with the same `(sensitive value)`
+  marker on both sides, so when *only* a sensitive sub-field changes, its row
+  diffs to nothing and the resource appears in the table with no rendered field
+  change. This is deliberate (never leak the value); the alternative — a fake
+  `(sensitive) → (sensitive)` row — was judged more confusing than useful.
+- **Nested *known-after-apply* still collapses to the whole attribute.** The
+  per-path treatment added for sensitivity was intentionally not extended to
+  `after_unknown`; an attribute with any nested computed leaf still renders as a
+  single `(known after apply)`. No correctness/leak risk — just coarser than the
+  sensitivity path. Symmetric fix deferred until a real plan needs it.
 - **A `move` / `import` / `forget` of an IAM resource is not flagged by the `iam`
   guard.** Classification is mutation-only (see the Rule-matcher section): these
   state operations make no apply-time provider write, so they need no IAM-write

@@ -171,15 +171,17 @@ func run(o opts) (string, bool, error) {
 			for _, ra := range rc.Attrs {
 				kind := cfg.Diff.Resolve(rc.Type, ra.Name)
 				f := differ.Diff(differ.Input{
-					ResourceType: rc.Type,
-					Attr:         ra.Name,
-					Before:       ra.Before,
-					After:        ra.After,
-					Sensitive:    ra.Sensitive,
-					Unknown:      ra.Unknown,
-					ForceDiffer:  kind,
-					MaxLines:     cfg.Diff.MaxAttributeLines,
-					NoDetect:     !cfg.Diff.Detect,
+					ResourceType:    rc.Type,
+					Attr:            ra.Name,
+					Before:          ra.Before,
+					After:           ra.After,
+					Sensitive:       ra.Sensitive,
+					BeforeSensitive: ra.BeforeSensitive,
+					AfterSensitive:  ra.AfterSensitive,
+					Unknown:         ra.Unknown,
+					ForceDiffer:     kind,
+					MaxLines:        cfg.Diff.MaxAttributeLines,
+					NoDetect:        !cfg.Diff.Detect,
 				})
 				ch.Fields = append(ch.Fields, f)
 			}

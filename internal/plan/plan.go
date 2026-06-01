@@ -18,8 +18,13 @@ type RawAttr struct {
 	Name      string
 	Before    any
 	After     any
-	Sensitive bool
+	Sensitive bool // the WHOLE attribute is sensitive (marker is a bare `true`)
 	Unknown   bool // known after apply
+	// BeforeSensitive/AfterSensitive carry Terraform's per-path sensitivity tree
+	// for this attribute when it is a nested map/list (not a bare bool), so the
+	// differ can redact only the sensitive sub-paths instead of the whole value.
+	BeforeSensitive any
+	AfterSensitive  any
 }
 
 // RawChange is one resource change with its raw Terraform actions retained
@@ -182,11 +187,13 @@ func changedAttrs(c *tfjson.Change) []RawAttr {
 			continue
 		}
 		attrs = append(attrs, RawAttr{
-			Name:      k,
-			Before:    b,
-			After:     a,
-			Sensitive: truthy(beforeSens[k]) || truthy(afterSens[k]),
-			Unknown:   isUnknown,
+			Name:            k,
+			Before:          b,
+			After:           a,
+			Sensitive:       isTrue(beforeSens[k]) || isTrue(afterSens[k]),
+			Unknown:         isUnknown,
+			BeforeSensitive: beforeSens[k],
+			AfterSensitive:  afterSens[k],
 		})
 	}
 	sort.Slice(attrs, func(i, j int) bool { return attrs[i].Name < attrs[j].Name })
@@ -215,11 +222,13 @@ func sideAttrs(c *tfjson.Change, after bool) []RawAttr {
 
 	var attrs []RawAttr
 	for k := range keys {
-		ra := RawAttr{Name: k, Sensitive: truthy(sens[k]), Unknown: truthy(unknown[k])}
+		ra := RawAttr{Name: k, Sensitive: isTrue(sens[k]), Unknown: truthy(unknown[k])}
 		if after {
 			ra.After = src[k]
+			ra.AfterSensitive = sens[k]
 		} else {
 			ra.Before = src[k]
+			ra.BeforeSensitive = sens[k]
 		}
 		attrs = append(attrs, ra)
 	}
@@ -238,6 +247,16 @@ func truthy(v any) bool {
 	default:
 		return true
 	}
+}
+
+// isTrue reports whether a marker means the WHOLE attribute is sensitive — i.e.
+// Terraform encoded it as a bare `true`. A nested object/array marks only deep
+// leaves; those are carried as a subtree and redacted per-path by the differ,
+// NOT collapsed into whole-attribute sensitivity (which would hide every
+// sibling, e.g. a cpu-request change next to a sensitive env var).
+func isTrue(v any) bool {
+	b, ok := v.(bool)
+	return ok && b
 }
 
 // rawScalars returns the change's top-level scalar attributes (string, bool,
