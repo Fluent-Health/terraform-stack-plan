@@ -83,6 +83,47 @@ func TestRunPlansDir(t *testing.T) {
 	}
 }
 
+func TestRunRedactsNestedSensitiveInStructuralDiff(t *testing.T) {
+	// The user's scenario: a kubernetes_deployment_v1 where a non-sensitive cpu
+	// request changed and a sibling env value is sensitive (nested marker). The
+	// rendered comment must show the cpu change and redact only the secret — not
+	// smear "(sensitive value)" across the whole spec.
+	const deployPlan = `{
+	  "format_version":"1.2",
+	  "resource_changes":[
+	    {"address":"module.cms.kubernetes_deployment_v1.app","type":"kubernetes_deployment_v1","name":"app",
+	     "change":{"actions":["update"],
+	       "before":{"spec":{"cpu":"334m","secret_env":"s3cr3t-old"}},
+	       "after": {"spec":{"cpu":"300m","secret_env":"s3cr3t-new"}},
+	       "after_unknown":{},
+	       "before_sensitive":{"spec":{"secret_env":true}},
+	       "after_sensitive": {"spec":{"secret_env":true}}}}
+	  ]}`
+	dir := t.TempDir()
+	plansDir := filepath.Join(dir, "out")
+	writePlan(t, plansDir, "service-projects/prod", deployPlan)
+
+	out, _, err := run(opts{
+		plansDir: plansDir,
+		title:    "T",
+		marker:   "m",
+		maxBytes: 60000,
+		details:  "open",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "s3cr3t-old") || strings.Contains(out, "s3cr3t-new") {
+		t.Fatalf("sensitive value leaked in rendered comment:\n%s", out)
+	}
+	if !strings.Contains(out, "334m") || !strings.Contains(out, "300m") {
+		t.Fatalf("non-sensitive cpu change must be visible:\n%s", out)
+	}
+	if !strings.Contains(out, "(sensitive value)") {
+		t.Fatalf("expected (sensitive value) marker:\n%s", out)
+	}
+}
+
 func TestRunMissingPlansDirFlag(t *testing.T) {
 	_, _, err := run(opts{maxBytes: 60000})
 	if err == nil || !strings.Contains(err.Error(), "--plans-dir") {

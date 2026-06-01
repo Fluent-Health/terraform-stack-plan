@@ -34,6 +34,36 @@ func TestSensitiveLeaf(t *testing.T) {
 	}
 }
 
+func TestStructuralRedactsNestedSensitiveLeaf(t *testing.T) {
+	// Mirrors kubernetes_deployment_v1.spec: a native map where a non-sensitive
+	// leaf (cpu) changed and a sibling leaf (password) is sensitive via a NESTED
+	// marker — not a bare `true` on the whole attribute. The non-sensitive change
+	// must render; only the sensitive value is redacted, not the whole block.
+	before := map[string]any{"cpu": "334m", "password": "hunter2"}
+	after := map[string]any{"cpu": "300m", "password": "hunter2"}
+	sens := map[string]any{"password": true}
+	f := Diff(Input{
+		Attr:            "spec",
+		Before:          before,
+		After:           after,
+		BeforeSensitive: sens,
+		AfterSensitive:  sens,
+	})
+	if !f.IsBlock() {
+		t.Fatalf("structural map should be a block, got leaves %+v", f.Leaves)
+	}
+	content := f.Variants[0].Content
+	if !strings.Contains(content, "334m") || !strings.Contains(content, "300m") {
+		t.Fatalf("non-sensitive cpu change must be visible, got:\n%s", content)
+	}
+	if strings.Contains(content, "hunter2") {
+		t.Fatalf("sensitive value leaked, got:\n%s", content)
+	}
+	if !strings.Contains(content, "(sensitive value)") {
+		t.Fatalf("expected (sensitive value) marker, got:\n%s", content)
+	}
+}
+
 func TestUnknownLeaf(t *testing.T) {
 	f := Diff(Input{Attr: "id", Unknown: true})
 	if len(f.Leaves) != 1 || f.Leaves[0].Inline != "(known after apply)" {

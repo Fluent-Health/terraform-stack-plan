@@ -165,10 +165,16 @@ type Input struct {
 	Before       any
 	After        any
 	Sensitive    bool
-	Unknown      bool
-	ForceDiffer  string // "" | auto | structural | json | yaml | line | summary | hide
-	MaxLines     int    // 0 = no cap
-	NoDetect     bool   // when true, skip type sniffing for string values (force line diff)
+	// BeforeSensitive/AfterSensitive carry Terraform's per-path sensitivity tree
+	// for this attribute (bool, or a nested map/list mirroring the value). A
+	// structural diff consults them to redact only the sensitive sub-paths, so a
+	// deep sensitive leaf no longer smears "(sensitive value)" across the block.
+	BeforeSensitive any
+	AfterSensitive  any
+	Unknown         bool
+	ForceDiffer     string // "" | auto | structural | json | yaml | line | summary | hide
+	MaxLines        int    // 0 = no cap
+	NoDetect        bool   // when true, skip type sniffing for string values (force line diff)
 }
 
 // Diff builds the ordered variant ladder for one attribute.
@@ -257,8 +263,10 @@ func blockField(ad model.AttrDiff) model.Field {
 // always a block (which fit can degrade to a summary), tagged with its kind.
 func structural(in Input) model.Field {
 	kind := structuredKind(in)
-	before := canonical(parseStructured(in.Before, firstStr(in.Before)), kind)
-	after := canonical(parseStructured(in.After, firstStr(in.After)), kind)
+	bv := redactSensitive(parseStructured(in.Before, firstStr(in.Before)), in.BeforeSensitive)
+	av := redactSensitive(parseStructured(in.After, firstStr(in.After)), in.AfterSensitive)
+	before := canonical(bv, kind)
+	after := canonical(av, kind)
 	// No indent: the unified-diff lines must start with ' '/'-'/'+' so GitHub
 	// colours them inside the ```diff fence.
 	rich := contextDiff(before, after)
@@ -273,6 +281,53 @@ func structural(in Input) model.Field {
 		variant(model.LevelHidden, ""),
 	)
 	return model.Field{Name: in.Attr, Kind: kind, Variants: variants}
+}
+
+// sensitiveMarker is the placeholder substituted for a redacted leaf, matching
+// Terraform's own rendering.
+const sensitiveMarker = "(sensitive value)"
+
+// redactSensitive returns a copy of v with every leaf that Terraform's
+// sensitivity tree `s` marks sensitive replaced by sensitiveMarker. Terraform
+// encodes the tree as `true` (the whole subtree is sensitive), a map mirroring
+// an object's keys, or a list mirroring a tuple's elements; anything else
+// (nil/false) means not sensitive. Replacing both sides with the same marker
+// keeps a sensitive value from leaking while leaving non-sensitive siblings to
+// diff normally.
+func redactSensitive(v, s any) any {
+	switch sm := s.(type) {
+	case bool:
+		if sm {
+			return sensitiveMarker
+		}
+		return v
+	case map[string]any:
+		vm, ok := v.(map[string]any)
+		if !ok {
+			return v
+		}
+		out := make(map[string]any, len(vm))
+		for k, val := range vm {
+			out[k] = redactSensitive(val, sm[k])
+		}
+		return out
+	case []any:
+		va, ok := v.([]any)
+		if !ok {
+			return v
+		}
+		out := make([]any, len(va))
+		for i, val := range va {
+			var si any
+			if i < len(sm) {
+				si = sm[i]
+			}
+			out[i] = redactSensitive(val, si)
+		}
+		return out
+	default: // nil / unrecognised → not sensitive
+		return v
+	}
 }
 
 // firstStr returns v as a string if it is one, else "".

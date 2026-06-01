@@ -158,6 +158,44 @@ func TestSensitiveAndUnknownAndPartialChange(t *testing.T) {
 	}
 }
 
+func TestNestedSensitiveMarkerDoesNotFlagWholeAttr(t *testing.T) {
+	// kubernetes_deployment_v1-style: only a deep leaf (password) is sensitive,
+	// so after_sensitive.spec is a NESTED object, not a bare `true`. The whole
+	// `spec` attribute must NOT be flagged sensitive — instead the subtree is
+	// carried so the differ can redact only the leaf.
+	data := []byte(`{
+	  "format_version":"1.2",
+	  "resource_changes":[
+	    {"address":"k.app","type":"kubernetes_deployment_v1","name":"app",
+	     "change":{"actions":["update"],
+	       "before":{"spec":{"cpu":"334m","password":"x"}},
+	       "after": {"spec":{"cpu":"300m","password":"x"}},
+	       "after_unknown":{},
+	       "before_sensitive":{"spec":{"password":true}},
+	       "after_sensitive": {"spec":{"password":true}}}}
+	  ]}`)
+	rs, err := Parse("s", data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var spec *RawAttr
+	for i := range rs.Changes[0].Attrs {
+		if rs.Changes[0].Attrs[i].Name == "spec" {
+			spec = &rs.Changes[0].Attrs[i]
+		}
+	}
+	if spec == nil {
+		t.Fatal("spec attr missing")
+	}
+	if spec.Sensitive {
+		t.Fatalf("nested sensitivity must NOT flag the whole attr sensitive: %+v", spec)
+	}
+	sub, ok := spec.AfterSensitive.(map[string]any)
+	if !ok || sub["password"] != true {
+		t.Fatalf("spec must carry the nested sensitivity subtree, got %+v", spec.AfterSensitive)
+	}
+}
+
 func TestParseCreateExtractsAfterAttrs(t *testing.T) {
 	rs := load(t, "create.json")
 	if rs.Counts.Add != 1 {
