@@ -296,6 +296,17 @@ when the category has none. `summary.categories` lists every category present
 across the run with the per-key sorted-unique union of its attributes — lets a
 CI pipeline gate on category subjects without re-parsing the markdown.
 
+**`project` is recovered for net-new GCP resources.** A freshly-created GCP
+resource often leaves `project` known-after-apply (it is computed from the
+parent), so it never appears as a concrete value. When `project` is requested
+via `emit_attributes` but absent, it is derived from a known scalar that
+follows the canonical `projects/<project>/…` self-link convention (e.g.
+`secret_id` on `google_secret_manager_secret_iam_member`). This keeps
+per-project gating (e.g. requesting an access grant for each affected project)
+working for brand-new bindings, not only for changes to existing resources
+whose `project` is already in state. It never overrides an explicit `project`
+nor fabricates one when no such parent path exists.
+
 ## Rendering, the differ, and the size budget
 
 ### Why `<details>` is not a size lever

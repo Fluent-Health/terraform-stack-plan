@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"regexp"
 	"sort"
 
 	tfjson "github.com/hashicorp/terraform-json"
@@ -288,10 +289,45 @@ func rawScalars(c *tfjson.Change) map[string]any {
 	}
 	put(after)
 	put(before)
+	deriveProject(out)
 	if len(out) == 0 {
 		return nil
 	}
 	return out
+}
+
+// gcpParentPath matches the canonical GCP resource self-link / id prefix
+// "projects/<project>/...". The captured group is the resource's own project.
+var gcpParentPath = regexp.MustCompile(`^projects/([^/]+)/`)
+
+// deriveProject fills out["project"] when it is absent. A net-new GCP IAM
+// binding (e.g. google_secret_manager_secret_iam_member) leaves `project`
+// known-after-apply — it is computed from the parent id — so rawScalars drops
+// it, and any consumer keying on `project` (the per-project IAM gate that
+// requests a PAM grant per affected project) would see no target. Recover it
+// from a known scalar that follows the "projects/<project>/..." convention
+// (e.g. secret_id). No-op when `project` is already known or no such scalar
+// exists, so it never overrides a real value nor fabricates one. Keys are
+// scanned in sorted order for determinism.
+func deriveProject(out map[string]any) {
+	if _, ok := out["project"]; ok {
+		return
+	}
+	keys := make([]string, 0, len(out))
+	for k := range out {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		s, ok := out[k].(string)
+		if !ok {
+			continue
+		}
+		if m := gcpParentPath.FindStringSubmatch(s); m != nil {
+			out["project"] = m[1]
+			return
+		}
+	}
 }
 
 // isScalar reports whether v is a JSON scalar we can retain in Raw.
