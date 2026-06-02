@@ -315,3 +315,57 @@ func TestParseRawSkipsSensitiveEitherSideAndComputed(t *testing.T) {
 		t.Error("Raw must skip known-after-apply (computed) attr")
 	}
 }
+
+func TestParseRawDerivesProjectFromGCPParentWhenComputed(t *testing.T) {
+	// Net-new google_secret_manager_secret_iam_member: `project` is computed
+	// (known-after-apply) so it is absent from `after`, but the project is still
+	// knowable from the `secret_id` parent path "projects/<P>/secrets/...".
+	// Consumers keying on Raw["project"] (e.g. a per-project IAM gate) must see
+	// the project, else a brand-new binding yields no target.
+	data := []byte(`{
+	  "format_version": "1.2",
+	  "resource_changes": [
+	    {"address":"module.w.google_secret_manager_secret_iam_member.ci[\"x\"]",
+	     "type":"google_secret_manager_secret_iam_member","name":"ci",
+	     "change":{"actions":["create"],"before":null,
+	       "after":{"secret_id":"projects/fh-prod-svc/secrets/website_instagram_access_token","role":"roles/secretmanager.secretAccessor","member":"serviceAccount:ci-website@fh-prod-svc.iam.gserviceaccount.com"},
+	       "after_unknown":{"id":true,"project":true,"etag":true},
+	       "before_sensitive":false,"after_sensitive":{}}}
+	  ]
+	}`)
+	rs, err := Parse("s", data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := rs.Changes[0].Raw["project"]; got != "fh-prod-svc" {
+		t.Errorf("Raw[project] = %v, want fh-prod-svc (derived from secret_id parent path)", got)
+	}
+}
+
+func TestParseRawDoesNotOverrideKnownProjectOrFabricate(t *testing.T) {
+	// A known `project` must win over any derivable parent path, and a resource
+	// with no "projects/<id>/..." scalar must not gain a fabricated project.
+	data := []byte(`{
+	  "format_version": "1.2",
+	  "resource_changes": [
+	    {"address":"a","type":"google_project_iam_member","name":"a",
+	     "change":{"actions":["create"],"before":null,
+	       "after":{"project":"real-proj","secret_id":"projects/other-proj/secrets/x","role":"roles/viewer"},
+	       "after_unknown":{},"before_sensitive":false,"after_sensitive":{}}},
+	    {"address":"b","type":"google_storage_bucket_iam_member","name":"b",
+	     "change":{"actions":["create"],"before":null,
+	       "after":{"bucket":"my-bucket","role":"roles/viewer"},
+	       "after_unknown":{"project":true},"before_sensitive":false,"after_sensitive":{}}}
+	  ]
+	}`)
+	rs, err := Parse("s", data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := rs.Changes[0].Raw["project"]; got != "real-proj" {
+		t.Errorf("Raw[project] = %v, want real-proj (explicit value must not be overridden)", got)
+	}
+	if _, ok := rs.Changes[1].Raw["project"]; ok {
+		t.Error("must not fabricate a project when no projects/<id>/ parent path exists")
+	}
+}
