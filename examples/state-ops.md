@@ -41,7 +41,7 @@
 >
 > </details>
 >
-> <details open><summary>📤&nbsp;aws_s3_bucket.legacy<br>&nbsp;&nbsp;&nbsp;&nbsp;forgotten · 2 attrs</summary>
+> <details open><summary>⏏️&nbsp;aws_s3_bucket.legacy<br>&nbsp;&nbsp;&nbsp;&nbsp;forgotten · 2 attrs</summary>
 >
 > ```diff
 > ⊘ name   = "legacy"

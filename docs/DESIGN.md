@@ -339,7 +339,7 @@ every row icon the same larger size; the diff-body markers inside the
 - update → 〰️ `<addr>` / `N changed`, replace → 🔁 `<addr>` / `replace`
 - moved → ↪️ `<addr>` / `moved from <prev>`, imported → 📥 `<addr>` /
   `imported` + the id on its own small, monospaced line
-  (`<sub>id=<code>…</code></sub>`), forget → 📤 `<addr>` / `forgotten · N attrs`
+  (`<sub>id=<code>…</code></sub>`), forget → ⏏️ `<addr>` / `forgotten · N attrs`
   (state ops take precedence over the underlying action)
 
 **Size-based folding (one rule, all actions):** a resource row is **open** when

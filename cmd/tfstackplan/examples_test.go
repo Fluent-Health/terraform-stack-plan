@@ -385,7 +385,7 @@ func TestStateOpsExample(t *testing.T) {
 	// State operations. The descriptor and the (small, monospaced) import id
 	// each drop to their own indented line below the address.
 	for _, want := range []string{
-		"↪️&nbsp;", "moved from ", "📥&nbsp;", "imported", "<sub>id=<code>", "📤&nbsp;", "forgotten · ",
+		"↪️&nbsp;", "moved from ", "📥&nbsp;", "imported", "<sub>id=<code>", "⏏️&nbsp;", "forgotten · ",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("state-ops: missing %q in output", want)

@@ -282,7 +282,7 @@ const (
 	glyphReplace  = "🔁"
 	glyphMoved    = "↪️"
 	glyphImported = "📥"
-	glyphForget   = "📤"
+	glyphForget   = "⏏️"
 )
 
 // resourceSummary is the row label. Line 1 is the glyph + address (glued with a
