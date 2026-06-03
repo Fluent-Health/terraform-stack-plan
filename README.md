@@ -143,6 +143,10 @@ biggest diffs first, then dropping detail. These files are real tool output
   **imported** (`⤓`), and **removed-from-state / forget** (`⊘`) resources; and
   **contextual diffs** for nested JSON, YAML, and native HCL blocks (2 lines of
   context, `-`/`+` changes), in small (inline) and big (folded) form.
+- [`examples/long-names.md`](examples/long-names.md) — deeply nested module
+  paths and **for-each `["key"]` indices** (a long member principal, an empty
+  `[""]` key) plus a long import id, rendered expanded so you can judge how long
+  row summaries wrap to two lines.
 
 ---
 

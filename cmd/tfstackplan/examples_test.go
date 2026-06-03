@@ -172,6 +172,61 @@ func stateOpsStacks(t *testing.T, dir string) string {
 	return plansDir
 }
 
+// longAddressStacks writes the input for the long-names / for-each example:
+// deeply nested module paths and for-each ["key"] indices (including a long
+// email-ish key and an empty [""] key), a long import id, and a long moved-from
+// address — the cases whose summary lines wrap to two lines on GitHub, used to
+// judge the row layout (glyph gluing, the import-id sub-line, stack headers).
+func longAddressStacks(t *testing.T, dir string) string {
+	t.Helper()
+	stacks := []struct {
+		name    string
+		changes []change
+	}{
+		{"platform/networking-shared-vpc", []change{
+			// Deeply nested module path + for-each over subnet regions.
+			structuralUpdate(`module.networking.module.shared_vpc.module.subnets.google_compute_subnetwork.private["us-central1-private-primary"]`, 0),
+			// for-each over IAM members — the key is a full member principal.
+			iamUpdate(`module.platform.module.security.module.iam_bindings.google_project_iam_member.engineers["user:ivan.kerin@fluentinhealth.com"]`),
+			// Module refactor rename: a long previous_address.
+			moved(
+				`module.networking.module.dns.google_dns_managed_zone.internal["internal.fh.example.com"]`,
+				`module.dns.google_dns_managed_zone.internal_fh_example_com_legacy`,
+				"google_dns_managed_zone"),
+			// Import with a long resource-manager id (exercises the <sub> id line).
+			imported(
+				`module.networking.module.dns.google_dns_record_set.a_records["a.internal.fh.example.com"]`,
+				"google_dns_record_set",
+				"projects/fh-host-nonprod/managedZones/internal-fh/rrsets/a.internal.fh.example.com./A"),
+			// Empty for-each key edge case: name[""].
+			structuralUpdate(`module.networking.google_storage_bucket.flow_logs[""]`, 1),
+			// Short rows for contrast — these should stay on one line.
+			structuralUpdate("google_compute_address.nat", 2),
+			iamUpdate("google_project_iam_member.viewers"),
+		}},
+		{"service-projects/app-prod", []change{
+			structuralUpdate(`module.service_projects.module.app_prod.module.workload_identity.google_storage_bucket.runner_state["orchestration-pipeline-runner"]`, 3),
+			iamUpdate(`module.service_projects.module.app_prod.module.workload_identity.google_project_iam_member.runner["serviceAccount:orchestration-runner@fh-svc-prod.iam.gserviceaccount.com"]`),
+			replace(
+				`module.service_projects.module.app_prod.module.compute.google_compute_instance.bastion["primary"]`,
+				"google_compute_instance",
+				map[string]any{"machine_type": "e2-small"},
+				map[string]any{"machine_type": "e2-medium"}),
+		}},
+	}
+	plansDir := filepath.Join(dir, "out")
+	for _, s := range stacks {
+		p := filepath.Join(plansDir, filepath.FromSlash(s.name), "tfplan.json")
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, genPlan(s.changes...), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return plansDir
+}
+
 // TestExamples renders the shared input at four byte budgets, exercising the
 // full size-budget cascade. The committed examples/*.md files are the goldens:
 // each scenario asserts an invariant proving its rendering, then is compared to
@@ -363,6 +418,47 @@ func TestStateOpsExample(t *testing.T) {
 		t.Errorf("state-ops: big JSON should fold to a closed row:\n%s", out)
 	}
 	checkGolden(t, "state-ops.md", out)
+}
+
+// TestLongAddressExample renders deeply nested module paths and for-each
+// ["key"] indices into examples/long-names.md, expanded (details=open) so the
+// showcase is fully visible when the file is viewed rendered on GitHub. Its
+// purpose is to judge how long summary lines wrap to two lines.
+func TestLongAddressExample(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "policy.hcl")
+	if err := os.WriteFile(cfgPath, []byte(exampleCfgHCL), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stacks := longAddressStacks(t, dir)
+
+	out, fits, err := run(opts{
+		plansDir: stacks,
+		title:    "Terraform plan — long names & for-each",
+		marker:   "tfstackplan:long-names",
+		config:   cfgPath,
+		maxBytes: 60000,
+		details:  "open",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !fits {
+		t.Errorf("long-names: expected report to fit")
+	}
+	// A long for-each key survives verbatim into the row summary.
+	if !strings.Contains(out, `engineers["user:ivan.kerin@fluentinhealth.com"]`) {
+		t.Errorf("long-names: expected the for-each member key in a row summary:\n%s", out)
+	}
+	// The empty for-each key renders as name[""].
+	if !strings.Contains(out, `google_storage_bucket.flow_logs[""]`) {
+		t.Errorf("long-names: expected the empty for-each key name[\"\"]:\n%s", out)
+	}
+	// The long import id lands on its own <sub> line, not the address line.
+	if !strings.Contains(out, "<br><sub>id=projects/fh-host-nonprod/managedZones/internal-fh/rrsets/a.internal.fh.example.com./A</sub>") {
+		t.Errorf("long-names: expected the import id on its own sub line:\n%s", out)
+	}
+	checkGolden(t, "long-names.md", out)
 }
 
 // firstDiff returns a short description of where two strings first differ.
