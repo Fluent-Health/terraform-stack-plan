@@ -193,7 +193,7 @@ func longAddressStacks(t *testing.T, dir string) string {
 				`module.networking.module.dns.google_dns_managed_zone.internal["internal.fh.example.com"]`,
 				`module.dns.google_dns_managed_zone.internal_fh_example_com_legacy`,
 				"google_dns_managed_zone"),
-			// Import with a long resource-manager id (exercises the <sub> id line).
+			// Import with a long resource-manager id (exercises the monospaced id).
 			imported(
 				`module.networking.module.dns.google_dns_record_set.a_records["a.internal.fh.example.com"]`,
 				"google_dns_record_set",
@@ -385,7 +385,7 @@ func TestStateOpsExample(t *testing.T) {
 	// State operations. The descriptor and the (small, monospaced) import id
 	// each drop to their own indented line below the address.
 	for _, want := range []string{
-		"↪️&nbsp;", "moved from ", "📥&nbsp;", "imported", "<sub>id=<code>", "⏏️&nbsp;", "forgotten · ",
+		"↪️&nbsp;", "moved from ", "📥&nbsp;", "imported", " · id=<code>", "⏏️&nbsp;", "forgotten · ",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("state-ops: missing %q in output", want)
@@ -455,9 +455,9 @@ func TestLongAddressExample(t *testing.T) {
 	if !strings.Contains(out, `google_storage_bucket.flow_logs[""]`) {
 		t.Errorf("long-names: expected the empty for-each key name[\"\"]:\n%s", out)
 	}
-	// The long import id lands on its own small, monospaced line.
-	if !strings.Contains(out, "<sub>id=<code>projects/fh-host-nonprod/managedZones/internal-fh/rrsets/a.internal.fh.example.com./A</code></sub>") {
-		t.Errorf("long-names: expected the import id on its own monospaced sub line:\n%s", out)
+	// The long import id rides the descriptor line, monospaced.
+	if !strings.Contains(out, "imported · id=<code>projects/fh-host-nonprod/managedZones/internal-fh/rrsets/a.internal.fh.example.com./A</code>") {
+		t.Errorf("long-names: expected the monospaced import id on the descriptor line:\n%s", out)
 	}
 	checkGolden(t, "long-names.md", out)
 }

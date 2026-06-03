@@ -33,7 +33,7 @@
 >
 > </details>
 >
-> <details open><summary>📥&nbsp;google_project.host<br>&nbsp;&nbsp;&nbsp;&nbsp;imported · <sub>id=<code>my-host-project</code></sub></summary>
+> <details open><summary>📥&nbsp;google_project.host<br>&nbsp;&nbsp;&nbsp;&nbsp;imported · id=<code>my-host-project</code></summary>
 >
 > ```diff
 > (import only)

@@ -312,10 +312,11 @@ func resourceSummary(c model.Change) string {
 		if n > 0 {
 			meta += fmt.Sprintf(", %d changed", n)
 		}
-		// The id rides the descriptor line, small and monospaced, so it reads
-		// as a copy-pasteable identifier without costing an extra line.
+		// The id rides the descriptor line, monospaced (<code>, not <sub> —
+		// subscript drops it off the baseline) so it reads as a
+		// copy-pasteable identifier without costing an extra line.
 		if c.ImportID != "" {
-			meta += fmt.Sprintf(" · <sub>id=<code>%s</code></sub>", c.ImportID)
+			meta += fmt.Sprintf(" · id=<code>%s</code>", c.ImportID)
 		}
 	case c.Action == model.ActionAdd:
 		glyph, meta = glyphAdd, fmt.Sprintf("%d attrs", n)

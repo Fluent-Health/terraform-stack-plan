@@ -255,7 +255,7 @@ func TestRenderImportedRow(t *testing.T) {
 		Imported: true, ImportID: "my-host-project",
 	}}
 	out := Render(r)
-	want := glyphImported + "&nbsp;google_project.host<br>" + metaIndent + "imported · <sub>id=<code>my-host-project</code></sub>"
+	want := glyphImported + "&nbsp;google_project.host<br>" + metaIndent + "imported · id=<code>my-host-project</code>"
 	if !strings.Contains(out, want) {
 		t.Fatalf("imported row label wrong:\n%s", out)
 	}

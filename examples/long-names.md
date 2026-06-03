@@ -37,7 +37,7 @@
 >
 > </details>
 >
-> <details open><summary>📥&nbsp;module.networking.module.dns.google_dns_record_set.a_records["a.internal.fh.example.com"]<br>&nbsp;&nbsp;&nbsp;&nbsp;imported · <sub>id=<code>projects/fh-host-nonprod/managedZones/internal-fh/rrsets/a.internal.fh.example.com./A</code></sub></summary>
+> <details open><summary>📥&nbsp;module.networking.module.dns.google_dns_record_set.a_records["a.internal.fh.example.com"]<br>&nbsp;&nbsp;&nbsp;&nbsp;imported · id=<code>projects/fh-host-nonprod/managedZones/internal-fh/rrsets/a.internal.fh.example.com./A</code></summary>
 >
 > ```diff
 > (import only)

@@ -125,7 +125,7 @@ Key render behaviours:
 - **Size-based folding:** a row is open when its body is small (≤ ~10 lines), collapsed when big — the same rule for creates, deletes, and updates.
 - **Aligned changes:** `~ path = old → new`, with `=` aligned and nested maps keeping their name via dotted paths (`+ labels.team = "platform"`). Diff-body markers stay ASCII `+/-/~` so GitHub colours them.
 - **Structured values** (JSON/YAML strings and native HCL maps/lists) render as a **contextual diff** — the value canonically re-formatted, 2 lines of context, changed lines as `-`/`+`, tagged with its kind (`~ policy (json):`). Small diffs stay inline; big ones collapse the row.
-- **State operations** surface as rows too: moved (↪️ `addr` / `moved from …`), imported (📥 `addr` / `imported · id=…`, the id small + monospaced), and removed-from-state (⏏️ `addr` / `forgotten`). These have no summary-table columns; their counts append to the stack's row text.
+- **State operations** surface as rows too: moved (↪️ `addr` / `moved from …`), imported (📥 `addr` / `imported · id=…`, the id monospaced), and removed-from-state (⏏️ `addr` / `forgotten`). These have no summary-table columns; their counts append to the stack's row text.
 - `--details open|auto` overrides the per-row default; zero-only columns are dropped; without a classification policy the `Categories` column disappears.
 
 ### More examples
