@@ -33,7 +33,7 @@
 >
 > </details>
 >
-> <details open><summary>📥&nbsp;google_project.host<br>&nbsp;&nbsp;&nbsp;&nbsp;imported<br>&nbsp;&nbsp;&nbsp;&nbsp;<sub>id=<code>my-host-project</code></sub></summary>
+> <details open><summary>📥&nbsp;google_project.host<br>&nbsp;&nbsp;&nbsp;&nbsp;imported · <sub>id=<code>my-host-project</code></sub></summary>
 >
 > ```diff
 > (import only)
@@ -50,7 +50,7 @@
 >
 > </details>
 >
-> <details open><summary>〰️&nbsp;google_compute_firewall.web<br>&nbsp;&nbsp;&nbsp;&nbsp;2 changed</summary>
+> <details open><summary>✏️&nbsp;google_compute_firewall.web<br>&nbsp;&nbsp;&nbsp;&nbsp;2 changed</summary>
 >
 > ```diff
 > ~ allow (yaml):
@@ -72,7 +72,7 @@
 <details><summary>📁&nbsp;<b>platform/policies</b> · 🔐 iam · 4 change</summary>
 
 >
-> <details open><summary>〰️&nbsp;aws_iam_policy.small<br>&nbsp;&nbsp;&nbsp;&nbsp;1 changed</summary>
+> <details open><summary>✏️&nbsp;aws_iam_policy.small<br>&nbsp;&nbsp;&nbsp;&nbsp;1 changed</summary>
 >
 > ```diff
 > ~ policy (json):
@@ -86,7 +86,7 @@
 >
 > </details>
 >
-> <details><summary>〰️&nbsp;aws_iam_policy.big<br>&nbsp;&nbsp;&nbsp;&nbsp;1 changed</summary>
+> <details><summary>✏️&nbsp;aws_iam_policy.big<br>&nbsp;&nbsp;&nbsp;&nbsp;1 changed</summary>
 >
 > ```diff
 > ~ policy (json):
@@ -177,7 +177,7 @@
 >
 > </details>
 >
-> <details><summary>〰️&nbsp;kubernetes_manifest.app<br>&nbsp;&nbsp;&nbsp;&nbsp;1 changed</summary>
+> <details><summary>✏️&nbsp;kubernetes_manifest.app<br>&nbsp;&nbsp;&nbsp;&nbsp;1 changed</summary>
 >
 > ```diff
 > ~ manifest (yaml):
@@ -198,7 +198,7 @@
 >
 > </details>
 >
-> <details><summary>〰️&nbsp;kubernetes_manifest.platform<br>&nbsp;&nbsp;&nbsp;&nbsp;1 changed</summary>
+> <details><summary>✏️&nbsp;kubernetes_manifest.platform<br>&nbsp;&nbsp;&nbsp;&nbsp;1 changed</summary>
 >
 > ```diff
 > ~ manifest (yaml):

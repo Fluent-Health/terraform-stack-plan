@@ -277,7 +277,7 @@ const metaIndent = "&nbsp;&nbsp;&nbsp;&nbsp;"
 // GitHub still colours added/removed lines.
 const (
 	glyphAdd      = "➕"
-	glyphChange   = "〰️"
+	glyphChange   = "✏️"
 	glyphDestroy  = "➖"
 	glyphReplace  = "🔁"
 	glyphMoved    = "↪️"
@@ -299,7 +299,6 @@ func resourceSummary(c model.Change) string {
 	n := len(c.Fields)
 
 	var glyph, meta string
-	var extra []string // further indented lines below the descriptor
 	switch {
 	case c.Action == model.ActionForget:
 		glyph, meta = glyphForget, fmt.Sprintf("forgotten · %d attrs", n)
@@ -313,10 +312,10 @@ func resourceSummary(c model.Change) string {
 		if n > 0 {
 			meta += fmt.Sprintf(", %d changed", n)
 		}
-		// The import id is often long; keep it on its own line, small and
-		// monospaced so it reads as a copy-pasteable identifier.
+		// The id rides the descriptor line, small and monospaced, so it reads
+		// as a copy-pasteable identifier without costing an extra line.
 		if c.ImportID != "" {
-			extra = append(extra, fmt.Sprintf("<sub>id=<code>%s</code></sub>", c.ImportID))
+			meta += fmt.Sprintf(" · <sub>id=<code>%s</code></sub>", c.ImportID)
 		}
 	case c.Action == model.ActionAdd:
 		glyph, meta = glyphAdd, fmt.Sprintf("%d attrs", n)
@@ -328,11 +327,7 @@ func resourceSummary(c model.Change) string {
 		glyph, meta = glyphChange, fmt.Sprintf("%d changed", n)
 	}
 
-	s := fmt.Sprintf("%s&nbsp;%s<br>%s%s", glyph, addr, metaIndent, meta)
-	for _, ln := range extra {
-		s += "<br>" + metaIndent + ln
-	}
-	return s
+	return fmt.Sprintf("%s&nbsp;%s<br>%s%s", glyph, addr, metaIndent, meta)
 }
 
 // fieldSym is the diff glyph used to label a block field's body within a

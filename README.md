@@ -37,7 +37,7 @@ Small changes are shown expanded; big ones collapse to a row you click to open.
 <details open><summary>📁&nbsp;<b>platform/nonprod</b> · 🔐 iam · 4 change</summary>
 
 >
-> <details open><summary>〰️&nbsp;google_project_iam_member.data_engineers<br>&nbsp;&nbsp;&nbsp;&nbsp;1 changed</summary>
+> <details open><summary>✏️&nbsp;google_project_iam_member.data_engineers<br>&nbsp;&nbsp;&nbsp;&nbsp;1 changed</summary>
 >
 > ```diff
 > ~ role = "roles/viewer" → "roles/editor"
@@ -45,7 +45,7 @@ Small changes are shown expanded; big ones collapse to a row you click to open.
 >
 > </details>
 >
-> <details open><summary>〰️&nbsp;google_storage_bucket.tfstate<br>&nbsp;&nbsp;&nbsp;&nbsp;2 changed</summary>
+> <details open><summary>✏️&nbsp;google_storage_bucket.tfstate<br>&nbsp;&nbsp;&nbsp;&nbsp;2 changed</summary>
 >
 > ```diff
 > ~ retention_days = 7 → 30
@@ -84,7 +84,7 @@ lines as `-`/`+`, tagged with the kind. Small ones stay inline (open); big ones
 <details open><summary>📁&nbsp;<b>observability/grafana</b> · ✅ safe · structured fields (excerpt)</summary>
 
 >
-> <details open><summary>〰️&nbsp;kubernetes_manifest.ingress<br>&nbsp;&nbsp;&nbsp;&nbsp;1 changed</summary>
+> <details open><summary>✏️&nbsp;kubernetes_manifest.ingress<br>&nbsp;&nbsp;&nbsp;&nbsp;1 changed</summary>
 >
 > ```diff
 > ~ manifest (yaml):
@@ -99,7 +99,7 @@ lines as `-`/`+`, tagged with the kind. Small ones stay inline (open); big ones
 >
 > </details>
 >
-> <details><summary>〰️&nbsp;kubernetes_manifest.configmap<br>&nbsp;&nbsp;&nbsp;&nbsp;1 changed</summary>
+> <details><summary>✏️&nbsp;kubernetes_manifest.configmap<br>&nbsp;&nbsp;&nbsp;&nbsp;1 changed</summary>
 >
 > ```diff
 > ~ manifest (yaml):
@@ -125,7 +125,7 @@ Key render behaviours:
 - **Size-based folding:** a row is open when its body is small (≤ ~10 lines), collapsed when big — the same rule for creates, deletes, and updates.
 - **Aligned changes:** `~ path = old → new`, with `=` aligned and nested maps keeping their name via dotted paths (`+ labels.team = "platform"`). Diff-body markers stay ASCII `+/-/~` so GitHub colours them.
 - **Structured values** (JSON/YAML strings and native HCL maps/lists) render as a **contextual diff** — the value canonically re-formatted, 2 lines of context, changed lines as `-`/`+`, tagged with its kind (`~ policy (json):`). Small diffs stay inline; big ones collapse the row.
-- **State operations** surface as rows too: moved (↪️ `addr` / `moved from …`), imported (📥 `addr` / `imported` + a small monospaced `id=…` line), and removed-from-state (⏏️ `addr` / `forgotten`). These have no summary-table columns; their counts append to the stack's row text.
+- **State operations** surface as rows too: moved (↪️ `addr` / `moved from …`), imported (📥 `addr` / `imported · id=…`, the id small + monospaced), and removed-from-state (⏏️ `addr` / `forgotten`). These have no summary-table columns; their counts append to the stack's row text.
 - `--details open|auto` overrides the per-row default; zero-only columns are dropped; without a classification policy the `Categories` column disappears.
 
 ### More examples

@@ -415,7 +415,7 @@ func TestStateOpsExample(t *testing.T) {
 		t.Errorf("state-ops: expected YAML manifest contextual diff (new image)")
 	}
 	// A big structured change folds into a closed row.
-	if !strings.Contains(out, "<details><summary>〰️&nbsp;aws_iam_policy.big") {
+	if !strings.Contains(out, "<details><summary>✏️&nbsp;aws_iam_policy.big") {
 		t.Errorf("state-ops: big JSON should fold to a closed row:\n%s", out)
 	}
 	checkGolden(t, "state-ops.md", out)

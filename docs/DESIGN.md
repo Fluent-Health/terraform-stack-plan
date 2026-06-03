@@ -313,7 +313,7 @@ collapsing helps *reviewer ergonomics* (not scrolling past 40 diffs) but does
 ### Terraform plan — nonprod  (3 stacks changed)
 | summary table |
 <details> 📁 **stack** ▾           ← folder icon + bold name; closed by default (--details = auto|open|closed)
-> <details> 〰️ resource ▸        ← each resource its own row, inside a blockquote
+> <details> ✏️ resource ▸        ← each resource its own row, inside a blockquote
 >     N changed                  ← descriptor hangs on an indented line below the address
 >   ```diff … ```               ← bar so the stack scope is visible; blank lines pad title/rows
 > </details>
@@ -336,9 +336,9 @@ every row icon the same larger size; the diff-body markers inside the
 ```` ```diff ```` fences stay ASCII `+/-/~` so GitHub still colours them.
 
 - create → ➕ `<addr>` / `N attrs`, delete → ➖ `<addr>` / `N attrs`
-- update → 〰️ `<addr>` / `N changed`, replace → 🔁 `<addr>` / `replace`
+- update → ✏️ `<addr>` / `N changed`, replace → 🔁 `<addr>` / `replace`
 - moved → ↪️ `<addr>` / `moved from <prev>`, imported → 📥 `<addr>` /
-  `imported` + the id on its own small, monospaced line
+  `imported · id=…` with the id small and monospaced on the descriptor line
   (`<sub>id=<code>…</code></sub>`), forget → ⏏️ `<addr>` / `forgotten · N attrs`
   (state ops take precedence over the underlying action)
 
