@@ -265,9 +265,30 @@ func renderResource(c model.Change, forceOpen bool) string {
 		open, resourceSummary(c), content)
 }
 
-// resourceSummary is the one-line row label: glyph + address + magnitude. The
-// glyph is glued to the address with a non-breaking space so a long path can't
-// orphan the icon on its own line when it wraps. State operations take
+// metaIndent left-pads a resource row's wrapped metadata line so it hangs under
+// the address (past the emoji glyph + its non-breaking space). HTML collapses
+// real spaces, so the indent uses non-breaking spaces; it approximates the emoji
+// glyph width and can't be pixel-perfect. Tune this to shift the hang.
+const metaIndent = "&nbsp;&nbsp;&nbsp;&nbsp;"
+
+// Row action glyphs. Emoji (not the ASCII +/-/~) so every row icon renders at
+// the same larger size. These are display-only labels on the summary line; the
+// diff-body markers inside the ```diff``` fences stay ASCII (see fieldSym) so
+// GitHub still colours added/removed lines.
+const (
+	glyphAdd      = "➕"
+	glyphChange   = "〰️"
+	glyphDestroy  = "➖"
+	glyphReplace  = "🔁"
+	glyphMoved    = "↪️"
+	glyphImported = "📥"
+	glyphForget   = "📤"
+)
+
+// resourceSummary is the row label. Line 1 is the glyph + address (glued with a
+// non-breaking space so a long path can't orphan the icon when it wraps); the
+// descriptor (and any import id) drop to their own indented lines so they hang
+// under the address instead of colliding with it. State operations take
 // precedence over the underlying action: forget → moved → imported →
 // create/update/delete/replace.
 func resourceSummary(c model.Change) string {
@@ -276,35 +297,42 @@ func resourceSummary(c model.Change) string {
 		addr = fmt.Sprintf("<a href=%q>%s</a>", c.URL, c.Address)
 	}
 	n := len(c.Fields)
+
+	var glyph, meta string
+	var extra []string // further indented lines below the descriptor
 	switch {
 	case c.Action == model.ActionForget:
-		return fmt.Sprintf("⊘&nbsp;%s · forgotten · %d attrs", addr, n)
+		glyph, meta = glyphForget, fmt.Sprintf("forgotten · %d attrs", n)
 	case c.Moved:
-		s := fmt.Sprintf("↪&nbsp;%s · moved from %s", addr, c.PreviousAddress)
+		glyph, meta = glyphMoved, "moved from "+c.PreviousAddress
 		if n > 0 {
-			s += fmt.Sprintf(", %d changed", n)
+			meta += fmt.Sprintf(", %d changed", n)
 		}
-		return s
 	case c.Imported:
-		s := fmt.Sprintf("⤓&nbsp;%s · imported", addr)
+		glyph, meta = glyphImported, "imported"
 		if n > 0 {
-			s += fmt.Sprintf(", %d changed", n)
+			meta += fmt.Sprintf(", %d changed", n)
 		}
-		// The import id is often long; keep it off the address line on its own
-		// smaller line so it can't wrap awkwardly into the path.
+		// The import id is often long; keep it on its own line, small and
+		// monospaced so it reads as a copy-pasteable identifier.
 		if c.ImportID != "" {
-			s += fmt.Sprintf("<br><sub>id=%s</sub>", c.ImportID)
+			extra = append(extra, fmt.Sprintf("<sub>id=<code>%s</code></sub>", c.ImportID))
 		}
-		return s
 	case c.Action == model.ActionAdd:
-		return fmt.Sprintf("+&nbsp;%s · %d attrs", addr, n)
+		glyph, meta = glyphAdd, fmt.Sprintf("%d attrs", n)
 	case c.Action == model.ActionDestroy:
-		return fmt.Sprintf("-&nbsp;%s · %d attrs", addr, n)
+		glyph, meta = glyphDestroy, fmt.Sprintf("%d attrs", n)
 	case c.Action == model.ActionReplace:
-		return fmt.Sprintf("±&nbsp;%s · replace", addr)
+		glyph, meta = glyphReplace, "replace"
 	default:
-		return fmt.Sprintf("~&nbsp;%s · %d changed", addr, n)
+		glyph, meta = glyphChange, fmt.Sprintf("%d changed", n)
 	}
+
+	s := fmt.Sprintf("%s&nbsp;%s<br>%s%s", glyph, addr, metaIndent, meta)
+	for _, ln := range extra {
+		s += "<br>" + metaIndent + ln
+	}
+	return s
 }
 
 // fieldSym is the diff glyph used to label a block field's body within a

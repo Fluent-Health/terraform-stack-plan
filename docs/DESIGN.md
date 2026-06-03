@@ -313,7 +313,8 @@ collapsing helps *reviewer ergonomics* (not scrolling past 40 diffs) but does
 ### Terraform plan — nonprod  (3 stacks changed)
 | summary table |
 <details> 📁 **stack** ▾           ← folder icon + bold name; closed by default (--details = auto|open|closed)
-> <details> resource ▸          ← each resource its own row, inside a blockquote
+> <details> 〰️ resource ▸        ← each resource its own row, inside a blockquote
+>     N changed                  ← descriptor hangs on an indented line below the address
 >   ```diff … ```               ← bar so the stack scope is visible; blank lines pad title/rows
 > </details>
 </details>
@@ -324,17 +325,22 @@ Each **stack** is a `<details>` whose heading is a **folder icon + bold name**
 visually distinct from the resource rows nested inside. Its body is wrapped in a
 **blockquote** (`>`) so GitHub draws an indented left bar marking the stack
 scope; blank quoted lines inside that bar pad the title from the first row and
-separate consecutive rows. **Every resource is its own uniform `<details>` row**
-with a one-line summary — its glyph is glued to the address with a non-breaking
-space (`&nbsp;`) so a long path can't orphan the icon on its own line when it
-wraps:
+separate consecutive rows.
 
-- create → `+ <addr> · N attrs`, delete → `- <addr> · N attrs`
-- update → `~ <addr> · N changed`, replace → `± <addr> · replace`
-- moved → `↪ <addr> · moved from <prev>`, imported → `⤓ <addr> · imported`
-  with the id on its own smaller line (`<br><sub>id=…</sub>`), forget →
-  `⊘ <addr> · forgotten · N attrs` (state ops take precedence over the
-  underlying action)
+**Every resource is its own uniform `<details>` row.** Line 1 is an **emoji
+action glyph + the address**, glued with a non-breaking space (`&nbsp;`) so a
+long path can't orphan the icon when it wraps. The **descriptor hangs on its own
+indented line** below the address (`metaIndent` non-breaking spaces, ≈ glyph
+width) so it never collides with a long path. Emoji glyphs (not ASCII) keep
+every row icon the same larger size; the diff-body markers inside the
+```` ```diff ```` fences stay ASCII `+/-/~` so GitHub still colours them.
+
+- create → ➕ `<addr>` / `N attrs`, delete → ➖ `<addr>` / `N attrs`
+- update → 〰️ `<addr>` / `N changed`, replace → 🔁 `<addr>` / `replace`
+- moved → ↪️ `<addr>` / `moved from <prev>`, imported → 📥 `<addr>` /
+  `imported` + the id on its own small, monospaced line
+  (`<sub>id=<code>…</code></sub>`), forget → 📤 `<addr>` / `forgotten · N attrs`
+  (state ops take precedence over the underlying action)
 
 **Size-based folding (one rule, all actions):** a resource row is **open** when
 its rendered body is small (≤ ~10 lines) and **collapsed** when big. The body

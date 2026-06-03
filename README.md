@@ -34,16 +34,18 @@ Small changes are shown expanded; big ones collapse to a row you click to open.
 | networking/shared-vpc | 0 | 5 | 0 | 2 | 💣 destructive |
 | observability/grafana | 5 | 6 | 0 | 0 | ✅ safe |
 
-<details open><summary>platform/nonprod · 🔐 iam · 4 change</summary>
+<details open><summary>📁&nbsp;<b>platform/nonprod</b> · 🔐 iam · 4 change</summary>
 
-> <details open><summary>~ google_project_iam_member.data_engineers · 1 changed</summary>
+>
+> <details open><summary>〰️&nbsp;google_project_iam_member.data_engineers<br>&nbsp;&nbsp;&nbsp;&nbsp;1 changed</summary>
 >
 > ```diff
 > ~ role = "roles/viewer" → "roles/editor"
 > ```
 >
 > </details>
-> <details open><summary>~ google_storage_bucket.tfstate · 2 changed</summary>
+>
+> <details open><summary>〰️&nbsp;google_storage_bucket.tfstate<br>&nbsp;&nbsp;&nbsp;&nbsp;2 changed</summary>
 >
 > ```diff
 > ~ retention_days = 7 → 30
@@ -60,9 +62,10 @@ Scalars render as aligned `~ path = old → new` leaves; structured attributes
 (here `labels`) render as a contextual diff. Creates and deletes look the same —
 one open row per resource showing its attributes:
 
-<details open><summary>data/warehouse · 💣 destructive · 6 destroy</summary>
+<details open><summary>📁&nbsp;<b>data/warehouse</b> · 💣 destructive · 6 destroy</summary>
 
-> <details open><summary>- google_bigquery_dataset.legacy_events · 2 attrs</summary>
+>
+> <details open><summary>➖&nbsp;google_bigquery_dataset.legacy_events<br>&nbsp;&nbsp;&nbsp;&nbsp;2 attrs</summary>
 >
 > ```diff
 > - location = "us-central1"
@@ -78,9 +81,10 @@ Structured values (JSON/YAML strings and native HCL maps/lists) render as a
 lines as `-`/`+`, tagged with the kind. Small ones stay inline (open); big ones
 **collapse** to a closed row:
 
-<details open><summary>observability/grafana · ✅ safe · structured fields (excerpt)</summary>
+<details open><summary>📁&nbsp;<b>observability/grafana</b> · ✅ safe · structured fields (excerpt)</summary>
 
-> <details open><summary>~ kubernetes_manifest.ingress · 1 changed</summary>
+>
+> <details open><summary>〰️&nbsp;kubernetes_manifest.ingress<br>&nbsp;&nbsp;&nbsp;&nbsp;1 changed</summary>
 >
 > ```diff
 > ~ manifest (yaml):
@@ -94,7 +98,8 @@ lines as `-`/`+`, tagged with the kind. Small ones stay inline (open); big ones
 > ```
 >
 > </details>
-> <details><summary>~ kubernetes_manifest.configmap · 1 changed</summary>
+>
+> <details><summary>〰️&nbsp;kubernetes_manifest.configmap<br>&nbsp;&nbsp;&nbsp;&nbsp;1 changed</summary>
 >
 > ```diff
 > ~ manifest (yaml):
@@ -115,11 +120,12 @@ The first line of the real output is an HTML-comment marker
 comment per tier.
 
 Key render behaviours:
-- **Every resource is a uniform `<details>` row** inside the stack's blockquote bar, giving a clear stack → resource hierarchy.
+- **Stacks read as section headers** (📁 + bold name); **every resource is a uniform `<details>` row** inside the stack's blockquote bar, giving a clear stack → resource hierarchy.
+- **Row layout:** an emoji action glyph + the address on line 1 (glued with `&nbsp;` so a long path can't orphan the icon), with the descriptor (`N changed`, `replace`, …) hanging on an indented line below.
 - **Size-based folding:** a row is open when its body is small (≤ ~10 lines), collapsed when big — the same rule for creates, deletes, and updates.
-- **Aligned changes:** `~ path = old → new`, with `=` aligned and nested maps keeping their name via dotted paths (`+ labels.team = "platform"`).
+- **Aligned changes:** `~ path = old → new`, with `=` aligned and nested maps keeping their name via dotted paths (`+ labels.team = "platform"`). Diff-body markers stay ASCII `+/-/~` so GitHub colours them.
 - **Structured values** (JSON/YAML strings and native HCL maps/lists) render as a **contextual diff** — the value canonically re-formatted, 2 lines of context, changed lines as `-`/`+`, tagged with its kind (`~ policy (json):`). Small diffs stay inline; big ones collapse the row.
-- **State operations** surface as rows too: moved (`↪ addr · moved from …`), imported (`⤓ addr · imported (id=…)`), and removed-from-state (`⊘ addr · forgotten`). These have no summary-table columns; their counts append to the stack's row text.
+- **State operations** surface as rows too: moved (↪️ `addr` / `moved from …`), imported (📥 `addr` / `imported` + a small monospaced `id=…` line), and removed-from-state (📤 `addr` / `forgotten`). These have no summary-table columns; their counts append to the stack's row text.
 - `--details open|auto` overrides the per-row default; zero-only columns are dropped; without a classification policy the `Categories` column disappears.
 
 ### More examples
@@ -139,8 +145,8 @@ biggest diffs first, then dropping detail. These files are real tool output
 - [`examples/over-budget-minimal.md`](examples/over-budget-minimal.md) — past
   every simplification and still over budget: a one-line aggregate is emitted
   and the tool exits non-zero so CI can surface it.
-- [`examples/state-ops.md`](examples/state-ops.md) — **moved** (`↪`),
-  **imported** (`⤓`), and **removed-from-state / forget** (`⊘`) resources; and
+- [`examples/state-ops.md`](examples/state-ops.md) — **moved** (↪️),
+  **imported** (📥), and **removed-from-state / forget** (📤) resources; and
   **contextual diffs** for nested JSON, YAML, and native HCL blocks (2 lines of
   context, `-`/`+` changes), in small (inline) and big (folded) form.
 - [`examples/long-names.md`](examples/long-names.md) — deeply nested module

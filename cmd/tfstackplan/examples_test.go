@@ -382,9 +382,10 @@ func TestStateOpsExample(t *testing.T) {
 	if !fits {
 		t.Errorf("state-ops: expected report to fit")
 	}
-	// State operations. The import id moves to its own smaller line.
+	// State operations. The descriptor and the (small, monospaced) import id
+	// each drop to their own indented line below the address.
 	for _, want := range []string{
-		"↪&nbsp;", " · moved from ", "⤓&nbsp;", " · imported", "<sub>id=", "⊘&nbsp;", " · forgotten · ",
+		"↪️&nbsp;", "moved from ", "📥&nbsp;", "imported", "<sub>id=<code>", "📤&nbsp;", "forgotten · ",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("state-ops: missing %q in output", want)
@@ -414,7 +415,7 @@ func TestStateOpsExample(t *testing.T) {
 		t.Errorf("state-ops: expected YAML manifest contextual diff (new image)")
 	}
 	// A big structured change folds into a closed row.
-	if !strings.Contains(out, "<details><summary>~&nbsp;aws_iam_policy.big") {
+	if !strings.Contains(out, "<details><summary>〰️&nbsp;aws_iam_policy.big") {
 		t.Errorf("state-ops: big JSON should fold to a closed row:\n%s", out)
 	}
 	checkGolden(t, "state-ops.md", out)
@@ -454,9 +455,9 @@ func TestLongAddressExample(t *testing.T) {
 	if !strings.Contains(out, `google_storage_bucket.flow_logs[""]`) {
 		t.Errorf("long-names: expected the empty for-each key name[\"\"]:\n%s", out)
 	}
-	// The long import id lands on its own <sub> line, not the address line.
-	if !strings.Contains(out, "<br><sub>id=projects/fh-host-nonprod/managedZones/internal-fh/rrsets/a.internal.fh.example.com./A</sub>") {
-		t.Errorf("long-names: expected the import id on its own sub line:\n%s", out)
+	// The long import id lands on its own small, monospaced line.
+	if !strings.Contains(out, "<sub>id=<code>projects/fh-host-nonprod/managedZones/internal-fh/rrsets/a.internal.fh.example.com./A</code></sub>") {
+		t.Errorf("long-names: expected the import id on its own monospaced sub line:\n%s", out)
 	}
 	checkGolden(t, "long-names.md", out)
 }
