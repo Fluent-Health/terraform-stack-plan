@@ -161,7 +161,10 @@ func renderDetails(b *strings.Builder, r model.Report) {
 		if s.URL != "" {
 			name = fmt.Sprintf("<a href=%q>%s</a>", s.URL, s.Name)
 		}
-		summary := name
+		// A folder icon + bold name marks the stack as a section header so it
+		// reads distinctly from the resource rows nested inside it. The icon is
+		// glued to the name with a non-breaking space so it can't be orphaned.
+		summary := "📁&nbsp;<b>" + name + "</b>"
 		if r.Classified {
 			summary += " · " + categoriesCell(s, r)
 		}
@@ -171,13 +174,17 @@ func renderDetails(b *strings.Builder, r model.Report) {
 			open = " open"
 		}
 		fmt.Fprintf(b, "\n<details%s><summary>%s</summary>\n\n", open, summary)
-		var body strings.Builder
+		blocks := make([]string, 0, len(s.Changes))
 		for _, c := range s.Changes {
-			renderResource(&body, c, r.DetailsOpen)
+			blocks = append(blocks, renderResource(c, r.DetailsOpen))
 		}
+		// A leading blank line gives the stack title room above the first row;
+		// blank lines between rows separate them. Both gaps sit inside the
+		// blockquote so the breathing room stays within the stack's scope bar.
+		body := "\n" + strings.Join(blocks, "\n\n")
 		// Wrap the resource rows in a blockquote so GitHub draws an indented
 		// left bar marking the stack scope ("you are inside this stack").
-		b.WriteString(blockquote(body.String()))
+		b.WriteString(blockquote(body))
 		b.WriteString("\n</details>\n")
 	}
 }
@@ -200,11 +207,11 @@ func blockquote(s string) string {
 	return strings.Join(lines, "\n") + "\n"
 }
 
-// renderResource emits one resource as a uniform <details> row. The row is open
-// when its body is small (<= openThreshold lines) or forceOpen is set; otherwise
-// it collapses to a summary line. The body holds the aligned leaf changes
-// followed by any block-field diffs.
-func renderResource(b *strings.Builder, c model.Change, forceOpen bool) {
+// renderResource returns one resource as a uniform <details> row (no trailing
+// newline). The row is open when its body is small (<= openThreshold lines) or
+// forceOpen is set; otherwise it collapses to a summary line. The body holds the
+// aligned leaf changes followed by any block-field diffs.
+func renderResource(c model.Change, forceOpen bool) string {
 	sym := fieldSym(c.Action)
 
 	var leaves []model.Leaf
@@ -254,46 +261,74 @@ func renderResource(b *strings.Builder, c model.Change, forceOpen bool) {
 	if forceOpen || lineCountOf(content) <= openThreshold {
 		open = " open"
 	}
-	fmt.Fprintf(b, "<details%s><summary>%s</summary>\n\n```diff\n%s\n```\n\n</details>\n",
+	return fmt.Sprintf("<details%s><summary>%s</summary>\n\n```diff\n%s\n```\n\n</details>",
 		open, resourceSummary(c), content)
 }
 
-// resourceSummary is the one-line row label: glyph + address + magnitude. State
-// operations take precedence over the underlying action: forget → moved →
-// imported → create/update/delete/replace.
+// metaIndent left-pads a resource row's wrapped metadata line so it hangs under
+// the address (past the emoji glyph + its non-breaking space). HTML collapses
+// real spaces, so the indent uses non-breaking spaces; it approximates the emoji
+// glyph width and can't be pixel-perfect. Tune this to shift the hang.
+const metaIndent = "&nbsp;&nbsp;&nbsp;&nbsp;"
+
+// Row action glyphs. Emoji (not the ASCII +/-/~) so every row icon renders at
+// the same larger size. These are display-only labels on the summary line; the
+// diff-body markers inside the ```diff``` fences stay ASCII (see fieldSym) so
+// GitHub still colours added/removed lines.
+const (
+	glyphAdd      = "➕"
+	glyphChange   = "✏️"
+	glyphDestroy  = "➖"
+	glyphReplace  = "🔁"
+	glyphMoved    = "↪️"
+	glyphImported = "📥"
+	glyphForget   = "⏏️"
+)
+
+// resourceSummary is the row label. Line 1 is the glyph + address (glued with a
+// non-breaking space so a long path can't orphan the icon when it wraps); the
+// descriptor (and any import id) drop to their own indented lines so they hang
+// under the address instead of colliding with it. State operations take
+// precedence over the underlying action: forget → moved → imported →
+// create/update/delete/replace.
 func resourceSummary(c model.Change) string {
 	addr := c.Address
 	if c.URL != "" {
 		addr = fmt.Sprintf("<a href=%q>%s</a>", c.URL, c.Address)
 	}
 	n := len(c.Fields)
+
+	var glyph, meta string
 	switch {
 	case c.Action == model.ActionForget:
-		return fmt.Sprintf("⊘ %s · forgotten · %d attrs", addr, n)
+		glyph, meta = glyphForget, fmt.Sprintf("forgotten · %d attrs", n)
 	case c.Moved:
-		s := fmt.Sprintf("↪ %s · moved from %s", addr, c.PreviousAddress)
+		glyph, meta = glyphMoved, "moved from "+c.PreviousAddress
 		if n > 0 {
-			s += fmt.Sprintf(", %d changed", n)
+			meta += fmt.Sprintf(", %d changed", n)
 		}
-		return s
 	case c.Imported:
-		s := fmt.Sprintf("⤓ %s · imported", addr)
-		if c.ImportID != "" {
-			s = fmt.Sprintf("⤓ %s · imported (id=%q)", addr, c.ImportID)
-		}
+		glyph, meta = glyphImported, "imported"
 		if n > 0 {
-			s += fmt.Sprintf(", %d changed", n)
+			meta += fmt.Sprintf(", %d changed", n)
 		}
-		return s
+		// The id rides the descriptor line, monospaced (<code>, not <sub> —
+		// subscript drops it off the baseline) so it reads as a
+		// copy-pasteable identifier without costing an extra line.
+		if c.ImportID != "" {
+			meta += fmt.Sprintf(" · id=<code>%s</code>", c.ImportID)
+		}
 	case c.Action == model.ActionAdd:
-		return fmt.Sprintf("+ %s · %d attrs", addr, n)
+		glyph, meta = glyphAdd, fmt.Sprintf("%d attrs", n)
 	case c.Action == model.ActionDestroy:
-		return fmt.Sprintf("- %s · %d attrs", addr, n)
+		glyph, meta = glyphDestroy, fmt.Sprintf("%d attrs", n)
 	case c.Action == model.ActionReplace:
-		return fmt.Sprintf("± %s · replace", addr)
+		glyph, meta = glyphReplace, "replace"
 	default:
-		return fmt.Sprintf("~ %s · %d changed", addr, n)
+		glyph, meta = glyphChange, fmt.Sprintf("%d changed", n)
 	}
+
+	return fmt.Sprintf("%s&nbsp;%s<br>%s%s", glyph, addr, metaIndent, meta)
 }
 
 // fieldSym is the diff glyph used to label a block field's body within a

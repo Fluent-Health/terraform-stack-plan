@@ -62,13 +62,13 @@ func TestRenderCategoriesColumnAndDetails(t *testing.T) {
 	if !strings.Contains(out, "🔐 iam  💣 destructive") {
 		t.Fatalf("expected both badges joined by two spaces in one cell:\n%s", out)
 	}
-	if !strings.Contains(out, "svc/dev · ✅ safe") {
+	if !strings.Contains(out, "<b>svc/dev</b> · ✅ safe") {
 		t.Fatalf("expected the default badge in the details summary of a no-category stack:\n%s", out)
 	}
 	if !strings.Contains(out, "✅ safe") {
 		t.Fatalf("expected the default badge for the no-category stack:\n%s", out)
 	}
-	if !strings.Contains(out, "<details><summary>platform/nonprod") {
+	if !strings.Contains(out, "<details><summary>📁&nbsp;<b>platform/nonprod</b>") {
 		t.Fatalf("expected details for changed stack:\n%s", out)
 	}
 	if !strings.Contains(out, "```diff") {
@@ -147,7 +147,7 @@ func TestRenderCreateSmallIsOpenRow(t *testing.T) {
 	r.Stacks[0].Counts = model.Counts{Add: 1}
 	out := Render(r)
 	// Small create (2 attrs) is an open row with its attributes shown.
-	if !strings.Contains(out, "<details open><summary>+ google_service_account.api · 2 attrs</summary>") {
+	if !strings.Contains(out, "<details open><summary>"+glyphAdd+"&nbsp;google_service_account.api<br>"+metaIndent+"2 attrs</summary>") {
 		t.Fatalf("small create should be an open row:\n%s", out)
 	}
 	if !strings.Contains(out, "+ account_id = \"app-api\"") {
@@ -172,10 +172,10 @@ func TestRenderResourceClosedWhenBig(t *testing.T) {
 	}}
 	r.Stacks[0].Counts = model.Counts{Change: 1}
 	out := Render(r)
-	if !strings.Contains(out, "<details><summary>~ kubernetes_config_map.app · 1 changed</summary>") {
+	if !strings.Contains(out, "<details><summary>"+glyphChange+"&nbsp;kubernetes_config_map.app<br>"+metaIndent+"1 changed</summary>") {
 		t.Fatalf("big resource should be a closed row:\n%s", out)
 	}
-	if strings.Contains(out, "<details open><summary>~ kubernetes_config_map.app") {
+	if strings.Contains(out, "<details open><summary>"+glyphChange+"&nbsp;kubernetes_config_map.app") {
 		t.Fatalf("big resource must not be open:\n%s", out)
 	}
 	if !strings.Contains(out, "+ line 0") {
@@ -190,6 +190,28 @@ func TestRenderBlockquoteBar(t *testing.T) {
 	}
 }
 
+func TestRenderStackHeaderAndSpacing(t *testing.T) {
+	r := sampleReport()
+	r.Stacks[0].Counts = model.Counts{Add: 2}
+	r.Stacks[0].Changes = []model.Change{
+		{Address: "x.a", Action: model.ActionAdd, Fields: []model.Field{{Name: "n", Leaves: []model.Leaf{{Op: model.OpAdd, Path: "n", New: `"1"`}}}}},
+		{Address: "x.b", Action: model.ActionAdd, Fields: []model.Field{{Name: "n", Leaves: []model.Leaf{{Op: model.OpAdd, Path: "n", New: `"2"`}}}}},
+	}
+	out := Render(r)
+	// Stack header is a folder icon + bold name, distinct from the resource rows.
+	if !strings.Contains(out, "<summary>📁&nbsp;<b>platform/nonprod</b>") {
+		t.Fatalf("stack summary should be folder icon + bold name:\n%s", out)
+	}
+	// A blank quoted line gives the stack title room above the first row.
+	if !strings.Contains(out, "</summary>\n\n>\n> <details") {
+		t.Fatalf("expected a blank quoted line between the stack title and first row:\n%s", out)
+	}
+	// A blank quoted line separates consecutive resource rows.
+	if !strings.Contains(out, "</details>\n>\n> <details") {
+		t.Fatalf("expected a blank quoted line between resource rows:\n%s", out)
+	}
+}
+
 func TestRenderForgetRow(t *testing.T) {
 	r := sampleReport()
 	r.Stacks[0].Counts = model.Counts{Forget: 1}
@@ -201,7 +223,7 @@ func TestRenderForgetRow(t *testing.T) {
 		},
 	}}
 	out := Render(r)
-	if !strings.Contains(out, "⊘ aws_s3_bucket.legacy · forgotten · 2 attrs") {
+	if !strings.Contains(out, glyphForget+"&nbsp;aws_s3_bucket.legacy<br>"+metaIndent+"forgotten · 2 attrs") {
 		t.Fatalf("forget row label wrong:\n%s", out)
 	}
 	if !strings.Contains(out, "⊘ bucket = \"legacy\"") {
@@ -217,7 +239,7 @@ func TestRenderMovedRow(t *testing.T) {
 		Moved: true, PreviousAddress: "google_storage_bucket.legacy_assets",
 	}}
 	out := Render(r)
-	if !strings.Contains(out, "↪ google_storage_bucket.assets · moved from google_storage_bucket.legacy_assets") {
+	if !strings.Contains(out, glyphMoved+"&nbsp;google_storage_bucket.assets<br>"+metaIndent+"moved from google_storage_bucket.legacy_assets") {
 		t.Fatalf("moved row label wrong:\n%s", out)
 	}
 	if !strings.Contains(out, "(address change only)") {
@@ -233,7 +255,8 @@ func TestRenderImportedRow(t *testing.T) {
 		Imported: true, ImportID: "my-host-project",
 	}}
 	out := Render(r)
-	if !strings.Contains(out, `⤓ google_project.host · imported (id="my-host-project")`) {
+	want := glyphImported + "&nbsp;google_project.host<br>" + metaIndent + "imported · id=<code>my-host-project</code>"
+	if !strings.Contains(out, want) {
 		t.Fatalf("imported row label wrong:\n%s", out)
 	}
 }
@@ -258,7 +281,7 @@ func TestRenderCreateBlockFieldRendered(t *testing.T) {
 	}}
 	r.Stacks[0].Counts = model.Counts{Add: 1}
 	out := Render(r)
-	if !strings.Contains(out, "· 2 attrs") {
+	if !strings.Contains(out, metaIndent+"2 attrs") {
 		t.Fatalf("attr count should be 2 (fields), got:\n%s", out)
 	}
 	if !strings.Contains(out, "+ a") || !strings.Contains(out, "+ b") {

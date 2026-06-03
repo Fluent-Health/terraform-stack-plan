@@ -6,37 +6,42 @@
 | infra/migrations · 1 import, 3 move, 1 forget | 2 | ✅ safe |
 | platform/policies | 4 | 🔐 iam |
 
-<details><summary>infra/migrations · ✅ safe · 2 change, 1 import, 3 move, 1 forget</summary>
+<details><summary>📁&nbsp;<b>infra/migrations</b> · ✅ safe · 2 change, 1 import, 3 move, 1 forget</summary>
 
-> <details open><summary>↪ google_storage_bucket.assets · moved from google_storage_bucket.legacy_assets</summary>
+>
+> <details open><summary>↪️&nbsp;google_storage_bucket.assets<br>&nbsp;&nbsp;&nbsp;&nbsp;moved from google_storage_bucket.legacy_assets</summary>
 >
 > ```diff
 > (address change only)
 > ```
 >
 > </details>
-> <details open><summary>↪ google_storage_bucket.state · moved from module.old.google_storage_bucket.state, 1 changed</summary>
+>
+> <details open><summary>↪️&nbsp;google_storage_bucket.state<br>&nbsp;&nbsp;&nbsp;&nbsp;moved from module.old.google_storage_bucket.state, 1 changed</summary>
 >
 > ```diff
 > ~ retention_days = 7 → 30
 > ```
 >
 > </details>
-> <details open><summary>↪ google_project_iam_member.viewers · moved from google_project_iam_member.legacy_viewers</summary>
+>
+> <details open><summary>↪️&nbsp;google_project_iam_member.viewers<br>&nbsp;&nbsp;&nbsp;&nbsp;moved from google_project_iam_member.legacy_viewers</summary>
 >
 > ```diff
 > (address change only)
 > ```
 >
 > </details>
-> <details open><summary>⤓ google_project.host · imported (id="my-host-project")</summary>
+>
+> <details open><summary>📥&nbsp;google_project.host<br>&nbsp;&nbsp;&nbsp;&nbsp;imported · id=<code>my-host-project</code></summary>
 >
 > ```diff
 > (import only)
 > ```
 >
 > </details>
-> <details open><summary>⊘ aws_s3_bucket.legacy · forgotten · 2 attrs</summary>
+>
+> <details open><summary>⏏️&nbsp;aws_s3_bucket.legacy<br>&nbsp;&nbsp;&nbsp;&nbsp;forgotten · 2 attrs</summary>
 >
 > ```diff
 > ⊘ name   = "legacy"
@@ -44,7 +49,8 @@
 > ```
 >
 > </details>
-> <details open><summary>~ google_compute_firewall.web · 2 changed</summary>
+>
+> <details open><summary>✏️&nbsp;google_compute_firewall.web<br>&nbsp;&nbsp;&nbsp;&nbsp;2 changed</summary>
 >
 > ```diff
 > ~ allow (yaml):
@@ -63,9 +69,10 @@
 
 </details>
 
-<details><summary>platform/policies · 🔐 iam · 4 change</summary>
+<details><summary>📁&nbsp;<b>platform/policies</b> · 🔐 iam · 4 change</summary>
 
-> <details open><summary>~ aws_iam_policy.small · 1 changed</summary>
+>
+> <details open><summary>✏️&nbsp;aws_iam_policy.small<br>&nbsp;&nbsp;&nbsp;&nbsp;1 changed</summary>
 >
 > ```diff
 > ~ policy (json):
@@ -78,7 +85,8 @@
 > ```
 >
 > </details>
-> <details><summary>~ aws_iam_policy.big · 1 changed</summary>
+>
+> <details><summary>✏️&nbsp;aws_iam_policy.big<br>&nbsp;&nbsp;&nbsp;&nbsp;1 changed</summary>
 >
 > ```diff
 > ~ policy (json):
@@ -168,7 +176,8 @@
 > ```
 >
 > </details>
-> <details><summary>~ kubernetes_manifest.app · 1 changed</summary>
+>
+> <details><summary>✏️&nbsp;kubernetes_manifest.app<br>&nbsp;&nbsp;&nbsp;&nbsp;1 changed</summary>
 >
 > ```diff
 > ~ manifest (yaml):
@@ -188,7 +197,8 @@
 > ```
 >
 > </details>
-> <details><summary>~ kubernetes_manifest.platform · 1 changed</summary>
+>
+> <details><summary>✏️&nbsp;kubernetes_manifest.platform<br>&nbsp;&nbsp;&nbsp;&nbsp;1 changed</summary>
 >
 > ```diff
 > ~ manifest (yaml):
