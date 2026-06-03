@@ -327,9 +327,9 @@ func TestStateOpsExample(t *testing.T) {
 	if !fits {
 		t.Errorf("state-ops: expected report to fit")
 	}
-	// State operations.
+	// State operations. The import id moves to its own smaller line.
 	for _, want := range []string{
-		"↪ ", " · moved from ", "⤓ ", " · imported (id=", "⊘ ", " · forgotten · ",
+		"↪&nbsp;", " · moved from ", "⤓&nbsp;", " · imported", "<sub>id=", "⊘&nbsp;", " · forgotten · ",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("state-ops: missing %q in output", want)
@@ -337,7 +337,7 @@ func TestStateOpsExample(t *testing.T) {
 	}
 	// A moved IAM resource is a pure state op (needs no apply-time write
 	// permission), so it must NOT flip infra/migrations into the iam guard.
-	if !strings.Contains(out, "infra/migrations · ✅ safe") {
+	if !strings.Contains(out, "<b>infra/migrations</b> · ✅ safe") {
 		t.Errorf("state-ops: moved IAM resource must not classify infra/migrations as iam:\n%s", out)
 	}
 	// Move/import/forget surfaced in a Stack cell (table choice B, no columns).
@@ -359,7 +359,7 @@ func TestStateOpsExample(t *testing.T) {
 		t.Errorf("state-ops: expected YAML manifest contextual diff (new image)")
 	}
 	// A big structured change folds into a closed row.
-	if !strings.Contains(out, "<details><summary>~ aws_iam_policy.big") {
+	if !strings.Contains(out, "<details><summary>~&nbsp;aws_iam_policy.big") {
 		t.Errorf("state-ops: big JSON should fold to a closed row:\n%s", out)
 	}
 	checkGolden(t, "state-ops.md", out)

@@ -161,7 +161,10 @@ func renderDetails(b *strings.Builder, r model.Report) {
 		if s.URL != "" {
 			name = fmt.Sprintf("<a href=%q>%s</a>", s.URL, s.Name)
 		}
-		summary := name
+		// A folder icon + bold name marks the stack as a section header so it
+		// reads distinctly from the resource rows nested inside it. The icon is
+		// glued to the name with a non-breaking space so it can't be orphaned.
+		summary := "📁&nbsp;<b>" + name + "</b>"
 		if r.Classified {
 			summary += " · " + categoriesCell(s, r)
 		}
@@ -171,13 +174,17 @@ func renderDetails(b *strings.Builder, r model.Report) {
 			open = " open"
 		}
 		fmt.Fprintf(b, "\n<details%s><summary>%s</summary>\n\n", open, summary)
-		var body strings.Builder
+		blocks := make([]string, 0, len(s.Changes))
 		for _, c := range s.Changes {
-			renderResource(&body, c, r.DetailsOpen)
+			blocks = append(blocks, renderResource(c, r.DetailsOpen))
 		}
+		// A leading blank line gives the stack title room above the first row;
+		// blank lines between rows separate them. Both gaps sit inside the
+		// blockquote so the breathing room stays within the stack's scope bar.
+		body := "\n" + strings.Join(blocks, "\n\n")
 		// Wrap the resource rows in a blockquote so GitHub draws an indented
 		// left bar marking the stack scope ("you are inside this stack").
-		b.WriteString(blockquote(body.String()))
+		b.WriteString(blockquote(body))
 		b.WriteString("\n</details>\n")
 	}
 }
@@ -200,11 +207,11 @@ func blockquote(s string) string {
 	return strings.Join(lines, "\n") + "\n"
 }
 
-// renderResource emits one resource as a uniform <details> row. The row is open
-// when its body is small (<= openThreshold lines) or forceOpen is set; otherwise
-// it collapses to a summary line. The body holds the aligned leaf changes
-// followed by any block-field diffs.
-func renderResource(b *strings.Builder, c model.Change, forceOpen bool) {
+// renderResource returns one resource as a uniform <details> row (no trailing
+// newline). The row is open when its body is small (<= openThreshold lines) or
+// forceOpen is set; otherwise it collapses to a summary line. The body holds the
+// aligned leaf changes followed by any block-field diffs.
+func renderResource(c model.Change, forceOpen bool) string {
 	sym := fieldSym(c.Action)
 
 	var leaves []model.Leaf
@@ -254,13 +261,15 @@ func renderResource(b *strings.Builder, c model.Change, forceOpen bool) {
 	if forceOpen || lineCountOf(content) <= openThreshold {
 		open = " open"
 	}
-	fmt.Fprintf(b, "<details%s><summary>%s</summary>\n\n```diff\n%s\n```\n\n</details>\n",
+	return fmt.Sprintf("<details%s><summary>%s</summary>\n\n```diff\n%s\n```\n\n</details>",
 		open, resourceSummary(c), content)
 }
 
-// resourceSummary is the one-line row label: glyph + address + magnitude. State
-// operations take precedence over the underlying action: forget → moved →
-// imported → create/update/delete/replace.
+// resourceSummary is the one-line row label: glyph + address + magnitude. The
+// glyph is glued to the address with a non-breaking space so a long path can't
+// orphan the icon on its own line when it wraps. State operations take
+// precedence over the underlying action: forget → moved → imported →
+// create/update/delete/replace.
 func resourceSummary(c model.Change) string {
 	addr := c.Address
 	if c.URL != "" {
@@ -269,30 +278,32 @@ func resourceSummary(c model.Change) string {
 	n := len(c.Fields)
 	switch {
 	case c.Action == model.ActionForget:
-		return fmt.Sprintf("⊘ %s · forgotten · %d attrs", addr, n)
+		return fmt.Sprintf("⊘&nbsp;%s · forgotten · %d attrs", addr, n)
 	case c.Moved:
-		s := fmt.Sprintf("↪ %s · moved from %s", addr, c.PreviousAddress)
+		s := fmt.Sprintf("↪&nbsp;%s · moved from %s", addr, c.PreviousAddress)
 		if n > 0 {
 			s += fmt.Sprintf(", %d changed", n)
 		}
 		return s
 	case c.Imported:
-		s := fmt.Sprintf("⤓ %s · imported", addr)
-		if c.ImportID != "" {
-			s = fmt.Sprintf("⤓ %s · imported (id=%q)", addr, c.ImportID)
-		}
+		s := fmt.Sprintf("⤓&nbsp;%s · imported", addr)
 		if n > 0 {
 			s += fmt.Sprintf(", %d changed", n)
 		}
+		// The import id is often long; keep it off the address line on its own
+		// smaller line so it can't wrap awkwardly into the path.
+		if c.ImportID != "" {
+			s += fmt.Sprintf("<br><sub>id=%s</sub>", c.ImportID)
+		}
 		return s
 	case c.Action == model.ActionAdd:
-		return fmt.Sprintf("+ %s · %d attrs", addr, n)
+		return fmt.Sprintf("+&nbsp;%s · %d attrs", addr, n)
 	case c.Action == model.ActionDestroy:
-		return fmt.Sprintf("- %s · %d attrs", addr, n)
+		return fmt.Sprintf("-&nbsp;%s · %d attrs", addr, n)
 	case c.Action == model.ActionReplace:
-		return fmt.Sprintf("± %s · replace", addr)
+		return fmt.Sprintf("±&nbsp;%s · replace", addr)
 	default:
-		return fmt.Sprintf("~ %s · %d changed", addr, n)
+		return fmt.Sprintf("~&nbsp;%s · %d changed", addr, n)
 	}
 }
 
