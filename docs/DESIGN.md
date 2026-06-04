@@ -307,6 +307,16 @@ working for brand-new bindings, not only for changes to existing resources
 whose `project` is already in state. It never overrides an explicit `project`
 nor fabricates one when no such parent path exists.
 
+**`project` also falls back to the stack's project for projectless IAM.**
+Bucket- and folder-scoped IAM (e.g. `google_storage_bucket_iam_member`) carry no
+`project` and no `projects/<project>/…` scalar to recover one from, so the
+per-project gate would see no target. When a rule emits `project` but the matched
+changes yield none, it is back-filled from the stack's *unique* project — the
+single distinct `project` across all of the stack's changes (any sibling
+resource that carries one). Ambiguous stacks (zero or more than one distinct
+project) emit nothing, so the gate fails closed rather than guessing; an explicit
+value is never overridden.
+
 ## Rendering, the differ, and the size budget
 
 ### Why `<details>` is not a size lever

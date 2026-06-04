@@ -339,6 +339,10 @@ The sidecar then carries the sorted-unique, non-null values per stack:
 - **Sensitive values are never emitted.**
 - `attributes` is omitted when the firing rule declares no `emit_attributes` or
   no values were found.
+- For `project` specifically: when the matched changes carry none (e.g.
+  bucket-scoped `google_storage_bucket_iam_member`), it falls back to the stack's
+  unique project (the single distinct `project` across all the stack's changes).
+  Ambiguous stacks (0 or >1 distinct projects) emit none — gates fail closed.
 
 ---
 
