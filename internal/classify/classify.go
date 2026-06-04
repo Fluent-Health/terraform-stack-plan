@@ -52,11 +52,23 @@ func Classify(s plan.RawStack, rules []Rule) []Category {
 			}
 		}
 		if len(matched) >= min {
-			cats = append(cats, Category{
-				Name:       r.Name,
-				Icon:       r.Icon,
-				Attributes: extract(matched, r.EmitAttributes),
-			})
+			attrs := extract(matched, r.EmitAttributes)
+			// Stack-project fallback: bucket-scoped IAM (e.g.
+			// google_storage_bucket_iam_member) exposes no project, so a rule that
+			// emits "project" would surface none — and the per-project IAM gate
+			// would request no PAM grant. Back-fill from the stack's unique project
+			// (resolved from any sibling resource that does carry one). Only when
+			// the emitted set is empty; never overrides a real value, never guesses
+			// across multiple projects.
+			if wantsProject(r.EmitAttributes) && len(attrs["project"]) == 0 {
+				if sp := deriveStackProject(s.Changes); sp != "" {
+					if attrs == nil {
+						attrs = map[string][]string{}
+					}
+					attrs["project"] = []string{sp}
+				}
+			}
+			cats = append(cats, Category{Name: r.Name, Icon: r.Icon, Attributes: attrs})
 		}
 	}
 	return cats
@@ -146,6 +158,40 @@ func extract(matched []plan.RawChange, names []string) map[string][]string {
 		return nil
 	}
 	return out
+}
+
+// wantsProject reports whether "project" is among the requested attributes.
+func wantsProject(names []string) bool {
+	for _, n := range names {
+		if n == "project" {
+			return true
+		}
+	}
+	return false
+}
+
+// deriveStackProject returns the single project shared by the stack's changes,
+// or "" when zero or more than one distinct project is present. Used to attribute
+// projectless IAM resources (bucket/folder-scoped) to the project the rest of the
+// stack manages. Conservative by design: ambiguity yields "" so the gate fails
+// closed rather than guessing. Scans ALL changes (including non-mutating
+// move/import/forget), unlike extract's mutating-only scope — any sibling
+// identifies the stack's project regardless of its action.
+func deriveStackProject(changes []plan.RawChange) string {
+	seen := map[string]struct{}{}
+	for _, c := range changes {
+		v, ok := c.Raw["project"]
+		if !ok || v == nil {
+			continue
+		}
+		seen[scalarString(v)] = struct{}{}
+	}
+	if len(seen) == 1 {
+		for p := range seen {
+			return p
+		}
+	}
+	return ""
 }
 
 // scalarString stringifies a JSON scalar for the sidecar.

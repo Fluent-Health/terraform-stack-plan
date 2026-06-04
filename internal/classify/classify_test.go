@@ -219,3 +219,53 @@ func TestSummarizeEmpty(t *testing.T) {
 		t.Fatalf("no categories should summarize to empty, got %+v", got)
 	}
 }
+
+func TestProjectFallbackToStackProjectForProjectlessIAM(t *testing.T) {
+	rules := []Rule{{
+		Name: "iam", Icon: "🔐", TypePattern: regexp.MustCompile(`_iam_`), MinCount: 1,
+		EmitAttributes: []string{"project"},
+	}}
+	// Bucket IAM has no project; a sibling transfer job in the same stack does.
+	s := stack(
+		plan.RawChange{Type: "google_storage_bucket_iam_member", Action: model.ActionAdd, Actions: []string{"create"}, Raw: map[string]any{"bucket": "fh-dev-svc-cms", "role": "roles/storage.objectViewer"}},
+		plan.RawChange{Type: "google_storage_transfer_job", Action: model.ActionAdd, Actions: []string{"create"}, Raw: map[string]any{"project": "fh-dev-svc"}},
+	)
+	iam, ok := find(Classify(s, rules), "iam")
+	if !ok {
+		t.Fatal("expected iam category")
+	}
+	if !reflect.DeepEqual(iam.Attributes["project"], []string{"fh-dev-svc"}) {
+		t.Fatalf("project = %v, want [fh-dev-svc] (stack-project fallback)", iam.Attributes["project"])
+	}
+}
+
+func TestProjectFallbackSkippedWhenStackProjectAmbiguous(t *testing.T) {
+	rules := []Rule{{
+		Name: "iam", Icon: "🔐", TypePattern: regexp.MustCompile(`_iam_`), MinCount: 1,
+		EmitAttributes: []string{"project"},
+	}}
+	s := stack(
+		plan.RawChange{Type: "google_storage_bucket_iam_member", Action: model.ActionAdd, Actions: []string{"create"}, Raw: map[string]any{"bucket": "b"}},
+		plan.RawChange{Type: "google_storage_transfer_job", Action: model.ActionAdd, Actions: []string{"create"}, Raw: map[string]any{"project": "p1"}},
+		plan.RawChange{Type: "google_pubsub_topic", Action: model.ActionAdd, Actions: []string{"create"}, Raw: map[string]any{"project": "p2"}},
+	)
+	iam, _ := find(Classify(s, rules), "iam")
+	if v := iam.Attributes["project"]; len(v) != 0 {
+		t.Fatalf("project = %v, want empty (ambiguous stack project → no fallback)", v)
+	}
+}
+
+func TestProjectFallbackDoesNotOverrideExplicitIAMProject(t *testing.T) {
+	rules := []Rule{{
+		Name: "iam", Icon: "🔐", TypePattern: regexp.MustCompile(`_iam_`), MinCount: 1,
+		EmitAttributes: []string{"project"},
+	}}
+	s := stack(
+		plan.RawChange{Type: "google_project_iam_member", Action: model.ActionAdd, Actions: []string{"create"}, Raw: map[string]any{"project": "p1"}},
+		plan.RawChange{Type: "google_storage_transfer_job", Action: model.ActionAdd, Actions: []string{"create"}, Raw: map[string]any{"project": "p1"}},
+	)
+	iam, _ := find(Classify(s, rules), "iam")
+	if !reflect.DeepEqual(iam.Attributes["project"], []string{"p1"}) {
+		t.Fatalf("project = %v, want [p1] (no override)", iam.Attributes["project"])
+	}
+}
