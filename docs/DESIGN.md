@@ -211,7 +211,16 @@ classification {
   # shorthand: `default = "safe"` is equivalent with no icon.
 
   preset "iam" {            # built-in bundle; expands to its rules at this position
-    icon = "🔐"             # optional: override the preset's default glyph
+    icon            = "🔐"  # optional: override the preset's default glyph
+    emit_attributes = ["project"]
+
+    # Per-resource recovery of an emitted attribute the change does not carry
+    # directly (label = the emitted attribute). Optional; repeatable.
+    derive "project" {
+      resource_type_pattern = "^google_storage_(bucket|managed_folder)_iam_"  # optional; default any
+      from_attribute        = "bucket"                                        # required: source scalar
+      pattern               = "^(?P<value>.+)-build-cache$"                   # required: capture (named "value", else group 1)
+    }
   }
 
   rule "destructive" {      # custom rule; interleaves by declaration order
@@ -237,6 +246,8 @@ classification {
   IAM-policy update contributes the `iam` category, not just creates. (The `iam`
   preset leaves `actions` unset by design.)
 - Rules with no matcher fields are catch-alls.
+- A rule/preset may carry `derive` blocks (see *Sidecar JSON → `derive`* below) to
+  recover an emitted attribute a matched change does not carry directly.
 - **Classification considers only changes that mutate the real resource**
   (`add`/`change`/`destroy`/`replace`). Pure state operations — `move`, `import`,
   and `forget` — never contribute to any category, because they make no
@@ -316,6 +327,22 @@ single distinct `project` across all of the stack's changes (any sibling
 resource that carries one). Ambiguous stacks (zero or more than one distinct
 project) emit nothing, so the gate fails closed rather than guessing; an explicit
 value is never overridden.
+
+**`derive` recovers an emit attribute per-resource from another scalar.** The
+stack-project fallback above only resolves when the stack touches a *single*
+project; it fails closed when a projectless IAM resource lives in a stack that
+fans out across several projects (e.g. one CI-pipeline stack granting
+`google_storage_managed_folder_iam_member` on `<project>-build-cache` for dev,
+test and stage at once — three members, none carrying a project, three sibling
+projects → ambiguous). A `derive` block recovers the value from the resource
+itself: for each matched change missing the attribute (and matching the optional
+`resource_type_pattern`), it reads `from_attribute` and applies `pattern`,
+contributing the named `value` capture (else group 1). Being per-resource, each
+member resolves to its own project, so the multi-project case yields the full
+set of targets. `derive` runs **before** the stack-project fallback and never
+overrides a value the change already carries; the repo convention (e.g. the
+`-build-cache` bucket suffix) lives in the repo's `.tfstackplan.hcl`, not in the
+tool.
 
 ## Rendering, the differ, and the size budget
 

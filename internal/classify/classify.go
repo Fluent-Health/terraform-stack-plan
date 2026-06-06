@@ -21,6 +21,20 @@ type Rule struct {
 	Actions        []string       // nil/empty → match any action; else all listed must be present
 	MinCount       int            // minimum matching changes for the rule to fire (treated as 1 if <1)
 	EmitAttributes []string       // attribute names to extract from matched changes
+	Derivations    []Derivation   // per-resource recovery of an emit attribute that is absent
+}
+
+// Derivation recovers an emitted attribute that a matched change does not carry
+// directly, by reading another scalar attribute and pulling a substring from it.
+// It is per-resource (each change derives its own value), so it works for
+// bucket-/folder-scoped IAM in multi-project stacks where the stack-project
+// fallback cannot disambiguate. It never overrides a value the change already
+// carries.
+type Derivation struct {
+	Attribute     string         // emitted attribute this fills, e.g. "project"
+	TypePattern   *regexp.Regexp // restrict to matching resource types; nil → any
+	FromAttribute string         // source scalar attribute to read from the change
+	Pattern       *regexp.Regexp // capture group (named "value", else group 1) yields the value
 }
 
 // Category is one matched rule's outcome: its name, icon, and — for the rule's
@@ -52,7 +66,7 @@ func Classify(s plan.RawStack, rules []Rule) []Category {
 			}
 		}
 		if len(matched) >= min {
-			attrs := extract(matched, r.EmitAttributes)
+			attrs := extract(matched, r.EmitAttributes, r.Derivations)
 			// Stack-project fallback: bucket-scoped IAM (e.g.
 			// google_storage_bucket_iam_member) exposes no project, so a rule that
 			// emits "project" would surface none — and the per-project IAM gate
@@ -127,9 +141,11 @@ func mergeAttrs(a, b map[string][]string) map[string][]string {
 }
 
 // extract collects sorted-unique non-null scalar values of each requested
-// attribute across the matched changes. Returns nil when names is empty or no
-// values were found, so the sidecar omits the field.
-func extract(matched []plan.RawChange, names []string) map[string][]string {
+// attribute across the matched changes. A change that does not carry the
+// attribute directly may still contribute a value via a matching Derivation
+// (per-resource recovery). Returns nil when names is empty or no values were
+// found, so the sidecar omits the field.
+func extract(matched []plan.RawChange, names []string, derivations []Derivation) map[string][]string {
 	if len(names) == 0 {
 		return nil
 	}
@@ -138,11 +154,10 @@ func extract(matched []plan.RawChange, names []string) map[string][]string {
 		seen := map[string]struct{}{}
 		var vals []string
 		for _, c := range matched {
-			v, ok := c.Raw[name]
-			if !ok || v == nil {
+			str, ok := changeAttr(c, name, derivations)
+			if !ok {
 				continue
 			}
-			str := scalarString(v)
 			if _, dup := seen[str]; dup {
 				continue
 			}
@@ -158,6 +173,38 @@ func extract(matched []plan.RawChange, names []string) map[string][]string {
 		return nil
 	}
 	return out
+}
+
+// changeAttr returns the value of attribute name for one change: the change's
+// own scalar when present, else a value recovered via a matching Derivation.
+// ok is false when neither yields a value.
+func changeAttr(c plan.RawChange, name string, derivations []Derivation) (string, bool) {
+	if v, ok := c.Raw[name]; ok && v != nil {
+		return scalarString(v), true
+	}
+	for _, d := range derivations {
+		if d.Attribute != name {
+			continue
+		}
+		if d.TypePattern != nil && !d.TypePattern.MatchString(c.Type) {
+			continue
+		}
+		src, ok := c.Raw[d.FromAttribute].(string)
+		if !ok || d.Pattern == nil {
+			continue
+		}
+		m := d.Pattern.FindStringSubmatch(src)
+		if m == nil {
+			continue
+		}
+		if i := d.Pattern.SubexpIndex("value"); i > 0 && m[i] != "" {
+			return m[i], true
+		}
+		if len(m) > 1 && m[1] != "" {
+			return m[1], true
+		}
+	}
+	return "", false
 }
 
 // wantsProject reports whether "project" is among the requested attributes.
