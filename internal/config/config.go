@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
@@ -104,16 +105,65 @@ type defaultBlock struct {
 }
 
 type ruleBody struct {
-	Icon           string   `hcl:"icon,optional"`
-	TypePattern    string   `hcl:"resource_type_pattern,optional"`
-	Actions        []string `hcl:"actions,optional"`
-	MinCount       int      `hcl:"min_count,optional"`
-	EmitAttributes []string `hcl:"emit_attributes,optional"`
+	Icon           string        `hcl:"icon,optional"`
+	TypePattern    string        `hcl:"resource_type_pattern,optional"`
+	Actions        []string      `hcl:"actions,optional"`
+	MinCount       int           `hcl:"min_count,optional"`
+	EmitAttributes []string      `hcl:"emit_attributes,optional"`
+	Derive         []deriveBlock `hcl:"derive,block"`
 }
 
 type presetBody struct {
-	Icon           string   `hcl:"icon,optional"`
-	EmitAttributes []string `hcl:"emit_attributes,optional"`
+	Icon           string        `hcl:"icon,optional"`
+	EmitAttributes []string      `hcl:"emit_attributes,optional"`
+	Derive         []deriveBlock `hcl:"derive,block"`
+}
+
+// deriveBlock recovers an emit attribute that a matched change does not carry,
+// by reading another scalar and pulling a capture from it. The single label is
+// the emit attribute filled (e.g. `derive "project" { ... }`).
+type deriveBlock struct {
+	Attribute     string `hcl:"attribute,label"`
+	TypePattern   string `hcl:"resource_type_pattern,optional"`
+	FromAttribute string `hcl:"from_attribute"`
+	Pattern       string `hcl:"pattern"`
+}
+
+// buildDerivations compiles the derive blocks of one preset/rule (named by
+// label for error context) into classify.Derivations, validating each.
+func buildDerivations(label string, blocks []deriveBlock) ([]classify.Derivation, error) {
+	if len(blocks) == 0 {
+		return nil, nil
+	}
+	out := make([]classify.Derivation, 0, len(blocks))
+	for _, b := range blocks {
+		if b.Attribute == "" {
+			return nil, fmt.Errorf("%s: derive block needs an attribute label", label)
+		}
+		if b.FromAttribute == "" {
+			return nil, fmt.Errorf("%s: derive %q: from_attribute is required", label, b.Attribute)
+		}
+		if b.Pattern == "" {
+			return nil, fmt.Errorf("%s: derive %q: pattern is required", label, b.Attribute)
+		}
+		pat, err := regexp.Compile(b.Pattern)
+		if err != nil {
+			return nil, fmt.Errorf("%s: derive %q: bad pattern: %w", label, b.Attribute, err)
+		}
+		if pat.NumSubexp() == 0 {
+			return nil, fmt.Errorf("%s: derive %q: pattern needs a capture group", label, b.Attribute)
+		}
+		d := classify.Derivation{Attribute: b.Attribute, FromAttribute: b.FromAttribute, Pattern: pat}
+		if b.TypePattern != "" {
+			tp, err := regexp.Compile(b.TypePattern)
+			if err != nil {
+				return nil, fmt.Errorf("%s: derive %q: bad resource_type_pattern: %w", label, b.Attribute, err)
+			}
+			d.TypePattern = tp
+		}
+		out = append(out, d)
+	}
+	return out, nil
 }
 
 func decodeClassification(blk *hclsyntax.Block) (*Classification, error) {
@@ -148,6 +198,11 @@ func decodeClassification(blk *hclsyntax.Block) (*Classification, error) {
 			if !ok {
 				return nil, fmt.Errorf("unknown preset %q (available: %v)", b.Labels[0], presets.Names)
 			}
+			ds, err := buildDerivations("preset "+strconv.Quote(b.Labels[0]), pb.Derive)
+			if err != nil {
+				return nil, err
+			}
+			rule.Derivations = ds
 			cl.Rules = append(cl.Rules, rule)
 		case "rule":
 			if len(b.Labels) != 1 {
@@ -165,6 +220,11 @@ func decodeClassification(blk *hclsyntax.Block) (*Classification, error) {
 				}
 				rule.TypePattern = re
 			}
+			ds, err := buildDerivations("rule "+strconv.Quote(b.Labels[0]), rb.Derive)
+			if err != nil {
+				return nil, err
+			}
+			rule.Derivations = ds
 			cl.Rules = append(cl.Rules, rule)
 		default:
 			return nil, fmt.Errorf("classification: unknown block %q", b.Type)

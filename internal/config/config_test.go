@@ -47,6 +47,41 @@ func TestLoadShorthandDefault(t *testing.T) {
 	}
 }
 
+func TestLoadPresetWithDerive(t *testing.T) {
+	c, err := Load("testdata/derive.hcl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(c.Classification.Rules) != 1 {
+		t.Fatalf("expected 1 rule, got %d", len(c.Classification.Rules))
+	}
+	r := c.Classification.Rules[0]
+	if len(r.Derivations) != 1 {
+		t.Fatalf("expected 1 derivation, got %d", len(r.Derivations))
+	}
+	d := r.Derivations[0]
+	if d.Attribute != "project" || d.FromAttribute != "bucket" {
+		t.Fatalf("derivation = %+v, want attribute=project from=bucket", d)
+	}
+	if d.TypePattern == nil || !d.TypePattern.MatchString("google_storage_managed_folder_iam_member") {
+		t.Fatalf("type pattern did not match managed_folder member")
+	}
+	if d.Pattern == nil {
+		t.Fatal("nil pattern")
+	}
+	m := d.Pattern.FindStringSubmatch("fh-dev-svc-build-cache")
+	if m == nil || m[d.Pattern.SubexpIndex("value")] != "fh-dev-svc" {
+		t.Fatalf("pattern capture = %v, want fh-dev-svc", m)
+	}
+}
+
+func TestDeriveBadPatternFails(t *testing.T) {
+	_, err := Load("testdata/derive_badpattern.hcl")
+	if err == nil || !strings.Contains(err.Error(), "pattern") {
+		t.Fatalf("expected bad-pattern error, got %v", err)
+	}
+}
+
 func TestUnknownPresetFails(t *testing.T) {
 	_, err := Load("testdata/badpreset.hcl")
 	if err == nil || !strings.Contains(err.Error(), "does-not-exist") {

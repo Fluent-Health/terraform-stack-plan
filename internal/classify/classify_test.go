@@ -269,3 +269,101 @@ func TestProjectFallbackDoesNotOverrideExplicitIAMProject(t *testing.T) {
 		t.Fatalf("project = %v, want [p1] (no override)", iam.Attributes["project"])
 	}
 }
+
+// buildCacheDerivation recovers the project per-resource from a
+// "<project>-build-cache" bucket name — the case stack-project fallback cannot
+// handle when the stack spans multiple projects (each member is in its own).
+func buildCacheDerivation() Derivation {
+	return Derivation{
+		Attribute:     "project",
+		TypePattern:   regexp.MustCompile(`^google_storage_(bucket|managed_folder)_iam_`),
+		FromAttribute: "bucket",
+		Pattern:       regexp.MustCompile(`^(?P<value>.+)-build-cache$`),
+	}
+}
+
+// TestProjectDerivationFromAttributePerResource is the build_cache fix: three
+// projectless managed-folder members in distinct projects, with NO sibling
+// carrying a project. Per-resource derivation must surface all three (the
+// stack-project fallback would yield "" — ambiguous/none — and fail closed).
+func TestProjectDerivationFromAttributePerResource(t *testing.T) {
+	rules := []Rule{{
+		Name: "iam", Icon: "🔐", TypePattern: regexp.MustCompile(`_iam_`), MinCount: 1,
+		EmitAttributes: []string{"project"},
+		Derivations:    []Derivation{buildCacheDerivation()},
+	}}
+	s := stack(
+		plan.RawChange{Type: "google_storage_managed_folder_iam_member", Action: model.ActionAdd, Actions: []string{"create"}, Raw: map[string]any{"bucket": "fh-dev-svc-build-cache"}},
+		plan.RawChange{Type: "google_storage_managed_folder_iam_member", Action: model.ActionAdd, Actions: []string{"create"}, Raw: map[string]any{"bucket": "fh-test-svc-build-cache"}},
+		plan.RawChange{Type: "google_storage_managed_folder_iam_member", Action: model.ActionAdd, Actions: []string{"create"}, Raw: map[string]any{"bucket": "fh-stage-svc-build-cache"}},
+	)
+	iam, ok := find(Classify(s, rules), "iam")
+	if !ok {
+		t.Fatal("expected iam category")
+	}
+	want := []string{"fh-dev-svc", "fh-stage-svc", "fh-test-svc"}
+	if !reflect.DeepEqual(iam.Attributes["project"], want) {
+		t.Fatalf("project = %v, want %v", iam.Attributes["project"], want)
+	}
+}
+
+// TestProjectDerivationDoesNotOverrideExplicit: an explicit project on the
+// change wins; the derivable bucket is never consulted for that change.
+func TestProjectDerivationDoesNotOverrideExplicit(t *testing.T) {
+	rules := []Rule{{
+		Name: "iam", TypePattern: regexp.MustCompile(`_iam_`), MinCount: 1,
+		EmitAttributes: []string{"project"},
+		Derivations:    []Derivation{buildCacheDerivation()},
+	}}
+	s := stack(plan.RawChange{
+		Type: "google_storage_bucket_iam_member", Action: model.ActionAdd, Actions: []string{"create"},
+		Raw: map[string]any{"project": "p1", "bucket": "p2-build-cache"},
+	})
+	iam, _ := find(Classify(s, rules), "iam")
+	if !reflect.DeepEqual(iam.Attributes["project"], []string{"p1"}) {
+		t.Fatalf("project = %v, want [p1] (explicit wins; bucket-derived p2 absent)", iam.Attributes["project"])
+	}
+}
+
+// TestProjectDerivationRespectsTypePattern: a derivation scoped by
+// resource_type_pattern does not apply to non-matching resource types.
+func TestProjectDerivationRespectsTypePattern(t *testing.T) {
+	rules := []Rule{{
+		Name: "iam", TypePattern: regexp.MustCompile(`_iam_`), MinCount: 1,
+		EmitAttributes: []string{"project"},
+		Derivations: []Derivation{{
+			Attribute:     "project",
+			TypePattern:   regexp.MustCompile(`^google_storage_managed_folder_iam_`),
+			FromAttribute: "bucket",
+			Pattern:       regexp.MustCompile(`^(?P<value>.+)-build-cache$`),
+		}},
+	}}
+	// bucket member matches the iam rule but NOT the derivation's narrower type pattern.
+	s := stack(plan.RawChange{
+		Type: "google_storage_bucket_iam_member", Action: model.ActionAdd, Actions: []string{"create"},
+		Raw: map[string]any{"bucket": "fh-dev-svc-build-cache"},
+	})
+	iam, _ := find(Classify(s, rules), "iam")
+	if v := iam.Attributes["project"]; len(v) != 0 {
+		t.Fatalf("project = %v, want empty (derivation type pattern excludes this resource)", v)
+	}
+}
+
+// TestProjectDerivationFallsBackToStackProjectWhenUnmatched: when the
+// derivation's pattern does not match, the stack-project fallback still fills
+// project from a single sibling — derivation precedes, fallback backstops.
+func TestProjectDerivationFallsBackToStackProjectWhenUnmatched(t *testing.T) {
+	rules := []Rule{{
+		Name: "iam", TypePattern: regexp.MustCompile(`_iam_`), MinCount: 1,
+		EmitAttributes: []string{"project"},
+		Derivations:    []Derivation{buildCacheDerivation()},
+	}}
+	s := stack(
+		plan.RawChange{Type: "google_storage_bucket_iam_member", Action: model.ActionAdd, Actions: []string{"create"}, Raw: map[string]any{"bucket": "fh-dev-svc-cms"}},
+		plan.RawChange{Type: "google_storage_transfer_job", Action: model.ActionAdd, Actions: []string{"create"}, Raw: map[string]any{"project": "fh-dev-svc"}},
+	)
+	iam, _ := find(Classify(s, rules), "iam")
+	if !reflect.DeepEqual(iam.Attributes["project"], []string{"fh-dev-svc"}) {
+		t.Fatalf("project = %v, want [fh-dev-svc] (stack fallback when derivation unmatched)", iam.Attributes["project"])
+	}
+}
