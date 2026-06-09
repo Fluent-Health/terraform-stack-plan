@@ -322,6 +322,154 @@ classification {
 	}
 }
 
+// TestRunStateMoves is the end-to-end golden for --state-moves.
+//
+// A single stack has two google_project_iam_member creates:
+//   - module.moved.google_project_iam_member.a  in project p-moved  (listed as a move-target)
+//   - module.real.google_project_iam_member.b   in project p-real   (genuine create)
+//
+// WITH --state-moves the move-target must be excluded from the iam gate; only
+// p-real appears in the sidecar.  WITHOUT --state-moves (the absent-flag
+// fail-safe) both projects appear — proving the flag is what excludes it.
+func TestRunStateMoves(t *testing.T) {
+	const stackName = "service-projects/migrated"
+
+	// Plan has two IAM creates, each with a distinct project attribute.
+	twoIAMCreates := `{
+  "format_version": "1.2",
+  "resource_changes": [
+    {"address":"module.moved.google_project_iam_member.a","type":"google_project_iam_member","name":"a",
+     "change":{"actions":["create"],"before":null,"after":{"role":"roles/viewer","project":"p-moved"},
+       "after_unknown":{},"before_sensitive":{},"after_sensitive":{}}},
+    {"address":"module.real.google_project_iam_member.b","type":"google_project_iam_member","name":"b",
+     "change":{"actions":["create"],"before":null,"after":{"role":"roles/viewer","project":"p-real"},
+       "after_unknown":{},"before_sensitive":{},"after_sensitive":{}}}
+  ]
+}`
+
+	cfg := `
+classification {
+  default {
+    name = "safe"
+    icon = "✅"
+  }
+  preset "iam" {
+    icon            = "🔐"
+    emit_attributes = ["project"]
+  }
+}
+`
+
+	t.Run("with_state_moves", func(t *testing.T) {
+		dir := t.TempDir()
+		plansDir := filepath.Join(dir, "out")
+		writePlan(t, plansDir, stackName, twoIAMCreates)
+		cfgPath := filepath.Join(dir, "cfg.hcl")
+		classOut := filepath.Join(dir, "classes.json")
+		movesFile := filepath.Join(dir, "moves.json")
+		if err := os.WriteFile(cfgPath, []byte(cfg), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		// Move-target manifest: the .a address is a cross-state move-target.
+		movesJSON := `{"` + stackName + `":["module.moved.google_project_iam_member.a"]}`
+		if err := os.WriteFile(movesFile, []byte(movesJSON), 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		_, _, err := run(opts{
+			plansDir:   plansDir,
+			config:     cfgPath,
+			maxBytes:   60000,
+			classJSON:  classOut,
+			details:    "closed",
+			stateMoves: movesFile,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		data, err := os.ReadFile(classOut)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got sidecarDoc
+		if err := json.Unmarshal(data, &got); err != nil {
+			t.Fatal(err)
+		}
+
+		cats := got.Stacks[stackName].Categories
+		if len(cats) != 1 || cats[0].Category != "iam" {
+			t.Fatalf("with state-moves: categories = %+v, want [iam]", cats)
+		}
+		proj := cats[0].Attributes["project"]
+		// p-real must appear: it is a genuine create.
+		found := false
+		for _, p := range proj {
+			if p == "p-real" {
+				found = true
+			}
+			// p-moved must NOT appear: it is a move-target.
+			if p == "p-moved" {
+				t.Fatalf("with state-moves: p-moved must be excluded from iam gate; got projects=%v", proj)
+			}
+		}
+		if !found {
+			t.Fatalf("with state-moves: p-real must be included in iam gate; got projects=%v", proj)
+		}
+	})
+
+	t.Run("without_state_moves", func(t *testing.T) {
+		dir := t.TempDir()
+		plansDir := filepath.Join(dir, "out")
+		writePlan(t, plansDir, stackName, twoIAMCreates)
+		cfgPath := filepath.Join(dir, "cfg.hcl")
+		classOut := filepath.Join(dir, "classes.json")
+		if err := os.WriteFile(cfgPath, []byte(cfg), 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		// No stateMoves set — absent flag is fail-safe: classification unchanged.
+		_, _, err := run(opts{
+			plansDir:  plansDir,
+			config:    cfgPath,
+			maxBytes:  60000,
+			classJSON: classOut,
+			details:   "closed",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		data, err := os.ReadFile(classOut)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got sidecarDoc
+		if err := json.Unmarshal(data, &got); err != nil {
+			t.Fatal(err)
+		}
+
+		cats := got.Stacks[stackName].Categories
+		if len(cats) != 1 || cats[0].Category != "iam" {
+			t.Fatalf("without state-moves: categories = %+v, want [iam]", cats)
+		}
+		proj := cats[0].Attributes["project"]
+		// Both projects must appear when no state-moves manifest is supplied.
+		hasMovedProject, hasRealProject := false, false
+		for _, p := range proj {
+			if p == "p-moved" {
+				hasMovedProject = true
+			}
+			if p == "p-real" {
+				hasRealProject = true
+			}
+		}
+		if !hasMovedProject || !hasRealProject {
+			t.Fatalf("without state-moves: both p-moved and p-real must appear; got projects=%v", proj)
+		}
+	})
+}
+
 func TestRunEmptyPlansDir(t *testing.T) {
 	dir := t.TempDir()
 	plansDir := filepath.Join(dir, "out")
