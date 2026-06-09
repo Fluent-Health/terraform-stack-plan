@@ -8,11 +8,30 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 )
 
 type Set map[string]bool
 
 func (s Set) Len() int { return len(s) }
+
+// Covers reports whether addr is a pending move-target — either an exact match,
+// or a resource nested under a moved module/resource target (a "target." prefix).
+// A whole-module move (target "module.x") thus covers every planned child it
+// produces ("module.x.google_project_iam_member.y", …), which is the granularity
+// terraform plans actually surface (there is no bare "module.x" change). The "."
+// boundary keeps "module.x" from matching a sibling "module.x_other".
+func (s Set) Covers(addr string) bool {
+	if s[addr] {
+		return true
+	}
+	for t := range s {
+		if strings.HasPrefix(addr, t+".") {
+			return true
+		}
+	}
+	return false
+}
 
 type Manifest struct{ byStack map[string]Set }
 

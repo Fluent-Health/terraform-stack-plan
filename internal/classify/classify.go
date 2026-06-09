@@ -59,9 +59,10 @@ func Classify(s plan.RawStack, rules []Rule, moveTargets statemoves.Set) []Categ
 		}
 		var matched []plan.RawChange
 		for _, c := range s.Changes {
-			if !c.Action.Mutates() || moveTargets[c.Address] {
+			if !c.Action.Mutates() || moveTargets.Covers(c.Address) {
 				continue // non-mutating OR a pending cross-state move-target (--state-moves):
 				// a "create" that is really a relocation — classify like an in-stack move.
+				// Covers matches module-level targets against their planned children.
 			}
 			if ruleMatchesChange(r, c) {
 				matched = append(matched, c)
