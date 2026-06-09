@@ -11,6 +11,7 @@ import (
 	"strconv"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/plan"
+	"github.com/Fluent-Health/terraform-stack-plan/internal/statemoves"
 )
 
 // Rule is a single classification rule with a deliberately small matcher.
@@ -49,7 +50,7 @@ type Category struct {
 // Classify returns a Category for every rule that matches enough changes, in
 // rule order. The slice is empty when no rule fires — the caller supplies the
 // display fallback. Rules are independent; there is no first-match-wins.
-func Classify(s plan.RawStack, rules []Rule) []Category {
+func Classify(s plan.RawStack, rules []Rule, moveTargets statemoves.Set) []Category {
 	var cats []Category
 	for _, r := range rules {
 		min := r.MinCount
@@ -58,8 +59,9 @@ func Classify(s plan.RawStack, rules []Rule) []Category {
 		}
 		var matched []plan.RawChange
 		for _, c := range s.Changes {
-			if !c.Action.Mutates() {
-				continue // pure move/import/forget: no apply-time mutation to classify
+			if !c.Action.Mutates() || moveTargets[c.Address] {
+				continue // non-mutating OR a pending cross-state move-target (--state-moves):
+				// a "create" that is really a relocation — classify like an in-stack move.
 			}
 			if ruleMatchesChange(r, c) {
 				matched = append(matched, c)
