@@ -303,7 +303,13 @@ func resourceSummary(c model.Change) string {
 	case c.Action == model.ActionForget:
 		glyph, meta = glyphForget, fmt.Sprintf("forgotten · %d attrs", n)
 	case c.Moved:
-		glyph, meta = glyphMoved, "moved from "+c.PreviousAddress
+		// In-stack moves carry the old address; a cross-state move (--state-moves)
+		// adopts the resource from another state file and has none.
+		if c.PreviousAddress != "" {
+			glyph, meta = glyphMoved, "moved from "+c.PreviousAddress
+		} else {
+			glyph, meta = glyphMoved, "moved in (cross-state)"
+		}
 		if n > 0 {
 			meta += fmt.Sprintf(", %d changed", n)
 		}
