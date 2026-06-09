@@ -213,6 +213,27 @@ func TestClassify_allMoveTargets_noCategory(t *testing.T) {
 	}
 }
 
+// TestClassify_skipsModuleLevelMoveTarget: state-mover emits a whole-MODULE
+// target (a `terraform state mv module.x module.y` moves the module), but the
+// destination plan shows the module's CHILD resources as creates. A module-level
+// target must cover those children so a moved-in pipeline stack stays non-iam —
+// the real content-library pilot shape.
+func TestClassify_skipsModuleLevelMoveTarget(t *testing.T) {
+	rules := []Rule{{
+		Name: "iam", Icon: "🔐",
+		TypePattern: regexp.MustCompile("^google_project_iam_member$"),
+		MinCount:    1,
+	}}
+	s := stack(
+		plan.RawChange{Address: "module.content_library.google_project_iam_member.editor", Type: "google_project_iam_member", Action: model.ActionAdd, Actions: []string{"create"}, Raw: map[string]any{"project": "p-move"}},
+		plan.RawChange{Address: "module.content_library.google_project_iam_member.viewer", Type: "google_project_iam_member", Action: model.ActionAdd, Actions: []string{"create"}, Raw: map[string]any{"project": "p-move"}},
+	)
+	moveTargets := statemoves.Set{"module.content_library": true} // module-level
+	if got := Classify(s, rules, moveTargets); len(got) != 0 {
+		t.Fatalf("a module-level move-target must cover its child creates → no iam, got %+v", got)
+	}
+}
+
 // TestMutatingChangeStillClassifiesWhenAlsoMoved confirms the move annotation
 // does not suppress a real mutation: an updated-and-moved IAM binding still
 // needs the grant, so it must classify.
