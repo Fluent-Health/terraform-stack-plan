@@ -7,6 +7,7 @@ import (
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/model"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/plan"
+	"github.com/Fluent-Health/terraform-stack-plan/internal/statemoves"
 )
 
 func stack(changes ...plan.RawChange) plan.RawStack {
@@ -30,7 +31,7 @@ func TestAllMatchingRulesFire(t *testing.T) {
 	}
 	// A deleted IAM member matches BOTH rules.
 	s := stack(plan.RawChange{Type: "google_project_iam_member", Action: model.ActionDestroy, Actions: []string{"delete"}})
-	got := Classify(s, rules)
+	got := Classify(s, rules, nil)
 	if len(got) != 2 {
 		t.Fatalf("expected 2 categories, got %d: %+v", len(got), got)
 	}
@@ -41,7 +42,7 @@ func TestAllMatchingRulesFire(t *testing.T) {
 
 func TestNoMatchYieldsEmpty(t *testing.T) {
 	rules := []Rule{{Name: "iam", TypePattern: regexp.MustCompile(`_iam_`), MinCount: 1}}
-	got := Classify(stack(plan.RawChange{Type: "google_storage_bucket", Action: model.ActionAdd, Actions: []string{"create"}}), rules)
+	got := Classify(stack(plan.RawChange{Type: "google_storage_bucket", Action: model.ActionAdd, Actions: []string{"create"}}), rules, nil)
 	if len(got) != 0 {
 		t.Fatalf("no match should yield empty slice, got %+v", got)
 	}
@@ -49,14 +50,14 @@ func TestNoMatchYieldsEmpty(t *testing.T) {
 
 func TestActionsAndMinCount(t *testing.T) {
 	rules := []Rule{{Name: "destructive", Actions: []string{"delete"}, MinCount: 2}}
-	if cats := Classify(stack(plan.RawChange{Type: "x", Action: model.ActionDestroy, Actions: []string{"delete"}}), rules); len(cats) != 0 {
+	if cats := Classify(stack(plan.RawChange{Type: "x", Action: model.ActionDestroy, Actions: []string{"delete"}}), rules, nil); len(cats) != 0 {
 		t.Fatalf("one delete must not meet min_count 2, got %+v", cats)
 	}
 	two := stack(
 		plan.RawChange{Type: "x", Action: model.ActionDestroy, Actions: []string{"delete"}},
 		plan.RawChange{Type: "y", Action: model.ActionDestroy, Actions: []string{"delete"}},
 	)
-	if _, ok := find(Classify(two, rules), "destructive"); !ok {
+	if _, ok := find(Classify(two, rules, nil), "destructive"); !ok {
 		t.Fatal("two deletes should meet min_count 2")
 	}
 }
@@ -70,7 +71,7 @@ func TestEmitAttributesFromMatchedChangesOnly(t *testing.T) {
 		plan.RawChange{Type: "google_project_iam_member", Action: model.ActionChange, Actions: []string{"update"}, Raw: map[string]any{"project": "p1"}},
 		plan.RawChange{Type: "google_storage_bucket", Action: model.ActionAdd, Actions: []string{"create"}, Raw: map[string]any{"project": "p2"}},
 	)
-	iam, ok := find(Classify(s, rules), "iam")
+	iam, ok := find(Classify(s, rules, nil), "iam")
 	if !ok {
 		t.Fatal("expected iam category")
 	}
@@ -89,7 +90,7 @@ func TestEmitAttributesDedupeAndSort(t *testing.T) {
 		plan.RawChange{Type: "google_project_iam_member", Action: model.ActionAdd, Actions: []string{"create"}, Raw: map[string]any{"project": "p1"}},
 		plan.RawChange{Type: "google_project_iam_member", Action: model.ActionAdd, Actions: []string{"create"}, Raw: map[string]any{"project": "p2"}},
 	)
-	iam, _ := find(Classify(s, rules), "iam")
+	iam, _ := find(Classify(s, rules, nil), "iam")
 	if !reflect.DeepEqual(iam.Attributes["project"], []string{"p1", "p2"}) {
 		t.Fatalf("project = %v, want [p1 p2]", iam.Attributes["project"])
 	}
@@ -99,7 +100,7 @@ func TestEmitAttributesNilWhenNoneConfigured(t *testing.T) {
 	rules := []Rule{{Name: "iam", TypePattern: regexp.MustCompile(`_iam_`), MinCount: 1}}
 	iam, _ := find(Classify(
 		stack(plan.RawChange{Type: "google_project_iam_member", Action: model.ActionAdd, Actions: []string{"create"}, Raw: map[string]any{"project": "p1"}}),
-		rules), "iam")
+		rules, nil), "iam")
 	if iam.Attributes != nil {
 		t.Fatalf("Attributes = %v, want nil when no emit_attributes", iam.Attributes)
 	}
@@ -112,7 +113,7 @@ func TestEmitAttributesNilWhenNoValuesFound(t *testing.T) {
 	}}
 	iam, ok := find(Classify(
 		stack(plan.RawChange{Type: "google_organization_iam_binding", Action: model.ActionAdd, Actions: []string{"create"}, Raw: map[string]any{"role": "roles/x"}}),
-		rules), "iam")
+		rules, nil), "iam")
 	if !ok {
 		t.Fatal("expected iam category")
 	}
@@ -130,7 +131,7 @@ func TestEmitMultipleAttributes(t *testing.T) {
 		plan.RawChange{Type: "google_project_iam_member", Action: model.ActionAdd, Actions: []string{"create"}, Raw: map[string]any{"project": "p1", "role": "roles/viewer"}},
 		plan.RawChange{Type: "google_project_iam_member", Action: model.ActionAdd, Actions: []string{"create"}, Raw: map[string]any{"project": "p2", "role": "roles/viewer"}},
 	)
-	iam, _ := find(Classify(s, rules), "iam")
+	iam, _ := find(Classify(s, rules, nil), "iam")
 	if !reflect.DeepEqual(iam.Attributes["project"], []string{"p1", "p2"}) {
 		t.Errorf("project = %v, want [p1 p2]", iam.Attributes["project"])
 	}
@@ -146,7 +147,7 @@ func TestBelowMinCountDoesNotFire(t *testing.T) {
 	}}
 	got := Classify(
 		stack(plan.RawChange{Type: "google_project_iam_member", Action: model.ActionAdd, Actions: []string{"create"}, Raw: map[string]any{"project": "p1"}}),
-		rules)
+		rules, nil)
 	if len(got) != 0 {
 		t.Fatalf("rule below MinCount must not fire, got %+v", got)
 	}
@@ -166,9 +167,49 @@ func TestStateOpsDoNotClassify(t *testing.T) {
 		{"forget", plan.RawChange{Type: "google_project_iam_member", Action: model.ActionForget, Actions: []string{"forget"}}},
 	}
 	for _, c := range cases {
-		if got := Classify(stack(c.ch), rules); len(got) != 0 {
+		if got := Classify(stack(c.ch), rules, nil); len(got) != 0 {
 			t.Errorf("%s: pure state-op must not classify, got %+v", c.name, got)
 		}
+	}
+}
+
+// TestClassify_skipsMoveTargets: a planned create that is a pending cross-state
+// move-target is skipped, so the iam rule fires only from the sibling real create.
+func TestClassify_skipsMoveTargets(t *testing.T) {
+	rules := []Rule{{
+		Name: "iam", Icon: "🔐",
+		TypePattern:    regexp.MustCompile("^google_project_iam_member$"),
+		MinCount:       1,
+		EmitAttributes: []string{"project"},
+	}}
+	s := stack(
+		plan.RawChange{Address: "module.cl.google_project_iam_member.x", Type: "google_project_iam_member", Action: model.ActionAdd, Actions: []string{"create"}, Raw: map[string]any{"project": "p-move"}},
+		plan.RawChange{Address: "module.other.google_project_iam_member.y", Type: "google_project_iam_member", Action: model.ActionAdd, Actions: []string{"create"}, Raw: map[string]any{"project": "p-real"}},
+	)
+	moveTargets := statemoves.Set{"module.cl.google_project_iam_member.x": true}
+	iam, ok := find(Classify(s, rules, moveTargets), "iam")
+	if !ok {
+		t.Fatal("expected iam category from the non-move create")
+	}
+	if !reflect.DeepEqual(iam.Attributes["project"], []string{"p-real"}) {
+		t.Fatalf("project = %v, want [p-real] (move-target's p-move must NOT appear)", iam.Attributes["project"])
+	}
+}
+
+// TestClassify_allMoveTargets_noCategory: when the only create is a move-target,
+// nothing mutates and no category fires.
+func TestClassify_allMoveTargets_noCategory(t *testing.T) {
+	rules := []Rule{{
+		Name: "iam", Icon: "🔐",
+		TypePattern: regexp.MustCompile("^google_project_iam_member$"),
+		MinCount:    1,
+	}}
+	s := stack(
+		plan.RawChange{Address: "module.cl.google_project_iam_member.x", Type: "google_project_iam_member", Action: model.ActionAdd, Actions: []string{"create"}, Raw: map[string]any{"project": "p-move"}},
+	)
+	moveTargets := statemoves.Set{"module.cl.google_project_iam_member.x": true}
+	if got := Classify(s, rules, moveTargets); len(got) != 0 {
+		t.Fatalf("a move-only stack must classify to nothing, got %+v", got)
 	}
 }
 
@@ -181,7 +222,7 @@ func TestMutatingChangeStillClassifiesWhenAlsoMoved(t *testing.T) {
 		Type: "google_project_iam_member", Action: model.ActionChange, Actions: []string{"update"},
 		Moved: true, PreviousAddress: "google_project_iam_member.old",
 	})
-	if _, ok := find(Classify(s, rules), "iam"); !ok {
+	if _, ok := find(Classify(s, rules, nil), "iam"); !ok {
 		t.Fatal("update+move IAM change must still classify as iam")
 	}
 }
@@ -230,7 +271,7 @@ func TestProjectFallbackToStackProjectForProjectlessIAM(t *testing.T) {
 		plan.RawChange{Type: "google_storage_bucket_iam_member", Action: model.ActionAdd, Actions: []string{"create"}, Raw: map[string]any{"bucket": "fh-dev-svc-cms", "role": "roles/storage.objectViewer"}},
 		plan.RawChange{Type: "google_storage_transfer_job", Action: model.ActionAdd, Actions: []string{"create"}, Raw: map[string]any{"project": "fh-dev-svc"}},
 	)
-	iam, ok := find(Classify(s, rules), "iam")
+	iam, ok := find(Classify(s, rules, nil), "iam")
 	if !ok {
 		t.Fatal("expected iam category")
 	}
@@ -249,7 +290,7 @@ func TestProjectFallbackSkippedWhenStackProjectAmbiguous(t *testing.T) {
 		plan.RawChange{Type: "google_storage_transfer_job", Action: model.ActionAdd, Actions: []string{"create"}, Raw: map[string]any{"project": "p1"}},
 		plan.RawChange{Type: "google_pubsub_topic", Action: model.ActionAdd, Actions: []string{"create"}, Raw: map[string]any{"project": "p2"}},
 	)
-	iam, _ := find(Classify(s, rules), "iam")
+	iam, _ := find(Classify(s, rules, nil), "iam")
 	if v := iam.Attributes["project"]; len(v) != 0 {
 		t.Fatalf("project = %v, want empty (ambiguous stack project → no fallback)", v)
 	}
@@ -264,7 +305,7 @@ func TestProjectFallbackDoesNotOverrideExplicitIAMProject(t *testing.T) {
 		plan.RawChange{Type: "google_project_iam_member", Action: model.ActionAdd, Actions: []string{"create"}, Raw: map[string]any{"project": "p1"}},
 		plan.RawChange{Type: "google_storage_transfer_job", Action: model.ActionAdd, Actions: []string{"create"}, Raw: map[string]any{"project": "p1"}},
 	)
-	iam, _ := find(Classify(s, rules), "iam")
+	iam, _ := find(Classify(s, rules, nil), "iam")
 	if !reflect.DeepEqual(iam.Attributes["project"], []string{"p1"}) {
 		t.Fatalf("project = %v, want [p1] (no override)", iam.Attributes["project"])
 	}
@@ -297,7 +338,7 @@ func TestProjectDerivationFromAttributePerResource(t *testing.T) {
 		plan.RawChange{Type: "google_storage_managed_folder_iam_member", Action: model.ActionAdd, Actions: []string{"create"}, Raw: map[string]any{"bucket": "fh-test-svc-build-cache"}},
 		plan.RawChange{Type: "google_storage_managed_folder_iam_member", Action: model.ActionAdd, Actions: []string{"create"}, Raw: map[string]any{"bucket": "fh-stage-svc-build-cache"}},
 	)
-	iam, ok := find(Classify(s, rules), "iam")
+	iam, ok := find(Classify(s, rules, nil), "iam")
 	if !ok {
 		t.Fatal("expected iam category")
 	}
@@ -319,7 +360,7 @@ func TestProjectDerivationDoesNotOverrideExplicit(t *testing.T) {
 		Type: "google_storage_bucket_iam_member", Action: model.ActionAdd, Actions: []string{"create"},
 		Raw: map[string]any{"project": "p1", "bucket": "p2-build-cache"},
 	})
-	iam, _ := find(Classify(s, rules), "iam")
+	iam, _ := find(Classify(s, rules, nil), "iam")
 	if !reflect.DeepEqual(iam.Attributes["project"], []string{"p1"}) {
 		t.Fatalf("project = %v, want [p1] (explicit wins; bucket-derived p2 absent)", iam.Attributes["project"])
 	}
@@ -343,7 +384,7 @@ func TestProjectDerivationRespectsTypePattern(t *testing.T) {
 		Type: "google_storage_bucket_iam_member", Action: model.ActionAdd, Actions: []string{"create"},
 		Raw: map[string]any{"bucket": "fh-dev-svc-build-cache"},
 	})
-	iam, _ := find(Classify(s, rules), "iam")
+	iam, _ := find(Classify(s, rules, nil), "iam")
 	if v := iam.Attributes["project"]; len(v) != 0 {
 		t.Fatalf("project = %v, want empty (derivation type pattern excludes this resource)", v)
 	}
@@ -362,7 +403,7 @@ func TestProjectDerivationFallsBackToStackProjectWhenUnmatched(t *testing.T) {
 		plan.RawChange{Type: "google_storage_bucket_iam_member", Action: model.ActionAdd, Actions: []string{"create"}, Raw: map[string]any{"bucket": "fh-dev-svc-cms"}},
 		plan.RawChange{Type: "google_storage_transfer_job", Action: model.ActionAdd, Actions: []string{"create"}, Raw: map[string]any{"project": "fh-dev-svc"}},
 	)
-	iam, _ := find(Classify(s, rules), "iam")
+	iam, _ := find(Classify(s, rules, nil), "iam")
 	if !reflect.DeepEqual(iam.Attributes["project"], []string{"fh-dev-svc"}) {
 		t.Fatalf("project = %v, want [fh-dev-svc] (stack fallback when derivation unmatched)", iam.Attributes["project"])
 	}

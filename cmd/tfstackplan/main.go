@@ -20,6 +20,7 @@ import (
 	"github.com/Fluent-Health/terraform-stack-plan/internal/plandir"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/render"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/source"
+	"github.com/Fluent-Health/terraform-stack-plan/internal/statemoves"
 )
 
 const defaultMaxBytes = 60000
@@ -37,16 +38,17 @@ func (s *repeatedFlag) Set(v string) error {
 }
 
 type opts struct {
-	plansDir  string
-	title     string
-	marker    string
-	config    string
-	maxBytes  int
-	output    string
-	classJSON string
-	details   string
-	repoRoot  string
-	linkVars  []string
+	plansDir   string
+	title      string
+	marker     string
+	config     string
+	maxBytes   int
+	output     string
+	classJSON  string
+	details    string
+	repoRoot   string
+	linkVars   []string
+	stateMoves string
 }
 
 func main() {
@@ -60,6 +62,7 @@ func main() {
 	flag.StringVar(&o.classJSON, "emit-classification-json", "", "write computed classes as JSON")
 	flag.StringVar(&o.details, "details", "closed", "details disclosure: auto|open|closed")
 	flag.StringVar(&o.repoRoot, "repo-root", ".", "repo root for computing link file paths")
+	flag.StringVar(&o.stateMoves, "state-moves", "", "JSON manifest of pending cross-state move targets per stack ({\"<stack>\":[\"<addr>\",...]}); their planned creates classify as moves (non-iam). Keys must match the --plans-dir stack name.")
 	var lv repeatedFlag
 	flag.Var(&lv, "link-var", "link template variable as key=value (repeatable); sha=<sha> also derives sha_short")
 	showVersion := flag.Bool("version", false, "print version and exit")
@@ -94,6 +97,10 @@ func run(o opts) (string, bool, error) {
 		return "", false, fmt.Errorf("no input: pass --plans-dir")
 	}
 	refs, err := plandir.Scan(o.plansDir)
+	if err != nil {
+		return "", false, err
+	}
+	moves, err := statemoves.Load(o.stateMoves)
 	if err != nil {
 		return "", false, err
 	}
@@ -152,7 +159,7 @@ func run(o opts) (string, bool, error) {
 		}
 
 		if classified {
-			cats := classify.Classify(raw, cfg.Classification.Rules)
+			cats := classify.Classify(raw, cfg.Classification.Rules, moves.Targets(ref.Name))
 			st.Categories = toClasses(cats)
 			allCats = append(allCats, cats)
 			doc.Stacks[ref.Name] = stackEntry{Categories: toEntries(cats)}

@@ -344,6 +344,40 @@ The sidecar then carries the sorted-unique, non-null values per stack:
   unique project (the single distinct `project` across all the stack's changes).
   Ambiguous stacks (0 or >1 distinct projects) emit none — gates fail closed.
 
+#### Cross-state move targets (`--state-moves`)
+
+When a stack is the **destination** of a cross-state move (e.g. from an infra
+state-mover that runs `terraform state mv -state=old.tfstate -state-out=new.tfstate`),
+Terraform plans a **create** for the arriving resource. That create is a
+relocation — not a real mutation — and must not trip the per-project IAM gate.
+
+Pass a JSON manifest listing the destination addresses per stack:
+
+```bash
+tfstackplan --plans-dir out/ --config .tfstackplan.hcl \
+            --emit-classification-json classes.json \
+            --state-moves moves.json
+```
+
+```json
+{
+  "service-projects/migrated": [
+    "module.moved.google_project_iam_member.a",
+    "module.moved.google_storage_bucket_iam_member.logs"
+  ]
+}
+```
+
+Keys are the **stack names** as they appear in `--plans-dir` (i.e. the directory
+path of each `tfplan.json` relative to `--plans-dir`). Each listed address is
+treated as non-mutating: its planned create classifies the same way as an
+in-stack `moved` — it does not count toward any rule's `min_count` and its
+attributes are never emitted.
+
+**Absent flag is fail-safe:** omitting `--state-moves` leaves classification
+completely unchanged. Every create is treated as a real create, so the gate is
+never silently bypassed.
+
 ---
 
 ## Diff configuration (optional)
@@ -424,6 +458,7 @@ tfstackplan --plans-dir DIR
             [--max-bytes N]                 # default 60000; 0 disables
             [--details auto|open|closed]    # default closed (auto = open iff one stack changed)
             [--emit-classification-json FILE]
+            [--state-moves FILE]            # JSON manifest of cross-state move targets (see below)
             [--repo-root DIR]               # base for link file paths (default ".")
             [--link-var key=value]          # link template var (repeatable)
             [--output FILE | -]             # default '-' (stdout)
