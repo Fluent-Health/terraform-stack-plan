@@ -137,6 +137,7 @@ func run(o opts) (string, bool, error) {
 	}
 	doc := sidecarDoc{Stacks: map[string]stackEntry{}}
 	var allCats [][]classify.Category
+	var anyMoved bool
 	for _, ref := range refs {
 		data, err := os.ReadFile(ref.Plan)
 		if err != nil {
@@ -146,6 +147,11 @@ func run(o opts) (string, bool, error) {
 		if err != nil {
 			return "", false, err
 		}
+		// Overlay pending cross-state moves (--state-moves) BEFORE building the
+		// stack: a move-target's planned create becomes a Move (non-mutating), so
+		// counts, classification and rendering all treat it as a relocation.
+		moveTargets := moves.Targets(ref.Name)
+		movedCount := raw.ApplyStateMoves(moveTargets)
 		st := model.Stack{Name: ref.Name, Counts: raw.Counts}
 
 		stackDir := filepath.Join(o.repoRoot, filepath.FromSlash(ref.Name))
@@ -159,7 +165,14 @@ func run(o opts) (string, bool, error) {
 		}
 
 		if classified {
-			cats := classify.Classify(raw, cfg.Classification.Rules, moves.Targets(ref.Name))
+			cats := classify.Classify(raw, cfg.Classification.Rules, moveTargets)
+			// Surface a non-gating "move" category when this stack adopts resources
+			// via a cross-state move, so the gate (and the visualizer) render the
+			// stack as moving rather than safe. It carries no project → never IAM.
+			if movedCount > 0 {
+				cats = append(cats, classify.Category{Name: moveCategory, Icon: moveIcon})
+				anyMoved = true
+			}
 			st.Categories = toClasses(cats)
 			allCats = append(allCats, cats)
 			doc.Stacks[ref.Name] = stackEntry{Categories: toEntries(cats)}
@@ -231,7 +244,11 @@ func run(o opts) (string, bool, error) {
 	fits := fit.Fit(&report, o.maxBytes)
 
 	if o.classJSON != "" && classified {
-		doc.Summary.Categories = toEntries(classify.Summarize(allCats, cfg.Classification.Rules))
+		summary := classify.Summarize(allCats, cfg.Classification.Rules)
+		if anyMoved {
+			summary = append(summary, classify.Category{Name: moveCategory, Icon: moveIcon})
+		}
+		doc.Summary.Categories = toEntries(summary)
 		data, err := json.MarshalIndent(doc, "", "  ")
 		if err != nil {
 			return "", false, err
@@ -263,6 +280,15 @@ type sidecarDoc struct {
 
 // toEntries maps classify categories to their JSON form. Always returns a
 // non-nil slice so a category-less stack marshals as [] rather than null.
+// move is the non-gating category surfaced for a stack that adopts resources via
+// a pending cross-state move (--state-moves). It renders as 🚚 and carries no
+// project, so it never lands in iam_projects — purely a "this stack is moving,
+// not creating" signal for the comment and the check-run visualizer.
+const (
+	moveCategory = "move"
+	moveIcon     = "🚚"
+)
+
 func toEntries(cats []classify.Category) []categoryEntry {
 	out := make([]categoryEntry, 0, len(cats))
 	for _, c := range cats {

@@ -398,8 +398,13 @@ classification {
 		}
 
 		cats := got.Stacks[stackName].Categories
-		if len(cats) != 1 || cats[0].Category != "iam" {
-			t.Fatalf("with state-moves: categories = %+v, want [iam]", cats)
+		// The stack has a genuine IAM create (→ iam) AND a move-target (→ a
+		// non-gating "move" category). Both surface; the move never adds a project.
+		if len(cats) != 2 || cats[0].Category != "iam" || cats[1].Category != "move" {
+			t.Fatalf("with state-moves: categories = %+v, want [iam move]", cats)
+		}
+		if len(cats[1].Attributes) != 0 {
+			t.Fatalf("move category must carry no attributes (never IAM), got %+v", cats[1].Attributes)
 		}
 		proj := cats[0].Attributes["project"]
 		// p-real must appear: it is a genuine create.
