@@ -26,7 +26,10 @@ const DefaultFilename = ".tfstackplan.hcl"
 type Config struct {
 	Classification *Classification // nil when no classification block present
 	Diff           DiffConfig
-	Links          *LinksConfig // nil when no links block present
+	Links          *LinksConfig   // nil when no links block present
+	Server         *ServerConfig  // nil when no server block
+	Serve          *ServeConfig   // nil when no serve block (added in a later task)
+	Classes        []ClassBinding // class "<name>" {} bindings
 }
 
 // Classification holds the resolved, ordered rules and the fallback class.
@@ -90,6 +93,18 @@ func Load(path string) (*Config, error) {
 				return nil, err
 			}
 			cfg.Links = lc
+		case "server":
+			s, err := decodeServer(blk)
+			if err != nil {
+				return nil, err
+			}
+			cfg.Server = s
+		case "class":
+			cb, err := decodeClass(blk)
+			if err != nil {
+				return nil, err
+			}
+			cfg.Classes = append(cfg.Classes, cb)
 		default:
 			return nil, fmt.Errorf("%s: unknown top-level block %q", path, blk.Type)
 		}
