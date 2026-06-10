@@ -48,6 +48,45 @@ class "database" {
 	}
 }
 
+func TestLoadServeBlock(t *testing.T) {
+	cfg, err := Load(writeCfg(t, `
+serve {
+  db_path            = "/data/server.db"
+  public_base_url    = "https://srv.example"
+  use_checks         = true
+  webhook_secret_env = "WEBHOOK_SECRET"
+
+  github_app {
+    app_id           = "12345"
+    installation_id  = "67890"
+    private_key_path = "/secrets/app.pem"
+  }
+
+  approval "gcp-pam" {
+    location       = "global"
+    duration       = "28800s"
+    requester_pool = ["sa0@x.iam.gserviceaccount.com", "sa1@x.iam.gserviceaccount.com"]
+  }
+}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := cfg.Serve
+	if s == nil {
+		t.Fatal("serve block not parsed")
+	}
+	if s.DBPath != "/data/server.db" || s.PublicBaseURL != "https://srv.example" || !s.UseChecks || s.WebhookSecretEnv != "WEBHOOK_SECRET" {
+		t.Errorf("serve = %+v", s)
+	}
+	if s.GitHubApp == nil || s.GitHubApp.AppID != "12345" || s.GitHubApp.InstallationID != "67890" || s.GitHubApp.PrivateKeyPath != "/secrets/app.pem" {
+		t.Errorf("github_app = %+v", s.GitHubApp)
+	}
+	if s.Approval == nil || s.Approval.Backend != "gcp-pam" || s.Approval.Location != "global" || s.Approval.Duration != "28800s" || len(s.Approval.RequesterPool) != 2 {
+		t.Errorf("approval = %+v", s.Approval)
+	}
+}
+
 func TestLoadRenderOnlyConfigStillWorks(t *testing.T) {
 	cfg, err := Load(writeCfg(t, `
 classification {

@@ -99,6 +99,12 @@ func Load(path string) (*Config, error) {
 				return nil, err
 			}
 			cfg.Server = s
+		case "serve":
+			s, err := decodeServe(blk)
+			if err != nil {
+				return nil, err
+			}
+			cfg.Serve = s
 		case "class":
 			cb, err := decodeClass(blk)
 			if err != nil {
