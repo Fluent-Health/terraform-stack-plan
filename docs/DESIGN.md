@@ -771,10 +771,22 @@ reporter the terramate scripts call — it reads the execution context from the
 `TFSTACKPLAN_*` environment (server URL, token, execution id, stack) the
 orchestrator sets, posts a best-effort `update`, and is a no-op offline and on
 any server error, so a human's `terramate script run` is unaffected and a tick
-never fails the build.
+never fails the build. The third increment landed the **terramate exec layer**
+(`internal/runner`): a `Terramate{Bin, Dir}` adapter that shells out to the
+`terramate` binary (`cmd.Dir = Dir`, so asdf resolves the project's
+`.tool-versions` and terramate uses it as root) to list stacks, detect the
+changed set (`list --changed -B <ref>`), derive the dependency DAG for the
+server graph (`experimental run-graph -l stack.dir` → a pure DOT parser →
+`events.Edge`s), and run a terramate script across stacks (`script run`
+[--changed/--parallel/-B]). It is tested against **real terramate** via a
+vendored fixture project + a git-init harness (the suite skips cleanly when
+terramate isn't installed; a repo `.tool-versions` pins terramate 0.17.0 /
+terraform 1.13.3 so it runs in CI).
 
-Still deferred to later increments: the rest of the runner (the terramate exec
-layer, `run plan`/`run apply` orchestration, CI integration); the
+Still deferred to later increments: the rest of the runner (`run plan`/`run
+apply` orchestration that calls the exec layer + sets the `TFSTACKPLAN_*` env +
+renders/classifies in-process, with a stub-terraform test harness; CI
+integration); the
 **Pub/Sub-push + OIDC event ingestion** (a latency optimization over the polling
 reconcile loop, which already satisfies gates); **true requester-pool leasing**
 (today `requester()` is a `PR mod pool` slot — collisions possible up to pool
