@@ -13,12 +13,14 @@ import (
 // runRun dispatches the `run` subcommand group (tick now; plan/apply later).
 func runRun(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "tfstackplan run: expected a subcommand (tick)")
+		fmt.Fprintln(os.Stderr, "tfstackplan run: expected a subcommand (tick|plan)")
 		return 2
 	}
 	switch args[0] {
 	case "tick":
 		return runTick(args[1:])
+	case "plan":
+		return runPlan(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "tfstackplan run: unknown subcommand %q\n", args[0])
 		return 2

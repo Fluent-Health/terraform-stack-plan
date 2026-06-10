@@ -6,6 +6,18 @@ import (
 	"testing"
 )
 
+func TestRunPlanRequiresDir(t *testing.T) {
+	if code := runPlan([]string{}); code == 0 {
+		t.Error("run plan with no --dir should error")
+	}
+}
+
+func TestDispatchRoutesRunPlan(t *testing.T) {
+	if code := dispatch([]string{"run", "plan", "--dir", filepath.Join(t.TempDir(), "nope")}); code == 0 {
+		t.Error("run plan on a missing dir should be non-zero")
+	}
+}
+
 func TestGatherPlans(t *testing.T) {
 	root := t.TempDir()
 	for _, s := range []string{"stacks/a", "stacks/b"} {
