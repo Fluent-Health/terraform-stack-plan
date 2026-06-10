@@ -212,3 +212,39 @@ func TestPostStatus(t *testing.T) {
 		t.Fatalf("payload = %+v", raw)
 	}
 }
+
+func TestDoPropagatesNon2xx(t *testing.T) {
+	// Token mint succeeds, but the API call returns 500 — the error must propagate.
+	fakeGitHub(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/app/installations/67890/access_tokens" {
+			w.Write([]byte(`{"token":"ghs_test"}`))
+			return
+		}
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(`{"message":"boom"}`))
+	})
+	c := newTestRealClient(t)
+	_, err := c.CreateCheckRun(context.Background(), "o/r", "sha", "staging", "")
+	if err == nil {
+		t.Fatal("expected error on 500 from GitHub")
+	}
+	if !strings.Contains(err.Error(), "500") {
+		t.Errorf("error should mention the status: %v", err)
+	}
+}
+
+func TestMintTokenFailurePropagates(t *testing.T) {
+	// The token exchange itself fails (401) — calls that need a token must fail.
+	fakeGitHub(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/app/installations/67890/access_tokens" {
+			w.WriteHeader(http.StatusUnauthorized)
+			w.Write([]byte(`{"message":"bad jwt"}`))
+			return
+		}
+		t.Errorf("API must not be called when token mint fails: %s", r.URL.Path)
+	})
+	c := newTestRealClient(t)
+	if err := c.PostStatus(context.Background(), "o/r", "sha", "plan/staging", "pending", "x", ""); err == nil {
+		t.Fatal("expected error when token mint fails")
+	}
+}
