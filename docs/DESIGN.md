@@ -656,10 +656,26 @@ JWT is hand-rolled with stdlib `crypto` (no JWT library — `go.mod` stays
 minimal), and the REST base is overridable so the whole client is tested
 offline against an `httptest` fake.
 
-Still deferred to later increments: the SVG/`/live`/`/img` UI (the progress
-renderer is a minimal seam for now), the approval backend that flips a gate to
-`ACTIVE` (`/api/gate/*`, event ingestion, reconcile loop), and the `serve`
-command + config parsing (which constructs `RealClient` from deployment config).
+**Live UI (Phase-1 parity)** (see [PR #22](https://github.com/Fluent-Health/terraform-stack-plan/pull/22)).
+The server serves a public, dependency-free live view: `GET /img/<id>.svg`
+renders the execution as a **self-contained, inert** SVG dependency graph
+(nodes in longest-path dependency layers, coloured with GitHub's light-theme
+status hues — no `<script>`/`<foreignObject>`, so it survives GitHub's image
+proxy), and `GET /live/<id>` is an auto-refreshing HTML page embedding that
+diagram, a generic **approval panel** (one row per stored `(class, target)` with
+its state — provider-neutral, no console URL; the deep link is added by the
+approval backend), and the plan report (shown as escaped preformatted text — no
+markdown engine). Both routes are public (read-access model: same sensitivity as
+plan output already on the PR, behind unguessable execution ids); `/api/*` stays
+bearer-authed. The renderer/page are deliberately minimal — the richer UI v2
+(grouped/folding list, SSE log streaming, per-stack Log/Plan/Verify tabs,
+hand-rolled diff renderer, cluster containers, pan/zoom, dark toggle) is a
+separate later phase that replaces them behind the same routes.
+
+Still deferred to later increments: the approval backend that flips a gate to
+`ACTIVE` (`/api/gate/*`, event ingestion, reconcile loop), the richer UI v2
+above, and the `serve` command + config parsing (which constructs `RealClient`
+and serves these routes from deployment config).
 
 ### Delivery: binary + Cloud Run container
 
