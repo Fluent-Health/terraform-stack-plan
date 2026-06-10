@@ -109,7 +109,7 @@ func runPlan(args []string) int {
 
 	gates, moving := []events.GateTarget{}, []string{}
 	if data, e := os.ReadFile(sidecar); e == nil {
-		gates, moving, _ = gatesFromSidecar(data, gatingClasses(*cfgPath, *dir))
+		gates, moving, _ = gatesFromSidecar(data, gatingClasses(resolvedCfg, *dir))
 	}
 	_ = client.Finalize(ctx, events.Finalize{
 		ID: execID, ReportMarkdown: report, Gates: gates, Moving: moving, Failed: scriptErr != nil,
@@ -170,9 +170,11 @@ func gatherPlans(root string, stacks []string) (string, error) {
 		}
 		dst := filepath.Join(plansDir, filepath.FromSlash(s))
 		if err := os.MkdirAll(dst, 0o755); err != nil {
+			os.RemoveAll(plansDir)
 			return "", err
 		}
 		if err := os.WriteFile(filepath.Join(dst, "tfplan.json"), data, 0o644); err != nil {
+			os.RemoveAll(plansDir)
 			return "", err
 		}
 	}

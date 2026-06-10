@@ -99,6 +99,7 @@ func TestRunPlanE2E(t *testing.T) {
 	defer srv.Close()
 	t.Setenv(runner.EnvServer, srv.URL)
 	t.Setenv(runner.EnvEnvironment, "staging")
+	t.Setenv(runner.EnvExecution, "")
 
 	if code := runPlan([]string{"--dir", dir, "--changed=false"}); code != 0 {
 		t.Fatalf("run plan = %d, want 0", code)
