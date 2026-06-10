@@ -620,6 +620,33 @@ the full reasoning and alternatives weighed:
 - Re-sending an `Init` for the same execution id is idempotent and resets each
   stack's status to its payload value.
 
+**Server core (HTTP API + verdict projection).** On top of the foundations,
+the `internal/server` package now implements the control-plane core (still no
+`serve` *command* — `App` is constructed directly; the command + config parsing
+land later):
+
+- A stdlib `net/http` `ServeMux` (Go 1.22 method routing — no router dependency)
+  with a public `GET /healthz` and bearer-authed `POST /api/{init,phase,update,
+  finalize}`. An empty configured secret disables auth (local/dev).
+- A `GitHub` interface (create/update one check run per environment, post a
+  commit status, read PR head SHA) with a `MockGitHub` test double; the real
+  client lands in the next increment.
+- The verdict as a **pure projection of DB state**: a `snapshot` feeds
+  `conclusion()` (check-run conclusion: `""` running → `success` / `failure` /
+  `action_required` when a gate is unsatisfied) and `gateStatus()` (link-mode
+  commit status). Re-deriving from the DB is race-free and eventually consistent.
+- The check-run lifecycle (`ensureCheckRun` idempotent create, `renderAndPatch`,
+  link-mode `reconcile`, and a `drive` dispatch) in both **check mode** (rich
+  check run) and **link mode** (commit status). `finalize` records the payload's
+  `(class, target)` gates as `AWAITING`, marks gated/moving stacks, marks the run
+  classified, then drives the terminal conclusion — so a gated plan concludes
+  `action_required` and waits.
+
+Still deferred to later increments: the real GitHub client (App JWT), the
+SVG/`/live`/`/img` UI (the progress renderer is a minimal seam for now), the
+approval backend that flips a gate to `ACTIVE` (`/api/gate/*`, event ingestion,
+reconcile loop), and the `serve` command + config parsing.
+
 ### Delivery: binary + Cloud Run container
 
 The `serve` face is intended to run as a Cloud Run-class service, so a release
