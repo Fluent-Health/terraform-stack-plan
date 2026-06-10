@@ -20,7 +20,9 @@ The report has three levels of detail:
 
 The tool is a **pure renderer**: it scans a directory of per-stack `tfplan.json`
 files and writes markdown (and an optional sidecar JSON). It does not run
-`terraform plan` and does not post to GitHub — the CI pipeline does that.
+`terraform plan` and does not post to GitHub — the CI pipeline does that. (It is
+growing additional subcommands — a `serve` control-plane and a `run` CI driver;
+see *Server foundations* — but `render` stays a pure, standalone renderer.)
 
 ## Goals (v1)
 
@@ -140,6 +142,11 @@ tfstackplan --plans-dir DIR
               [--output FILE | -]              # default: stdout
               [--version]
 ```
+
+The CLI is now subcommand-based: `tfstackplan render <flags>` is the explicit
+form, and a bare flags-first invocation (`tfstackplan --plans-dir …`) still
+renders, for backward compatibility. Other subcommands (`serve`, `run`, `state`)
+are additive; see *Server foundations*.
 
 - `--plans-dir` is required; it is scanned recursively for `tfplan.json` files.
 - `--config` overrides config discovery. If neither `--config` nor an
@@ -576,6 +583,56 @@ the budget entirely.
   real drift (now-unmanaged access) that the guard intentionally does not
   surface, since the apply itself requires no elevated permission. Tracked in
   [PR #9](https://github.com/Fluent-Health/terraform-stack-plan/pull/9).
+
+## Server foundations (in progress)
+
+`tfstackplan` is growing from a pure renderer into a single tool that also
+*orchestrates* a multi-stack Terraform CI run — a `serve` control-plane (live
+DAG, approval gates, one GitHub check run per environment) and a `run` CI driver
+— while Terraform keeps executing in the user's own CI under the user's own
+identity. The render core above is unchanged and remains usable standalone.
+
+This increment lands the internal foundations only (no `serve` command yet):
+
+- **Subcommand CLI.** `main()` dispatches subcommands; `render` is today's
+  pipeline verbatim, bare/flags-first still renders, unknown subcommands error,
+  `--help` exits 0.
+- **`internal/events`** — the typed, versioned runner→server protocol (one
+  module, one version): stack `Status`/`Phase` vocabularies, the execution
+  `Graph`, and the `Init`/`PhaseEvent`/`Update`/`Finalize`/`GateCheck`/`GateRevoke`
+  payloads. Vocabulary is provider-neutral — `environment` (not a fixed tier set)
+  and `(class, target)` approval gates (not a single IAM/project gate) — so
+  multiple approval classes work without a later protocol change.
+- **`internal/store`** — the server's SQLite persistence (pure-Go
+  `modernc.org/sqlite`, `goose` migrations embedded via `go:embed`): executions,
+  their stack/edge subgraph, and per-`(class, target)` gate state, plus a
+  `classified` marker that tells a clean-but-planned PR apart from a never-planned
+  one (fail-closed apply gating).
+
+**Watch out:**
+
+- The store is single-writer by design — the forthcoming server is one instance
+  per environment (a control plane, not a data plane).
+- `executions.status` is the execution-level commit status (written by the serve
+  handler), deliberately distinct from the per-stack `events.Status` enum.
+- Re-sending an `Init` for the same execution id is idempotent and resets each
+  stack's status to its payload value.
+
+### Delivery: binary + Cloud Run container
+
+The `serve` face is intended to run as a Cloud Run-class service, so a release
+ships **two artifacts from one codebase**: the standalone binary (today's CLI
+delivery — Homebrew/Docker) *and* an OCI **container image** whose entrypoint is
+the same binary's `serve`. Because the binary is fully static (pure-Go SQLite,
+no cgo) and embeds its assets (migrations, and later the UI CSS) via `go:embed`,
+the image can use a minimal static/distroless base and needs no runtime files —
+`go build` alone always works and consumers never need a CSS/SQLite toolchain.
+The release GitHub Action builds and pushes a versioned, multi-arch image to a
+public registry (e.g. GHCR) alongside the binary, so a consumer points Cloud Run
+straight at `ghcr.io/<org>/tfstackplan:<tag>` with no per-consumer build. The
+image build lands in the `serve`-wiring increment (it is only useful once `serve`
+exists); Litestream replication and secret mounting are deployment concerns
+documented there and in `SECURITY.md`.
 
 ## Future / deferred
 
