@@ -85,8 +85,8 @@ func shortLabel(path string) string {
 		label = path[i+1:]
 	}
 	const max = 22
-	if len(label) > max {
-		label = label[:max-1] + "…"
+	if r := []rune(label); len(r) > max {
+		label = string(r[:max-1]) + "…"
 	}
 	return label
 }

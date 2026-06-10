@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 )
@@ -56,6 +57,14 @@ func TestRenderSVGEmptyGraph(t *testing.T) {
 	out := string(renderSVG(events.Graph{}))
 	if !strings.HasPrefix(out, "<svg ") || !strings.HasSuffix(out, "</svg>") {
 		t.Errorf("empty graph must still render a valid svg:\n%s", out)
+	}
+}
+
+func TestRenderSVGTruncatesOnRuneBoundary(t *testing.T) {
+	long := "stacks/" + strings.Repeat("αβ", 20) // long, multi-byte
+	out := renderSVG(events.Graph{Stacks: []events.StackState{{Path: long}}})
+	if !utf8.Valid(out) {
+		t.Fatal("renderSVG output must be valid UTF-8 even after truncation")
 	}
 }
 
