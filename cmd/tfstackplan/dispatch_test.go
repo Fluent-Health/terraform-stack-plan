@@ -56,3 +56,9 @@ func TestDispatchUnknownSubcommand(t *testing.T) {
 		t.Fatalf("unknown subcommand exit = %d, want 2", code)
 	}
 }
+
+func TestDispatchHelp(t *testing.T) {
+	if code := dispatch([]string{"--help"}); code != 0 {
+		t.Fatalf("--help exit = %d, want 0", code)
+	}
+}

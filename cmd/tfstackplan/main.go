@@ -4,6 +4,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -75,7 +76,7 @@ func dispatch(args []string) int {
 // runRender parses the render flags and runs today's plans-dir → markdown
 // pipeline. Returns a process exit code: 0 ok, 1 error, 2 over-budget.
 func runRender(args []string) int {
-	fs := flag.NewFlagSet("render", flag.ContinueOnError)
+	fs := flag.NewFlagSet("tfstackplan render", flag.ContinueOnError)
 	var o opts
 	fs.StringVar(&o.plansDir, "plans-dir", "", "directory of per-stack plans (each <stack>/tfplan.json)")
 	fs.StringVar(&o.title, "title", "Terraform plan", "report title")
@@ -91,6 +92,9 @@ func runRender(args []string) int {
 	fs.Var(&lv, "link-var", "link template variable as key=value (repeatable); sha=<sha> also derives sha_short")
 	showVersion := fs.Bool("version", false, "print version and exit")
 	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
 		return 2
 	}
 	if *showVersion {
