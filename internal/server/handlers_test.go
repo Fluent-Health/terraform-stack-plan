@@ -114,3 +114,95 @@ func TestLinkModePostsStatus(t *testing.T) {
 		t.Fatalf("status = %q/%q, want plan/staging/pending", gotContext, gotState)
 	}
 }
+
+func TestFinalizeCleanPlanConcludesSuccess(t *testing.T) {
+	db := newServerTestDB(t)
+	var mu sync.Mutex
+	var concl string
+	gh := &MockGitHub{
+		CreateCheckRunFn: func(ctx context.Context, repo, sha, env, url string) (int64, error) { return 1, nil },
+		UpdateCheckRunFn: func(ctx context.Context, repo string, id int64, u CheckRunUpdate) error {
+			mu.Lock()
+			concl = u.Conclusion
+			mu.Unlock()
+			return nil
+		},
+	}
+	a := New(db, gh, Config{UseChecks: true})
+	srv := httptest.NewServer(a.Routes())
+	defer srv.Close()
+	post(t, srv, "/api/init", events.Init{ID: "e1", Repo: "o/r", SHA: "sha", PR: 7, Environment: "staging",
+		Stacks: []events.StackState{{Path: "a", Status: events.StatusPlanned}}})
+	if code := post(t, srv, "/api/finalize", events.Finalize{ID: "e1", ReportMarkdown: "# report"}); code != 200 {
+		t.Fatalf("finalize = %d", code)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if concl != "success" {
+		t.Fatalf("conclusion = %q, want success", concl)
+	}
+	if ok, _ := store.IsClassified(db, 7, "staging"); !ok {
+		t.Fatal("expected classified marker")
+	}
+}
+
+func TestFinalizeGatedPlanConcludesActionRequired(t *testing.T) {
+	db := newServerTestDB(t)
+	var mu sync.Mutex
+	var concl string
+	gh := &MockGitHub{
+		CreateCheckRunFn: func(ctx context.Context, repo, sha, env, url string) (int64, error) { return 1, nil },
+		UpdateCheckRunFn: func(ctx context.Context, repo string, id int64, u CheckRunUpdate) error {
+			mu.Lock()
+			concl = u.Conclusion
+			mu.Unlock()
+			return nil
+		},
+	}
+	a := New(db, gh, Config{UseChecks: true})
+	srv := httptest.NewServer(a.Routes())
+	defer srv.Close()
+	post(t, srv, "/api/init", events.Init{ID: "e1", Repo: "o/r", SHA: "sha", PR: 7, Environment: "staging",
+		Stacks: []events.StackState{{Path: "a", Project: "proj-a", Status: events.StatusPlanned}}})
+	post(t, srv, "/api/finalize", events.Finalize{
+		ID: "e1", ReportMarkdown: "# report",
+		Gates: []events.GateTarget{{Class: "iam", Target: "proj-a"}},
+	})
+	mu.Lock()
+	defer mu.Unlock()
+	if concl != "action_required" {
+		t.Fatalf("conclusion = %q, want action_required", concl)
+	}
+	g, _ := store.LoadGraph(db, "e1")
+	if g.Stacks[0].Status != events.StatusGated {
+		t.Errorf("stack a = %q, want gated", g.Stacks[0].Status)
+	}
+	ts, _ := store.TargetsFor(db, 7, "staging")
+	if len(ts) != 1 || ts[0].State != "AWAITING" {
+		t.Errorf("targets = %+v, want one AWAITING", ts)
+	}
+}
+
+func TestFinalizeFailedMarksRunningStacksFailed(t *testing.T) {
+	db := newServerTestDB(t)
+	gh := &MockGitHub{CreateCheckRunFn: func(ctx context.Context, repo, sha, env, url string) (int64, error) { return 1, nil }}
+	a := New(db, gh, Config{UseChecks: true})
+	srv := httptest.NewServer(a.Routes())
+	defer srv.Close()
+	post(t, srv, "/api/init", events.Init{ID: "e1", Repo: "o/r", SHA: "sha", PR: 7, Environment: "staging",
+		Stacks: []events.StackState{{Path: "a", Status: events.StatusRunning}, {Path: "b", Status: events.StatusPlanned}}})
+	post(t, srv, "/api/finalize", events.Finalize{ID: "e1", ReportMarkdown: "# report", Failed: true})
+	g, _ := store.LoadGraph(db, "e1")
+	var aStatus, bStatus events.Status
+	for _, s := range g.Stacks {
+		if s.Path == "a" {
+			aStatus = s.Status
+		}
+		if s.Path == "b" {
+			bStatus = s.Status
+		}
+	}
+	if aStatus != events.StatusFailed || bStatus != events.StatusPlanned {
+		t.Fatalf("a=%q b=%q, want failed/planned", aStatus, bStatus)
+	}
+}
