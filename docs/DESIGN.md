@@ -754,11 +754,26 @@ are in `docs/deploy-cloud-run.md`; the hardening notes are in `SECURITY.md`.
 With this, **Phase 1 is complete**: render + serve (live DAG, approval gates,
 one check run per environment) ship from one binary.
 
-Still deferred to later increments: the **Pub/Sub-push + OIDC event ingestion**
-(a latency optimization over the polling reconcile loop, which already satisfies
-gates); **true requester-pool leasing** (today `requester()` is a `PR mod pool`
-slot — collisions possible up to pool size; leasing replaces it without an
-interface change); the richer UI v2 above; and the `run`/`state` subcommands.
+**Phase 2: the runner (`run`, in progress).** The `run` subcommand is the CI
+driver that replaces the per-stack bash glue: it wraps the same `terramate
+script run` a human invokes, detects the changed set, runs plan/apply,
+captures per-stack output, renders + classifies in-process, and reports the
+execution lifecycle to the `serve` control plane. The first increment landed the
+**runner event client** (`internal/runner`): a typed client over the Phase-1
+`events` protocol that posts `init`/`phase`/`update`/`finalize` and
+`gate revoke` best-effort (a down or absent server degrades the build to "no
+live progress", never to failure — an empty server URL is a full no-op, so local
+runs and the no-op `run tick` need no server) and an apply-time `gate check`
+that is **fail-closed** (it passes only on a satisfied gate; a 409, any non-2xx,
+or an unreachable configured server blocks the apply).
+
+Still deferred to later increments: the rest of the runner (`run tick`, the
+terramate exec layer, `run plan`/`run apply` orchestration, CI integration); the
+**Pub/Sub-push + OIDC event ingestion** (a latency optimization over the polling
+reconcile loop, which already satisfies gates); **true requester-pool leasing**
+(today `requester()` is a `PR mod pool` slot — collisions possible up to pool
+size; leasing replaces it without an interface change); the richer UI v2 above;
+and the `state` subcommand.
 
 ### Delivery: binary + Cloud Run container
 
