@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"log"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
@@ -23,7 +24,7 @@ func (a *App) ensureCheckRun(ctx context.Context, id, repo, sha, environment, de
 		return err
 	}
 	if err := store.SetCheckRunID(a.db, id, crID); err != nil {
-		log.Printf("persist check_run_id %s: %v", id, err)
+		return fmt.Errorf("persist check_run_id: %w", err)
 	}
 	return nil
 }
