@@ -783,10 +783,20 @@ vendored fixture project + a git-init harness (the suite skips cleanly when
 terramate isn't installed; a repo `.tool-versions` pins terramate 0.17.0 /
 terraform 1.13.3 so it runs in CI).
 
-Still deferred to later increments: the rest of the runner (`run plan`/`run
-apply` orchestration that calls the exec layer + sets the `TFSTACKPLAN_*` env +
-renders/classifies in-process, with a stub-terraform test harness; CI
-integration); the
+The fourth increment landed **`run plan`** — the CI plan driver: it detects the
+changed stacks, registers the execution + DAG on the server (`Init`), runs the
+terramate `plan` script across the changed set (setting the `TFSTACKPLAN_*` env
+so the script's `run tick` reports per stack), gathers each stack's `tfplan.json`,
+renders + classifies them **in-process** (reusing the render core), derives the
+approval gates (each gating `class` binding × its emitted target values) and the
+moving stacks from the classification sidecar, and posts `Finalize`. Server
+reporting is best-effort (the report always renders, so a local run is useful);
+a plan-script failure still finalizes the plans that exist and marks the run
+failed. Tested end to end against real terramate + a stub `terraform` (recorded
+plan JSON).
+
+Still deferred to later increments: **`run apply`** (fail-closed gate pre-check
+→ sequential apply → grant revoke) and the CI integration example; the
 **Pub/Sub-push + OIDC event ingestion** (a latency optimization over the polling
 reconcile loop, which already satisfies gates); **true requester-pool leasing**
 (today `requester()` is a `PR mod pool` slot — collisions possible up to pool
