@@ -79,12 +79,21 @@ func runPlan(args []string) int {
 	}
 	defer os.RemoveAll(plansDir)
 
+	// Auto-discover config from --dir when none was given explicitly, so the
+	// classification + gates pipeline fires without requiring an extra flag.
+	resolvedCfg := *cfgPath
+	if resolvedCfg == "" {
+		if p, ok := config.Discover(*dir); ok {
+			resolvedCfg = p
+		}
+	}
+
 	sidecar := filepath.Join(plansDir, "_classes.json")
 	o := opts{
 		plansDir:  plansDir,
 		title:     "Terraform plan",
 		marker:    "tfstackplan",
-		config:    *cfgPath,
+		config:    resolvedCfg,
 		maxBytes:  defaultMaxBytes,
 		output:    "-",
 		details:   "closed",
