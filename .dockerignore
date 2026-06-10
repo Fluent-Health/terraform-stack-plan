@@ -1,0 +1,6 @@
+.git
+.github
+.claude
+docs
+examples
+*_test.go
