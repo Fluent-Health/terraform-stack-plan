@@ -616,6 +616,15 @@ the budget entirely.
   same requester SA; approving one could elevate both. Bounded by pool size and
   acceptable for now — true leasing (track open executions, pick an unleased
   identity) replaces the slot function without an interface change.
+- **`run apply` registers an `apply/<env>` execution, but the server still posts
+  the plan-gate commit-status context for it.** The apply execution carries a
+  non-`plan/<env>` context so no plan check-run is created for it, and it uses a
+  distinct execution id (so the plan execution's state is untouched). But in
+  link mode the server's single commit-status writer always posts
+  `statusContext(environment)` = `plan/<env>`, regardless of the execution's
+  context — so an apply run's progress posts under the plan context. Harmless
+  (separate execution id; no plan-state corruption), but per-environment
+  `apply/<env>` / `verify/<env>` statuses are not yet distinct. Deferred.
 
 ## Server foundations (in progress)
 
@@ -795,8 +804,18 @@ a plan-script failure still finalizes the plans that exist and marks the run
 failed. Tested end to end against real terramate + a stub `terraform` (recorded
 plan JSON).
 
-Still deferred to later increments: **`run apply`** (fail-closed gate pre-check
-→ sequential apply → grant revoke) and the CI integration example; the
+The fifth increment landed **`run apply`** — the CI apply driver. Over `run
+plan` it adds a **fail-closed gate pre-check**: it asks the server whether the
+PR's approval gates are satisfied *before touching terramate* and refuses to
+apply otherwise (a 409, any non-2xx, or an unreachable *configured* server
+blocks; an unconfigured server is a no-op pass — nothing gates). It then
+registers the apply execution, applies the changed stacks in dependency order
+(the terramate `apply` script, no `--parallel`), and revokes the PR's grants
+afterward (best-effort, whether or not the apply succeeded). Tested end to end
+against real terramate + a stub `terraform`: gate satisfied → apply runs in DAG
+order + revoke; gate blocks → abort before any apply.
+
+Still deferred to later increments: the CI integration example; the
 **Pub/Sub-push + OIDC event ingestion** (a latency optimization over the polling
 reconcile loop, which already satisfies gates); **true requester-pool leasing**
 (today `requester()` is a `PR mod pool` slot — collisions possible up to pool
