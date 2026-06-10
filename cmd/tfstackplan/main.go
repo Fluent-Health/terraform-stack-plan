@@ -52,42 +52,69 @@ type opts struct {
 }
 
 func main() {
+	os.Exit(dispatch(os.Args[1:]))
+}
+
+// dispatch routes args to a subcommand. The first arg selects the subcommand;
+// a leading flag (or no args) is treated as the render subcommand for
+// backward compatibility with the original single-command CLI.
+func dispatch(args []string) int {
+	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+		switch args[0] {
+		case "render":
+			return runRender(args[1:])
+		default:
+			fmt.Fprintf(os.Stderr, "tfstackplan: unknown subcommand %q\n", args[0])
+			fmt.Fprintln(os.Stderr, "usage: tfstackplan [render] [flags]")
+			return 2
+		}
+	}
+	return runRender(args)
+}
+
+// runRender parses the render flags and runs today's plans-dir → markdown
+// pipeline. Returns a process exit code: 0 ok, 1 error, 2 over-budget.
+func runRender(args []string) int {
+	fs := flag.NewFlagSet("render", flag.ContinueOnError)
 	var o opts
-	flag.StringVar(&o.plansDir, "plans-dir", "", "directory of per-stack plans (each <stack>/tfplan.json)")
-	flag.StringVar(&o.title, "title", "Terraform plan", "report title")
-	flag.StringVar(&o.marker, "marker", "tfstackplan", "HTML-comment marker for CI upsert")
-	flag.StringVar(&o.config, "config", "", "HCL policy file (default: auto-discover .tfstackplan.hcl)")
-	flag.IntVar(&o.maxBytes, "max-bytes", defaultMaxBytes, "document byte budget (0 disables)")
-	flag.StringVar(&o.output, "output", "-", "output file ('-' = stdout)")
-	flag.StringVar(&o.classJSON, "emit-classification-json", "", "write computed classes as JSON")
-	flag.StringVar(&o.details, "details", "closed", "details disclosure: auto|open|closed")
-	flag.StringVar(&o.repoRoot, "repo-root", ".", "repo root for computing link file paths")
-	flag.StringVar(&o.stateMoves, "state-moves", "", "JSON manifest of pending cross-state move targets per stack ({\"<stack>\":[\"<addr>\",...]}); their planned creates classify as moves (non-iam). Keys must match the --plans-dir stack name.")
+	fs.StringVar(&o.plansDir, "plans-dir", "", "directory of per-stack plans (each <stack>/tfplan.json)")
+	fs.StringVar(&o.title, "title", "Terraform plan", "report title")
+	fs.StringVar(&o.marker, "marker", "tfstackplan", "HTML-comment marker for CI upsert")
+	fs.StringVar(&o.config, "config", "", "HCL policy file (default: auto-discover .tfstackplan.hcl)")
+	fs.IntVar(&o.maxBytes, "max-bytes", defaultMaxBytes, "document byte budget (0 disables)")
+	fs.StringVar(&o.output, "output", "-", "output file ('-' = stdout)")
+	fs.StringVar(&o.classJSON, "emit-classification-json", "", "write computed classes as JSON")
+	fs.StringVar(&o.details, "details", "closed", "details disclosure: auto|open|closed")
+	fs.StringVar(&o.repoRoot, "repo-root", ".", "repo root for computing link file paths")
+	fs.StringVar(&o.stateMoves, "state-moves", "", "JSON manifest of pending cross-state move targets per stack ({\"<stack>\":[\"<addr>\",...]}); their planned creates classify as moves (non-iam). Keys must match the --plans-dir stack name.")
 	var lv repeatedFlag
-	flag.Var(&lv, "link-var", "link template variable as key=value (repeatable); sha=<sha> also derives sha_short")
-	showVersion := flag.Bool("version", false, "print version and exit")
-	flag.Parse()
+	fs.Var(&lv, "link-var", "link template variable as key=value (repeatable); sha=<sha> also derives sha_short")
+	showVersion := fs.Bool("version", false, "print version and exit")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
 	if *showVersion {
 		fmt.Println("tfstackplan", version)
-		return
+		return 0
 	}
 	o.linkVars = lv
 
 	out, fits, err := run(o)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "tfstackplan:", err)
-		os.Exit(1)
+		return 1
 	}
 	if o.output == "-" || o.output == "" {
 		fmt.Print(out)
 	} else if err := os.WriteFile(o.output, []byte(out), 0o644); err != nil {
 		fmt.Fprintln(os.Stderr, "tfstackplan:", err)
-		os.Exit(1)
+		return 1
 	}
 	if !fits {
 		fmt.Fprintln(os.Stderr, "tfstackplan: warning: report exceeds --max-bytes even after full reduction")
-		os.Exit(2)
+		return 2
 	}
+	return 0
 }
 
 // run executes the whole pipeline and returns the markdown document and whether
