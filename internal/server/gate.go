@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/approval"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
@@ -163,4 +164,23 @@ func (a *App) handleGateRevoke(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	w.WriteHeader(http.StatusOK)
+}
+
+// ReconcileLoop periodically re-evaluates every not-yet-ACTIVE gate, so a grant
+// that goes ACTIVE after the request (the common case) converges to success even
+// with no provider event. No-op without a backend. Blocks until ctx is cancelled.
+func (a *App) ReconcileLoop(ctx context.Context, interval time.Duration) {
+	if a.Approval == nil {
+		return
+	}
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			a.reconcilePending(ctx)
+		}
+	}
 }
