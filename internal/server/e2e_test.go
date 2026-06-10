@@ -58,5 +58,4 @@ func TestE2EPlanLifecycle(t *testing.T) {
 	if e.ReportMarkdown != "# report" || e.Rev == 0 {
 		t.Fatalf("execution = %+v", e)
 	}
-	_ = context.Background
 }
