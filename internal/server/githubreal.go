@@ -118,18 +118,90 @@ func splitRepo(repo string) (owner, name string, err error) {
 	return parts[0], parts[1], nil
 }
 
-// CreateCheckRun, UpdateCheckRun, and PostStatus are implemented in Task 3.
-// Stubs here satisfy the GitHub interface so the compiler accepts RealClient.
-func (c *RealClient) CreateCheckRun(_ context.Context, _, _, _, _ string) (int64, error) {
-	return 0, errors.New("github: CreateCheckRun not yet implemented")
+// output builds the check-run output object as pure GFM: the progress task list
+// (summary) and the rendered report (text). No embedded image — GitHub tiles
+// small SVG check-run images, so the diagram lives on the live page.
+func output(summary, text string) map[string]any {
+	out := map[string]any{
+		"title":   "Terraform plan",
+		"summary": summary,
+	}
+	if text != "" {
+		out["text"] = text
+	}
+	return out
 }
 
-func (c *RealClient) UpdateCheckRun(_ context.Context, _ string, _ int64, _ CheckRunUpdate) error {
-	return errors.New("github: UpdateCheckRun not yet implemented")
+// checkRunName is the per-environment check-run name (the gate surface that
+// branch protection requires): "plan/<environment>" (or "plan" when empty).
+func checkRunName(environment string) string {
+	if environment == "" {
+		return "plan"
+	}
+	return "plan/" + environment
 }
 
-func (c *RealClient) PostStatus(_ context.Context, _, _, _, _, _, _ string) error {
-	return errors.New("github: PostStatus not yet implemented")
+// CreateCheckRun opens an in_progress check run for the environment.
+func (c *RealClient) CreateCheckRun(ctx context.Context, repo, sha, environment, detailsURL string) (int64, error) {
+	owner, name, err := splitRepo(repo)
+	if err != nil {
+		return 0, err
+	}
+	payload := map[string]any{
+		"name":     checkRunName(environment),
+		"head_sha": sha,
+		"status":   "in_progress",
+		"output":   output("Planning…", ""),
+	}
+	if detailsURL != "" {
+		payload["details_url"] = detailsURL
+	}
+	rb, err := c.do(ctx, http.MethodPost,
+		fmt.Sprintf("%s/repos/%s/%s/check-runs", apiBase, owner, name), payload)
+	if err != nil {
+		return 0, err
+	}
+	var out struct {
+		ID int64 `json:"id"`
+	}
+	if err := json.Unmarshal(rb, &out); err != nil {
+		return 0, err
+	}
+	return out.ID, nil
+}
+
+// UpdateCheckRun patches a check run. A non-empty Conclusion completes the run.
+func (c *RealClient) UpdateCheckRun(ctx context.Context, repo string, checkRunID int64, u CheckRunUpdate) error {
+	owner, name, err := splitRepo(repo)
+	if err != nil {
+		return err
+	}
+	payload := map[string]any{"output": output(u.Summary, u.Text)}
+	if u.DetailsURL != "" {
+		payload["details_url"] = u.DetailsURL
+	}
+	if u.Conclusion != "" {
+		payload["status"] = "completed"
+		payload["conclusion"] = u.Conclusion
+	}
+	_, err = c.do(ctx, http.MethodPatch,
+		fmt.Sprintf("%s/repos/%s/%s/check-runs/%d", apiBase, owner, name, checkRunID), payload)
+	return err
+}
+
+// PostStatus sets a commit status (link-mode fallback; needs only statuses:write).
+func (c *RealClient) PostStatus(ctx context.Context, repo, sha, context_, state, description, targetURL string) error {
+	owner, name, err := splitRepo(repo)
+	if err != nil {
+		return err
+	}
+	payload := map[string]string{"state": state, "context": context_, "description": description}
+	if targetURL != "" {
+		payload["target_url"] = targetURL
+	}
+	_, err = c.do(ctx, http.MethodPost,
+		fmt.Sprintf("%s/repos/%s/%s/statuses/%s", apiBase, owner, name, sha), payload)
+	return err
 }
 
 // PRHeadSHA returns a pull request's current head commit SHA.
