@@ -583,6 +583,20 @@ the budget entirely.
   real drift (now-unmanaged access) that the guard intentionally does not
   surface, since the apply itself requires no elevated permission. Tracked in
   [PR #9](https://github.com/Fluent-Health/terraform-stack-plan/pull/9).
+- **The server's SQLite store enables WAL + `busy_timeout` at the DSN level**, not
+  via a one-off `PRAGMA` on a single pooled connection. A background writer (the
+  approval `ReconcileLoop`) runs concurrently with the HTTP handlers, and
+  `database/sql` opens a pool of connections; setting the pragmas in the DSN
+  (`_pragma=journal_mode(WAL)`, `_pragma=busy_timeout(5000)`) is what makes *every*
+  pooled connection retry instead of returning `SQLITE_BUSY`. Still single-writer
+  by design (one server instance per environment).
+- **A classified plan with zero recorded gate targets passes the apply gate.**
+  This is the legitimate clean-plan case, but it is indistinguishable from the
+  pathological case where finalize *did* have gates yet every `gate_targets` write
+  failed (those write errors are logged but not fatal, to keep finalize alive).
+  The latter requires DB write failures at finalize and is considered acceptable;
+  the apply gate's primary protection is `IsClassified` (a never-planned PR fails
+  closed).
 
 ## Server foundations (in progress)
 
@@ -672,10 +686,32 @@ bearer-authed. The renderer/page are deliberately minimal — the richer UI v2
 hand-rolled diff renderer, cluster containers, pan/zoom, dark toggle) is a
 separate later phase that replaces them behind the same routes.
 
-Still deferred to later increments: the approval backend that flips a gate to
-`ACTIVE` (`/api/gate/*`, event ingestion, reconcile loop), the richer UI v2
-above, and the `serve` command + config parsing (which constructs `RealClient`
-and serves these routes from deployment config).
+**Approval gate** (see [PR #23](https://github.com/Fluent-Health/terraform-stack-plan/pull/23)).
+`internal/approval` defines the provider-neutral gate abstraction: a `Backend`
+(`RequestGrant`/`ListGrants`/`Revoke`) over a `Request{Class, Target, PR,
+Environment}` and a normalised `GrantState` (AWAITING → ACTIVATING → ACTIVE, plus
+DENIED/REVOKED/EXPIRED). The server only ever *requests*; humans approve in the
+backing provider. An in-memory `Fake` makes the whole gate flow e2e-testable.
+The server wires it via an optional `App.Approval` field (nil disables gating —
+gates park at `action_required`): at finalize it requests a grant per `(class,
+target)` gate and records the grant name + state; `reconcileGate` refreshes each
+target's state from the backend and, once all are `ACTIVE`, flips the gated
+stacks safe and re-drives the check run to `success`; a periodic `ReconcileLoop`
+runs that over `PendingGates`, self-healing the activating→active transition with
+no provider event required. The apply path uses `POST /api/gate/check`
+(**fail-closed**: 200 only when the PR was classified *and* every gate target is
+`ACTIVE` — a clean classified plan with zero gates passes; a never-planned PR
+fails closed) and `POST /api/gate/revoke` (best-effort post-apply cleanup). The
+verdict stays a pure projection of `gate_targets`; the backend only changes *who
+writes* the `ACTIVE` state.
+
+Still deferred to later increments: the **`gcp-pam` real backend** + its
+Pub/Sub-push/OIDC event ingestion (a latency optimization over the polling
+reconcile loop) and requester-pool leasing — note the requester identity is
+derivable inside the backend from `Request.PR`, so it needs no interface change;
+the richer UI v2 above; and the `serve` command + config parsing (which
+constructs `RealClient` + an approval backend, sets `App.Approval`, and starts
+`ReconcileLoop`).
 
 ### Delivery: binary + Cloud Run container
 
