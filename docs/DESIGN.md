@@ -815,12 +815,22 @@ afterward (best-effort, whether or not the apply succeeded). Tested end to end
 against real terramate + a stub `terraform`: gate satisfied → apply runs in DAG
 order + revoke; gate blocks → abort before any apply.
 
-Still deferred to later increments: the CI integration example; the
-**Pub/Sub-push + OIDC event ingestion** (a latency optimization over the polling
-reconcile loop, which already satisfies gates); **true requester-pool leasing**
-(today `requester()` is a `PR mod pool` slot — collisions possible up to pool
-size; leasing replaces it without an interface change); the richer UI v2 above;
-and the `state` subcommand.
+The sixth increment landed the **CI integration guide** (`docs/ci-integration.md`):
+the consumer-facing wiring — the `TFSTACKPLAN_*` environment, the terramate
+`plan`/`apply` scripts that run terraform + `run tick`, and example plan-on-PR /
+apply-on-merge CI jobs that each shrink to checkout + one `run` invocation. With
+this, **Phase 2 is complete**: `tfstackplan run` drives plan/apply end to end,
+reporting to the `serve` control plane, while terraform keeps executing in the
+consumer's own CI under their own identities.
+
+Still deferred to later phases: the **Pub/Sub-push + OIDC event ingestion** (a
+latency optimization over the polling reconcile loop, which already satisfies
+gates); **true requester-pool leasing** (today `requester()` is a `PR mod pool`
+slot — collisions possible up to pool size; leasing replaces it without an
+interface change); the richer UI v2 (grouped/folding list, SSE log streaming,
+per-stack Log/Plan/Verify tabs, hand-rolled diff renderer) — Phase 3; the
+`run verify` driver + `verify/<env>` status — Phase 4; and the `state` subcommand
+(declarative cross-stack state surgery) — Phase 6.
 
 ### Delivery: binary + Cloud Run container
 
