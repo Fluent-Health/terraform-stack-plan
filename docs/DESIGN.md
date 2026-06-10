@@ -597,6 +597,17 @@ the budget entirely.
   The latter requires DB write failures at finalize and is considered acceptable;
   the apply gate's primary protection is `IsClassified` (a never-planned PR fails
   closed).
+- **The `gcp-pam` grant justification correlates by `environment`, which must be
+  whitespace-free.** The backend encodes the change as `PR #<n> env=<env>` and
+  parses it back to map a grant to its `(PR, environment)`; the `env` token is
+  read up to the first whitespace. Environments are slugs (`staging`/`prod`), so
+  this holds, but an environment containing a space would not round-trip
+  (correlation, reuse, and revoke would miss the grant).
+- **The `gcp-pam` requester pool uses a `PR mod pool-size` slot, not a true
+  lease.** Two concurrent PRs whose numbers collide on `PR mod N` impersonate the
+  same requester SA; approving one could elevate both. Bounded by pool size and
+  acceptable for now — true leasing (track open executions, pick an unleased
+  identity) replaces the slot function without an interface change.
 
 ## Server foundations (in progress)
 
@@ -705,13 +716,29 @@ fails closed) and `POST /api/gate/revoke` (best-effort post-apply cleanup). The
 verdict stays a pure projection of `gate_targets`; the backend only changes *who
 writes* the `ACTIVE` state.
 
-Still deferred to later increments: the **`gcp-pam` real backend** + its
-Pub/Sub-push/OIDC event ingestion (a latency optimization over the polling
-reconcile loop) and requester-pool leasing — note the requester identity is
-derivable inside the backend from `Request.PR`, so it needs no interface change;
-the richer UI v2 above; and the `serve` command + config parsing (which
-constructs `RealClient` + an approval backend, sets `App.Approval`, and starts
-`ReconcileLoop`).
+**`gcp-pam` backend** (see [PR #24](https://github.com/Fluent-Health/terraform-stack-plan/pull/24)).
+`internal/approval/gcppam` is the first real `approval.Backend`, over GCP
+Privileged Access Manager: `RequestGrant` (create-or-reuse — lists the
+entitlement's grants and reuses an open one matching the change, else creates),
+`ListGrants` (maps PAM state → normalised `GrantState`, parses `(PR, environment)`
+back from the grant justification to correlate), and `Revoke`. Everything
+deployment-specific is `Config` — per-class entitlement ids, the requester
+service-account pool, location, duration — so the package has **no hardcoded
+names**. Grant *creation* impersonates the leased requester identity (PAM
+elevates the requester, and a pool avoids elevating every concurrent workload
+that shares one identity); *list* and *revoke* use the server's own ambient
+credentials (the requester SA lacks revoke). GCP credential acquisition is
+**injected** (`TokenFunc`/`ImpersonateFunc`), so the package is dependency-free
+and tested offline against an `httptest` PAM fake — the real ADC + impersonation
+funcs are supplied by `serve`.
+
+Still deferred to later increments: the **Pub/Sub-push + OIDC event ingestion**
+(a latency optimization over the polling reconcile loop, which already satisfies
+gates); **true requester-pool leasing** (today `requester()` is a `PR mod pool`
+slot — collisions possible up to pool size; leasing replaces it without an
+interface change); the richer UI v2 above; and the `serve` command + config
+parsing (which constructs `RealClient` + the `gcppam` backend with real GCP token
+funcs, sets `App.Approval`, and starts `ReconcileLoop`).
 
 ### Delivery: binary + Cloud Run container
 
