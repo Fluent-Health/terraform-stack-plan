@@ -623,7 +623,7 @@ the full reasoning and alternatives weighed:
 **Server core (HTTP API + verdict projection).** On top of the foundations,
 the `internal/server` package now implements the control-plane core (still no
 `serve` *command* — `App` is constructed directly; the command + config parsing
-land later):
+land later) — see [PR #19](https://github.com/Fluent-Health/terraform-stack-plan/pull/19):
 
 - A stdlib `net/http` `ServeMux` (Go 1.22 method routing — no router dependency)
   with a public `GET /healthz` and bearer-authed `POST /api/{init,phase,update,
