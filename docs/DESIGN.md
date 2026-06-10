@@ -630,7 +630,7 @@ land later) — see [PR #19](https://github.com/Fluent-Health/terraform-stack-pl
   finalize}`. An empty configured secret disables auth (local/dev).
 - A `GitHub` interface (create/update one check run per environment, post a
   commit status, read PR head SHA) with a `MockGitHub` test double; the real
-  client lands in the next increment.
+  client is now implemented (see *Real GitHub client* below).
 - The verdict as a **pure projection of DB state**: a `snapshot` feeds
   `conclusion()` (check-run conclusion: `""` running → `success` / `failure` /
   `action_required` when a gate is unsatisfied) and `gateStatus()` (link-mode
@@ -642,10 +642,24 @@ land later) — see [PR #19](https://github.com/Fluent-Health/terraform-stack-pl
   classified, then drives the terminal conclusion — so a gated plan concludes
   `action_required` and waits.
 
-Still deferred to later increments: the real GitHub client (App JWT), the
-SVG/`/live`/`/img` UI (the progress renderer is a minimal seam for now), the
-approval backend that flips a gate to `ACTIVE` (`/api/gate/*`, event ingestion,
-reconcile loop), and the `serve` command + config parsing.
+**Real GitHub client** (see [PR #21](https://github.com/Fluent-Health/terraform-stack-plan/pull/21)).
+`RealClient` is the production `GitHub` implementation: it mints a short-lived
+GitHub App installation token (RS256 JWT signed with the App key → installation
+token) per request, and drives the per-environment check run
+(`plan/<environment>` — the same name as the commit-status context, so branch
+protection requires one consistent context), commit statuses, and PR head-SHA
+lookups over the GitHub REST API. The App key (PEM, PKCS#1 or PKCS#8) + app id +
+installation id are supplied to `NewRealClient` as values — **no cloud
+secret-store dependency in core**; how the deployment obtains them (mounted
+secret, env, any provider's secret manager) is a `serve`-wiring concern. The
+JWT is hand-rolled with stdlib `crypto` (no JWT library — `go.mod` stays
+minimal), and the REST base is overridable so the whole client is tested
+offline against an `httptest` fake.
+
+Still deferred to later increments: the SVG/`/live`/`/img` UI (the progress
+renderer is a minimal seam for now), the approval backend that flips a gate to
+`ACTIVE` (`/api/gate/*`, event ingestion, reconcile loop), and the `serve`
+command + config parsing (which constructs `RealClient` from deployment config).
 
 ### Delivery: binary + Cloud Run container
 
