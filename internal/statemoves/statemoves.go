@@ -26,7 +26,10 @@ func (s Set) Covers(addr string) bool {
 		return true
 	}
 	for t := range s {
-		if strings.HasPrefix(addr, t+".") {
+		// `t.` matches a moved module's children / a resource's attributes;
+		// `t[` matches for_each/count INSTANCES of a resource-level move-target
+		// (e.g. target `…ci_secret`, planned create `…ci_secret["roles/..."]`).
+		if strings.HasPrefix(addr, t+".") || strings.HasPrefix(addr, t+"[") {
 			return true
 		}
 	}

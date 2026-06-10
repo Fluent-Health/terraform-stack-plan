@@ -25,12 +25,14 @@ func TestSet_Covers(t *testing.T) {
 		addr string
 		want bool
 	}{
-		{"module.content_library", true},                                  // exact
-		{"module.content_library.google_project_iam_member.editor", true}, // child of the module
-		{"module.content_library.google_storage_bucket.b", true},          // any child
-		{"module.standalone.google_project_iam_member.x", true},           // exact resource-level target
-		{"module.content_library_other.google_x.y", false},                // sibling module, ".": no false match
-		{"module.other.google_project_iam_member.z", false},               // unrelated
+		{"module.content_library", true},                                                      // exact
+		{"module.content_library.google_project_iam_member.editor", true},                     // child of the module
+		{"module.content_library.google_storage_bucket.b", true},                              // any child
+		{"module.standalone.google_project_iam_member.x", true},                               // exact resource-level target
+		{`module.standalone.google_project_iam_member.x["roles/secretmanager.viewer"]`, true}, // for_each INSTANCE of a resource-level target
+		{"module.standalone.google_project_iam_member.x_other", false},                        // sibling resource, no false match
+		{"module.content_library_other.google_x.y", false},                                    // sibling module, ".": no false match
+		{"module.other.google_project_iam_member.z", false},                                   // unrelated
 	}
 	for _, c := range cases {
 		if got := s.Covers(c.addr); got != c.want {
