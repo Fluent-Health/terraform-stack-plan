@@ -765,10 +765,16 @@ execution lifecycle to the `serve` control plane. The first increment landed the
 live progress", never to failure — an empty server URL is a full no-op, so local
 runs and the no-op `run tick` need no server) and an apply-time `gate check`
 that is **fail-closed** (it passes only on a satisfied gate; a 409, any non-2xx,
-or an unreachable configured server blocks the apply).
+or an unreachable configured server blocks the apply). The second increment
+landed **`run tick`** (under a `run` subcommand group): the internal per-stack
+reporter the terramate scripts call — it reads the execution context from the
+`TFSTACKPLAN_*` environment (server URL, token, execution id, stack) the
+orchestrator sets, posts a best-effort `update`, and is a no-op offline and on
+any server error, so a human's `terramate script run` is unaffected and a tick
+never fails the build.
 
-Still deferred to later increments: the rest of the runner (`run tick`, the
-terramate exec layer, `run plan`/`run apply` orchestration, CI integration); the
+Still deferred to later increments: the rest of the runner (the terramate exec
+layer, `run plan`/`run apply` orchestration, CI integration); the
 **Pub/Sub-push + OIDC event ingestion** (a latency optimization over the polling
 reconcile loop, which already satisfies gates); **true requester-pool leasing**
 (today `requester()` is a `PR mod pool` slot — collisions possible up to pool
