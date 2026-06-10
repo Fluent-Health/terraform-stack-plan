@@ -104,18 +104,3 @@ func badRequest(w http.ResponseWriter, err error) {
 
 // liveURL builds the per-execution live-page URL.
 func liveURL(base, id string) string { return fmt.Sprintf("%s/live/%s", base, id) }
-
-// Temporary stubs so the package compiles until Tasks 5–6 add the real handlers.
-// REMOVE these when handlers.go is added.
-func (a *App) handleInit(w http.ResponseWriter, r *http.Request) {
-	http.Error(w, "todo", http.StatusBadRequest)
-}
-func (a *App) handlePhase(w http.ResponseWriter, r *http.Request) {
-	http.Error(w, "todo", http.StatusBadRequest)
-}
-func (a *App) handleUpdate(w http.ResponseWriter, r *http.Request) {
-	http.Error(w, "todo", http.StatusBadRequest)
-}
-func (a *App) handleFinalize(w http.ResponseWriter, r *http.Request) {
-	http.Error(w, "todo", http.StatusBadRequest)
-}
