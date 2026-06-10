@@ -30,7 +30,9 @@ func (a *App) requestGrants(ctx context.Context, pr int, environment string, gat
 			_ = store.UpsertTarget(a.db, pr, environment, gt.Class, gt.Target, "", "blocked")
 			continue
 		}
-		_ = store.UpsertTarget(a.db, pr, environment, gt.Class, gt.Target, g.Name, string(g.State))
+		if uerr := store.UpsertTarget(a.db, pr, environment, gt.Class, gt.Target, g.Name, string(g.State)); uerr != nil {
+			log.Printf("gate: record target pr=%d env=%s %s/%s: %v", pr, environment, gt.Class, gt.Target, uerr)
+		}
 	}
 }
 
@@ -72,7 +74,9 @@ func (a *App) reconcileGate(ctx context.Context, pr int, environment string) {
 		}
 		st := matchGrantState(grants, pr, environment)
 		if st != "" {
-			_ = store.UpsertTarget(a.db, pr, environment, t.Class, t.Target, t.GrantName, string(st))
+			if uerr := store.UpsertTarget(a.db, pr, environment, t.Class, t.Target, t.GrantName, string(st)); uerr != nil {
+				log.Printf("gate: refresh target pr=%d env=%s %s/%s: %v", pr, environment, t.Class, t.Target, uerr)
+			}
 		}
 		if st != approval.StateActive {
 			allActive = false
