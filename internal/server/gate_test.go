@@ -91,3 +91,60 @@ func TestLatestExecutionID(t *testing.T) {
 		t.Error("want ok=false for unknown pr/env")
 	}
 }
+
+func TestGateCheckFailClosed(t *testing.T) {
+	db := newServerTestDB(t)
+	fake := approval.NewFake()
+	a := New(db, &MockGitHub{}, Config{UseChecks: true})
+	a.Approval = fake
+	srv := httptest.NewServer(a.Routes())
+	defer srv.Close()
+
+	if code := post(t, srv, "/api/gate/check", events.GateCheck{PR: 7, Environment: "staging"}); code != 409 {
+		t.Fatalf("unplanned gate/check = %d, want 409", code)
+	}
+
+	newGatedExecution(t, srv)
+
+	if code := post(t, srv, "/api/gate/check", events.GateCheck{PR: 7, Environment: "staging"}); code != 409 {
+		t.Fatalf("gated/check before approval = %d, want 409", code)
+	}
+
+	fake.Approve(approval.Request{Class: "iam", Target: "proj-a", PR: 7, Environment: "staging"})
+	if code := post(t, srv, "/api/gate/check", events.GateCheck{PR: 7, Environment: "staging"}); code != 200 {
+		t.Fatalf("approved gate/check = %d, want 200", code)
+	}
+}
+
+func TestGateCheckCleanPlanPasses(t *testing.T) {
+	db := newServerTestDB(t)
+	a := New(db, &MockGitHub{}, Config{})
+	a.Approval = approval.NewFake()
+	srv := httptest.NewServer(a.Routes())
+	defer srv.Close()
+	post(t, srv, "/api/init", events.Init{ID: "e1", Repo: "o/r", PR: 8, Environment: "staging",
+		Stacks: []events.StackState{{Path: "a", Status: events.StatusPlanned}}})
+	post(t, srv, "/api/finalize", events.Finalize{ID: "e1", ReportMarkdown: "# report"})
+	if code := post(t, srv, "/api/gate/check", events.GateCheck{PR: 8, Environment: "staging"}); code != 200 {
+		t.Fatalf("clean plan gate/check = %d, want 200", code)
+	}
+}
+
+func TestGateRevoke(t *testing.T) {
+	db := newServerTestDB(t)
+	fake := approval.NewFake()
+	a := New(db, &MockGitHub{}, Config{UseChecks: true})
+	a.Approval = fake
+	srv := httptest.NewServer(a.Routes())
+	defer srv.Close()
+	newGatedExecution(t, srv)
+	fake.Approve(approval.Request{Class: "iam", Target: "proj-a", PR: 7, Environment: "staging"})
+
+	if code := post(t, srv, "/api/gate/revoke", events.GateRevoke{PR: 7, Environment: "staging"}); code != 200 {
+		t.Fatalf("gate/revoke = %d, want 200", code)
+	}
+	grants, _ := fake.ListGrants(context.Background(), "iam", "proj-a")
+	if grants[0].State != approval.StateRevoked {
+		t.Errorf("grant state after revoke = %s, want REVOKED", grants[0].State)
+	}
+}

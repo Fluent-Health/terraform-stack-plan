@@ -2,7 +2,9 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"log"
+	"net/http"
 	"strings"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/approval"
@@ -105,4 +107,60 @@ func (a *App) reconcilePending(ctx context.Context) {
 	for _, g := range pending {
 		a.reconcileGate(ctx, g.PR, g.Environment)
 	}
+}
+
+// handleGateCheck is the apply-time, fail-closed gate pre-check: 200 only when
+// the (pr, environment) was classified AND every recorded gate target is ACTIVE
+// (a classified plan with no gates passes). A never-planned PR, an unsatisfied
+// gate, or any error → 409/5xx, so apply blocks. Reconciles first to catch a
+// just-approved gate.
+func (a *App) handleGateCheck(w http.ResponseWriter, r *http.Request) {
+	var p events.GateCheck
+	if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
+		badRequest(w, err)
+		return
+	}
+	classified, err := store.IsClassified(a.db, p.PR, p.Environment)
+	if err != nil {
+		http.Error(w, "classified check", http.StatusInternalServerError)
+		return
+	}
+	if !classified {
+		http.Error(w, "not classified", http.StatusConflict)
+		return
+	}
+	a.reconcileGate(r.Context(), p.PR, p.Environment)
+	targets, err := store.TargetsFor(a.db, p.PR, p.Environment)
+	if err != nil {
+		http.Error(w, "load targets", http.StatusInternalServerError)
+		return
+	}
+	for _, t := range targets {
+		if t.State != string(approval.StateActive) {
+			http.Error(w, "gate not satisfied", http.StatusConflict)
+			return
+		}
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+// handleGateRevoke revokes the grants the server requested for (pr, environment)
+// — best-effort post-apply cleanup. No-op without a backend.
+func (a *App) handleGateRevoke(w http.ResponseWriter, r *http.Request) {
+	var p events.GateRevoke
+	if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
+		badRequest(w, err)
+		return
+	}
+	if a.Approval != nil {
+		targets, _ := store.TargetsFor(a.db, p.PR, p.Environment)
+		for _, t := range targets {
+			if err := a.Approval.Revoke(r.Context(), approval.Request{
+				Class: t.Class, Target: t.Target, PR: p.PR, Environment: p.Environment,
+			}); err != nil {
+				log.Printf("gate: revoke pr=%d env=%s %s/%s: %v", p.PR, p.Environment, t.Class, t.Target, err)
+			}
+		}
+	}
+	w.WriteHeader(http.StatusOK)
 }

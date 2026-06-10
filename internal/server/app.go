@@ -55,6 +55,8 @@ func (a *App) Routes() http.Handler {
 	mux.Handle("POST /api/phase", a.auth(http.HandlerFunc(a.handlePhase)))
 	mux.Handle("POST /api/update", a.auth(http.HandlerFunc(a.handleUpdate)))
 	mux.Handle("POST /api/finalize", a.auth(http.HandlerFunc(a.handleFinalize)))
+	mux.Handle("POST /api/gate/check", a.auth(http.HandlerFunc(a.handleGateCheck)))
+	mux.Handle("POST /api/gate/revoke", a.auth(http.HandlerFunc(a.handleGateRevoke)))
 	return mux
 }
 
