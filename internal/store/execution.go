@@ -18,7 +18,7 @@ type Execution struct {
 	Rev            int
 	ReportMarkdown string
 	LogURL         string
-	Status         string
+	Status         string // execution-level commit status (e.g. "in_progress"/"success"/"failure"); written by the serve handler, distinct from per-stack events.Status
 	StatusContext  string
 	Phase          string
 }

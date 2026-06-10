@@ -102,6 +102,39 @@ func TestUpsertPhaseBeforeInit(t *testing.T) {
 	}
 }
 
+func TestUpsertInitIsReRunnable(t *testing.T) {
+	db := newTestDB(t)
+	if err := UpsertInit(db, sampleInit()); err != nil {
+		t.Fatal(err)
+	}
+	// A tick advances stack a past pending.
+	if err := UpdateStack(db, "exec-1", "stacks/a", events.StatusFailed, "boom"); err != nil {
+		t.Fatal(err)
+	}
+	// Re-running the same Init is safe: identity intact, no duplicate edges, and
+	// stack status is reset to the payload value (pending for stacks/a).
+	if err := UpsertInit(db, sampleInit()); err != nil {
+		t.Fatalf("re-init: %v", err)
+	}
+	g, err := LoadGraph(db, "exec-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(g.Stacks) != 2 || len(g.Edges) != 1 {
+		t.Fatalf("re-init graph = %d stacks, %d edges; want 2,1 (no duplicates)", len(g.Stacks), len(g.Edges))
+	}
+	if g.Stacks[0].Path != "stacks/a" || g.Stacks[0].Status != events.StatusPending {
+		t.Errorf("re-init stack a = %+v; want status reset to pending", g.Stacks[0])
+	}
+	e, err := GetExecution(db, "exec-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e.Repo != "owner/repo" || e.PR != 42 || e.Environment != "staging" {
+		t.Errorf("re-init clobbered identity: %+v", e)
+	}
+}
+
 func TestUpdateStackAndReportAndRev(t *testing.T) {
 	db := newTestDB(t)
 	if err := UpsertInit(db, sampleInit()); err != nil {
