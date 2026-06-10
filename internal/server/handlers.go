@@ -109,15 +109,22 @@ func (a *App) handleFinalize(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Record the gate targets (awaiting approval) and mark the stacks they cover
-	// as gated, so the graph and the verdict reflect the gate. Nothing flips a
-	// gate to ACTIVE in this sub-plan — the approval backend does that later.
+	// Record the gate targets. With a backend, request a grant per target (it
+	// records the grant name + live state); without one, record AWAITING so the
+	// verdict still parks at action_required. Either way, collect the targets so
+	// the matching stacks can be marked gated.
+	if a.Approval != nil {
+		a.requestGrants(r.Context(), e.PR, e.Environment, f.Gates)
+	} else {
+		for _, gt := range f.Gates {
+			if err := store.UpsertTarget(a.db, e.PR, e.Environment, gt.Class, gt.Target, "", "AWAITING"); err != nil {
+				http.Error(w, "record gate", http.StatusInternalServerError)
+				return
+			}
+		}
+	}
 	gatedTargets := map[string]bool{}
 	for _, gt := range f.Gates {
-		if err := store.UpsertTarget(a.db, e.PR, e.Environment, gt.Class, gt.Target, "", "AWAITING"); err != nil {
-			http.Error(w, "record gate", http.StatusInternalServerError)
-			return
-		}
 		gatedTargets[gt.Target] = true
 	}
 	for target := range gatedTargets {
