@@ -6,10 +6,11 @@ import "os"
 // per-stack `run tick` reads, so progress reporting needs no flags threaded
 // through the terramate scripts. Empty TFSTACKPLAN_SERVER disables reporting.
 const (
-	EnvServer    = "TFSTACKPLAN_SERVER"    // control-plane base URL ("" = offline, no-op)
-	EnvToken     = "TFSTACKPLAN_TOKEN"     // bearer secret for /api/*
-	EnvExecution = "TFSTACKPLAN_EXECUTION" // execution id this run reports under
-	EnvStack     = "TFSTACKPLAN_STACK"     // current stack path (fallback for `run tick --stack`)
+	EnvServer      = "TFSTACKPLAN_SERVER"      // control-plane base URL ("" = offline, no-op)
+	EnvToken       = "TFSTACKPLAN_TOKEN"       // bearer secret for /api/*
+	EnvExecution   = "TFSTACKPLAN_EXECUTION"   // execution id this run reports under
+	EnvStack       = "TFSTACKPLAN_STACK"       // current stack path (fallback for `run tick --stack`)
+	EnvEnvironment = "TFSTACKPLAN_ENVIRONMENT" // deployment environment for the execution
 )
 
 // ClientFromEnv builds a Client from TFSTACKPLAN_SERVER + TFSTACKPLAN_TOKEN. When
