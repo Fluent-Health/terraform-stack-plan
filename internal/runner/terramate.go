@@ -4,8 +4,12 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os/exec"
+	"strconv"
 	"strings"
+
+	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 )
 
 // Terramate shells out to the terramate binary. Dir is the project root: it is
@@ -69,4 +73,43 @@ func (t *Terramate) ChangedStacks(ctx context.Context, base string) ([]string, e
 		return nil, err
 	}
 	return lines(out), nil
+}
+
+// RunGraph returns the stack dependency edges (From must run before To), derived
+// from `terramate experimental run-graph -l stack.dir`.
+func (t *Terramate) RunGraph(ctx context.Context) ([]events.Edge, error) {
+	out, err := t.output(ctx, "experimental", "run-graph", "-l", "stack.dir")
+	if err != nil {
+		return nil, err
+	}
+	return parseRunGraph(string(out)), nil
+}
+
+// ScriptRunOptions controls `terramate script run`.
+type ScriptRunOptions struct {
+	Script   string // the terramate script name (e.g. "plan")
+	Changed  bool   // --changed: only changed stacks
+	Parallel int    // --parallel N (0 = terramate default)
+	Base     string // -B <ref> for change detection
+}
+
+// ScriptRun runs a terramate script across (changed) stacks, streaming combined
+// output to w. It returns terramate's exit error (so a failed stack fails the run).
+func (t *Terramate) ScriptRun(ctx context.Context, w io.Writer, o ScriptRunOptions) error {
+	args := []string{"script", "run"}
+	if o.Changed {
+		args = append(args, "--changed")
+	}
+	if o.Parallel > 0 {
+		args = append(args, "--parallel", strconv.Itoa(o.Parallel))
+	}
+	if o.Base != "" {
+		args = append(args, "-B", o.Base)
+	}
+	args = append(args, o.Script)
+	cmd := exec.CommandContext(ctx, t.bin(), args...)
+	cmd.Dir = t.Dir
+	cmd.Stdout = w
+	cmd.Stderr = w
+	return cmd.Run()
 }

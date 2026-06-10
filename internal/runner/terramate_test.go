@@ -1,11 +1,15 @@
 package runner
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 )
 
 // fixtureRepo copies the vendored terramate fixture into a temp dir, initializes
@@ -85,5 +89,42 @@ func TestTerramateChangedStacks(t *testing.T) {
 	}
 	if len(changed) != 1 || changed[0] != "stacks/b" {
 		t.Fatalf("changed = %v, want [stacks/b]", changed)
+	}
+}
+
+func TestTerramateRunGraph(t *testing.T) {
+	dir := fixtureRepo(t)
+	tm := &Terramate{Dir: dir}
+	edges, err := tm.RunGraph(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[events.Edge]bool{
+		{From: "stacks/a", To: "stacks/b"}: false,
+		{From: "stacks/a", To: "stacks/c"}: false,
+	}
+	for _, e := range edges {
+		if _, ok := want[e]; !ok {
+			t.Errorf("unexpected edge %+v", e)
+		}
+		want[e] = true
+	}
+	for e, seen := range want {
+		if !seen {
+			t.Errorf("missing edge %+v", e)
+		}
+	}
+}
+
+func TestTerramateScriptRun(t *testing.T) {
+	dir := fixtureRepo(t)
+	tm := &Terramate{Dir: dir}
+	var buf bytes.Buffer
+	err := tm.ScriptRun(context.Background(), &buf, ScriptRunOptions{Script: "noop"})
+	if err != nil {
+		t.Fatalf("script run: %v\n%s", err, buf.String())
+	}
+	if n := strings.Count(buf.String(), "ran"); n < 3 {
+		t.Errorf("expected the noop script to run on all 3 stacks, output:\n%s", buf.String())
 	}
 }
