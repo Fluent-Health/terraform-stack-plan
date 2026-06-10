@@ -592,7 +592,9 @@ DAG, approval gates, one GitHub check run per environment) and a `run` CI driver
 — while Terraform keeps executing in the user's own CI under the user's own
 identity. The render core above is unchanged and remains usable standalone.
 
-This increment lands the internal foundations only (no `serve` command yet):
+This increment lands the internal foundations only (no `serve` command yet) —
+see [PR #18](https://github.com/Fluent-Health/terraform-stack-plan/pull/18) for
+the full reasoning and alternatives weighed:
 
 - **Subcommand CLI.** `main()` dispatches subcommands; `render` is today's
   pipeline verbatim, bare/flags-first still renders, unknown subcommands error,
