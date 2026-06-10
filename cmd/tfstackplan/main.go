@@ -64,6 +64,8 @@ func dispatch(args []string) int {
 		switch args[0] {
 		case "render":
 			return runRender(args[1:])
+		case "serve":
+			return runServe(args[1:])
 		default:
 			fmt.Fprintf(os.Stderr, "tfstackplan: unknown subcommand %q\n", args[0])
 			fmt.Fprintln(os.Stderr, "usage: tfstackplan [render] [flags]")
