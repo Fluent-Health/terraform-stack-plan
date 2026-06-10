@@ -455,6 +455,14 @@ diff {
   `--max-bytes` (CLI) overrides the document budget; the `diff {}` block carries
   the per-attribute policy. Both are optional — absent means sensible defaults.
 
+The config also carries optional **server/serve** blocks for the control plane
+(ignored by `render`): `server { url, environment }`; `class "<name>" { backend,
+entitlement, required }` binding a classification class to an approval gate; and
+`serve { db_path, public_base_url, use_checks, webhook_secret_env, github_app {
+app_id, installation_id, private_key_path }, approval "gcp-pam" { location,
+duration, requester_pool } }` for the `serve` runtime. All are optional and
+backward-compatible — a render-only `.tfstackplan.hcl` needs none of them.
+
 ### `fit` — global, deterministic budget reduction
 
 `fit` starts every attribute at its preferred variant, measures the assembled
@@ -732,13 +740,25 @@ credentials (the requester SA lacks revoke). GCP credential acquisition is
 and tested offline against an `httptest` PAM fake — the real ADC + impersonation
 funcs are supplied by `serve`.
 
+**`serve` command + config + Cloud Run container** (see [PR #25](https://github.com/Fluent-Health/terraform-stack-plan/pull/25)).
+`tfstackplan serve` ties the server together: it parses the config (the
+`server {}`, `serve {}` — with `github_app {}` + `approval "gcp-pam" {}` — and
+`class "<name>" {}` blocks, all backward-compatible so a render-only file is
+unaffected), opens the SQLite store, builds the real GitHub client (App key from
+a mounted file) and the gcp-pam backend (real ADC + impersonation credentials),
+sets `App.Approval`, starts the reconcile loop, and serves. The binary is static
+and embeds its assets, so the release workflow builds a distroless, multi-arch
+container and pushes it to GHCR alongside the per-platform binaries; its
+entrypoint is `serve`. Deployment notes (single instance, Litestream, identity)
+are in `docs/deploy-cloud-run.md`; the hardening notes are in `SECURITY.md`.
+With this, **Phase 1 is complete**: render + serve (live DAG, approval gates,
+one check run per environment) ship from one binary.
+
 Still deferred to later increments: the **Pub/Sub-push + OIDC event ingestion**
 (a latency optimization over the polling reconcile loop, which already satisfies
 gates); **true requester-pool leasing** (today `requester()` is a `PR mod pool`
 slot — collisions possible up to pool size; leasing replaces it without an
-interface change); the richer UI v2 above; and the `serve` command + config
-parsing (which constructs `RealClient` + the `gcppam` backend with real GCP token
-funcs, sets `App.Approval`, and starts `ReconcileLoop`).
+interface change); the richer UI v2 above; and the `run`/`state` subcommands.
 
 ### Delivery: binary + Cloud Run container
 
