@@ -33,7 +33,7 @@ func fixtureRepo(t *testing.T) string {
 func gitInit(t *testing.T, dir string) {
 	t.Helper()
 	for _, args := range [][]string{
-		{"init", "-q"},
+		{"init", "-q", "-b", "main"},
 		{"config", "user.email", "t@t"},
 		{"config", "user.name", "t"},
 		{"config", "commit.gpgsign", "false"},
