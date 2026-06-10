@@ -164,3 +164,16 @@ func SetCheckRunID(db *sql.DB, id string, checkRunID int64) error {
 	_, err := db.Exec(`UPDATE executions SET check_run_id = ? WHERE id = ?`, checkRunID, id)
 	return err
 }
+
+// LatestExecutionID returns the most recent execution id for (pr, environment).
+// ok is false when none exists.
+func LatestExecutionID(db *sql.DB, pr int, environment string) (string, bool) {
+	var id string
+	err := db.QueryRow(
+		`SELECT id FROM executions WHERE pr = ? AND environment = ?
+		 ORDER BY created_at DESC, id DESC LIMIT 1`, pr, environment).Scan(&id)
+	if err != nil {
+		return "", false
+	}
+	return id, true
+}

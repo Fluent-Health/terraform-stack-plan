@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+
+	"github.com/Fluent-Health/terraform-stack-plan/internal/approval"
 )
 
 // Config is the server runtime configuration.
@@ -29,6 +31,10 @@ type App struct {
 	db  *sql.DB
 	gh  GitHub
 	cfg Config
+	// Approval is the optional approval-gate backend. nil disables gating
+	// (gates recorded AWAITING are never satisfied → action_required). Set after
+	// construction (e.g. by the serve command), so New's signature is unchanged.
+	Approval approval.Backend
 }
 
 // New builds an App.
@@ -49,6 +55,8 @@ func (a *App) Routes() http.Handler {
 	mux.Handle("POST /api/phase", a.auth(http.HandlerFunc(a.handlePhase)))
 	mux.Handle("POST /api/update", a.auth(http.HandlerFunc(a.handleUpdate)))
 	mux.Handle("POST /api/finalize", a.auth(http.HandlerFunc(a.handleFinalize)))
+	mux.Handle("POST /api/gate/check", a.auth(http.HandlerFunc(a.handleGateCheck)))
+	mux.Handle("POST /api/gate/revoke", a.auth(http.HandlerFunc(a.handleGateRevoke)))
 	return mux
 }
 
