@@ -36,6 +36,10 @@ type Request struct {
 	Target      string
 	PR          int
 	Environment string
+	// Requester is an optional pre-leased pool identity. When set, the backend
+	// requests the grant AS this identity instead of leasing one — so all of a
+	// PR's gates share one elevated requester. Empty ⇒ the backend leases.
+	Requester string
 }
 
 // Grant is a backend's record of an approval grant for a Request.

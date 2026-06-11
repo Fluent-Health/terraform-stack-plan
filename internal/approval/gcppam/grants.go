@@ -40,7 +40,10 @@ func (b *Backend) RequestGrant(ctx context.Context, req approval.Request) (appro
 		}
 	}
 
-	requester := b.cfg.leaseRequester(req.PR, leased)
+	requester := req.Requester
+	if requester == "" {
+		requester = b.cfg.leaseRequester(req.PR, leased)
+	}
 	if requester == "" {
 		return approval.Grant{}, fmt.Errorf("gcppam: empty requester pool")
 	}
@@ -73,7 +76,7 @@ func (b *Backend) RequestGrant(ctx context.Context, req approval.Request) (appro
 	if err := json.Unmarshal(rb, &created); err != nil {
 		return approval.Grant{}, fmt.Errorf("gcppam: unmarshal create: %w", err)
 	}
-	return approval.Grant{Name: created.Name, State: approval.StateAwaiting, Request: req}, nil
+	return approval.Grant{Name: created.Name, State: approval.StateAwaiting, Request: req, Requester: requester}, nil
 }
 
 // Revoke revokes every open grant on the (class, target) entitlement whose
