@@ -721,10 +721,17 @@ group a single node showing its stack-count and **worst status** (with a
 `N failed`/`N gated` tally), and edges are the terramate before/after
 dependencies aggregated to the group level (intra-group and self edges dropped,
 duplicates collapsed). The folding lives in `buildGroupGraph`
-(`internal/server/grouping.go`); `renderGroupSVG` reuses the same layered layout
-as the per-stack `renderSVG` (the shared `layersOf` helper). Each group node also
-renders a **category-badge line** (e.g. `🔐 12  💣 5`, icon when present else
-name, name-sorted) aggregating its stacks' matched classification categories —
+(`internal/server/grouping.go`); `renderGroupSVG` lays the group DAG out in
+**horizontal lanes per environment** (the first segment of the group key,
+e.g. `nonprod`/`prod`), sharing one dependency-depth column grid — so
+duplicated-across-env work reads side by side. Each lane has a bold label at
+its top. The shared `layersOf` helper assigns each node its column; the new
+`laneOf` helper extracts the environment segment. Lanes are sorted
+alphabetically; within a lane, nodes in the same column are sorted
+alphabetically. The existing per-stack `renderSVG` is unchanged (it has no
+lane concept). Each group node also renders a **category-badge line** (e.g.
+`🔐 12  💣 5`, icon when present else name, name-sorted) aggregating its
+stacks' matched classification categories —
 plumbed per-stack from the `run plan` sidecar via `Finalize.Categories` → the
 `stacks.categories` column → `LoadGraph` → `buildGroupGraph`'s per-group
 `catCount` tally → `groupBadges`. Grouping is configurable via a

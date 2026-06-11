@@ -209,55 +209,98 @@ func clip(s string, max int) string {
 	return s
 }
 
-// renderGroupSVG renders the group-level dependency DAG: one box per group
-// (count + worst-status), edges = before/after folded to the group level. Inert/
-// self-contained like renderSVG. depth<=0 groups by full path (per-stack).
-// A non-nil re overrides depth (see groupKey).
+// laneOf is the swimlane a group belongs to: the first segment of its key
+// (the environment, e.g. "nonprod/pipelines" → "nonprod").
+func laneOf(key string) string {
+	if i := strings.IndexByte(key, '/'); i >= 0 {
+		return key[:i]
+	}
+	return key
+}
+
+// renderGroupSVG renders the group-level dependency DAG as an inert SVG, laid out
+// in horizontal lanes per environment (laneOf the group key) sharing one
+// dependency-depth column grid. Each group box shows count + worst-status + the
+// category badges.
 func renderGroupSVG(g events.Graph, depth int, re *regexp.Regexp) []byte {
 	gg := buildGroupGraph(g, depth, re)
 	const (
 		boxW, boxH       = 200, 64
-		colGap, rowGap   = 80, 20
+		colGap, rowGap   = 80, 16
 		marginX, marginY = 24, 24
+		laneLabelH       = 22
+		laneGap          = 24
 	)
 	ids := make([]string, 0, len(gg.Nodes))
 	for _, n := range gg.Nodes {
 		ids = append(ids, n.Key)
 	}
 	layer := layersOf(ids, gg.Edges)
-	byLayer := map[int][]string{}
 	maxLayer := 0
-	for _, n := range gg.Nodes {
-		l := layer[n.Key]
-		byLayer[l] = append(byLayer[l], n.Key)
+	for _, l := range layer {
 		if l > maxLayer {
 			maxLayer = l
 		}
 	}
-	for l := range byLayer {
-		sort.Strings(byLayer[l])
+	// lanes (environments), sorted.
+	laneSet := map[string]bool{}
+	for _, n := range gg.Nodes {
+		laneSet[laneOf(n.Key)] = true
 	}
+	lanes := make([]string, 0, len(laneSet))
+	for l := range laneSet {
+		lanes = append(lanes, l)
+	}
+	sort.Strings(lanes)
+
 	type pt struct{ x, y int }
 	at := map[string]pt{}
-	maxRows := 0
-	for l := 0; l <= maxLayer; l++ {
-		col := byLayer[l]
-		if len(col) > maxRows {
-			maxRows = len(col)
+	type band struct {
+		name string
+		top  int
+	}
+	var bands []band
+	y := marginY
+	for _, lane := range lanes {
+		byLayer := map[int][]string{}
+		for _, n := range gg.Nodes {
+			if laneOf(n.Key) == lane {
+				byLayer[layer[n.Key]] = append(byLayer[layer[n.Key]], n.Key)
+			}
 		}
-		for i, k := range col {
-			at[k] = pt{x: marginX + l*(boxW+colGap), y: marginY + i*(boxH+rowGap)}
+		for l := range byLayer {
+			sort.Strings(byLayer[l])
 		}
+		rows := 0
+		for _, col := range byLayer {
+			if len(col) > rows {
+				rows = len(col)
+			}
+		}
+		if rows == 0 {
+			rows = 1
+		}
+		bands = append(bands, band{name: lane, top: y})
+		nodeTop := y + laneLabelH
+		for l := 0; l <= maxLayer; l++ {
+			for i, k := range byLayer[l] {
+				at[k] = pt{x: marginX + l*(boxW+colGap), y: nodeTop + i*(boxH+rowGap)}
+			}
+		}
+		y = nodeTop + rows*boxH + (rows-1)*rowGap + laneGap
 	}
 	width := marginX*2 + (maxLayer+1)*boxW + maxLayer*colGap
-	height := marginY*2 + boxH
-	if maxRows > 0 {
-		height = marginY*2 + maxRows*boxH + (maxRows-1)*rowGap
+	height := y - laneGap + marginY
+	if len(gg.Nodes) == 0 {
+		height = marginY*2 + boxH
 	}
 
 	var b strings.Builder
 	fmt.Fprintf(&b, `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 %d %d" width="%d" height="%d" font-family="ui-monospace,Menlo,monospace" font-size="12">`,
 		width, height, width, height)
+	for _, bd := range bands {
+		fmt.Fprintf(&b, `<text x="%d" y="%d" fill="#57606a" font-weight="bold" font-size="13">%s</text>`, marginX, bd.top+15, svgEscape(bd.name))
+	}
 	for _, e := range gg.Edges {
 		from, ok1 := at[e.From]
 		to, ok2 := at[e.To]
