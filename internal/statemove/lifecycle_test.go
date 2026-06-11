@@ -6,12 +6,12 @@ import (
 	"testing"
 )
 
-func writeShim(t *testing.T, dir, key string, moves []Move) {
+func writeShim(t *testing.T, dir, key string, ops []Op) {
 	t.Helper()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, ShimFileName(key)), []byte(RenderShim(key, moves)), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, ShimFileName(key)), []byte(RenderShim(key, ops)), 0o644); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -24,9 +24,9 @@ func TestShimFileName(t *testing.T) {
 
 func TestDiscoverAndCleanup(t *testing.T) {
 	root := t.TempDir()
-	writeShim(t, filepath.Join(root, "stacks/a"), "PR-1", []Move{{From: "x.a", To: "x.b"}})
-	writeShim(t, filepath.Join(root, "stacks/a"), "PR-2", []Move{{From: "y.a", To: "y.b"}})
-	writeShim(t, filepath.Join(root, "stacks/b"), "PR-1", []Move{{From: "z.a", To: "z.b"}})
+	writeShim(t, filepath.Join(root, "stacks/a"), "PR-1", []Op{{Kind: "moved", From: "x.a", To: "x.b"}})
+	writeShim(t, filepath.Join(root, "stacks/a"), "PR-2", []Op{{Kind: "moved", From: "y.a", To: "y.b"}})
+	writeShim(t, filepath.Join(root, "stacks/b"), "PR-1", []Op{{Kind: "moved", From: "z.a", To: "z.b"}})
 	_ = os.WriteFile(filepath.Join(root, "stacks/a", "main.tf"), []byte("resource \"x\" \"y\" {}"), 0o644)
 
 	all, err := Discover(root)

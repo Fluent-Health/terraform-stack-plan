@@ -63,12 +63,60 @@ func TestStateMoveFailsClosed(t *testing.T) {
 	}
 }
 
-func TestStateMoveRejectsCrossStack(t *testing.T) {
-	root := writeStackPlan(t, "stacks/a", [3]string{"x.a", "x", "delete"})
-	code := runState([]string{"move", "--dir", root, "--stack", "stacks/a", "--pr", "1",
-		"stacks/a:x.a", "stacks/b:x.b"})
+// writeTwoStackPlans seeds <root>/<src>/tfplan.json (a delete w/ before.id) and
+// <root>/<dst>/tfplan.json (a create), returning root.
+func writeTwoStackPlans(t *testing.T, srcStack, srcAddr, srcType, id, dstStack, dstAddr, dstType string) string {
+	t.Helper()
+	root := t.TempDir()
+	mk := func(stack, body string) {
+		dir := filepath.Join(root, filepath.FromSlash(stack))
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "tfplan.json"), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mk(srcStack, `{"format_version":"1.2","resource_changes":[{"address":"`+srcAddr+`","type":"`+srcType+`","change":{"actions":["delete"],"before":{"id":"`+id+`"}}}]}`)
+	mk(dstStack, `{"format_version":"1.2","resource_changes":[{"address":"`+dstAddr+`","type":"`+dstType+`","change":{"actions":["create"]}}]}`)
+	return root
+}
+
+func TestStateMoveCrossStack(t *testing.T) {
+	root := writeTwoStackPlans(t, "stacks/a", "aws_s3_bucket.x", "aws_s3_bucket", "my-bucket",
+		"stacks/b", "aws_s3_bucket.x", "aws_s3_bucket")
+	code := runState([]string{"move", "--dir", root, "--pr", "5",
+		"stacks/a:aws_s3_bucket.x", "stacks/b:aws_s3_bucket.x"})
+	if code != 0 {
+		t.Fatalf("cross-stack move = %d, want 0", code)
+	}
+	srcData, err := os.ReadFile(filepath.Join(root, "stacks/a", statemove.ShimFileName("PR-5")))
+	if err != nil {
+		t.Fatalf("source shim missing: %v", err)
+	}
+	if !strings.Contains(string(srcData), "removed {") || !strings.Contains(string(srcData), "destroy = false") {
+		t.Errorf("source shim missing removed block:\n%s", srcData)
+	}
+	dstData, err := os.ReadFile(filepath.Join(root, "stacks/b", statemove.ShimFileName("PR-5")))
+	if err != nil {
+		t.Fatalf("dest shim missing: %v", err)
+	}
+	if !strings.Contains(string(dstData), "import {") || !strings.Contains(string(dstData), `id = "my-bucket"`) {
+		t.Errorf("dest shim missing import block:\n%s", dstData)
+	}
+}
+
+func TestStateMoveCrossStackFailsClosed(t *testing.T) {
+	root := writeTwoStackPlans(t, "stacks/a", "aws_s3_bucket.x", "aws_s3_bucket", "id",
+		"stacks/b", "aws_s3_bucket.x", "aws_s3_bucket")
+	_ = os.WriteFile(filepath.Join(root, "stacks/b", "tfplan.json"), []byte(`{"format_version":"1.2","resource_changes":[]}`), 0o644)
+	code := runState([]string{"move", "--dir", root, "--pr", "5",
+		"stacks/a:aws_s3_bucket.x", "stacks/b:aws_s3_bucket.x"})
 	if code == 0 {
-		t.Error("SP1 should reject a cross-stack move")
+		t.Error("expected fail-closed on a cross-stack move with no dest create")
+	}
+	if _, err := os.Stat(filepath.Join(root, "stacks/a", statemove.ShimFileName("PR-5"))); err == nil {
+		t.Error("no source shim should be written on failure")
 	}
 }
 
