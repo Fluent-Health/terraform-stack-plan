@@ -2,6 +2,7 @@ package main
 
 import (
 	"cmp"
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -19,7 +20,7 @@ import (
 // machinery. SP1 implements same-stack moves (native `moved {}` shims).
 func runState(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "tfstackplan state: expected a subcommand (move|list|cleanup)")
+		fmt.Fprintln(os.Stderr, "tfstackplan state: expected a subcommand (move|list|cleanup|apply)")
 		return 2
 	}
 	switch args[0] {
@@ -29,6 +30,8 @@ func runState(args []string) int {
 		return runStateList(args[1:])
 	case "cleanup":
 		return runStateCleanup(args[1:])
+	case "apply":
+		return runStateApply(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "tfstackplan state: unknown subcommand %q\n", args[0])
 		return 2
@@ -261,6 +264,55 @@ func runStateList(args []string) int {
 			case "removed":
 				fmt.Printf("%s\t%s\tremoved %s\n", s.Key, s.Stack, o.From)
 			}
+		}
+	}
+	return 0
+}
+
+func runStateApply(args []string) int {
+	fs := flag.NewFlagSet("state apply", flag.ContinueOnError)
+	dir := fs.String("dir", "", "terramate project root (required)")
+	execute := fs.Bool("execute", false, "perform the moves (default: dry-run, print only)")
+	backupDir := fs.String("backup-dir", "", "directory for pre-move state backups (default: <dir>/.tfsp-state-backups)")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if *dir == "" {
+		fmt.Fprintln(os.Stderr, "state apply: --dir is required")
+		return 2
+	}
+	tfPath, err := exec.LookPath("terraform")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "state apply: terraform not found on PATH")
+		return 1
+	}
+	bdir := *backupDir
+	if bdir == "" {
+		bdir = filepath.Join(*dir, ".tfsp-state-backups")
+	}
+	found, err := statemove.DiscoverXMoves(*dir)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "state apply:", err)
+		return 1
+	}
+	deps := statemove.ExecDeps{
+		NewTF:     func(wd string) (statemove.Runner, error) { return statemove.NewTerraform(tfPath, wd) },
+		BackupDir: bdir,
+	}
+	for _, fx := range found {
+		actions, err := statemove.Execute(context.Background(), deps, *dir, fx.DestStack, fx.XMove, !*execute)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "state apply: %s (%s → %s): %v\n", fx.Key, fx.XMove.SourceStack, fx.DestStack, err)
+			return 1
+		}
+		for _, a := range actions {
+			verb := "would move"
+			if a.Decision == statemove.DecisionSkip {
+				verb = "skip (already moved)"
+			} else if *execute {
+				verb = "moved"
+			}
+			fmt.Printf("%s\t%s → %s\t%s %s → %s\n", fx.Key, fx.XMove.SourceStack, fx.DestStack, verb, a.From, a.To)
 		}
 	}
 	return 0

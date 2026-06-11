@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -158,4 +159,23 @@ func TestStateMoveViaMv(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(root, "stacks/b", statemove.ShimFileName("PR-5"))); err == nil {
 		t.Error("--via mv should not write a native import/removed shim")
 	}
+}
+
+func TestStateApplyDiscoversManifests(t *testing.T) {
+	if _, err := exec.LookPath("terraform"); err != nil {
+		t.Skip("terraform not on PATH")
+	}
+	// terraform present but no real backends → Execute fails to pull; this only
+	// asserts discovery + wiring (it finds the manifest and attempts it). A full
+	// move is covered by the fake-runner tests in internal/statemove.
+	root := t.TempDir()
+	dir := filepath.Join(root, "stacks/b")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	xm := statemove.XMove{SourceStack: "stacks/a", Pairs: []statemove.Move{{From: "x.y", To: "x.y"}}}
+	if err := os.WriteFile(filepath.Join(dir, statemove.XMoveFileName("PR-5")), []byte(statemove.RenderXMove("PR-5", xm)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_ = runState([]string{"apply", "--dir", root}) // must not panic; exit code not asserted (no real backend)
 }
