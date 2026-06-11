@@ -27,8 +27,9 @@ class "iam" {
   required    = true
 }
 class "database" {
-  backend     = "gcp-pam"
-  entitlement = "db-approval"
+  backend           = "gcp-pam"
+  entitlement       = "db-approval"
+  entitlement_scope = "folders"
 }
 `))
 	if err != nil {
@@ -43,7 +44,7 @@ class "database" {
 	if cfg.Classes[0].Name != "iam" || cfg.Classes[0].Entitlement != "iam-elev" || !cfg.Classes[0].Required {
 		t.Errorf("class iam = %+v", cfg.Classes[0])
 	}
-	if cfg.Classes[1].Name != "database" || cfg.Classes[1].Required {
+	if cfg.Classes[1].Name != "database" || cfg.Classes[1].Required || cfg.Classes[1].EntitlementScope != "folders" {
 		t.Errorf("class database = %+v", cfg.Classes[1])
 	}
 }

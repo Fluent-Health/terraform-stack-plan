@@ -17,10 +17,11 @@ type ServerConfig struct {
 // ClassBinding is a `class "<name>" {}` block: binds a classification class to an
 // approval backend + entitlement, and whether it gates (required).
 type ClassBinding struct {
-	Name        string
-	Backend     string
-	Entitlement string
-	Required    bool
+	Name             string
+	Backend          string
+	Entitlement      string
+	EntitlementScope string
+	Required         bool
 }
 
 // ServeConfig is the `serve {}` block: the control-plane server runtime config.
@@ -97,9 +98,10 @@ type serverBody struct {
 }
 
 type classBody struct {
-	Backend     string `hcl:"backend,optional"`
-	Entitlement string `hcl:"entitlement,optional"`
-	Required    bool   `hcl:"required,optional"`
+	Backend          string `hcl:"backend,optional"`
+	Entitlement      string `hcl:"entitlement,optional"`
+	EntitlementScope string `hcl:"entitlement_scope,optional"`
+	Required         bool   `hcl:"required,optional"`
 }
 
 func decodeServer(blk *hclsyntax.Block) (*ServerConfig, error) {
@@ -118,5 +120,5 @@ func decodeClass(blk *hclsyntax.Block) (ClassBinding, error) {
 	if d := gohcl.DecodeBody(blk.Body, nil, &b); d.HasErrors() {
 		return ClassBinding{}, fmt.Errorf("class %q: %s", blk.Labels[0], d.Error())
 	}
-	return ClassBinding{Name: blk.Labels[0], Backend: b.Backend, Entitlement: b.Entitlement, Required: b.Required}, nil
+	return ClassBinding{Name: blk.Labels[0], Backend: b.Backend, Entitlement: b.Entitlement, EntitlementScope: b.EntitlementScope, Required: b.Required}, nil
 }
