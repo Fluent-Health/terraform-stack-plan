@@ -96,6 +96,82 @@ Notes:
   (e.g. in an `after_failure`-style wrapper) so the live view shows it; on a
   hard terramate failure `run plan` still finalizes with `failed=true`.
 
+## Apply identity and privilege-backed deployment
+
+### Advisory mode (default, `--impersonate-requester` off)
+
+By default `run apply` uses the ambient CI identity (whatever credential the CI
+runner holds). The fail-closed `/api/gate/check` pre-check is the sole
+enforcement: if the server says the PR's gates are not satisfied, the apply
+blocks before any stack is touched. The apply itself runs under the CI
+identity — no elevation, no token minting.
+
+With no server configured, `TFSTACKPLAN_SERVER` is unset, and the gate check is
+a complete no-op: nothing gates and apply proceeds immediately.
+
+### Privilege-backed deployment (`--impersonate-requester`)
+
+```
+tfstackplan run apply --dir stacks/prod --changed --impersonate-requester
+```
+
+`--impersonate-requester` turns the gate check into an identity source: it takes
+the requester service-account email the server returns in the `POST
+/api/gate/check` 200 response and mints a short-lived
+`GOOGLE_OAUTH_ACCESS_TOKEN` for it via the IAM Credentials `generateAccessToken`
+API. All subsequent `terraform` invocations in the same process inherit that env
+var and run **as the leased PAM requester identity** — the elevated identity that
+PAM actually granted the IAM-write role to.
+
+**How it works end-to-end:**
+
+1. The operator configures a PAM entitlement whose role binding grants the
+   IAM-write permission to a small pool of requester service accounts
+   (`approval "gcp-pam" { requester_pool = ["sa-applier-0@…", …] }`).
+2. When `run plan` finalises a PR with an IAM gate, the server leases one pool
+   SA for the PR (across every environment), requests the PAM grant as that
+   identity, and persists it on the `gate_targets` rows.
+3. When the human approves the grant in GCP IAM, the server reconciles the gate
+   to `ACTIVE`.
+4. `run apply --impersonate-requester` calls `POST /api/gate/check`, receives
+   `{"requester": "sa-applier-0@…"}`, calls `generateAccessToken` (the CI apply
+   identity must hold `iam.serviceAccounts.getAccessToken` /
+   `serviceAccountTokenCreator` on every pool SA), sets
+   `GOOGLE_OAUTH_ACCESS_TOKEN`, and runs the terramate apply script. Terraform
+   picks up the token and applies as the elevated identity.
+5. An unapproved IAM change fails at GCP (403) because the apply is not
+   elevated — the enforcement is real, not only at the gate pre-check.
+
+**When `--impersonate-requester` is a no-op:**
+
+The flag is silently no-op when `GateCheck` returns an empty requester — two
+cases where this is expected and correct:
+
+- **Gateless plan** — a clean plan with no IAM/classified changes has no gate
+  targets, so no requester is leased; the gate check passes and returns `""`.
+  The apply runs as the ambient CI identity, which is appropriate (no elevated
+  permission is needed).
+- **No server configured** — `TFSTACKPLAN_SERVER` is unset, `GateCheck` returns
+  `("", nil)`, and the apply proceeds as normal.
+
+A genuine misconfiguration where a classified IAM plan has an unsatisfied gate
+still fails closed: either the gate pre-check returns a 409 (apply blocked) or —
+if the gate check is somehow bypassed — GCP 403s the unelevated apply because the
+CI identity lacks the IAM-write role.
+
+### Environment table additions
+
+When using `--impersonate-requester`, the CI apply job also requires:
+
+| Requirement | Detail |
+|-------------|--------|
+| ADC with `serviceAccountTokenCreator` | The CI runner's ambient credential must hold `roles/iam.serviceAccountTokenCreator` (or `iam.serviceAccounts.getAccessToken`) on **every** SA in the requester pool. |
+| Requester pool SAs hold the IAM-write role | The PAM entitlement grants the elevated role to the requester pool SAs, not to the CI runtime identity. |
+
+The `GOOGLE_OAUTH_ACCESS_TOKEN` is process-scoped (set in the `run apply`
+process's env and inherited by the subprocess); it is not written to disk or
+exported beyond the apply run.
+
 ## Example: GitHub Actions
 
 Two jobs — plan on PRs, apply on merge to the default branch. Each is a checkout
@@ -138,7 +214,9 @@ jobs:
       # (install terramate, terraform, and the tfstackplan binary on PATH)
       # The PR number is recovered from the merge commit by the consumer and
       # exported as TFSTACKPLAN_PR so the apply gate check correlates.
-      - run: tfstackplan run apply --dir stacks/staging --changed --base "${{ github.sha }}^"
+      # --impersonate-requester is optional; omit it if you want advisory-only
+      # enforcement (fail-closed gate pre-check, ambient CI identity for the apply).
+      - run: tfstackplan run apply --dir stacks/staging --changed --base "${{ github.sha }}^" --impersonate-requester
 ```
 
 `run plan`/`run apply` shell out to `terramate` (and `terraform` via the

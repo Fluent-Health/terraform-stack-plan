@@ -543,6 +543,17 @@ the budget entirely.
 
 ## Shipped since v1
 
+- **Privilege-backed apply** — `POST /api/gate/check` now returns
+  `{"requester": "<sa-email>"}` (the leased PAM requester for the PR) on its 200
+  success path. `tfstackplan run apply --impersonate-requester` reads that email,
+  mints a short-lived `GOOGLE_OAUTH_ACCESS_TOKEN` via the IAM Credentials API
+  (using the CI runner's ADC, which must hold `serviceAccountTokenCreator` on the
+  pool SAs), and sets the env var so terraform runs **as the elevated requester
+  identity**. An unapproved IAM change therefore fails at GCP (403), not only at
+  the fail-closed gate pre-check. The flag is a no-op when the gate check returns
+  an empty requester (gateless plan, or no server configured) — a gateless apply
+  needs no elevation and proceeds as normal. See `docs/ci-integration.md` for the
+  full wiring and `SECURITY.md` for the hardening notes.
 - **Fractal per-resource nesting** — every resource is its own `<details>` row
   inside a per-stack blockquote bar, with one size-based open/closed rule.
 - **State operations** surfaced — moved (`↪`), imported (`⤓`), removed-from-state
@@ -619,14 +630,20 @@ the budget entirely.
   read up to the first whitespace. Environments are slugs (`staging`/`prod`), so
   this holds, but an environment containing a space would not round-trip
   (correlation, reuse, and revoke would miss the grant).
-- **The `gcp-pam` requester pool uses true leasing, falling back to a
-  `PR mod pool-size` slot only when the pool is exhausted.** `RequestGrant` reads
-  the entitlement's open grants (the live leases — each grant carries its
-  `requester`) and impersonates the first pool identity not already holding one;
-  if every identity is leased it falls back to the deterministic `PR mod N` slot.
-  Collision is therefore bounded by *concurrent open grants exceeding pool size*,
-  not by PR-number arithmetic. Leasing is per (class, target) entitlement, where
-  contention occurs.
+- **The `gcp-pam` requester pool leases one SA per (PR, environment), reused
+  across all of that PR's gates.** At finalize the server iterates the PR's gate
+  targets and calls `RequestGrant` in sequence. The first successful grant
+  response that carries a `Requester` sets the leased identity, and every
+  subsequent `RequestGrant` call for the same PR passes that identity pinned via
+  `approval.Request.Requester`, so PAM always receives the same requester
+  throughout. After the loop `store.SetTargetRequester` persists the leased SA
+  on every `gate_targets` row for the (PR, environment). The underlying
+  `RequestGrant` still performs entitlement-level true leasing when no requester
+  is pinned (picks a pool SA with no open grant on that entitlement, falling back
+  to `PR mod pool-size` when the pool is exhausted), but once the first grant
+  fixes the identity the rest of the PR's grants share it. Collision is therefore
+  bounded by *concurrent open PRs exceeding pool size*, not by PR-number
+  arithmetic.
 - **`run apply` registers an `apply/<env>` execution, but the server still posts
   the plan-gate commit-status context for it.** The apply execution carries a
   non-`plan/<env>` context so no plan check-run is created for it, and it uses a
@@ -891,7 +908,9 @@ registers the apply execution, applies the changed stacks in dependency order
 (the terramate `apply` script, no `--parallel`), and revokes the PR's grants
 afterward (best-effort, whether or not the apply succeeded). Tested end to end
 against real terramate + a stub `terraform`: gate satisfied → apply runs in DAG
-order + revoke; gate blocks → abort before any apply.
+order + revoke; gate blocks → abort before any apply. The `--impersonate-requester`
+flag (see *Shipped since v1 — Privilege-backed apply*) is additive on top of this
+increment; the gate pre-check behaviour is unchanged with the flag on.
 
 The sixth increment landed the **CI integration guide** (`docs/ci-integration.md`):
 the consumer-facing wiring — the `TFSTACKPLAN_*` environment, the terramate
