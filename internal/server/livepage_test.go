@@ -73,7 +73,7 @@ func TestLivePageStackListAndTimeline(t *testing.T) {
 		Stacks: stacks, Report: "", SVG: `<svg id="dag"></svg>`, Panel: "",
 	})
 	for _, want := range []string{
-		"proj-a", "(ungrouped)", "stacks/a",
+		"stacks/a", "stacks/b",
 		"badge-warning", "badge-success",
 		"steps", "planning",
 		`<svg id="dag">`,

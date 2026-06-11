@@ -57,6 +57,10 @@ func (a *App) livePage(v liveView) string {
 	if v.Environment != "" {
 		title += " — " + v.Environment
 	}
+	depth := a.cfg.GroupDepth
+	if depth == 0 {
+		depth = 2
+	}
 	var buf bytes.Buffer
 	_ = a.tmpl.ExecuteTemplate(&buf, "live.gohtml", struct {
 		Title, Exec, Repo, Report string
@@ -69,7 +73,7 @@ func (a *App) livePage(v liveView) string {
 		Repo:     v.Repo,
 		Report:   v.Report,
 		Timeline: phaseTimeline(v.Phase),
-		Groups:   groupStacks(v.Stacks),
+		Groups:   groupStacksByKey(v.Stacks, depth, a.groupRE),
 		SVG:      template.HTML(v.SVG),
 		Panel:    template.HTML(v.Panel),
 	})
