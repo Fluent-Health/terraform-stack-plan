@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ .Stack }} — {{ .Repo }}</title>
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body class="min-h-screen bg-base-200">
+  <div class="navbar bg-base-100 border-b border-base-300">
+    <div class="mx-auto w-full max-w-5xl px-4 flex items-center gap-3">
+      <a href="/live/{{ .Exec }}" class="link link-hover text-sm opacity-70">← {{ .Repo }}</a>
+      <span class="text-lg font-semibold"><code>{{ .Stack }}</code></span>
+    </div>
+  </div>
+  <main class="mx-auto w-full max-w-5xl px-4 py-6">
+    <section class="card bg-base-100 shadow-sm"><div class="card-body p-4">
+      <div class="tabs tabs-border">
+        <input type="radio" name="stacktabs" class="tab" aria-label="Log" checked>
+        <div class="tab-content border-base-300 p-3">
+          {{ if .LogExcerpt }}<pre class="overflow-auto rounded-lg bg-neutral text-neutral-content p-4 text-xs">{{ .LogExcerpt }}</pre>
+          <a class="link text-xs" href="/logs/{{ .Exec }}/{{ .Stack }}">view full log →</a>
+          {{ else }}<p class="opacity-60 italic">No log captured for this stack.</p>{{ end }}
+        </div>
+        <input type="radio" name="stacktabs" class="tab" aria-label="Plan">
+        <div class="tab-content border-base-300 p-3">
+          {{ if .Plan }}<pre class="overflow-auto rounded-lg bg-neutral text-neutral-content p-4 text-xs">{{ .Plan }}</pre>
+          {{ else }}<p class="opacity-60 italic">No plan recorded for this stack.</p>{{ end }}
+        </div>
+        <input type="radio" name="stacktabs" class="tab" aria-label="Verify">
+        <div class="tab-content border-base-300 p-3">
+          <p class="opacity-60 italic">Verify runs in Phase 4.</p>
+        </div>
+      </div>
+    </div></section>
+  </main>
+</body>
+</html>

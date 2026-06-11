@@ -34,7 +34,7 @@
             {{ range .Stacks }}
             <li class="flex items-center gap-3 py-1.5">
               <span class="badge {{ statusBadge .Status }} badge-sm">{{ .Status }}</span>
-              <code class="text-xs">{{ .Path }}</code>
+              <a class="link link-hover" href="/live/{{ $.Exec }}/stack/{{ .Path }}"><code class="text-xs">{{ .Path }}</code></a>
               {{ if .Detail }}<span class="text-xs opacity-60 truncate">{{ .Detail }}</span>{{ end }}
             </li>
             {{ end }}

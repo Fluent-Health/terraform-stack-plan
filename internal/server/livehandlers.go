@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"net/http"
 	"strings"
 
@@ -43,6 +44,7 @@ func (a *App) handleLive(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Write([]byte(a.livePage(liveView{
+		Exec:        e.ID,
 		Repo:        e.Repo,
 		Environment: e.Environment,
 		Report:      report,
@@ -50,5 +52,37 @@ func (a *App) handleLive(w http.ResponseWriter, r *http.Request) {
 		Stacks:      g.Stacks,
 		SVG:         string(renderSVG(g)),
 		Panel:       panel,
+	})))
+}
+
+// stackView is the data the per-stack detail template renders.
+type stackView struct {
+	Exec, Repo, Environment, Stack string
+	Plan, LogExcerpt               string
+}
+
+// stackPage renders the per-stack detail page. All fields are escaped text.
+func (a *App) stackPage(v stackView) string {
+	var buf bytes.Buffer
+	_ = a.tmpl.ExecuteTemplate(&buf, "stack.gohtml", v)
+	return buf.String()
+}
+
+// handleStackDetail serves the per-stack Log/Plan/Verify tabs. Public, behind the
+// unguessable execution id.
+func (a *App) handleStackDetail(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	stack := r.PathValue("stack")
+	e, err := store.GetExecution(a.db, id)
+	if err != nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	_, plan, _, _ := store.GetStackOutput(a.db, id, stack, "plan")
+	_, logExcerpt, _, _ := store.GetStackOutput(a.db, id, stack, "log")
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Write([]byte(a.stackPage(stackView{
+		Exec: id, Repo: e.Repo, Environment: e.Environment, Stack: stack,
+		Plan: plan, LogExcerpt: logExcerpt,
 	})))
 }
