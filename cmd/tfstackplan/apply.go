@@ -22,6 +22,7 @@ func runApply(args []string) int {
 	changed := fs.Bool("changed", true, "only apply changed stacks")
 	base := fs.String("base", "", "git base ref for change detection")
 	script := fs.String("script", "apply", "terramate script name to run")
+	logFile := fs.String("log-file", "tfstackplan.log", "per-stack log filename the terramate script writes in each stack dir; streamed live to the server (empty disables)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -76,8 +77,15 @@ func runApply(args []string) int {
 	var applyErr error
 	if len(stacks) > 0 {
 		os.Setenv(runner.EnvExecution, execID)
+		var stop func()
+		if client.Enabled() && *logFile != "" {
+			stop = runner.NewLogPump(client, *dir, *logFile, execID).Start(stacks)
+		}
 		// No --parallel: terramate applies in dependency order, serially.
 		applyErr = tm.ScriptRun(ctx, os.Stderr, runner.ScriptRunOptions{Script: *script, Changed: *changed, Base: *base})
+		if stop != nil {
+			stop()
+		}
 	}
 
 	// Best-effort post-apply cleanup: revoke the PR's grants.

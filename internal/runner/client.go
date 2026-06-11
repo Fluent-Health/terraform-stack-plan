@@ -95,6 +95,11 @@ func (c *Client) Finalize(ctx context.Context, f events.Finalize) error {
 	return c.post(ctx, "/api/finalize", f)
 }
 
+// LogChunk streams a slice of one stack's output to the server (best-effort).
+func (c *Client) LogChunk(ctx context.Context, lc events.LogChunk) error {
+	return c.post(ctx, "/api/logs", lc)
+}
+
 // GateRevoke asks the server to revoke the grants it requested (best-effort
 // post-apply cleanup).
 func (c *Client) GateRevoke(ctx context.Context, g events.GateRevoke) error {

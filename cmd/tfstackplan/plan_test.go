@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
@@ -84,6 +85,7 @@ func TestRunPlanE2E(t *testing.T) {
 	var mu sync.Mutex
 	var gotInit events.Init
 	var gotFinal events.Finalize
+	logs := map[string]string{} // stack → concatenated data
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		b, _ := io.ReadAll(r.Body)
 		mu.Lock()
@@ -92,6 +94,10 @@ func TestRunPlanE2E(t *testing.T) {
 			_ = json.Unmarshal(b, &gotInit)
 		case "/api/finalize":
 			_ = json.Unmarshal(b, &gotFinal)
+		case "/api/logs":
+			var lc events.LogChunk
+			_ = json.Unmarshal(b, &lc)
+			logs[lc.Stack] += lc.Data
 		}
 		mu.Unlock()
 		w.WriteHeader(200)
@@ -120,5 +126,10 @@ func TestRunPlanE2E(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("finalize gates = %+v, want iam/proj-a", gotFinal.Gates)
+	}
+	for _, s := range []string{"stacks/a", "stacks/b"} {
+		if !strings.Contains(logs[s], s) {
+			t.Errorf("logs[%q] = %q, want it to contain %q", s, logs[s], s)
+		}
 	}
 }

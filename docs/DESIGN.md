@@ -565,6 +565,12 @@ the budget entirely.
 - **Canonical plan filename is hardcoded `tfplan.json`** — matches Terragrunt's
   `--json-out-dir`; Terramate is scripted to emit the same. A tool that writes a
   different name needs a rename step.
+- **Per-stack log streaming requires the terramate script to tee output to the
+  configured `--log-file`.** The `LogPump` tails `<stack>/tfstackplan.log` (the
+  default) in each stack dir; nothing is streamed unless the stack's terramate
+  script writes that file (e.g. `terraform plan ... 2>&1 | tee tfstackplan.log`).
+  This indirection exists because terramate's parallel `script run` interleaves
+  every stack's output on one stream, which cannot be demuxed per stack.
 - **`default`/`safe` is a display-only fallback** — rendered for a stack that
   matched no rule, but it **never appears in the `--emit-classification-json`
   sidecar or the summary** (those carry only the matched-rule categories).
@@ -858,10 +864,18 @@ memory with no mid-replay cancellation, and should stream from disk/object-store
 with context cancellation; a periodic SSE heartbeat + reconnect
 (`id:`/Last-Event-ID) are also wanted for the UI Log tab behind proxies._
 
+The fourth increment landed **runner-side per-stack log capture**: the `run
+plan` / `run apply` drivers tail each changed stack's on-disk log file (default
+`tfstackplan.log`, overridable via a `--log-file` flag) and stream the appended
+bytes to `/api/logs` live (~2s tick) through a `LogPump` (`internal/runner/
+logpump.go`), with a final flush at run end. It is best-effort: with no server
+configured (`client.Enabled()` false) or an empty `--log-file`, no pump runs.
+The convention is that each stack's terramate script tees terraform output to
+that per-stack file in the stack dir (see Known limitations).
+
 Still deferred to later phases: the rest of Phase 3 — the `serve`-side wiring of
 the object store (a GCS `ObjectStore` impl + an `ObjectsDir`/bucket config knob);
-**runner-side per-stack capture** streaming to
-`/api/logs`; and the **UI v2** (grouped/folding list, per-stack Log/Plan/Verify
+and the **UI v2** (grouped/folding list, per-stack Log/Plan/Verify
 tabs, collapsible DAG strip, phase timeline, execution index, PR timeline). Also:
 the **Pub/Sub-push + OIDC event ingestion** (a
 latency optimization over the polling reconcile loop, which already satisfies

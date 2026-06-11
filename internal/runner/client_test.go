@@ -90,3 +90,30 @@ func TestNewClientTrimsTrailingSlash(t *testing.T) {
 		t.Errorf("baseURL = %q, want trailing slash trimmed", c.baseURL)
 	}
 }
+
+func TestClientLogChunk(t *testing.T) {
+	var gotPath string
+	var gotBody events.LogChunk
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		_ = json.NewDecoder(r.Body).Decode(&gotBody)
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "secret")
+	if err := c.LogChunk(context.Background(), events.LogChunk{ID: "e1", Stack: "stacks/a", Data: "hello"}); err != nil {
+		t.Fatal(err)
+	}
+	if gotPath != "/api/logs" {
+		t.Errorf("path = %q, want /api/logs", gotPath)
+	}
+	if gotBody.ID != "e1" || gotBody.Stack != "stacks/a" || gotBody.Data != "hello" {
+		t.Errorf("body = %+v", gotBody)
+	}
+
+	// Offline → no-op, no error.
+	if err := NewClient("", "").LogChunk(context.Background(), events.LogChunk{ID: "e1"}); err != nil {
+		t.Errorf("offline LogChunk should be a no-op nil, got %v", err)
+	}
+}
