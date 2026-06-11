@@ -130,6 +130,9 @@ func TestRunPlanE2E(t *testing.T) {
 	if len(gotFinal.StackReports) == 0 {
 		t.Error("finalize carried no per-stack reports")
 	}
+	if len(gotFinal.Categories) == 0 {
+		t.Error("finalize carried no per-stack categories")
+	}
 	for _, s := range []string{"stacks/a", "stacks/b"} {
 		if !strings.Contains(logs[s], s) {
 			t.Errorf("logs[%q] = %q, want it to contain %q", s, logs[s], s)

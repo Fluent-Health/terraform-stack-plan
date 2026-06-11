@@ -116,11 +116,14 @@ func runPlan(args []string) int {
 	fmt.Print(report)
 
 	gates, moving := []events.GateTarget{}, []string{}
+	categories := map[string][]events.Category{}
 	if data, e := os.ReadFile(sidecar); e == nil {
 		gates, moving, _ = gatesFromSidecar(data, gatingClasses(resolvedCfg, *dir))
+		categories, _ = categoriesFromSidecar(data)
 	}
 	_ = client.Finalize(ctx, events.Finalize{
 		ID: execID, ReportMarkdown: report, StackReports: stackReports, Gates: gates, Moving: moving, Failed: scriptErr != nil,
+		Categories: categories,
 	})
 
 	if scriptErr != nil {

@@ -120,6 +120,17 @@ func (a *App) handleFinalize(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Backfill per-stack matched categories (for the group-DAG badges).
+	for path, cats := range f.Categories {
+		data, _ := json.Marshal(cats)
+		if _, err := a.db.Exec(
+			`UPDATE stacks SET categories = ? WHERE execution_id = ? AND stack_path = ?`,
+			string(data), f.ID, path); err != nil {
+			http.Error(w, "backfill categories", http.StatusInternalServerError)
+			return
+		}
+	}
+
 	// Record the gate targets. With a backend, request a grant per target (it
 	// records the grant name + live state); without one, record AWAITING so the
 	// verdict still parks at action_required. Either way, collect the targets so

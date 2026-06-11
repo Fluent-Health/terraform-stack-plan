@@ -206,6 +206,29 @@ func TestFinalizeStoresPerStackPlan(t *testing.T) {
 	}
 }
 
+func TestFinalizeStoresCategories(t *testing.T) {
+	db := newServerTestDB(t)
+	a := New(db, &MockGitHub{}, Config{})
+	srv := httptest.NewServer(a.Routes())
+	defer srv.Close()
+
+	_ = store.UpsertInit(db, events.Init{ID: "e1", Repo: "o/r", Environment: "staging",
+		Stacks: []events.StackState{{Path: "stacks/a"}}})
+	post(t, srv, "/api/finalize", events.Finalize{
+		ID:             "e1",
+		ReportMarkdown: "r",
+		Categories:     map[string][]events.Category{"stacks/a": {{Name: "iam", Icon: "🔐"}, {Name: "destructive", Icon: "💣"}}},
+	})
+
+	g, err := store.LoadGraph(db, "e1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(g.Stacks) != 1 || len(g.Stacks[0].Categories) != 2 || g.Stacks[0].Categories[0].Name != "iam" {
+		t.Fatalf("categories not persisted: %+v", g.Stacks)
+	}
+}
+
 func TestFinalizeFailedMarksRunningStacksFailed(t *testing.T) {
 	db := newServerTestDB(t)
 	gh := &MockGitHub{CreateCheckRunFn: func(ctx context.Context, repo, sha, env, url string) (int64, error) { return 1, nil }}

@@ -35,12 +35,19 @@ const (
 	PhaseVerifying    Phase = "verifying"    // post-apply verification
 )
 
+// Category is a classification label matched by a stack (name + optional glyph).
+type Category struct {
+	Name string `json:"name"`
+	Icon string `json:"icon,omitempty"`
+}
+
 // StackState is one node in the execution graph.
 type StackState struct {
-	Path    string `json:"path"`
-	Project string `json:"project,omitempty"` // grouping/target key (e.g. cloud project/account)
-	Status  Status `json:"status,omitempty"`
-	Detail  string `json:"detail,omitempty"` // optional failure detail (last error lines)
+	Path       string     `json:"path"`
+	Project    string     `json:"project,omitempty"` // grouping/target key (e.g. cloud project/account)
+	Status     Status     `json:"status,omitempty"`
+	Detail     string     `json:"detail,omitempty"`     // optional failure detail (last error lines)
+	Categories []Category `json:"categories,omitempty"` // matched classification categories
 }
 
 // Edge is a dependency: From must run before To.
@@ -107,13 +114,14 @@ type Update struct {
 // Finalize records the terminal plan state: the rendered report, per-stack
 // target backfill, the gates that must be approved, and the moving/failed flags.
 type Finalize struct {
-	ID             string            `json:"id"`
-	ReportMarkdown string            `json:"report_markdown"`
-	Projects       map[string]string `json:"projects,omitempty"`      // stack path → grouping/target key
-	StackReports   map[string]string `json:"stack_reports,omitempty"` // stack path → rendered plan section
-	Gates          []GateTarget      `json:"gates,omitempty"`         // (class,target) pairs needing approval
-	Moving         []string          `json:"moving,omitempty"`        // stack paths adopting resources via a cross-state move
-	Failed         bool              `json:"failed,omitempty"`
+	ID             string                `json:"id"`
+	ReportMarkdown string                `json:"report_markdown"`
+	Projects       map[string]string     `json:"projects,omitempty"`      // stack path → grouping/target key
+	StackReports   map[string]string     `json:"stack_reports,omitempty"` // stack path → rendered plan section
+	Gates          []GateTarget          `json:"gates,omitempty"`         // (class,target) pairs needing approval
+	Moving         []string              `json:"moving,omitempty"`        // stack paths adopting resources via a cross-state move
+	Failed         bool                  `json:"failed,omitempty"`
+	Categories     map[string][]Category `json:"categories,omitempty"` // stack path → matched categories
 }
 
 // GateCheck is the apply-time gate pre-check (fail-closed): is every required
