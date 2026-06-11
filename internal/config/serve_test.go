@@ -108,6 +108,28 @@ serve {
 	}
 }
 
+func TestLoadServeLogsAndObjects(t *testing.T) {
+	cfg, err := Load(writeCfg(t, `
+serve {
+  db_path  = "x.db"
+  logs_dir = "/var/log/tfsp"
+  objects {
+    backend = "gcs"
+    bucket  = "my-bucket"
+    prefix  = "logs"
+  }
+}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Serve.LogsDir != "/var/log/tfsp" {
+		t.Errorf("logs_dir = %q", cfg.Serve.LogsDir)
+	}
+	if cfg.Serve.Objects == nil || cfg.Serve.Objects.Bucket != "my-bucket" || cfg.Serve.Objects.Prefix != "logs" || cfg.Serve.Objects.Backend != "gcs" {
+		t.Errorf("objects = %+v", cfg.Serve.Objects)
+	}
+}
+
 func TestLoadRenderOnlyConfigStillWorks(t *testing.T) {
 	cfg, err := Load(writeCfg(t, `
 classification {

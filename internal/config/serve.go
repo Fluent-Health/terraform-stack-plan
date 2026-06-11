@@ -32,6 +32,13 @@ type GroupConfig struct {
 	Pattern string
 }
 
+// ObjectsConfig configures the log-offload object store (currently GCS).
+type ObjectsConfig struct {
+	Backend string // "gcs"
+	Bucket  string
+	Prefix  string
+}
+
 // ServeConfig is the `serve {}` block: the control-plane server runtime config.
 type ServeConfig struct {
 	DBPath           string
@@ -41,6 +48,8 @@ type ServeConfig struct {
 	GitHubApp        *GitHubAppConfig
 	Approval         *ApprovalConfig
 	Group            *GroupConfig
+	LogsDir          string
+	Objects          *ObjectsConfig
 }
 
 // GitHubAppConfig is the `github_app {}` sub-block.
@@ -64,12 +73,18 @@ type serveBody struct {
 	PublicBaseURL    string         `hcl:"public_base_url,optional"`
 	UseChecks        bool           `hcl:"use_checks,optional"`
 	WebhookSecretEnv string         `hcl:"webhook_secret_env,optional"`
+	LogsDir          string         `hcl:"logs_dir,optional"`
 	GitHubApp        *githubAppBody `hcl:"github_app,block"`
 	Approval         *approvalBody  `hcl:"approval,block"`
 	Group            *struct {
 		Depth   int    `hcl:"depth,optional"`
 		Pattern string `hcl:"pattern,optional"`
 	} `hcl:"group,block"`
+	Objects *struct {
+		Backend string `hcl:"backend,optional"`
+		Bucket  string `hcl:"bucket,optional"`
+		Prefix  string `hcl:"prefix,optional"`
+	} `hcl:"objects,block"`
 }
 
 type githubAppBody struct {
@@ -95,6 +110,7 @@ func decodeServe(blk *hclsyntax.Block) (*ServeConfig, error) {
 		PublicBaseURL:    b.PublicBaseURL,
 		UseChecks:        b.UseChecks,
 		WebhookSecretEnv: b.WebhookSecretEnv,
+		LogsDir:          b.LogsDir,
 	}
 	if b.GitHubApp != nil {
 		s.GitHubApp = &GitHubAppConfig{AppID: b.GitHubApp.AppID, InstallationID: b.GitHubApp.InstallationID, PrivateKeyPath: b.GitHubApp.PrivateKeyPath}
@@ -104,6 +120,9 @@ func decodeServe(blk *hclsyntax.Block) (*ServeConfig, error) {
 	}
 	if b.Group != nil {
 		s.Group = &GroupConfig{Depth: b.Group.Depth, Pattern: b.Group.Pattern}
+	}
+	if b.Objects != nil {
+		s.Objects = &ObjectsConfig{Backend: b.Objects.Backend, Bucket: b.Objects.Bucket, Prefix: b.Objects.Prefix}
 	}
 	return s, nil
 }

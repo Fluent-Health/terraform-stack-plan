@@ -964,9 +964,17 @@ link to `/live/{id}` (and back to `/pr/{n}`), backed by `store.ListExecutions`/
 `store.ListExecutionsForPR` over the indexed `created_at`; `handlePRTimeline`
 returns 400 on a non-numeric PR. This completes Phase 3's UI v2.
 
-Still deferred to later phases: the rest of Phase 3 — the `serve`-side wiring of
-the object store (a GCS `ObjectStore` impl + an `ObjectsDir`/bucket config knob).
-Also:
+The seventh increment landed **production log-offload wiring**: the
+`serve { logs_dir, objects { backend = "gcs"  bucket  prefix } }` config block
+sets `Config.LogsDir` (the per-stack buffer dir) and, when `objects` names a GCS
+bucket (`backend` empty or `"gcs"`), points `App.Objects` at a dependency-free
+GCS object store (`cmd/tfstackplan/gcsobjects.go`: the JSON API over plain
+`net/http` with an ADC bearer token, mirroring the `gcslock` injection pattern;
+objects live at `<prefix>/<key>`). Completed-stack logs offload to GCS and serve
+via the stored pointer once the on-disk buffer is gone; `FSStore` remains for
+tests/local. `buildServeApp` reuses the injected `creds` factory for the token.
+
+Still deferred to later phases:
 the **Pub/Sub-push + OIDC event ingestion** (a
 latency optimization over the polling reconcile loop, which already satisfies
 gates); **true requester-pool leasing** (today `requester()` is a `PR mod pool`
