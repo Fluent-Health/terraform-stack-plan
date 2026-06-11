@@ -127,6 +127,9 @@ func TestRunPlanE2E(t *testing.T) {
 	if !found {
 		t.Errorf("finalize gates = %+v, want iam/proj-a", gotFinal.Gates)
 	}
+	if len(gotFinal.StackReports) == 0 {
+		t.Error("finalize carried no per-stack reports")
+	}
 	for _, s := range []string{"stacks/a", "stacks/b"} {
 		if !strings.Contains(logs[s], s) {
 			t.Errorf("logs[%q] = %q, want it to contain %q", s, logs[s], s)

@@ -107,7 +107,7 @@ func runRender(args []string) int {
 	}
 	o.linkVars = lv
 
-	out, fits, err := run(o)
+	out, _, fits, err := run(o)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "tfstackplan:", err)
 		return 1
@@ -127,17 +127,17 @@ func runRender(args []string) int {
 
 // run executes the whole pipeline and returns the markdown document and whether
 // it fits the configured byte budget.
-func run(o opts) (string, bool, error) {
+func run(o opts) (string, map[string]string, bool, error) {
 	if o.plansDir == "" {
-		return "", false, fmt.Errorf("no input: pass --plans-dir")
+		return "", nil, false, fmt.Errorf("no input: pass --plans-dir")
 	}
 	refs, err := plandir.Scan(o.plansDir)
 	if err != nil {
-		return "", false, err
+		return "", nil, false, err
 	}
 	moves, err := statemoves.Load(o.stateMoves)
 	if err != nil {
-		return "", false, err
+		return "", nil, false, err
 	}
 
 	var cfg *config.Config
@@ -150,7 +150,7 @@ func run(o opts) (string, bool, error) {
 	if cfgPath != "" {
 		c, err := config.Load(cfgPath)
 		if err != nil {
-			return "", false, err
+			return "", nil, false, err
 		}
 		cfg = c
 	} else {
@@ -176,11 +176,11 @@ func run(o opts) (string, bool, error) {
 	for _, ref := range refs {
 		data, err := os.ReadFile(ref.Plan)
 		if err != nil {
-			return "", false, fmt.Errorf("stack %q: %w", ref.Name, err)
+			return "", nil, false, fmt.Errorf("stack %q: %w", ref.Name, err)
 		}
 		raw, err := plan.Parse(ref.Name, data)
 		if err != nil {
-			return "", false, err
+			return "", nil, false, err
 		}
 		// Overlay pending cross-state moves (--state-moves) BEFORE building the
 		// stack: a move-target's planned create becomes a Move (non-mutating), so
@@ -273,8 +273,12 @@ func run(o opts) (string, bool, error) {
 		}
 		report.DetailsOpen = changed == 1
 	default:
-		return "", false, fmt.Errorf("--details must be auto|open|closed, got %q", o.details)
+		return "", nil, false, fmt.Errorf("--details must be auto|open|closed, got %q", o.details)
 	}
+
+	// Capture each stack's full plan section BEFORE fit reduces the report for the
+	// combined comment — the per-stack store has no comment-size budget.
+	stackReports := render.PerStack(report)
 
 	fits := fit.Fit(&report, o.maxBytes)
 
@@ -286,14 +290,14 @@ func run(o opts) (string, bool, error) {
 		doc.Summary.Categories = toEntries(summary)
 		data, err := json.MarshalIndent(doc, "", "  ")
 		if err != nil {
-			return "", false, err
+			return "", nil, false, err
 		}
 		if err := os.WriteFile(o.classJSON, data, 0o644); err != nil {
-			return "", false, err
+			return "", nil, false, err
 		}
 	}
 
-	return render.Render(report), fits, nil
+	return render.Render(report), stackReports, fits, nil
 }
 
 type categoryEntry struct {

@@ -51,7 +51,7 @@ func TestRunPlansDir(t *testing.T) {
 	}
 	classOut := filepath.Join(dir, "classes.json")
 
-	out, _, err := run(opts{
+	out, _, _, err := run(opts{
 		plansDir:  plansDir,
 		title:     "Terraform plan — nonprod",
 		marker:    "tfstackplan:nonprod",
@@ -103,7 +103,7 @@ func TestRunRedactsNestedSensitiveInStructuralDiff(t *testing.T) {
 	plansDir := filepath.Join(dir, "out")
 	writePlan(t, plansDir, "service-projects/prod", deployPlan)
 
-	out, _, err := run(opts{
+	out, _, _, err := run(opts{
 		plansDir: plansDir,
 		title:    "T",
 		marker:   "m",
@@ -125,14 +125,14 @@ func TestRunRedactsNestedSensitiveInStructuralDiff(t *testing.T) {
 }
 
 func TestRunMissingPlansDirFlag(t *testing.T) {
-	_, _, err := run(opts{maxBytes: 60000})
+	_, _, _, err := run(opts{maxBytes: 60000})
 	if err == nil || !strings.Contains(err.Error(), "--plans-dir") {
 		t.Fatalf("expected --plans-dir hint, got %v", err)
 	}
 }
 
 func TestRunNonexistentPlansDir(t *testing.T) {
-	_, _, err := run(opts{plansDir: filepath.Join(t.TempDir(), "nope"), maxBytes: 60000})
+	_, _, _, err := run(opts{plansDir: filepath.Join(t.TempDir(), "nope"), maxBytes: 60000})
 	if err == nil {
 		t.Fatal("expected error for nonexistent plans-dir")
 	}
@@ -142,7 +142,7 @@ func TestRunNoConfigNoClassColumn(t *testing.T) {
 	dir := t.TempDir()
 	plansDir := filepath.Join(dir, "out")
 	writePlan(t, plansDir, "s", planJSON)
-	out, _, err := run(opts{
+	out, _, _, err := run(opts{
 		plansDir: plansDir,
 		title:    "T",
 		marker:   "m",
@@ -183,7 +183,7 @@ func TestRunEmitsLinks(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	out, _, err := run(opts{
+	out, _, _, err := run(opts{
 		plansDir: plansDir,
 		config:   cfgPath,
 		maxBytes: 60000,
@@ -265,7 +265,7 @@ classification {
 		t.Fatal(err)
 	}
 
-	_, _, err := run(opts{
+	_, _, _, err := run(opts{
 		plansDir:  plansDir,
 		config:    cfgPath,
 		maxBytes:  60000,
@@ -376,7 +376,7 @@ classification {
 			t.Fatal(err)
 		}
 
-		_, _, err := run(opts{
+		_, _, _, err := run(opts{
 			plansDir:   plansDir,
 			config:     cfgPath,
 			maxBytes:   60000,
@@ -434,7 +434,7 @@ classification {
 		}
 
 		// No stateMoves set — absent flag is fail-safe: classification unchanged.
-		_, _, err := run(opts{
+		_, _, _, err := run(opts{
 			plansDir:  plansDir,
 			config:    cfgPath,
 			maxBytes:  60000,
@@ -487,7 +487,7 @@ func TestRunEmptyPlansDir(t *testing.T) {
 	}
 	classOut := filepath.Join(dir, "classes.json")
 
-	out, fits, err := run(opts{
+	out, _, fits, err := run(opts{
 		plansDir:  plansDir,
 		config:    cfgPath,
 		maxBytes:  60000,

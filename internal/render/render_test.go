@@ -341,6 +341,34 @@ func TestRenderStackAndResourceLinks(t *testing.T) {
 	}
 }
 
+func TestPerStack(t *testing.T) {
+	r := model.Report{
+		Title: "T", Marker: "m",
+		Stacks: []model.Stack{
+			{Name: "stacks/a", Counts: model.Counts{Add: 1}, Changes: []model.Change{
+				{Address: "aws_s3_bucket.a", Type: "aws_s3_bucket", Action: model.ActionAdd},
+			}},
+			{Name: "stacks/b", Counts: model.Counts{Change: 1}, Changes: []model.Change{
+				{Address: "aws_iam_role.b", Type: "aws_iam_role", Action: model.ActionChange},
+			}},
+			{Name: "stacks/c"}, // no change → excluded
+		},
+	}
+	per := PerStack(r)
+	if len(per) != 2 {
+		t.Fatalf("PerStack = %d entries, want 2 (no-change stack excluded)", len(per))
+	}
+	if !strings.Contains(per["stacks/a"], "aws_s3_bucket.a") {
+		t.Errorf("stacks/a section missing its resource: %q", per["stacks/a"])
+	}
+	if !strings.Contains(per["stacks/b"], "aws_iam_role.b") {
+		t.Errorf("stacks/b section missing its resource: %q", per["stacks/b"])
+	}
+	if _, ok := per["stacks/c"]; ok {
+		t.Error("no-change stack should be excluded")
+	}
+}
+
 func TestRenderEmptyReport(t *testing.T) {
 	r := model.Report{
 		Title:       "Terraform plan — nonprod",

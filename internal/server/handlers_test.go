@@ -183,6 +183,29 @@ func TestFinalizeGatedPlanConcludesActionRequired(t *testing.T) {
 	}
 }
 
+func TestFinalizeStoresPerStackPlan(t *testing.T) {
+	db := newServerTestDB(t)
+	a := New(db, &MockGitHub{}, Config{})
+	srv := httptest.NewServer(a.Routes())
+	defer srv.Close()
+
+	_ = store.UpsertInit(db, events.Init{ID: "e1", Repo: "o/r", Environment: "staging",
+		Stacks: []events.StackState{{Path: "stacks/a"}}})
+	post(t, srv, "/api/finalize", events.Finalize{
+		ID:             "e1",
+		ReportMarkdown: "combined",
+		StackReports:   map[string]string{"stacks/a": "PLAN_A_SECTION"},
+	})
+
+	_, excerpt, ok, err := store.GetStackOutput(db, "e1", "stacks/a", "plan")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || excerpt != "PLAN_A_SECTION" {
+		t.Fatalf("stored plan = %q ok=%v, want PLAN_A_SECTION", excerpt, ok)
+	}
+}
+
 func TestFinalizeFailedMarksRunningStacksFailed(t *testing.T) {
 	db := newServerTestDB(t)
 	gh := &MockGitHub{CreateCheckRunFn: func(ctx context.Context, repo, sha, env, url string) (int64, error) { return 1, nil }}
