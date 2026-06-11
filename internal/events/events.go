@@ -32,6 +32,7 @@ const (
 	PhaseInitializing Phase = "initializing" // sequential terraform init
 	PhasePlanning     Phase = "planning"     // parallel plan
 	PhaseApplying     Phase = "applying"     // sequential apply
+	PhaseVerifying    Phase = "verifying"    // post-apply verification
 )
 
 // StackState is one node in the execution graph.

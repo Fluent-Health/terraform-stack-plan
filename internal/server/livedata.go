@@ -67,7 +67,7 @@ type phaseStep struct {
 
 // phaseOrder is the lifecycle phase progression shown in the timeline.
 var phaseOrder = []events.Phase{
-	events.PhaseWarming, events.PhaseInitializing, events.PhasePlanning, events.PhaseApplying,
+	events.PhaseWarming, events.PhaseInitializing, events.PhasePlanning, events.PhaseApplying, events.PhaseVerifying,
 }
 
 // phaseTimeline returns the ordered phases with state relative to cur: phases
