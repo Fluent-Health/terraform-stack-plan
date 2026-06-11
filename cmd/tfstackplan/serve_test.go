@@ -78,3 +78,23 @@ func TestGcppamConfigFromClasses(t *testing.T) {
 		t.Errorf("entitlements = %+v", gc.Entitlements)
 	}
 }
+
+func TestGcppamConfigPerClassScope(t *testing.T) {
+	cfg := &config.Config{
+		Classes: []config.ClassBinding{
+			{Name: "iam", Entitlement: "iam-ent"},
+			{Name: "database", Entitlement: "db-ent", EntitlementScope: "folders"},
+		},
+		Serve: &config.ServeConfig{},
+	}
+	gc := gcppamConfig(cfg)
+	if gc.Entitlements["iam"] != "iam-ent" || gc.Entitlements["database"] != "db-ent" {
+		t.Fatalf("entitlements = %+v", gc.Entitlements)
+	}
+	if gc.EntitlementScopes["database"] != "folders" {
+		t.Errorf("database scope = %q, want folders", gc.EntitlementScopes["database"])
+	}
+	if _, ok := gc.EntitlementScopes["iam"]; ok {
+		t.Errorf("iam should have no explicit scope (defaults to projects)")
+	}
+}

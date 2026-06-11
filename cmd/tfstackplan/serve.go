@@ -22,7 +22,7 @@ type credsFactory func(ctx context.Context) (gcppam.TokenFunc, gcppam.Impersonat
 // gcppamConfig builds the gcp-pam backend config from the serve.approval block
 // and the per-class entitlement bindings.
 func gcppamConfig(cfg *config.Config) gcppam.Config {
-	gc := gcppam.Config{Entitlements: map[string]string{}}
+	gc := gcppam.Config{Entitlements: map[string]string{}, EntitlementScopes: map[string]string{}}
 	if a := cfg.Serve.Approval; a != nil {
 		gc.Location = a.Location
 		gc.Duration = a.Duration
@@ -31,6 +31,9 @@ func gcppamConfig(cfg *config.Config) gcppam.Config {
 	for _, c := range cfg.Classes {
 		if c.Entitlement != "" {
 			gc.Entitlements[c.Name] = c.Entitlement
+			if c.EntitlementScope != "" {
+				gc.EntitlementScopes[c.Name] = c.EntitlementScope
+			}
 		}
 	}
 	return gc

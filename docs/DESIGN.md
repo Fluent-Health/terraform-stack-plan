@@ -457,7 +457,9 @@ diff {
 
 The config also carries optional **server/serve** blocks for the control plane
 (ignored by `render`): `server { url, environment }`; `class "<name>" { backend,
-entitlement, required }` binding a classification class to an approval gate; and
+entitlement, entitlement_scope, required }` binding a classification class to an
+approval gate (`entitlement_scope` is `projects` by default, or `folders` /
+`organizations` for a class that grants at a higher resource scope); and
 `serve { db_path, public_base_url, use_checks, webhook_secret_env, github_app {
 app_id, installation_id, private_key_path }, approval "gcp-pam" { location,
 duration, requester_pool } }` for the `serve` runtime. All are optional and
@@ -937,6 +939,16 @@ timeline. The per-stack Verify tab on `/live/{id}/stack/{stack...}` links to
 the latest verify run for the same PR/env via
 `store.LatestVerifyExecutionID(db, pr, env)`; when no verify run exists yet it
 shows "No verify run yet for this PR."
+
+**Phase 5: multi-class approval (complete).** Approval is multi-class: each
+`class "<name>" {}` block binds a classification class to a PAM `entitlement`
+and an optional `entitlement_scope` (`projects` by default, or `folders` /
+`organizations`), threaded through `config.ClassBinding` and into the gcp-pam
+`Config` (`Entitlements` + `EntitlementScopes`, keyed by class). A second
+approval class (e.g. `database`) therefore gates independently at its own scope
+without touching the IAM gate. No new machinery was needed: the gate, verdict,
+and UI are already `(class, target)`-generic — only the config surface and
+serve wiring grew.
 
 ### Delivery: binary + Cloud Run container
 
