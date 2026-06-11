@@ -40,7 +40,7 @@ func runApply(args []string) int {
 	// Fail-closed gate pre-check FIRST: do not touch terramate if the gate is not
 	// satisfied. GateCheck no-ops when no server is configured, and errors (fail
 	// closed) when a configured server is unreachable or the gate is unsatisfied.
-	if err := client.GateCheck(ctx, events.GateCheck{PR: pr, Environment: env}); err != nil {
+	if _, err := client.GateCheck(ctx, events.GateCheck{PR: pr, Environment: env}); err != nil {
 		fmt.Fprintln(os.Stderr, "tfstackplan run apply: refusing to apply —", err)
 		return 1
 	}
