@@ -68,6 +68,24 @@ func TestFinalizeGatesRoundTrip(t *testing.T) {
 	}
 }
 
+func TestLogChunkRoundTrip(t *testing.T) {
+	c := LogChunk{ID: "e1", Stack: "stacks/a", Data: "hello\n"}
+	b, err := json.Marshal(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got LogChunk
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got != c {
+		t.Errorf("round-trip = %+v, want %+v", got, c)
+	}
+	if !contains(string(b), `"stack":"stacks/a"`) || !contains(string(b), `"data":"hello\n"`) {
+		t.Errorf("json = %s", b)
+	}
+}
+
 func contains(s, sub string) bool {
 	return len(s) >= len(sub) && (func() bool {
 		for i := 0; i+len(sub) <= len(s); i++ {

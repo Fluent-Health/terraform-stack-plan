@@ -88,6 +88,13 @@ type PhaseEvent struct {
 	Phase       Phase  `json:"phase"`
 }
 
+// LogChunk is a slice of one stack's combined output, streamed during execution.
+type LogChunk struct {
+	ID    string `json:"id"`
+	Stack string `json:"stack"`
+	Data  string `json:"data"`
+}
+
 // Update ticks a single stack's status.
 type Update struct {
 	ID     string `json:"id"`
