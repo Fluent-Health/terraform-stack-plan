@@ -32,6 +32,9 @@ type Config struct {
 	// LogsDir is where per-stack log buffers are written. Empty disables log
 	// ingestion (the endpoints become no-ops).
 	LogsDir string
+	// GroupDepth controls the live DAG's grouping: stacks fold into groups by
+	// their first GroupDepth path segments. 0 = unset → handlers default to 2.
+	GroupDepth int
 }
 
 // App is the HTTP application.
