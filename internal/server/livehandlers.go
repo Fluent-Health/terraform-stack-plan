@@ -9,6 +9,15 @@ import (
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
 
+// dagSVG renders the execution's group-level dependency DAG (default depth 2).
+func (a *App) dagSVG(g events.Graph) []byte {
+	depth := a.cfg.GroupDepth
+	if depth == 0 {
+		depth = 2
+	}
+	return renderGroupSVG(g, depth)
+}
+
 // handleImg renders the execution's dependency graph as an SVG. Public and
 // cache-busted via the rev the server bumps on each state change.
 func (a *App) handleImg(w http.ResponseWriter, r *http.Request) {
@@ -20,7 +29,7 @@ func (a *App) handleImg(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "image/svg+xml")
 	w.Header().Set("Cache-Control", "public, max-age=30")
-	w.Write(renderSVG(g))
+	w.Write(a.dagSVG(g))
 }
 
 // handleLive renders the auto-refreshing execution page (diagram + approval
@@ -50,7 +59,7 @@ func (a *App) handleLive(w http.ResponseWriter, r *http.Request) {
 		Report:      report,
 		Phase:       events.Phase(e.Phase),
 		Stacks:      g.Stacks,
-		SVG:         string(renderSVG(g)),
+		SVG:         string(a.dagSVG(g)),
 		Panel:       panel,
 	})))
 }

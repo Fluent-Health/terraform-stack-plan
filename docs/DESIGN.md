@@ -712,7 +712,19 @@ renders the execution as a **self-contained, inert** SVG dependency graph
 (nodes in longest-path dependency layers, coloured with GitHub's light-theme
 status hues — no `<script>`/`<foreignObject>`, so it survives GitHub's image
 proxy), and `GET /live/<id>` is an auto-refreshing HTML page embedding that
-diagram, a generic **approval panel** (one row per stored `(class, target)` with
+diagram,
+
+The live DAG (both `/live` and the `/img` GitHub image) now renders at the
+**group** level rather than per-stack: stacks fold into groups by their first
+`GroupDepth` path segments (`Config.GroupDepth`, default 2 → env/kind), each
+group a single node showing its stack-count and **worst status** (with a
+`N failed`/`N gated` tally), and edges are the terramate before/after
+dependencies aggregated to the group level (intra-group and self edges dropped,
+duplicates collapsed). The folding lives in `buildGroupGraph`
+(`internal/server/grouping.go`); `renderGroupSVG` reuses the same layered layout
+as the per-stack `renderSVG` (the shared `layersOf` helper). v1 shows status
+aggregates only; category badges, a configurable `group{}` block, and per-stack
+drill-down are follow-ons. a generic **approval panel** (one row per stored `(class, target)` with
 its state — provider-neutral, no console URL; the deep link is added by the
 approval backend), and the plan report (shown as escaped preformatted text — no
 markdown engine). Both routes are public (read-access model: same sensitivity as

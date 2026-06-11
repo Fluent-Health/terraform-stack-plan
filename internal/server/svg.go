@@ -27,18 +27,18 @@ func statusColor(s events.Status) string {
 	}
 }
 
-// layers assigns each stack a column index = its longest dependency depth from a
+// layersOf assigns each id a column index = its longest dependency depth from a
 // root (a node with no in-edges), via Kahn's algorithm. Deterministic; any node
 // left unranked (an unexpected cycle) defaults to layer 0.
-func layers(g events.Graph) map[string]int {
+func layersOf(ids []string, edges []events.Edge) map[string]int {
 	nodes := map[string]bool{}
 	indeg := map[string]int{}
-	for _, s := range g.Stacks {
-		nodes[s.Path] = true
-		indeg[s.Path] = 0
+	for _, id := range ids {
+		nodes[id] = true
+		indeg[id] = 0
 	}
 	adj := map[string][]string{}
-	for _, e := range g.Edges {
+	for _, e := range edges {
 		if !nodes[e.From] || !nodes[e.To] {
 			continue
 		}
@@ -107,7 +107,11 @@ func renderSVG(g events.Graph) []byte {
 		colGap, rowGap   = 80, 20
 		marginX, marginY = 24, 24
 	)
-	layer := layers(g)
+	ids := make([]string, 0, len(g.Stacks))
+	for _, s := range g.Stacks {
+		ids = append(ids, s.Path)
+	}
+	layer := layersOf(ids, g.Edges)
 	byLayer := map[int][]string{}
 	maxLayer := 0
 	for _, s := range g.Stacks {
@@ -164,6 +168,97 @@ func renderSVG(g events.Graph) []byte {
 		fmt.Fprintf(&b, `<rect width="%d" height="%d" rx="8" fill="#ffffff" stroke="%s" stroke-width="2"/>`, boxW, boxH, color)
 		fmt.Fprintf(&b, `<rect width="6" height="%d" rx="3" fill="%s"/>`, boxH, color)
 		fmt.Fprintf(&b, `<text x="14" y="%d" fill="#1f2328">%s</text>`, boxH/2+4, svgEscape(shortLabel(s.Path)))
+		b.WriteString(`</g>`)
+	}
+	b.WriteString(`</svg>`)
+	return []byte(b.String())
+}
+
+// groupSummary is the box's second line: stack count + the worst-status tally.
+func groupSummary(n groupNode) string {
+	s := fmt.Sprintf("%d stacks", n.Count)
+	switch {
+	case n.Failed > 0:
+		s += fmt.Sprintf(" · %d failed", n.Failed)
+	case n.Gated > 0:
+		s += fmt.Sprintf(" · %d gated", n.Gated)
+	}
+	return s
+}
+
+// clip truncates s to max runes with an ellipsis.
+func clip(s string, max int) string {
+	if r := []rune(s); len(r) > max {
+		return string(r[:max-1]) + "…"
+	}
+	return s
+}
+
+// renderGroupSVG renders the group-level dependency DAG: one box per group
+// (count + worst-status), edges = before/after folded to the group level. Inert/
+// self-contained like renderSVG. depth<=0 groups by full path (per-stack).
+func renderGroupSVG(g events.Graph, depth int) []byte {
+	gg := buildGroupGraph(g, depth)
+	const (
+		boxW, boxH       = 200, 50
+		colGap, rowGap   = 80, 20
+		marginX, marginY = 24, 24
+	)
+	ids := make([]string, 0, len(gg.Nodes))
+	for _, n := range gg.Nodes {
+		ids = append(ids, n.Key)
+	}
+	layer := layersOf(ids, gg.Edges)
+	byLayer := map[int][]string{}
+	maxLayer := 0
+	for _, n := range gg.Nodes {
+		l := layer[n.Key]
+		byLayer[l] = append(byLayer[l], n.Key)
+		if l > maxLayer {
+			maxLayer = l
+		}
+	}
+	for l := range byLayer {
+		sort.Strings(byLayer[l])
+	}
+	type pt struct{ x, y int }
+	at := map[string]pt{}
+	maxRows := 0
+	for l := 0; l <= maxLayer; l++ {
+		col := byLayer[l]
+		if len(col) > maxRows {
+			maxRows = len(col)
+		}
+		for i, k := range col {
+			at[k] = pt{x: marginX + l*(boxW+colGap), y: marginY + i*(boxH+rowGap)}
+		}
+	}
+	width := marginX*2 + (maxLayer+1)*boxW + maxLayer*colGap
+	height := marginY*2 + boxH
+	if maxRows > 0 {
+		height = marginY*2 + maxRows*boxH + (maxRows-1)*rowGap
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 %d %d" width="%d" height="%d" font-family="ui-monospace,Menlo,monospace" font-size="12">`,
+		width, height, width, height)
+	for _, e := range gg.Edges {
+		from, ok1 := at[e.From]
+		to, ok2 := at[e.To]
+		if !ok1 || !ok2 {
+			continue
+		}
+		fmt.Fprintf(&b, `<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="#d0d7de" stroke-width="2"/>`,
+			from.x+boxW, from.y+boxH/2, to.x, to.y+boxH/2)
+	}
+	for _, n := range gg.Nodes {
+		p := at[n.Key]
+		color := statusColor(n.Status)
+		fmt.Fprintf(&b, `<g transform="translate(%d,%d)">`, p.x, p.y)
+		fmt.Fprintf(&b, `<rect width="%d" height="%d" rx="8" fill="#ffffff" stroke="%s" stroke-width="2"/>`, boxW, boxH, color)
+		fmt.Fprintf(&b, `<rect width="6" height="%d" rx="3" fill="%s"/>`, boxH, color)
+		fmt.Fprintf(&b, `<text x="14" y="20" fill="#1f2328">%s</text>`, svgEscape(clip(n.Key, 24)))
+		fmt.Fprintf(&b, `<text x="14" y="38" fill="#6e7781" font-size="11">%s</text>`, svgEscape(groupSummary(n)))
 		b.WriteString(`</g>`)
 	}
 	b.WriteString(`</svg>`)

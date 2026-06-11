@@ -68,12 +68,33 @@ func TestRenderSVGTruncatesOnRuneBoundary(t *testing.T) {
 	}
 }
 
+func TestRenderGroupSVG(t *testing.T) {
+	g := events.Graph{
+		Stacks: []events.StackState{
+			{Path: "nonprod/projects/a", Status: events.StatusSafe},
+			{Path: "nonprod/pipelines/x", Status: events.StatusGated},
+			{Path: "nonprod/pipelines/y", Status: events.StatusPlanned},
+		},
+		Edges: []events.Edge{{From: "nonprod/projects/a", To: "nonprod/pipelines/x"}},
+	}
+	svg := string(renderGroupSVG(g, 2))
+	for _, want := range []string{"<svg", "nonprod/projects", "nonprod/pipelines", "2 stacks", "1 gated", "</svg>"} {
+		if !strings.Contains(svg, want) {
+			t.Errorf("group SVG missing %q\n%s", want, svg)
+		}
+	}
+	if n := strings.Count(svg, "<line "); n != 1 {
+		t.Errorf("group edges drawn = %d, want 1", n)
+	}
+}
+
 func TestLayersLongestPath(t *testing.T) {
 	g := events.Graph{
 		Stacks: []events.StackState{{Path: "a"}, {Path: "b"}, {Path: "c"}},
 		Edges:  []events.Edge{{From: "a", To: "b"}, {From: "b", To: "c"}, {From: "a", To: "c"}},
 	}
-	l := layers(g)
+	ids := []string{"a", "b", "c"}
+	l := layersOf(ids, g.Edges)
 	if l["a"] != 0 || l["b"] != 1 || l["c"] != 2 {
 		t.Fatalf("layers = %v, want a:0 b:1 c:2", l)
 	}
