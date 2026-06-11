@@ -2,6 +2,7 @@ package statemove
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -15,10 +16,12 @@ type fakeRunner struct {
 	show      *tfjson.State // returned by ShowStateFile
 	mvs       int
 	pushes    int
+	pulls     int
 	forceUsed bool
 }
 
 func (f *fakeRunner) StatePull(context.Context, ...tfexec.StatePullOption) (string, error) {
+	f.pulls++
 	return f.stateJSON, nil
 }
 func (f *fakeRunner) ShowStateFile(context.Context, string, ...tfexec.ShowOption) (*tfjson.State, error) {
@@ -101,5 +104,52 @@ func TestExecuteSkipAndAmbiguous(t *testing.T) {
 	}
 	if dst2.mvs != 0 || src2.pushes != 0 {
 		t.Error("ambiguous must abort before any mv/push")
+	}
+}
+
+type fakeLocker struct {
+	acquired []string
+	released int
+	failOn   string // stackDir suffix to fail Acquire on ("" = never)
+}
+
+func (l *fakeLocker) Acquire(_ context.Context, stackDir string) (func() error, error) {
+	if l.failOn != "" && strings.HasSuffix(stackDir, l.failOn) {
+		return nil, fmt.Errorf("locked: %s", stackDir)
+	}
+	l.acquired = append(l.acquired, stackDir)
+	return func() error { l.released++; return nil }, nil
+}
+
+func TestExecuteAcquiresLockBeforePull(t *testing.T) {
+	src := &fakeRunner{show: stateWith("aws_s3_bucket.x")}
+	dst := &fakeRunner{show: stateWith()}
+	lk := &fakeLocker{}
+	deps := depsFor(src, dst)
+	deps.Locker = lk
+	xm := XMove{SourceStack: "a", Pairs: []Move{{From: "aws_s3_bucket.x", To: "aws_s3_bucket.x"}}}
+	if _, err := Execute(context.Background(), deps, t.TempDir(), "b", xm, false); err != nil {
+		t.Fatal(err)
+	}
+	if len(lk.acquired) != 2 {
+		t.Errorf("acquired = %v, want 2 locks", lk.acquired)
+	}
+	if lk.released != 2 {
+		t.Errorf("released = %d, want 2", lk.released)
+	}
+}
+
+func TestExecuteFailsBeforePullWhenLocked(t *testing.T) {
+	src := &fakeRunner{show: stateWith("aws_s3_bucket.x")}
+	dst := &fakeRunner{show: stateWith()}
+	lk := &fakeLocker{failOn: "/a"}
+	deps := depsFor(src, dst)
+	deps.Locker = lk
+	xm := XMove{SourceStack: "a", Pairs: []Move{{From: "aws_s3_bucket.x", To: "aws_s3_bucket.x"}}}
+	if _, err := Execute(context.Background(), deps, t.TempDir(), "b", xm, false); err == nil {
+		t.Fatal("expected a lock error")
+	}
+	if src.pulls != 0 || dst.pulls != 0 {
+		t.Errorf("state must NOT be pulled when locking failed (fail-before); pulls src=%d dst=%d", src.pulls, dst.pulls)
 	}
 }

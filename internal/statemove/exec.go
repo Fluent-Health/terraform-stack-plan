@@ -20,10 +20,19 @@ type Runner interface {
 	StateMv(ctx context.Context, source, destination string, opts ...tfexec.StateMvCmdOption) error
 }
 
+// Locker is an optional pessimistic lock acquired before the pull→mv→push window
+// so a concurrent terraform op on the same state fails to lock (rather than the
+// move failing mid-flight). Acquire returns a release func; an error means the
+// state is already locked and the move must NOT proceed.
+type Locker interface {
+	Acquire(ctx context.Context, stackDir string) (release func() error, err error)
+}
+
 // ExecDeps injects the terraform factory + a backup dir.
 type ExecDeps struct {
 	NewTF     func(workingDir string) (Runner, error) // builds a Runner rooted at a stack dir
 	BackupDir string                                  // pre-move state backups (empty disables)
+	Locker    Locker                                  // optional pessimistic lock around the move (nil = none)
 }
 
 // Action is what Execute did/would do for one pair.
@@ -39,6 +48,20 @@ type Action struct {
 func Execute(ctx context.Context, deps ExecDeps, root, destStack string, xm XMove, dryRun bool) ([]Action, error) {
 	srcDir := filepath.Join(root, filepath.FromSlash(xm.SourceStack))
 	dstDir := filepath.Join(root, filepath.FromSlash(destStack))
+
+	if deps.Locker != nil {
+		relSrc, err := deps.Locker.Acquire(ctx, srcDir)
+		if err != nil {
+			return nil, fmt.Errorf("lock source %s: %w", xm.SourceStack, err)
+		}
+		defer func() { _ = relSrc() }()
+		relDst, err := deps.Locker.Acquire(ctx, dstDir)
+		if err != nil {
+			return nil, fmt.Errorf("lock dest %s: %w", destStack, err)
+		}
+		defer func() { _ = relDst() }()
+	}
+
 	srcTF, err := deps.NewTF(srcDir)
 	if err != nil {
 		return nil, err

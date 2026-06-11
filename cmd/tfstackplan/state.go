@@ -274,6 +274,7 @@ func runStateApply(args []string) int {
 	dir := fs.String("dir", "", "terramate project root (required)")
 	execute := fs.Bool("execute", false, "perform the moves (default: dry-run, print only)")
 	backupDir := fs.String("backup-dir", "", "directory for pre-move state backups (default: <dir>/.tfsp-state-backups)")
+	lock := fs.Bool("lock", false, "acquire a pessimistic GCS state lock around each move (fail-fast if already locked; requires ADC)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -298,6 +299,14 @@ func runStateApply(args []string) int {
 	deps := statemove.ExecDeps{
 		NewTF:     func(wd string) (statemove.Runner, error) { return statemove.NewTerraform(tfPath, wd) },
 		BackupDir: bdir,
+	}
+	if *lock && *execute {
+		token, _, err := gcpCreds(context.Background())
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "state apply: --lock:", err)
+			return 1
+		}
+		deps.Locker = newGCSLocker(token, "")
 	}
 	for _, fx := range found {
 		actions, err := statemove.Execute(context.Background(), deps, *dir, fx.DestStack, fx.XMove, !*execute)

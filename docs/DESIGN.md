@@ -1032,17 +1032,26 @@ import/removed; SP3 adds the faithful `terraform state mv` executor.** Verbs:
   kind-aware op line: `moved from → to`, `import to (id=…)`, or `removed from`).
 - `state cleanup --dir DIR (--pr N | --all)` removes the keyed shims (one PR's,
   or all `_tfsp_move.*.tf` in the tree).
-- `state apply --dir DIR [--execute] [--backup-dir DIR]` discovers every
+- `state apply --dir DIR [--execute] [--backup-dir DIR] [--lock]` discovers every
   `_tfsp_xmove.*.hcl` manifest and runs it via terraform-exec: pull both states
   → back up each (default `<dir>/.tfsp-state-backups`) → per-pair fail-closed
   decision table (source-only → **move**, dest-only → **skip** (idempotent),
   both/neither → **error**) → `terraform state mv -state/-state-out` against the
   pulled local files → push both, **never** `--force`. **Dry-run by default**
-  (prints "would move" / "skip"); `--execute` performs the moves. Concurrency
-  safety rests on terraform's built-in serial/lineage check on `state push` plus
-  the backups — there is no pessimistic lock; a backend lock is a pluggable
-  follow-on. Requires `terraform` on `PATH`. Auto-executing this as a `run apply`
-  pre-phase is a follow-on.
+  (prints "would move" / "skip"); `--execute` performs the moves. Requires
+  `terraform` on `PATH`. Auto-executing this as a `run apply` pre-phase is a
+  follow-on.
+- **Concurrency.** Without `--lock`, safety rests on terraform's built-in
+  serial/lineage check on `state push` (an optimistic check) plus the backups.
+  `--lock` (with `--execute`) adds a **pessimistic** lock: before each move it
+  acquires the GCS `.tflock` object (`<prefix>/default.tflock`) — the same object
+  terraform's GCS backend uses — via an `ifGenerationMatch=0` upload, so a
+  concurrent terraform op fails to lock and the move **fails before** touching
+  state (rather than mid-flight). It is **fail-fast**: an already-held lock errors
+  out instead of waiting. The `statemove.Locker` is pluggable; `cmd/tfstackplan`
+  supplies a dependency-free GCS implementation (`gcslock.go`) wired from ADC
+  (`gcpCreds`). The backend bucket/prefix are read from the stack's `*.tf`
+  (`terraform { backend "gcs" { bucket prefix } }`).
 
 The projecting side already classifies cross-state move-targets as relocations
 via `--state-moves`.
