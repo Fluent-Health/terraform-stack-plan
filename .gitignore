@@ -19,3 +19,4 @@ service-account*.json
 # scratch. Durable rationale lives in PR descriptions; current truth lives in
 # docs/DESIGN.md. See CLAUDE.md.
 docs/superpowers/
+web/node_modules/

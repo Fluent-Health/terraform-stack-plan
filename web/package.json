@@ -1,0 +1,14 @@
+{
+  "name": "tfstackplan-web",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Dev-only toolchain that compiles the committed internal/server/assets/app.css. The Go binary embeds the committed CSS; nothing in the Go build or CI runs node.",
+  "scripts": {
+    "build": "./build.sh"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "^4",
+    "daisyui": "^5",
+    "tailwindcss": "^4"
+  }
+}
