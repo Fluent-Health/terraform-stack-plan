@@ -51,6 +51,24 @@ func TestBuildGroupGraph(t *testing.T) {
 	}
 }
 
+func TestBuildGroupGraphCategories(t *testing.T) {
+	g := events.Graph{Stacks: []events.StackState{
+		{Path: "p/k/a", Categories: []events.Category{{Name: "iam", Icon: "🔐"}}},
+		{Path: "p/k/b", Categories: []events.Category{{Name: "iam", Icon: "🔐"}, {Name: "destructive", Icon: "💣"}}},
+	}}
+	gg := buildGroupGraph(g, 2)
+	if len(gg.Nodes) != 1 {
+		t.Fatalf("nodes = %d, want 1", len(gg.Nodes))
+	}
+	cc := map[string]int{}
+	for _, c := range gg.Nodes[0].Cats {
+		cc[c.Name] = c.Count
+	}
+	if cc["iam"] != 2 || cc["destructive"] != 1 {
+		t.Errorf("category counts = %+v, want iam:2 destructive:1", gg.Nodes[0].Cats)
+	}
+}
+
 func TestWorstStatus(t *testing.T) {
 	if worstStatus(events.StatusGated, events.StatusFailed) != events.StatusFailed {
 		t.Error("failed should win over gated")

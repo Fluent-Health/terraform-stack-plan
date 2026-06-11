@@ -99,3 +99,14 @@ func TestLayersLongestPath(t *testing.T) {
 		t.Fatalf("layers = %v, want a:0 b:1 c:2", l)
 	}
 }
+
+func TestRenderGroupSVGBadges(t *testing.T) {
+	g := events.Graph{Stacks: []events.StackState{
+		{Path: "p/k/a", Status: events.StatusPlanned, Categories: []events.Category{{Name: "iam", Icon: "🔐"}}},
+		{Path: "p/k/b", Status: events.StatusPlanned, Categories: []events.Category{{Name: "iam", Icon: "🔐"}}},
+	}}
+	svg := string(renderGroupSVG(g, 2))
+	if !strings.Contains(svg, "🔐 2") {
+		t.Errorf("group SVG missing the 🔐 2 badge:\n%s", svg)
+	}
+}

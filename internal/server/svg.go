@@ -186,6 +186,20 @@ func groupSummary(n groupNode) string {
 	return s
 }
 
+// groupBadges is the category-badge line: "🔐 12  💣 5" (icon when present, else
+// name), in the group's category order. Empty when the group has no categories.
+func groupBadges(n groupNode) string {
+	parts := make([]string, 0, len(n.Cats))
+	for _, c := range n.Cats {
+		label := c.Icon
+		if label == "" {
+			label = c.Name
+		}
+		parts = append(parts, fmt.Sprintf("%s %d", label, c.Count))
+	}
+	return strings.Join(parts, "  ")
+}
+
 // clip truncates s to max runes with an ellipsis.
 func clip(s string, max int) string {
 	if r := []rune(s); len(r) > max {
@@ -200,7 +214,7 @@ func clip(s string, max int) string {
 func renderGroupSVG(g events.Graph, depth int) []byte {
 	gg := buildGroupGraph(g, depth)
 	const (
-		boxW, boxH       = 200, 50
+		boxW, boxH       = 200, 64
 		colGap, rowGap   = 80, 20
 		marginX, marginY = 24, 24
 	)
@@ -259,6 +273,9 @@ func renderGroupSVG(g events.Graph, depth int) []byte {
 		fmt.Fprintf(&b, `<rect width="6" height="%d" rx="3" fill="%s"/>`, boxH, color)
 		fmt.Fprintf(&b, `<text x="14" y="20" fill="#1f2328">%s</text>`, svgEscape(clip(n.Key, 24)))
 		fmt.Fprintf(&b, `<text x="14" y="38" fill="#6e7781" font-size="11">%s</text>`, svgEscape(groupSummary(n)))
+		if badges := groupBadges(n); badges != "" {
+			fmt.Fprintf(&b, `<text x="14" y="54" fill="#1f2328" font-size="12">%s</text>`, svgEscape(badges))
+		}
 		b.WriteString(`</g>`)
 	}
 	b.WriteString(`</svg>`)

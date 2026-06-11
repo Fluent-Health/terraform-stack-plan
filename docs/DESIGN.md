@@ -722,8 +722,12 @@ group a single node showing its stack-count and **worst status** (with a
 dependencies aggregated to the group level (intra-group and self edges dropped,
 duplicates collapsed). The folding lives in `buildGroupGraph`
 (`internal/server/grouping.go`); `renderGroupSVG` reuses the same layered layout
-as the per-stack `renderSVG` (the shared `layersOf` helper). v1 shows status
-aggregates only; category badges, a configurable `group{}` block, and per-stack
+as the per-stack `renderSVG` (the shared `layersOf` helper). Each group node also
+renders a **category-badge line** (e.g. `🔐 12  💣 5`, icon when present else
+name, name-sorted) aggregating its stacks' matched classification categories —
+plumbed per-stack from the `run plan` sidecar via `Finalize.Categories` → the
+`stacks.categories` column → `LoadGraph` → `buildGroupGraph`'s per-group
+`catCount` tally → `groupBadges`. A configurable `group{}` block and per-stack
 drill-down are follow-ons. a generic **approval panel** (one row per stored `(class, target)` with
 its state — provider-neutral, no console URL; the deep link is added by the
 approval backend), and the plan report (shown as escaped preformatted text — no

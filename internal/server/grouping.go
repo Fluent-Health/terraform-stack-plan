@@ -47,6 +47,13 @@ func worstStatus(a, b events.Status) events.Status {
 	return a
 }
 
+// catCount is a category's occurrence count within a group.
+type catCount struct {
+	Name  string
+	Icon  string
+	Count int
+}
+
 // groupNode is one group in the group graph.
 type groupNode struct {
 	Key    string
@@ -54,6 +61,7 @@ type groupNode struct {
 	Failed int
 	Gated  int
 	Status events.Status // worst status across the group's stacks
+	Cats   []catCount    // category counts within the group, name-sorted
 }
 
 // groupGraph is the stacks folded to group nodes + group-level dependency edges.
@@ -67,6 +75,7 @@ type groupGraph struct {
 // edges become group edges; intra-group edges dropped; duplicates collapsed).
 func buildGroupGraph(g events.Graph, depth int) groupGraph {
 	acc := map[string]*groupNode{}
+	cats := map[string]map[string]*catCount{} // groupKey → name → catCount
 	for _, s := range g.Stacks {
 		k := groupKey(s.Path, depth)
 		n := acc[k]
@@ -81,6 +90,17 @@ func buildGroupGraph(g events.Graph, depth int) groupGraph {
 			n.Failed++
 		case events.StatusGated:
 			n.Gated++
+		}
+		if cats[k] == nil {
+			cats[k] = map[string]*catCount{}
+		}
+		for _, c := range s.Categories {
+			cc := cats[k][c.Name]
+			if cc == nil {
+				cc = &catCount{Name: c.Name, Icon: c.Icon}
+				cats[k][c.Name] = cc
+			}
+			cc.Count++
 		}
 	}
 	keyOf := map[string]string{}
@@ -98,7 +118,12 @@ func buildGroupGraph(g events.Graph, depth int) groupGraph {
 
 	var gg groupGraph
 	for _, n := range acc {
-		gg.Nodes = append(gg.Nodes, *n)
+		node := *n
+		for _, cc := range cats[n.Key] {
+			node.Cats = append(node.Cats, *cc)
+		}
+		sort.Slice(node.Cats, func(i, j int) bool { return node.Cats[i].Name < node.Cats[j].Name })
+		gg.Nodes = append(gg.Nodes, node)
 	}
 	sort.Slice(gg.Nodes, func(i, j int) bool { return gg.Nodes[i].Key < gg.Nodes[j].Key })
 	for e := range edgeSet {
