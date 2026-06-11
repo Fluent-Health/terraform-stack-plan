@@ -56,6 +56,26 @@ func TestPendingGates(t *testing.T) {
 	}
 }
 
+func TestSetTargetRequester(t *testing.T) {
+	db := newTestDB(t)
+	if err := UpsertTarget(db, 7, "nonprod", "iam", "proj-1", "grants/abc", "AWAITING"); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetTargetRequester(db, 7, "nonprod", "poolB@x"); err != nil {
+		t.Fatal(err)
+	}
+	ts, err := TargetsFor(db, 7, "nonprod")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ts) != 1 {
+		t.Fatalf("targets = %d; want 1", len(ts))
+	}
+	if ts[0].Requester != "poolB@x" {
+		t.Errorf("Requester = %q; want %q", ts[0].Requester, "poolB@x")
+	}
+}
+
 func TestClassifiedMarker(t *testing.T) {
 	db := newTestDB(t)
 	ok, err := IsClassified(db, 42, "staging")
