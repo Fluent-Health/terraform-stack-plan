@@ -176,3 +176,55 @@ func TestLogStreamSSE(t *testing.T) {
 	}
 	waitFor("data: after")
 }
+
+func TestOffloadAndServeFromStore(t *testing.T) {
+	db := newServerTestDB(t)
+	a := New(db, &MockGitHub{}, Config{LogsDir: t.TempDir()})
+	a.Objects = FSStore{Root: t.TempDir()}
+
+	if err := a.appendLog("e1", "stacks/a", "archived log\n"); err != nil {
+		t.Fatal(err)
+	}
+	a.offloadLog(context.Background(), "e1", "stacks/a")
+
+	pointer, _, ok, _ := store.GetStackOutput(db, "e1", "stacks/a", "log")
+	if !ok || pointer == "" {
+		t.Fatalf("pointer not set: %q ok=%v", pointer, ok)
+	}
+
+	// Simulate buffer cleanup; the public read must fall back to the store.
+	bufp, _ := logFilePath(a.cfg.LogsDir, "e1", "stacks/a")
+	os.Remove(bufp)
+
+	srv := httptest.NewServer(a.Routes())
+	defer srv.Close()
+	resp, err := http.Get(srv.URL + "/logs/e1/stacks/a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != 200 || string(body) != "archived log\n" {
+		t.Fatalf("served = %d %q (want from object store)", resp.StatusCode, body)
+	}
+}
+
+func TestHandleUpdateTriggersOffloadOnTerminal(t *testing.T) {
+	db := newServerTestDB(t)
+	a := New(db, &MockGitHub{}, Config{LogsDir: t.TempDir()})
+	a.Objects = FSStore{Root: t.TempDir()}
+	srv := httptest.NewServer(a.Routes())
+	defer srv.Close()
+
+	_ = store.UpsertInit(db, events.Init{ID: "e1", Repo: "o/r", Environment: "staging",
+		Stacks: []events.StackState{{Path: "stacks/a"}}})
+	if err := a.appendLog("e1", "stacks/a", "done log\n"); err != nil {
+		t.Fatal(err)
+	}
+	post(t, srv, "/api/update", events.Update{ID: "e1", Stack: "stacks/a", Status: events.StatusPlanned})
+
+	pointer, _, ok, _ := store.GetStackOutput(db, "e1", "stacks/a", "log")
+	if !ok || pointer == "" {
+		t.Errorf("terminal update should offload the log (pointer=%q ok=%v)", pointer, ok)
+	}
+}

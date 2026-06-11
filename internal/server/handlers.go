@@ -65,6 +65,9 @@ func (a *App) handleUpdate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "update stack", http.StatusInternalServerError)
 		return
 	}
+	if a.Objects != nil && done(u.Status) {
+		a.offloadLog(r.Context(), u.ID, u.Stack)
+	}
 	a.drive(r.Context(), u.ID, a.baseURL(r), false)
 	w.WriteHeader(http.StatusOK)
 }

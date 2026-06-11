@@ -39,6 +39,9 @@ type App struct {
 	// (gates recorded AWAITING are never satisfied → action_required). Set after
 	// construction (e.g. by the serve command), so New's signature is unchanged.
 	Approval approval.Backend
+	// Objects is the optional object store for completed-log offload. nil keeps
+	// logs in the local buffer only. Set after construction, like Approval.
+	Objects ObjectStore
 }
 
 // New builds an App.

@@ -1,9 +1,11 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -71,6 +73,33 @@ func (a *App) appendLog(execID, stack, data string) error {
 	return nil
 }
 
+// offloadLog uploads a stack's full log buffer to the object store and records
+// the key as the stack_outputs pointer (preserving the excerpt). A no-op without
+// an object store or a buffer. Best-effort: logged, never fatal.
+func (a *App) offloadLog(ctx context.Context, execID, stack string) {
+	if a.Objects == nil {
+		return
+	}
+	p, ok := logFilePath(a.cfg.LogsDir, execID, stack)
+	if !ok {
+		return
+	}
+	f, err := os.Open(p)
+	if err != nil {
+		return // no buffer → nothing to offload
+	}
+	defer f.Close()
+	key := objectKey(execID, stack)
+	if err := a.Objects.Put(ctx, key, f); err != nil {
+		log.Printf("offload log %s/%s: %v", execID, stack, err)
+		return
+	}
+	_, excerpt, _, _ := store.GetStackOutput(a.db, execID, stack, "log")
+	if err := store.UpsertStackOutput(a.db, execID, stack, "log", key, excerpt); err != nil {
+		log.Printf("offload log pointer %s/%s: %v", execID, stack, err)
+	}
+}
+
 // tailFile returns the last n bytes of a file as a string.
 func tailFile(path string, n int64) (string, error) {
 	f, err := os.Open(path)
@@ -106,19 +135,26 @@ func (a *App) handleLogServe(w http.ResponseWriter, r *http.Request) {
 		a.streamLog(w, r, exec, stack)
 		return
 	}
-	p, ok := logFilePath(a.cfg.LogsDir, exec, stack)
-	if !ok {
-		http.Error(w, "not found", http.StatusNotFound)
-		return
+	// static serve: prefer the live buffer, else the offloaded object.
+	if p, ok := logFilePath(a.cfg.LogsDir, exec, stack); ok {
+		if f, err := os.Open(p); err == nil {
+			defer f.Close()
+			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+			_, _ = io.Copy(w, f)
+			return
+		}
 	}
-	f, err := os.Open(p)
-	if err != nil {
-		http.Error(w, "not found", http.StatusNotFound)
-		return
+	if a.Objects != nil {
+		if pointer, _, ok, _ := store.GetStackOutput(a.db, exec, stack, "log"); ok && pointer != "" {
+			if rc, err := a.Objects.Get(r.Context(), pointer); err == nil {
+				defer rc.Close()
+				w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+				_, _ = io.Copy(w, rc)
+				return
+			}
+		}
 	}
-	defer f.Close()
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	_, _ = io.Copy(w, f)
+	http.Error(w, "not found", http.StatusNotFound)
 }
 
 // streamLog upgrades to Server-Sent Events: subscribe first (so nothing is
