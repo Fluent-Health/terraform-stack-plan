@@ -94,7 +94,7 @@ func runStateMove(args []string) int {
 		return 2
 	}
 
-	var newMoves []statemove.Move
+	var newOps []statemove.Op
 	for i := 0; i < len(rest); i += 2 {
 		fromStack, from := stripStack(rest[i])
 		toStack, to := stripStack(rest[i+1])
@@ -104,7 +104,7 @@ func runStateMove(args []string) int {
 				return 1
 			}
 		}
-		newMoves = append(newMoves, statemove.Move{From: from, To: to})
+		newOps = append(newOps, statemove.Op{Kind: "moved", From: from, To: to})
 	}
 
 	stackDir := filepath.Join(*dir, filepath.FromSlash(*stack))
@@ -113,8 +113,8 @@ func runStateMove(args []string) int {
 		fmt.Fprintln(os.Stderr, "state move:", err)
 		return 1
 	}
-	for _, m := range newMoves {
-		if err := statemove.ValidateMove(plan, m.From, m.To); err != nil {
+	for _, o := range newOps {
+		if err := statemove.ValidateMove(plan, o.From, o.To); err != nil {
 			fmt.Fprintln(os.Stderr, "state move:", err)
 			return 1
 		}
@@ -122,13 +122,13 @@ func runStateMove(args []string) int {
 
 	key := moveKey(*pr, *dir)
 	shimPath := filepath.Join(stackDir, statemove.ShimFileName(key))
-	var existing []statemove.Move
+	var existing []statemove.Op
 	if data, rerr := os.ReadFile(shimPath); rerr == nil {
-		if _, ms, perr := statemove.ParseShim(string(data)); perr == nil {
-			existing = ms
+		if _, ops, perr := statemove.ParseShim(string(data)); perr == nil {
+			existing = ops
 		}
 	}
-	merged := statemove.MergeMoves(existing, newMoves)
+	merged := statemove.MergeOps(existing, newOps)
 	if werr := os.WriteFile(shimPath, []byte(statemove.RenderShim(key, merged)), 0o644); werr != nil {
 		fmt.Fprintln(os.Stderr, "state move: write shim:", werr)
 		return 1
@@ -162,8 +162,8 @@ func runStateList(args []string) int {
 		if want != "" && s.Key != want {
 			continue
 		}
-		for _, m := range s.Moves {
-			fmt.Printf("%s\t%s\t%s → %s\n", s.Key, s.Stack, m.From, m.To)
+		for _, o := range s.Ops {
+			fmt.Printf("%s\t%s\t%s %s → %s\n", s.Key, s.Stack, o.Kind, o.From, o.To)
 		}
 	}
 	return 0

@@ -26,7 +26,7 @@ type Shim struct {
 	Path  string // path to the .tf
 	Stack string // dir containing it, relative to the discover root (slash form)
 	Key   string
-	Moves []Move
+	Ops   []Op
 }
 
 // Discover walks root for `_tfsp_move.*.tf` shim files and parses each.
@@ -46,12 +46,12 @@ func Discover(root string) ([]Shim, error) {
 		if rerr != nil {
 			return rerr
 		}
-		pk, moves, perr := ParseShim(string(data))
+		pk, ops, perr := ParseShim(string(data))
 		if perr != nil {
 			return nil // a file matching the glob but not our format — skip
 		}
 		rel, _ := filepath.Rel(root, filepath.Dir(path))
-		out = append(out, Shim{Path: path, Stack: filepath.ToSlash(rel), Key: pk, Moves: moves})
+		out = append(out, Shim{Path: path, Stack: filepath.ToSlash(rel), Key: pk, Ops: ops})
 		return nil
 	})
 	return out, err
