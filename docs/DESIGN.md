@@ -925,9 +925,18 @@ the **Pub/Sub-push + OIDC event ingestion** (a
 latency optimization over the polling reconcile loop, which already satisfies
 gates); **true requester-pool leasing** (today `requester()` is a `PR mod pool`
 slot — collisions possible up to pool size; leasing replaces it without an
-interface change); the
-`run verify` driver + `verify/<env>` status — Phase 4; and the `state` subcommand
+interface change); and the `state` subcommand
 (declarative cross-stack state surgery) — Phase 6.
+
+**Phase 4: `run verify` (complete).** `tfstackplan run verify` runs the
+terramate `verify` script across changed stacks — no gate, read-only
+post-apply validation. It streams per-stack logs via the tail-pump (same
+`LogPump` as plan/apply) and registers a `verify/<env>` execution on the
+server, reported under a `PhaseVerifying` phase that joins the execution
+timeline. The per-stack Verify tab on `/live/{id}/stack/{stack...}` links to
+the latest verify run for the same PR/env via
+`store.LatestVerifyExecutionID(db, pr, env)`; when no verify run exists yet it
+shows "No verify run yet for this PR."
 
 ### Delivery: binary + Cloud Run container
 

@@ -126,3 +126,22 @@ func TestStackDetailPage(t *testing.T) {
 		t.Errorf("unknown exec status = %d, want 404", resp2.StatusCode)
 	}
 }
+
+func TestStackDetailVerifyLink(t *testing.T) {
+	db := newServerTestDB(t)
+	a := New(db, &MockGitHub{}, Config{})
+	srv := httptest.NewServer(a.Routes())
+	defer srv.Close()
+
+	_ = store.UpsertInit(db, events.Init{ID: "plan-1", Repo: "o/r", PR: 7, Environment: "staging",
+		Context: "plan/staging", Stacks: []events.StackState{{Path: "stacks/a"}}})
+	_ = store.UpsertInit(db, events.Init{ID: "verify-9", Repo: "o/r", PR: 7, Environment: "staging",
+		Context: "verify/staging"})
+
+	resp, _ := http.Get(srv.URL + "/live/plan-1/stack/stacks/a")
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if !strings.Contains(string(body), "/live/verify-9") {
+		t.Errorf("Verify tab should link to the latest verify run /live/verify-9")
+	}
+}
