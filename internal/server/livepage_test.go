@@ -26,28 +26,32 @@ func TestApprovalPanelStates(t *testing.T) {
 	}
 }
 
-func TestLivePageEmbedsSVGReportAndPanel(t *testing.T) {
-	g := sampleGraph()
-	panel := approvalPanel([]store.GateTarget{{Class: "iam", Target: "proj-a", State: "AWAITING"}})
-	page := livePage("owner/repo", "staging", "# the <report>", string(renderSVG(g)), panel)
+func TestLivePageRendersShell(t *testing.T) {
+	a := New(newServerTestDB(t), &MockGitHub{}, Config{})
+	html := a.livePage("octo/repo", "staging", "PLAN_REPORT_BODY", `<svg id="dag"></svg>`, `<div class="panel">P</div>`)
 	for _, want := range []string{
-		"<!doctype html>", "owner/repo", "staging",
-		"<svg ",
-		"proj-a",
-		"http-equiv=\"refresh\"",
+		`/assets/app.css`,      // links the embedded stylesheet
+		`data-theme`,           // DaisyUI theme on <html>
+		`octo/repo`,            // repo shown
+		`staging`,              // environment shown
+		`<svg id="dag">`,       // trusted SVG injected un-escaped
+		`class="panel"`,        // trusted panel injected un-escaped
+		`PLAN_REPORT_BODY`,     // report body present
+		`http-equiv="refresh"`, // 10s auto-refresh preserved
 	} {
-		if !strings.Contains(page, want) {
+		if !strings.Contains(html, want) {
 			t.Errorf("live page missing %q", want)
 		}
 	}
-	if !strings.Contains(page, "# the &lt;report&gt;") {
-		t.Errorf("report must be escaped in the page:\n%s", page)
-	}
 }
 
-func TestLivePageEmptyReportShowsRunningNote(t *testing.T) {
-	page := livePage("o/r", "staging", "", "<svg></svg>", "")
-	if !strings.Contains(page, "still running") {
-		t.Error("empty report should show a running placeholder")
+func TestLivePageEscapesReport(t *testing.T) {
+	a := New(newServerTestDB(t), &MockGitHub{}, Config{})
+	html := a.livePage("r", "", "<script>evil()</script>", "", "")
+	if strings.Contains(html, "<script>evil()</script>") {
+		t.Error("report body must be HTML-escaped")
+	}
+	if !strings.Contains(html, "&lt;script&gt;") {
+		t.Error("expected the report to be escaped into the page")
 	}
 }

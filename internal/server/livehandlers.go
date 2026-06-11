@@ -41,5 +41,5 @@ func (a *App) handleLive(w http.ResponseWriter, r *http.Request) {
 		panel = approvalPanel(targets)
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Write([]byte(livePage(e.Repo, e.Environment, report, string(renderSVG(g)), panel)))
+	w.Write([]byte(a.livePage(e.Repo, e.Environment, report, string(renderSVG(g)), panel)))
 }

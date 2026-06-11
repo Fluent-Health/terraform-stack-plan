@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="refresh" content="10">
+  <title>{{ .Title }}</title>
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body class="min-h-screen bg-base-200">
+  <div class="navbar bg-base-100 border-b border-base-300">
+    <div class="mx-auto w-full max-w-5xl px-4">
+      <span class="text-lg font-semibold">{{ .Title }}</span>
+      <span class="ml-3 text-sm opacity-60">{{ .Repo }} · live — refreshes every 10s</span>
+    </div>
+  </div>
+  <main class="mx-auto w-full max-w-5xl px-4 py-6 space-y-6">
+    {{ if .Panel }}<section class="card bg-base-100 shadow-sm"><div class="card-body p-4">{{ .Panel }}</div></section>{{ end }}
+    <section class="card bg-base-100 shadow-sm"><div class="card-body p-4 items-center">{{ .SVG }}</div></section>
+    <section class="card bg-base-100 shadow-sm"><div class="card-body p-4">
+      {{ if .Report }}<pre class="overflow-auto rounded-lg bg-neutral text-neutral-content p-4 text-xs">{{ .Report }}</pre>
+      {{ else }}<p class="opacity-60 italic">Plan still running — this page refreshes every 10s; the report appears here when the plan completes.</p>{{ end }}
+    </div></section>
+  </main>
+</body>
+</html>
