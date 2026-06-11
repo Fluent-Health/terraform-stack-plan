@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -165,6 +166,10 @@ func TestRunApplyE2EGateBlocks(t *testing.T) {
 func TestRunApplyImpersonatesRequester(t *testing.T) {
 	dir := applyFixture(t)
 
+	// Fix I2: use t.Setenv so the prior value (or absence) of
+	// GOOGLE_OAUTH_ACCESS_TOKEN is auto-restored after the test.
+	t.Setenv("GOOGLE_OAUTH_ACCESS_TOKEN", "")
+
 	// Stub mintAccessToken: record the SA it was called with, return a sentinel.
 	var calledWith string
 	orig := mintAccessToken
@@ -172,10 +177,7 @@ func TestRunApplyImpersonatesRequester(t *testing.T) {
 		calledWith = sa
 		return "tok-123", nil
 	}
-	defer func() {
-		mintAccessToken = orig
-		os.Unsetenv("GOOGLE_OAUTH_ACCESS_TOKEN")
-	}()
+	defer func() { mintAccessToken = orig }()
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/gate/check" {
@@ -203,12 +205,54 @@ func TestRunApplyImpersonatesRequester(t *testing.T) {
 	}
 }
 
+// TestRunApplyMintFailClosedImpersonate verifies that when --impersonate-requester
+// is set and mintAccessToken returns an error, runApply returns 1 (fail-closed)
+// without running any apply.
+func TestRunApplyMintFailClosedImpersonate(t *testing.T) {
+	dir := applyFixture(t)
+
+	// Fix I2: ensure env var hygiene via t.Setenv.
+	t.Setenv("GOOGLE_OAUTH_ACCESS_TOKEN", "")
+
+	orig := mintAccessToken
+	mintAccessToken = func(_ context.Context, sa string) (string, error) {
+		return "", fmt.Errorf("credentials unavailable")
+	}
+	defer func() { mintAccessToken = orig }()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/gate/check" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(200)
+			_, _ = w.Write([]byte(`{"requester":"poolA@x"}`))
+			return
+		}
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+	t.Setenv(runner.EnvServer, srv.URL)
+	t.Setenv(runner.EnvEnvironment, "staging")
+	t.Setenv("TFSTACKPLAN_PR", "7")
+
+	code := runApply([]string{"--dir", dir, "--changed=false", "--impersonate-requester"})
+	if code != 1 {
+		t.Fatalf("run apply (mint failure) = %d, want 1 (fail-closed)", code)
+	}
+	// No apply must have run.
+	if _, err := os.Stat(filepath.Join(dir, "stacks/a", "applied")); err == nil {
+		t.Error("apply ran despite mint failure — should have been fail-closed")
+	}
+}
+
 // TestRunApplyNoImpersonateWhenFlagAbsent verifies that without
 // --impersonate-requester, mintAccessToken is not called and
 // GOOGLE_OAUTH_ACCESS_TOKEN is not set by runApply.
 func TestRunApplyNoImpersonateWhenFlagAbsent(t *testing.T) {
 	dir := applyFixture(t)
-	os.Unsetenv("GOOGLE_OAUTH_ACCESS_TOKEN")
+
+	// Fix I2: use t.Setenv so the prior value (or absence) of
+	// GOOGLE_OAUTH_ACCESS_TOKEN is auto-restored after the test.
+	t.Setenv("GOOGLE_OAUTH_ACCESS_TOKEN", "")
 
 	// Stub mintAccessToken to fail the test if called.
 	orig := mintAccessToken

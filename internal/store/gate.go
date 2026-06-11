@@ -20,6 +20,11 @@ type Gate struct {
 
 // UpsertTarget records or updates the grant for a (pr, environment, class,
 // target). On conflict the grant_name, state, and updated_at are overwritten.
+// NOTE: `requester` is deliberately excluded from the ON CONFLICT update set.
+// SetTargetRequester writes the leased requester SA after the initial upsert;
+// subsequent reconcile-loop UpsertTarget calls (state refreshes) must not
+// clobber it — keeping it out of the update set is the invariant that lets
+// handleGateCheck trust targets[0].Requester for the entire (pr, environment).
 func UpsertTarget(db *sql.DB, pr int, environment, class, target, grant, state string) error {
 	_, err := db.Exec(
 		`INSERT INTO gate_targets (pr, environment, class, target, grant_name, state)

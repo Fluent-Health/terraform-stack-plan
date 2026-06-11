@@ -129,8 +129,9 @@ PAM actually granted the IAM-write role to.
    IAM-write permission to a small pool of requester service accounts
    (`approval "gcp-pam" { requester_pool = ["sa-applier-0@…", …] }`).
 2. When `run plan` finalises a PR with an IAM gate, the server leases one pool
-   SA for the PR (across every environment), requests the PAM grant as that
-   identity, and persists it on the `gate_targets` rows.
+   SA per (PR, environment), reused across all of that PR's gates in that
+   environment, requests the PAM grant as that identity, and persists it on
+   the `gate_targets` rows.
 3. When the human approves the grant in GCP IAM, the server reconciles the gate
    to `ACTIVE`.
 4. `run apply --impersonate-requester` calls `POST /api/gate/check`, receives
