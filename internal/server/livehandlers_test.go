@@ -167,6 +167,35 @@ func TestStackDetailLogFollow(t *testing.T) {
 	}
 }
 
+func TestStackDetailVerifyInline(t *testing.T) {
+	db := newServerTestDB(t)
+	a := New(db, &MockGitHub{}, Config{})
+	srv := httptest.NewServer(a.Routes())
+	defer srv.Close()
+
+	_ = store.UpsertInit(db, events.Init{ID: "plan-1", Repo: "o/r", PR: 7, Environment: "staging",
+		Context: "plan/staging", Stacks: []events.StackState{{Path: "stacks/a"}}})
+	_ = store.UpsertInit(db, events.Init{ID: "verify-9", Repo: "o/r", PR: 7, Environment: "staging",
+		Context: "verify/staging"})
+	_ = store.UpsertStackOutput(db, "verify-9", "stacks/a", "log", "", "VERIFY_OUTPUT_A")
+
+	resp, _ := http.Get(srv.URL + "/live/plan-1/stack/stacks/a")
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	s := string(body)
+
+	for _, want := range []string{
+		`id="verifylog"`,
+		`/logs/verify-9/stacks/a?follow=1`,
+		`VERIFY_OUTPUT_A`,
+		`/live/verify-9`,
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("Verify inline tab missing %q", want)
+		}
+	}
+}
+
 func TestDrivePublishesChange(t *testing.T) {
 	db := newServerTestDB(t)
 	a := New(db, &MockGitHub{}, Config{})

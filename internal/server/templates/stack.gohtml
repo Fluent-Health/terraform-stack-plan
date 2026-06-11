@@ -32,7 +32,13 @@
         </div>
         <input type="radio" name="stacktabs" class="tab" aria-label="Verify">
         <div class="tab-content border-base-300 p-3">
-          {{ if .VerifyExec }}<a class="link link-hover" href="/live/{{ .VerifyExec }}">view the latest verify run →</a>
+          {{ if .VerifyExec }}
+          <pre id="verifylog" data-follow-url="/logs/{{ .VerifyExec }}/{{ .Stack }}?follow=1" class="overflow-auto rounded-lg bg-neutral text-neutral-content p-4 text-xs" style="max-height:60vh"></pre>
+          <a class="link text-xs" href="/live/{{ .VerifyExec }}">view the latest verify run →</a>
+          <noscript>
+            {{ if .VerifyLog }}<pre class="overflow-auto rounded-lg bg-neutral text-neutral-content p-4 text-xs mt-2">{{ .VerifyLog }}</pre>
+            {{ else }}<p class="opacity-60 italic mt-2">No verify output captured for this stack.</p>{{ end }}
+          </noscript>
           {{ else }}<p class="opacity-60 italic">No verify run yet for this PR.</p>{{ end }}
         </div>
       </div>
@@ -40,15 +46,15 @@
   </main>
   <script>
     (function () {
-      var pre = document.getElementById("stacklog");
-      if (!pre) return;
-      try {
-        var es = new EventSource(pre.dataset.followUrl);
-        es.onmessage = function (e) {
-          pre.textContent += e.data + "\n";
-          pre.scrollTop = pre.scrollHeight;
-        };
-      } catch (e) { /* no EventSource → the noscript excerpt covers it */ }
+      document.querySelectorAll("[data-follow-url]").forEach(function (pre) {
+        try {
+          var es = new EventSource(pre.dataset.followUrl);
+          es.onmessage = function (e) {
+            pre.textContent += e.data + "\n";
+            pre.scrollTop = pre.scrollHeight;
+          };
+        } catch (e) { /* no EventSource → the noscript excerpt covers it */ }
+      });
     })();
   </script>
 </body>
