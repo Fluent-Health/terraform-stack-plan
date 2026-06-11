@@ -74,6 +74,8 @@ func buildServeApp(ctx context.Context, cfg *config.Config, secret string, creds
 		WebhookSecret: secret,
 		PublicBaseURL: s.PublicBaseURL,
 		UseChecks:     s.UseChecks,
+		GroupDepth:    groupDepth(s),
+		GroupPattern:  groupPattern(s),
 	})
 
 	if s.Approval != nil && s.Approval.Backend == "gcp-pam" {
@@ -86,6 +88,22 @@ func buildServeApp(ctx context.Context, cfg *config.Config, secret string, creds
 		app.Approval = b
 	}
 	return app, cleanup, nil
+}
+
+// groupDepth returns the configured live-DAG grouping depth (0 if unset).
+func groupDepth(s *config.ServeConfig) int {
+	if s.Group != nil {
+		return s.Group.Depth
+	}
+	return 0
+}
+
+// groupPattern returns the configured live-DAG grouping regexp ("" if unset).
+func groupPattern(s *config.ServeConfig) string {
+	if s.Group != nil {
+		return s.Group.Pattern
+	}
+	return ""
 }
 
 // runServe loads config, builds the app, starts the reconcile loop, and serves.

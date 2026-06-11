@@ -17,7 +17,7 @@ func (a *App) dagSVG(g events.Graph) []byte {
 	if depth == 0 {
 		depth = 2
 	}
-	return renderGroupSVG(g, depth)
+	return renderGroupSVG(g, depth, a.groupRE)
 }
 
 // handleImg renders the execution's dependency graph as an SVG. Public and

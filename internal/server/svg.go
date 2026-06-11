@@ -2,6 +2,7 @@ package server
 
 import (
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -211,8 +212,9 @@ func clip(s string, max int) string {
 // renderGroupSVG renders the group-level dependency DAG: one box per group
 // (count + worst-status), edges = before/after folded to the group level. Inert/
 // self-contained like renderSVG. depth<=0 groups by full path (per-stack).
-func renderGroupSVG(g events.Graph, depth int) []byte {
-	gg := buildGroupGraph(g, depth)
+// A non-nil re overrides depth (see groupKey).
+func renderGroupSVG(g events.Graph, depth int, re *regexp.Regexp) []byte {
+	gg := buildGroupGraph(g, depth, re)
 	const (
 		boxW, boxH       = 200, 64
 		colGap, rowGap   = 80, 20

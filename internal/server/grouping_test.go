@@ -1,6 +1,7 @@
 package server
 
 import (
+	"regexp"
 	"testing"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
@@ -13,7 +14,7 @@ func TestGroupKey(t *testing.T) {
 		"single":                            "single",
 	}
 	for path, want := range cases {
-		if got := groupKey(path, 2); got != want {
+		if got := groupKey(path, 2, nil); got != want {
 			t.Errorf("groupKey(%q,2) = %q, want %q", path, got, want)
 		}
 	}
@@ -32,7 +33,7 @@ func TestBuildGroupGraph(t *testing.T) {
 			{From: "nonprod/pipelines/x", To: "nonprod/pipelines/y"}, // intra-group → dropped
 		},
 	}
-	gg := buildGroupGraph(g, 2)
+	gg := buildGroupGraph(g, 2, nil)
 	byKey := map[string]groupNode{}
 	for _, n := range gg.Nodes {
 		byKey[n.Key] = n
@@ -56,7 +57,7 @@ func TestBuildGroupGraphCategories(t *testing.T) {
 		{Path: "p/k/a", Categories: []events.Category{{Name: "iam", Icon: "🔐"}}},
 		{Path: "p/k/b", Categories: []events.Category{{Name: "iam", Icon: "🔐"}, {Name: "destructive", Icon: "💣"}}},
 	}}
-	gg := buildGroupGraph(g, 2)
+	gg := buildGroupGraph(g, 2, nil)
 	if len(gg.Nodes) != 1 {
 		t.Fatalf("nodes = %d, want 1", len(gg.Nodes))
 	}
@@ -66,6 +67,24 @@ func TestBuildGroupGraphCategories(t *testing.T) {
 	}
 	if cc["iam"] != 2 || cc["destructive"] != 1 {
 		t.Errorf("category counts = %+v, want iam:2 destructive:1", gg.Nodes[0].Cats)
+	}
+}
+
+func TestGroupKeyPattern(t *testing.T) {
+	re := regexp.MustCompile(`^([^/]+/[^/]+)`)
+	if got := groupKey("a/b/c/d", 2, re); got != "a/b" {
+		t.Errorf("pattern groupKey = %q, want a/b", got)
+	}
+	re2 := regexp.MustCompile(`^[^/]+`)
+	if got := groupKey("a/b/c", 2, re2); got != "a" {
+		t.Errorf("whole-match groupKey = %q, want a", got)
+	}
+	re3 := regexp.MustCompile(`^zzz`)
+	if got := groupKey("a/b/c", 2, re3); got != "a/b/c" {
+		t.Errorf("no-match groupKey = %q, want a/b/c", got)
+	}
+	if got := groupKey("a/b/c", 2, nil); got != "a/b" {
+		t.Errorf("depth groupKey = %q, want a/b", got)
 	}
 }
 

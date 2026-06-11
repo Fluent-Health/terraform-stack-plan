@@ -77,7 +77,7 @@ func TestRenderGroupSVG(t *testing.T) {
 		},
 		Edges: []events.Edge{{From: "nonprod/projects/a", To: "nonprod/pipelines/x"}},
 	}
-	svg := string(renderGroupSVG(g, 2))
+	svg := string(renderGroupSVG(g, 2, nil))
 	for _, want := range []string{"<svg", "nonprod/projects", "nonprod/pipelines", "2 stacks", "1 gated", "</svg>"} {
 		if !strings.Contains(svg, want) {
 			t.Errorf("group SVG missing %q\n%s", want, svg)
@@ -105,7 +105,7 @@ func TestRenderGroupSVGBadges(t *testing.T) {
 		{Path: "p/k/a", Status: events.StatusPlanned, Categories: []events.Category{{Name: "iam", Icon: "🔐"}}},
 		{Path: "p/k/b", Status: events.StatusPlanned, Categories: []events.Category{{Name: "iam", Icon: "🔐"}}},
 	}}
-	svg := string(renderGroupSVG(g, 2))
+	svg := string(renderGroupSVG(g, 2, nil))
 	if !strings.Contains(svg, "🔐 2") {
 		t.Errorf("group SVG missing the 🔐 2 badge:\n%s", svg)
 	}
