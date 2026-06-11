@@ -1085,8 +1085,29 @@ import/removed; SP3 adds the faithful `terraform state mv` executor.** Verbs:
   (`gcpCreds`). The backend bucket/prefix are read from the stack's `*.tf`
   (`terraform { backend "gcs" { bucket prefix } }`).
 
+- `state moves-manifest --dir DIR [--pr N] [-o FILE]` discovers every
+  `_tfsp_move.*.tf` shim and `_tfsp_xmove.*.hcl` manifest under `--dir` and
+  emits a **two-sided** `--state-moves` JSON (`{"<stack>":["<addr>",…]}`):
+  - Source move-outs (shim `removed.From`, xmove `Pair.From` under `SourceStack`)
+    — planned as destroys on the source stack.
+  - Destination move-ins (shim `import.To`, xmove `Pair.To` under `DestStack`)
+    — planned as creates on the destination stack.
+  - Same-stack moves (shim `moved.To`) — defensive inclusion.
+  Addresses within each stack are sorted and de-duped; stacks with an empty set
+  are omitted. The JSON shape is exactly what `statemoves.Load` (used by
+  `render/classify --state-moves`) consumes, so feeding this file to the
+  classifier neutralizes the spurious IAM gate that fires on the source stack's
+  planned destroys. CI wiring: `state moves-manifest --dir . -o moves.json` →
+  `render/classify --state-moves moves.json`. `--pr N` limits output to one PR's
+  moves; `-o FILE` writes to a file instead of stdout. Addresses are the concrete
+  ones recorded at `state move` time; if the live plan instances drift, `Covers`
+  may not expand siblings — conservative (gate re-flags rather than wrongly
+  suppresses). See [project-management#4195](https://github.com/Fluent-Health/project-management/issues/4195).
+
 The projecting side already classifies cross-state move-targets as relocations
-via `--state-moves`.
+via `--state-moves`. With `state moves-manifest`, the `--state-moves` JSON is
+now two-sided (source move-outs AND dest move-ins), produced entirely from the
+project's own move declarations.
 
 ### Delivery: binary + Cloud Run container
 
