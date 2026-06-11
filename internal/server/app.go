@@ -24,6 +24,9 @@ type Config struct {
 	// UseChecks true → drive a rich GitHub check run (needs checks:write);
 	// false → link mode, posting a commit status (needs statuses:write).
 	UseChecks bool
+	// LogsDir is where per-stack log buffers are written. Empty disables log
+	// ingestion (the endpoints become no-ops).
+	LogsDir string
 }
 
 // App is the HTTP application.
@@ -51,12 +54,14 @@ func (a *App) Routes() http.Handler {
 	})
 	mux.HandleFunc("GET /img/{name}", a.handleImg)
 	mux.HandleFunc("GET /live/{id}", a.handleLive)
+	mux.HandleFunc("GET /logs/{exec}/{stack...}", a.handleLogServe)
 	mux.Handle("POST /api/init", a.auth(http.HandlerFunc(a.handleInit)))
 	mux.Handle("POST /api/phase", a.auth(http.HandlerFunc(a.handlePhase)))
 	mux.Handle("POST /api/update", a.auth(http.HandlerFunc(a.handleUpdate)))
 	mux.Handle("POST /api/finalize", a.auth(http.HandlerFunc(a.handleFinalize)))
 	mux.Handle("POST /api/gate/check", a.auth(http.HandlerFunc(a.handleGateCheck)))
 	mux.Handle("POST /api/gate/revoke", a.auth(http.HandlerFunc(a.handleGateRevoke)))
+	mux.Handle("POST /api/logs", a.auth(http.HandlerFunc(a.handleLogs)))
 	return mux
 }
 
