@@ -87,7 +87,10 @@ func (a *App) reconcile(ctx context.Context, id, base string) {
 func (a *App) drive(ctx context.Context, id, base string, terminal bool) {
 	if a.cfg.UseChecks {
 		a.renderAndPatch(ctx, id, base, terminal)
-		return
+	} else {
+		a.reconcile(ctx, id, base)
 	}
-	a.reconcile(ctx, id, base)
+	if a.hub != nil {
+		a.hub.publish("exec:"+id, "changed")
+	}
 }

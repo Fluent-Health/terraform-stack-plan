@@ -2,8 +2,10 @@ package server
 
 import (
 	"bytes"
+	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
@@ -62,6 +64,43 @@ func (a *App) handleLive(w http.ResponseWriter, r *http.Request) {
 		SVG:         string(a.dagSVG(g)),
 		Panel:       panel,
 	})))
+}
+
+// handleLiveEvents streams Server-Sent Events for an execution: a "changed" event
+// whenever its state mutates (published from drive), plus a periodic comment
+// heartbeat so idle connections survive proxies.
+func (a *App) handleLiveEvents(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if _, err := store.GetExecution(a.db, id); err != nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	flusher.Flush()
+
+	ch, unsub := a.hub.subscribe("exec:" + id)
+	defer unsub()
+	tick := time.NewTicker(25 * time.Second)
+	defer tick.Stop()
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-ch:
+			writeSSE(w, "changed")
+			flusher.Flush()
+		case <-tick.C:
+			fmt.Fprint(w, ": ping\n\n")
+			flusher.Flush()
+		}
+	}
 }
 
 // stackView is the data the per-stack detail template renders.

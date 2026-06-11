@@ -74,6 +74,7 @@ func (a *App) Routes() http.Handler {
 	mux.HandleFunc("GET /img/{name}", a.handleImg)
 	mux.HandleFunc("GET /assets/{file}", a.handleAsset)
 	mux.HandleFunc("GET /live/{id}", a.handleLive)
+	mux.HandleFunc("GET /live/{id}/events", a.handleLiveEvents)
 	mux.HandleFunc("GET /live/{id}/stack/{stack...}", a.handleStackDetail)
 	mux.HandleFunc("GET /logs/{exec}/{stack...}", a.handleLogServe)
 	mux.Handle("POST /api/init", a.auth(http.HandlerFunc(a.handleInit)))

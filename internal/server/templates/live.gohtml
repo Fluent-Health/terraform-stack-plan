@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="refresh" content="10">
+  <noscript><meta http-equiv="refresh" content="10"></noscript>
   <title>{{ .Title }}</title>
   <link rel="stylesheet" href="/assets/app.css">
 </head>
@@ -11,7 +11,7 @@
   <div class="navbar bg-base-100 border-b border-base-300">
     <div class="mx-auto w-full max-w-5xl px-4">
       <span class="text-lg font-semibold">{{ .Title }}</span>
-      <span class="ml-3 text-sm opacity-60">{{ .Repo }} · live — refreshes every 10s</span>
+      <span class="ml-3 text-sm opacity-60">{{ .Repo }} · live</span>
     </div>
   </div>
   <main class="mx-auto w-full max-w-5xl px-4 py-6 space-y-6">
@@ -51,8 +51,17 @@
     </div></section>
     <section class="card bg-base-100 shadow-sm"><div class="card-body p-4">
       {{ if .Report }}<pre class="overflow-auto rounded-lg bg-neutral text-neutral-content p-4 text-xs">{{ .Report }}</pre>
-      {{ else }}<p class="opacity-60 italic">Plan still running — this page refreshes every 10s; the report appears here when the plan completes.</p>{{ end }}
+      {{ else }}<p class="opacity-60 italic">Plan still running — the report appears here when the plan completes.</p>{{ end }}
     </div></section>
   </main>
+  <script>
+    (function () {
+      try {
+        var es = new EventSource(location.pathname.replace(/\/$/, "") + "/events");
+        var t;
+        es.onmessage = function () { clearTimeout(t); t = setTimeout(function () { location.reload(); }, 800); };
+      } catch (e) { /* no EventSource → the noscript meta-refresh covers it */ }
+    })();
+  </script>
 </body>
 </html>
