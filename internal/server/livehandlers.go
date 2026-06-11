@@ -59,6 +59,7 @@ func (a *App) handleLive(w http.ResponseWriter, r *http.Request) {
 type stackView struct {
 	Exec, Repo, Environment, Stack string
 	Plan, LogExcerpt               string
+	VerifyExec                     string // latest verify run id for this PR/env ("" if none)
 }
 
 // stackPage renders the per-stack detail page. All fields are escaped text.
@@ -80,9 +81,11 @@ func (a *App) handleStackDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	_, plan, _, _ := store.GetStackOutput(a.db, id, stack, "plan")
 	_, logExcerpt, _, _ := store.GetStackOutput(a.db, id, stack, "log")
+	verifyExec, _ := store.LatestVerifyExecutionID(a.db, e.PR, e.Environment)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Write([]byte(a.stackPage(stackView{
 		Exec: id, Repo: e.Repo, Environment: e.Environment, Stack: stack,
 		Plan: plan, LogExcerpt: logExcerpt,
+		VerifyExec: verifyExec,
 	})))
 }

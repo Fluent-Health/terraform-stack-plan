@@ -29,7 +29,8 @@
         </div>
         <input type="radio" name="stacktabs" class="tab" aria-label="Verify">
         <div class="tab-content border-base-300 p-3">
-          <p class="opacity-60 italic">Verify runs in Phase 4.</p>
+          {{ if .VerifyExec }}<a class="link link-hover" href="/live/{{ .VerifyExec }}">view the latest verify run →</a>
+          {{ else }}<p class="opacity-60 italic">No verify run yet for this PR.</p>{{ end }}
         </div>
       </div>
     </div></section>

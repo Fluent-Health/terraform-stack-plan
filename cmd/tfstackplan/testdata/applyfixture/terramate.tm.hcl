@@ -12,3 +12,11 @@ script "apply" {
     ]
   }
 }
+
+script "verify" {
+  job {
+    commands = [
+      ["sh", "-c", "echo verified-$(basename $(pwd)) | tee tfstackplan.log; touch verified"],
+    ]
+  }
+}

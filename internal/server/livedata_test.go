@@ -49,10 +49,10 @@ func TestStatusBadge(t *testing.T) {
 
 func TestPhaseTimeline(t *testing.T) {
 	steps := phaseTimeline(events.PhasePlanning)
-	if len(steps) != 4 {
-		t.Fatalf("steps = %d, want 4", len(steps))
+	if len(steps) != 5 {
+		t.Fatalf("steps = %d, want 5", len(steps))
 	}
-	want := []string{"done", "done", "active", "todo"}
+	want := []string{"done", "done", "active", "todo", "todo"}
 	for i, st := range steps {
 		if st.State != want[i] {
 			t.Errorf("step %d (%s) state = %q, want %q", i, st.Name, st.State, want[i])

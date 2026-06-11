@@ -218,3 +218,18 @@ func LatestExecutionID(db *sql.DB, pr int, environment string) (string, bool) {
 	}
 	return id, true
 }
+
+// LatestVerifyExecutionID returns the most recent verify-context execution id for
+// (pr, environment) — i.e. a run whose status_context begins with "verify". ok is
+// false when none exists.
+func LatestVerifyExecutionID(db *sql.DB, pr int, environment string) (string, bool) {
+	var id string
+	err := db.QueryRow(
+		`SELECT id FROM executions
+		 WHERE pr = ? AND environment = ? AND status_context LIKE 'verify%'
+		 ORDER BY created_at DESC, id DESC LIMIT 1`, pr, environment).Scan(&id)
+	if err != nil {
+		return "", false
+	}
+	return id, true
+}
