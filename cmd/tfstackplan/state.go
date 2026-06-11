@@ -21,7 +21,7 @@ import (
 // machinery. SP1 implements same-stack moves (native `moved {}` shims).
 func runState(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "tfstackplan state: expected a subcommand (move|list|cleanup|apply)")
+		fmt.Fprintln(os.Stderr, "tfstackplan state: expected a subcommand (move|list|moves-manifest|cleanup|apply)")
 		return 2
 	}
 	switch args[0] {
@@ -29,6 +29,8 @@ func runState(args []string) int {
 		return runStateMove(args[1:])
 	case "list":
 		return runStateList(args[1:])
+	case "moves-manifest":
+		return runStateMovesManifest(args[1:])
 	case "cleanup":
 		return runStateCleanup(args[1:])
 	case "apply":
