@@ -110,3 +110,30 @@ func TestRenderGroupSVGBadges(t *testing.T) {
 		t.Errorf("group SVG missing the 🔐 2 badge:\n%s", svg)
 	}
 }
+
+func TestRenderGroupSVGSwimlanes(t *testing.T) {
+	g := events.Graph{
+		Stacks: []events.StackState{
+			{Path: "nonprod/projects/a", Status: events.StatusSafe},
+			{Path: "nonprod/pipelines/x", Status: events.StatusGated},
+			{Path: "prod/pipelines/z", Status: events.StatusFailed},
+		},
+		Edges: []events.Edge{{From: "nonprod/projects/a", To: "nonprod/pipelines/x"}},
+	}
+	svg := string(renderGroupSVG(g, 2, nil))
+	// lane labels for each environment (the bare first segment, distinct from the
+	// box keys "nonprod/pipelines" etc.)
+	if !strings.Contains(svg, ">nonprod<") {
+		t.Error("missing nonprod lane label")
+	}
+	if !strings.Contains(svg, ">prod<") {
+		t.Error("missing prod lane label")
+	}
+	// group boxes + the one cross-group edge still render
+	if !strings.Contains(svg, "nonprod/pipelines") || !strings.Contains(svg, "prod/pipelines") {
+		t.Error("missing group boxes")
+	}
+	if n := strings.Count(svg, "<line "); n != 1 {
+		t.Errorf("edges = %d, want 1", n)
+	}
+}
