@@ -108,7 +108,7 @@ func runPlan(args []string) int {
 		repoRoot:  *dir,
 		classJSON: sidecar,
 	}
-	report, _, rerr := run(o)
+	report, stackReports, _, rerr := run(o)
 	if rerr != nil {
 		fmt.Fprintln(os.Stderr, "tfstackplan run plan:", rerr)
 		return 1
@@ -120,7 +120,7 @@ func runPlan(args []string) int {
 		gates, moving, _ = gatesFromSidecar(data, gatingClasses(resolvedCfg, *dir))
 	}
 	_ = client.Finalize(ctx, events.Finalize{
-		ID: execID, ReportMarkdown: report, Gates: gates, Moving: moving, Failed: scriptErr != nil,
+		ID: execID, ReportMarkdown: report, StackReports: stackReports, Gates: gates, Moving: moving, Failed: scriptErr != nil,
 	})
 
 	if scriptErr != nil {

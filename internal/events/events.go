@@ -108,9 +108,10 @@ type Update struct {
 type Finalize struct {
 	ID             string            `json:"id"`
 	ReportMarkdown string            `json:"report_markdown"`
-	Projects       map[string]string `json:"projects,omitempty"` // stack path → grouping/target key
-	Gates          []GateTarget      `json:"gates,omitempty"`    // (class,target) pairs needing approval
-	Moving         []string          `json:"moving,omitempty"`   // stack paths adopting resources via a cross-state move
+	Projects       map[string]string `json:"projects,omitempty"`      // stack path → grouping/target key
+	StackReports   map[string]string `json:"stack_reports,omitempty"` // stack path → rendered plan section
+	Gates          []GateTarget      `json:"gates,omitempty"`         // (class,target) pairs needing approval
+	Moving         []string          `json:"moving,omitempty"`        // stack paths adopting resources via a cross-state move
 	Failed         bool              `json:"failed,omitempty"`
 }
 
