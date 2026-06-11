@@ -1000,10 +1000,16 @@ terramate `verify` script across changed stacks — no gate, read-only
 post-apply validation. It streams per-stack logs via the tail-pump (same
 `LogPump` as plan/apply) and registers a `verify/<env>` execution on the
 server, reported under a `PhaseVerifying` phase that joins the execution
-timeline. The per-stack Verify tab on `/live/{id}/stack/{stack...}` links to
-the latest verify run for the same PR/env via
-`store.LatestVerifyExecutionID(db, pr, env)`; when no verify run exists yet it
-shows "No verify run yet for this PR."
+timeline. The per-stack Verify tab on `/live/{id}/stack/{stack...}` shows the
+latest verify run's per-stack output **inline**, live-tailed via a
+`<pre id="verifylog" data-follow-url="/logs/{verifyExec}/{stack}?follow=1">` element
+(the same SSE stream used by the Log tab), with a noscript tail-excerpt fallback
+and a run link to `/live/{verifyExec}`. The follow script now iterates all
+`[data-follow-url]` elements so both `#stacklog` and `#verifylog` are tailed in
+parallel. The latest verify run is resolved via
+`store.LatestVerifyExecutionID(db, pr, env)` and its per-stack log excerpt via
+`store.GetStackOutput(db, verifyExec, stack, "log")`; when no verify run exists
+yet the tab shows "No verify run yet for this PR."
 
 **Phase 5: multi-class approval (complete).** Approval is multi-class: each
 `class "<name>" {}` block binds a classification class to a PAM `entitlement`

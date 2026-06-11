@@ -108,6 +108,7 @@ type stackView struct {
 	Exec, Repo, Environment, Stack string
 	Plan, LogExcerpt               string
 	VerifyExec                     string // latest verify run id for this PR/env ("" if none)
+	VerifyLog                      string // tail excerpt of the verify run's per-stack log ("" if none)
 }
 
 // stackPage renders the per-stack detail page. All fields are escaped text.
@@ -130,10 +131,15 @@ func (a *App) handleStackDetail(w http.ResponseWriter, r *http.Request) {
 	_, plan, _, _ := store.GetStackOutput(a.db, id, stack, "plan")
 	_, logExcerpt, _, _ := store.GetStackOutput(a.db, id, stack, "log")
 	verifyExec, _ := store.LatestVerifyExecutionID(a.db, e.PR, e.Environment)
+	var verifyLog string
+	if verifyExec != "" {
+		_, verifyLog, _, _ = store.GetStackOutput(a.db, verifyExec, stack, "log")
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Write([]byte(a.stackPage(stackView{
 		Exec: id, Repo: e.Repo, Environment: e.Environment, Stack: stack,
 		Plan: plan, LogExcerpt: logExcerpt,
 		VerifyExec: verifyExec,
+		VerifyLog:  verifyLog,
 	})))
 }
