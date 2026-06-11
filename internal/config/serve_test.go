@@ -147,6 +147,19 @@ serve {
 	}
 }
 
+func TestExampleServeConfigParses(t *testing.T) {
+	cfg, err := Load("../../examples/serve.tfstackplan.hcl")
+	if err != nil {
+		t.Fatalf("examples/serve.tfstackplan.hcl must parse: %v", err)
+	}
+	if cfg.Serve == nil {
+		t.Fatalf("serve block not parsed: %+v", cfg)
+	}
+	if cfg.Serve.DBPath == "" {
+		t.Errorf("serve.db_path should be set in the example: %+v", cfg.Serve)
+	}
+}
+
 func TestLoadRenderOnlyConfigStillWorks(t *testing.T) {
 	cfg, err := Load(writeCfg(t, `
 classification {
