@@ -895,6 +895,15 @@ configured (`client.Enabled()` false) or an empty `--log-file`, no pump runs.
 The convention is that each stack's terramate script tees terraform output to
 that per-stack file in the stack dir (see Known limitations).
 
+The fifth increment landed **per-stack plan storage**: `handleFinalize` now
+iterates `events.Finalize.StackReports` (stack path → rendered plan section,
+populated by the runner) and calls `store.UpsertStackOutput(id, stack, "plan",
+"", md)` for each entry — storing the full/pre-fit markdown inline in the
+`excerpt` column (pointer unused). The stored section is retrievable via
+`store.GetStackOutput(id, stack, "plan")` and will feed the per-stack Plan tab
+in the UI v2 (PR #TBD). This loop runs in both the failed and non-failed paths
+(it executes before the `f.Failed` early-return branch).
+
 Still deferred to later phases: the rest of Phase 3 — the `serve`-side wiring of
 the object store (a GCS `ObjectStore` impl + an `ObjectsDir`/bucket config knob);
 and the **UI v2** (grouped/folding list, per-stack Log/Plan/Verify

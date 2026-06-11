@@ -82,6 +82,14 @@ func (a *App) handleFinalize(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "store report", http.StatusInternalServerError)
 		return
 	}
+	// Persist each stack's rendered plan section (kind='plan') for the per-stack
+	// Plan tab. Markdown is stored inline in the excerpt.
+	for path, md := range f.StackReports {
+		if err := store.UpsertStackOutput(a.db, f.ID, path, "plan", "", md); err != nil {
+			http.Error(w, "store stack plan", http.StatusInternalServerError)
+			return
+		}
+	}
 	e, err := store.GetExecution(a.db, f.ID)
 	if err != nil {
 		http.Error(w, "read execution", http.StatusInternalServerError)
