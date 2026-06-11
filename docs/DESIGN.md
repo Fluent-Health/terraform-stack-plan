@@ -823,7 +823,23 @@ this, **Phase 2 is complete**: `tfstackplan run` drives plan/apply end to end,
 reporting to the `serve` control plane, while terraform keeps executing in the
 consumer's own CI under their own identities.
 
-Still deferred to later phases: the **Pub/Sub-push + OIDC event ingestion** (a
+**Phase 3: logs + UI v2 (in progress).** The first increment landed the
+**server-side log pipeline foundation**: `POST /api/logs` (bearer-authed)
+ingests per-stack output chunks (`events.LogChunk`), the server appends them to
+per-stack on-disk buffers under a configured `LogsDir`, and a tail excerpt
+(~16 KB) is mirrored into the `stack_outputs` table (pointer + excerpt per stack
+per kind — the pointer is set later on object-store offload). A public
+`GET /logs/<exec>/<stack>` streams the buffer (so viewers need no cloud IAM, like
+`/live`); untrusted path components are sanitized and containment-checked against
+`LogsDir`. Log ingestion is disabled (a no-op) when `LogsDir` is unset.
+
+Still deferred to later phases: the rest of Phase 3 — **SSE rebroadcast** of log
+chunks to open UI sessions; **object-store offload** on stack completion (a
+`Store` interface with a filesystem impl for tests + GCS for deployment, setting
+the `stack_outputs.pointer`); **runner-side per-stack capture** streaming to
+`/api/logs`; and the **UI v2** (grouped/folding list, per-stack Log/Plan/Verify
+tabs, collapsible DAG strip, phase timeline, execution index, PR timeline). Also:
+the **Pub/Sub-push + OIDC event ingestion** (a
 latency optimization over the polling reconcile loop, which already satisfies
 gates); **true requester-pool leasing** (today `requester()` is a `PR mod pool`
 slot — collisions possible up to pool size; leasing replaces it without an
