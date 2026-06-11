@@ -928,8 +928,9 @@ latency optimization over the polling reconcile loop, which already satisfies
 gates); **true requester-pool leasing** (today `requester()` is a `PR mod pool`
 slot — collisions possible up to pool size; leasing replaces it without an
 interface change); and the rest of the `state` subcommand
-(cross-stack state surgery) — Phase 6. SP1 (same-stack moves) has shipped; see
-*`tfstackplan state` (Phase 6)* below.
+(cross-stack state surgery) — Phase 6. SP1 (same-stack moves) and SP2
+(cross-stack moves via native import/removed) have shipped; the lock-less
+`state mv` executor is SP3. See *`tfstackplan state` (Phase 6)* below.
 
 **Phase 4: `run verify` (complete).** `tfstackplan run verify` runs the
 terramate `verify` script across changed stacks — no gate, read-only
@@ -954,27 +955,38 @@ serve wiring grew.
 ### `tfstackplan state` (Phase 6)
 
 `tfstackplan state` is the operator-driven cross-stack state-move machinery.
-**SP1 ships same-stack moves.** Verbs:
+**SP1 ships same-stack moves; SP2 adds cross-stack moves.** Verbs:
 
-- `state move --dir DIR --stack STACK [--pr N] <from> <to> …` validates each
-  declared `<from> <to>` pair against that stack's `tfplan.json` (fail-closed:
-  every resource destroyed under `from` must have a same-type create under `to`;
-  the prefix matcher covers resource / module / `count` / `for_each` addresses)
-  and writes native `moved {}` blocks to a PR-keyed shim
-  `_tfsp_move.<key>.tf` in the stack dir. The normal `run apply` then applies the
-  moves. Moves accumulate into the shim across invocations (existing blocks are
+- `state move --dir DIR [--stack STACK] [--pr N] <from> <to> …` routes each
+  declared `<from> <to>` pair by comparing the two sides' stacks. `--stack` is
+  the default stack for unqualified addresses; an explicit `stack:addr` prefix
+  overrides it. All pairs are validated against the relevant `tfplan.json`(s)
+  before anything is written; ops accumulate per stack and the shim(s) are only
+  written if every pair validates (fail-closed across both stacks). The matcher
+  is prefix-based, covering resource / module / `count` / `for_each` addresses.
+  - **Same-stack** (`from`/`to` in one stack): the destroyed `from` must have a
+    same-type create under `to`, emitting a native `moved {}` block.
+  - **Cross-stack** (`from`/`to` in different stacks): emits a native
+    `import { to = <to> id = <id> }` block in the **destination** stack's shim
+    (the `id` is read from the destroyed resource's `before.id` in the source
+    plan) plus a `removed { from = <from> lifecycle { destroy = false } }` block
+    in the **source** stack's shim — so the resource is adopted into the new
+    state and dropped from the old without being destroyed.
+
+  Blocks are written to a PR-keyed shim `_tfsp_move.<key>.tf` in each affected
+  stack dir; the normal `run apply` (backend-locked, no state surgery) applies
+  them. Ops accumulate into the shim across invocations (existing blocks are
   merged, not clobbered). The key is `PR-<n>` from `--pr` / `$TFSTACKPLAN_PR`,
-  else `branch-<name>` from the git branch, else `local`. An explicit
-  `stack:addr` prefix is accepted but must match `--stack` — a cross-stack pair
-  is rejected (SP1 scope).
-- `state list [--dir DIR] [--pr N]` lists discovered shims (`key`, stack, each
-  `from → to`).
+  else `branch-<name>` from the git branch, else `local`.
+- `state list [--dir DIR] [--pr N]` lists discovered shims (`key`, stack, and a
+  kind-aware op line: `moved from → to`, `import to (id=…)`, or `removed from`).
 - `state cleanup --dir DIR (--pr N | --all)` removes the keyed shims (one PR's,
   or all `_tfsp_move.*.tf` in the tree).
 
-Cross-stack relocation (the projecting side via `--state-moves` already classifies
-move-targets as relocations; the source side via `removed {}` / `import {}` or
-`terraform state mv`) is SP2/SP3, not yet implemented. See
+The projecting side already classifies cross-state move-targets as relocations
+via `--state-moves`. The lock-less `terraform state mv` executor (in-place state
+surgery as an alternative to the import/removed apply) remains SP3, not yet
+implemented. See
 `docs/superpowers/specs/2026-06-11-state-subcommand-design.md`.
 
 ### Delivery: binary + Cloud Run container

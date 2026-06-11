@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -79,13 +80,13 @@ func loadStatePlan(stackDir string) (*tfjson.Plan, error) {
 func runStateMove(args []string) int {
 	fs := flag.NewFlagSet("state move", flag.ContinueOnError)
 	dir := fs.String("dir", "", "terramate project root (required)")
-	stack := fs.String("stack", "", "stack path the moves are within (required for SP1)")
+	stack := fs.String("stack", "", "default stack for unqualified addresses (same-stack moves)")
 	pr := fs.String("pr", "", "PR number for the shim key (default: $TFSTACKPLAN_PR or git branch)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	if *dir == "" || *stack == "" {
-		fmt.Fprintln(os.Stderr, "state move: --dir and --stack are required")
+	if *dir == "" {
+		fmt.Fprintln(os.Stderr, "state move: --dir is required")
 		return 2
 	}
 	rest := fs.Args()
@@ -94,46 +95,81 @@ func runStateMove(args []string) int {
 		return 2
 	}
 
-	var newOps []statemove.Op
-	for i := 0; i < len(rest); i += 2 {
-		fromStack, from := stripStack(rest[i])
-		toStack, to := stripStack(rest[i+1])
-		for _, s := range []string{fromStack, toStack} {
-			if s != "" && s != *stack {
-				fmt.Fprintf(os.Stderr, "state move: cross-stack move %s → %s is not supported in SP1 (only --stack %q)\n", rest[i], rest[i+1], *stack)
-				return 1
-			}
+	plans := map[string]*tfjson.Plan{}
+	loadFor := func(s string) (*tfjson.Plan, error) {
+		if p, ok := plans[s]; ok {
+			return p, nil
 		}
-		newOps = append(newOps, statemove.Op{Kind: "moved", From: from, To: to})
+		p, err := loadStatePlan(filepath.Join(*dir, filepath.FromSlash(s)))
+		if err != nil {
+			return nil, fmt.Errorf("stack %q: %w", s, err)
+		}
+		plans[s] = p
+		return p, nil
+	}
+	stackOf := func(qualified string) (string, string, error) {
+		s, addr := stripStack(qualified)
+		if s == "" {
+			s = *stack
+		}
+		if s == "" {
+			return "", "", fmt.Errorf("address %q has no stack (use stack:addr or --stack)", qualified)
+		}
+		return s, addr, nil
 	}
 
-	stackDir := filepath.Join(*dir, filepath.FromSlash(*stack))
-	plan, err := loadStatePlan(stackDir)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "state move:", err)
-		return 1
-	}
-	for _, o := range newOps {
-		if err := statemove.ValidateMove(plan, o.From, o.To); err != nil {
+	opsByStack := map[string][]statemove.Op{}
+	for i := 0; i < len(rest); i += 2 {
+		fromStack, fromAddr, e1 := stackOf(rest[i])
+		toStack, toAddr, e2 := stackOf(rest[i+1])
+		if e1 != nil || e2 != nil {
+			fmt.Fprintln(os.Stderr, "state move:", cmp.Or(e1, e2))
+			return 2
+		}
+		if fromStack == toStack {
+			plan, err := loadFor(fromStack)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "state move:", err)
+				return 1
+			}
+			if err := statemove.ValidateMove(plan, fromAddr, toAddr); err != nil {
+				fmt.Fprintln(os.Stderr, "state move:", err)
+				return 1
+			}
+			opsByStack[fromStack] = append(opsByStack[fromStack], statemove.Op{Kind: "moved", From: fromAddr, To: toAddr})
+			continue
+		}
+		srcPlan, e3 := loadFor(fromStack)
+		dstPlan, e4 := loadFor(toStack)
+		if e3 != nil || e4 != nil {
+			fmt.Fprintln(os.Stderr, "state move:", cmp.Or(e3, e4))
+			return 1
+		}
+		srcOps, dstOps, err := statemove.ClassifyCrossStack(srcPlan, dstPlan, fromAddr, toAddr)
+		if err != nil {
 			fmt.Fprintln(os.Stderr, "state move:", err)
 			return 1
 		}
+		opsByStack[fromStack] = append(opsByStack[fromStack], srcOps...)
+		opsByStack[toStack] = append(opsByStack[toStack], dstOps...)
 	}
 
 	key := moveKey(*pr, *dir)
-	shimPath := filepath.Join(stackDir, statemove.ShimFileName(key))
-	var existing []statemove.Op
-	if data, rerr := os.ReadFile(shimPath); rerr == nil {
-		if _, ops, perr := statemove.ParseShim(string(data)); perr == nil {
-			existing = ops
+	for s, ops := range opsByStack {
+		shimPath := filepath.Join(*dir, filepath.FromSlash(s), statemove.ShimFileName(key))
+		var existing []statemove.Op
+		if data, rerr := os.ReadFile(shimPath); rerr == nil {
+			if _, ex, perr := statemove.ParseShim(string(data)); perr == nil {
+				existing = ex
+			}
 		}
+		merged := statemove.MergeOps(existing, ops)
+		if werr := os.WriteFile(shimPath, []byte(statemove.RenderShim(key, merged)), 0o644); werr != nil {
+			fmt.Fprintln(os.Stderr, "state move: write shim:", werr)
+			return 1
+		}
+		fmt.Printf("wrote %s (%d op(s))\n", shimPath, len(merged))
 	}
-	merged := statemove.MergeOps(existing, newOps)
-	if werr := os.WriteFile(shimPath, []byte(statemove.RenderShim(key, merged)), 0o644); werr != nil {
-		fmt.Fprintln(os.Stderr, "state move: write shim:", werr)
-		return 1
-	}
-	fmt.Printf("wrote %s (%d move(s))\n", shimPath, len(merged))
 	return 0
 }
 
@@ -163,7 +199,14 @@ func runStateList(args []string) int {
 			continue
 		}
 		for _, o := range s.Ops {
-			fmt.Printf("%s\t%s\t%s %s → %s\n", s.Key, s.Stack, o.Kind, o.From, o.To)
+			switch o.Kind {
+			case "moved":
+				fmt.Printf("%s\t%s\tmoved %s → %s\n", s.Key, s.Stack, o.From, o.To)
+			case "import":
+				fmt.Printf("%s\t%s\timport %s (id=%s)\n", s.Key, s.Stack, o.To, o.ID)
+			case "removed":
+				fmt.Printf("%s\t%s\tremoved %s\n", s.Key, s.Stack, o.From)
+			}
 		}
 	}
 	return 0
