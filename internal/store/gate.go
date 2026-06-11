@@ -9,6 +9,7 @@ type GateTarget struct {
 	Target    string
 	GrantName string
 	State     string
+	Requester string
 }
 
 // Gate identifies the unit an approval verdict is posted for.
@@ -19,6 +20,11 @@ type Gate struct {
 
 // UpsertTarget records or updates the grant for a (pr, environment, class,
 // target). On conflict the grant_name, state, and updated_at are overwritten.
+// NOTE: `requester` is deliberately excluded from the ON CONFLICT update set.
+// SetTargetRequester writes the leased requester SA after the initial upsert;
+// subsequent reconcile-loop UpsertTarget calls (state refreshes) must not
+// clobber it — keeping it out of the update set is the invariant that lets
+// handleGateCheck trust targets[0].Requester for the entire (pr, environment).
 func UpsertTarget(db *sql.DB, pr int, environment, class, target, grant, state string) error {
 	_, err := db.Exec(
 		`INSERT INTO gate_targets (pr, environment, class, target, grant_name, state)
@@ -88,7 +94,7 @@ func IsClassified(db *sql.DB, pr int, environment string) (bool, error) {
 // non-nil empty slice when none match.
 func TargetsFor(db *sql.DB, pr int, environment string) ([]GateTarget, error) {
 	rows, err := db.Query(
-		`SELECT class, target, COALESCE(grant_name,''), COALESCE(state,'')
+		`SELECT class, target, COALESCE(grant_name,''), COALESCE(state,''), COALESCE(requester,'')
 		 FROM gate_targets WHERE pr = ? AND environment = ?`, pr, environment)
 	if err != nil {
 		return nil, err
@@ -97,10 +103,20 @@ func TargetsFor(db *sql.DB, pr int, environment string) ([]GateTarget, error) {
 	out := []GateTarget{}
 	for rows.Next() {
 		var t GateTarget
-		if err := rows.Scan(&t.Class, &t.Target, &t.GrantName, &t.State); err != nil {
+		if err := rows.Scan(&t.Class, &t.Target, &t.GrantName, &t.State, &t.Requester); err != nil {
 			return nil, err
 		}
 		out = append(out, t)
 	}
 	return out, rows.Err()
+}
+
+// SetTargetRequester records the leased requester SA for every gate target of a
+// (pr, environment). Idempotent; no-op if no rows match.
+func SetTargetRequester(db *sql.DB, pr int, environment, requester string) error {
+	_, err := db.Exec(
+		`UPDATE gate_targets SET requester = ?, updated_at = CURRENT_TIMESTAMP
+		   WHERE pr = ? AND environment = ?`,
+		requester, pr, environment)
+	return err
 }

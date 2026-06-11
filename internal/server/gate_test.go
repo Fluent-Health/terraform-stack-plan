@@ -1,7 +1,10 @@
 package server
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 
@@ -9,6 +12,20 @@ import (
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
+
+// postResp marshals v and POSTs it to the test server path, returning the full response.
+func postResp(t *testing.T, srv *httptest.Server, path string, v any) *http.Response {
+	t.Helper()
+	b, err := json.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.Post(srv.URL+path, "application/json", bytes.NewReader(b))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resp
+}
 
 // newGatedExecution inits a gated plan (one stack on proj-a) and finalizes it
 // with an iam gate on proj-a.
@@ -146,5 +163,65 @@ func TestGateRevoke(t *testing.T) {
 	grants, _ := fake.ListGrants(context.Background(), "iam", "proj-a")
 	if grants[0].State != approval.StateRevoked {
 		t.Errorf("grant state after revoke = %s, want REVOKED", grants[0].State)
+	}
+}
+
+// TestRequestGrantsSharedRequester verifies that requestGrants leases ONE
+// requester from the pool on the first grant and pins it on every subsequent
+// gate of the same PR — both store rows must share the same non-empty requester.
+func TestRequestGrantsSharedRequester(t *testing.T) {
+	db := newServerTestDB(t)
+	fake := approval.NewFake()
+	fake.Pool = []string{"sa0@project.iam.gserviceaccount.com", "sa1@project.iam.gserviceaccount.com"}
+	a := New(db, &MockGitHub{}, Config{})
+	a.Approval = fake
+
+	gates := []events.GateTarget{
+		{Class: "iam", Target: "proj-1"},
+		{Class: "iam", Target: "proj-2"},
+	}
+	a.requestGrants(context.Background(), 7, "nonprod", gates)
+
+	ts, err := store.TargetsFor(db, 7, "nonprod")
+	if err != nil {
+		t.Fatalf("TargetsFor: %v", err)
+	}
+	if len(ts) != 2 {
+		t.Fatalf("want 2 targets, got %d", len(ts))
+	}
+	if ts[0].Requester == "" {
+		t.Fatalf("ts[0].Requester is empty, want a leased SA")
+	}
+	if ts[0].Requester != ts[1].Requester {
+		t.Errorf("requesters differ: ts[0]=%q ts[1]=%q — want shared across gates", ts[0].Requester, ts[1].Requester)
+	}
+}
+
+// TestGateCheckReturnsRequester verifies that after approval, gate/check returns
+// 200 with a JSON body containing the leased requester SA.
+func TestGateCheckReturnsRequester(t *testing.T) {
+	db := newServerTestDB(t)
+	fake := approval.NewFake()
+	fake.Pool = []string{"sa0@project.iam.gserviceaccount.com"}
+	a := New(db, &MockGitHub{}, Config{UseChecks: true})
+	a.Approval = fake
+	srv := httptest.NewServer(a.Routes())
+	defer srv.Close()
+
+	newGatedExecution(t, srv)
+	fake.Approve(approval.Request{Class: "iam", Target: "proj-a", PR: 7, Environment: "staging"})
+
+	resp := postResp(t, srv, "/api/gate/check", events.GateCheck{PR: 7, Environment: "staging"})
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("gate/check = %d, want 200", resp.StatusCode)
+	}
+	var body map[string]string
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	want := "sa0@project.iam.gserviceaccount.com"
+	if body["requester"] != want {
+		t.Errorf("body[requester] = %q, want %q", body["requester"], want)
 	}
 }

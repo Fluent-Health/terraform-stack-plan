@@ -140,3 +140,35 @@ func TestRevokeNoMatchingGrant(t *testing.T) {
 		t.Fatalf("revoke with no match should be a no-op, got %v", err)
 	}
 }
+
+func TestRequestGrantUsesHintedRequester(t *testing.T) {
+	var impersonated string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet { // empty grants list — force create path
+			w.Write([]byte(`{"grants":[]}`))
+			return
+		}
+		w.Write([]byte(`{"name":"projects/proj-a/locations/global/entitlements/iam-elev/grants/hinted"}`))
+	}))
+	defer srv.Close()
+	b := New(
+		Config{BaseURL: srv.URL, Entitlements: map[string]string{"iam": "iam-elev"}, RequesterPool: []string{"sa0", "sa1"}},
+		func(context.Context) (string, error) { return "t", nil },
+		func(_ context.Context, sa string) (string, error) { impersonated = sa; return "imp-" + sa, nil },
+	)
+
+	req := approval.Request{Class: "iam", Target: "proj-a", PR: 5, Environment: "prod", Requester: "sa-pinned"}
+	g, err := b.RequestGrant(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// (a) must impersonate exactly the hinted SA, not a leased one from the pool
+	if impersonated != "sa-pinned" {
+		t.Errorf("impersonated = %q, want sa-pinned", impersonated)
+	}
+	// (b) returned Grant must carry the hinted requester
+	if g.Requester != "sa-pinned" {
+		t.Errorf("grant.Requester = %q, want sa-pinned", g.Requester)
+	}
+}

@@ -44,20 +44,17 @@ func NewClient(baseURL, secret string) *Client {
 // no-op returning nil.
 func (c *Client) Enabled() bool { return c.baseURL != "" }
 
-// post sends a JSON POST with bearer auth. A no-op (nil) when disabled. Returns
-// an error on transport failure or any non-2xx status; best-effort callers
-// ignore it, the gate check honors it.
-func (c *Client) post(ctx context.Context, path string, payload any) error {
-	if !c.Enabled() {
-		return nil
-	}
+// do builds and sends a JSON POST with bearer auth, returning the raw response.
+// The caller is responsible for closing resp.Body. Returns an error on
+// transport failure or any non-2xx status.
+func (c *Client) do(ctx context.Context, path string, payload any) (*http.Response, error) {
 	b, err := json.Marshal(payload)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+path, bytes.NewReader(b))
 	if err != nil {
-		return err
+		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	if c.secret != "" {
@@ -65,12 +62,51 @@ func (c *Client) post(ctx context.Context, path string, payload any) error {
 	}
 	resp, err := c.hc.Do(req)
 	if err != nil {
-		return fmt.Errorf("post %s: %w", path, err)
+		return nil, fmt.Errorf("post %s: %w", path, err)
 	}
-	defer resp.Body.Close()
 	if resp.StatusCode/100 != 2 {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("post %s: %d: %s", path, resp.StatusCode, body)
+		resp.Body.Close()
+		return nil, fmt.Errorf("post %s: %d: %s", path, resp.StatusCode, body)
+	}
+	return resp, nil
+}
+
+// post sends a JSON POST with bearer auth. A no-op (nil) when disabled. Returns
+// an error on transport failure or any non-2xx status; best-effort callers
+// ignore it, the gate check honors it.
+func (c *Client) post(ctx context.Context, path string, payload any) error {
+	if !c.Enabled() {
+		return nil
+	}
+	resp, err := c.do(ctx, path, payload)
+	if err != nil {
+		return err
+	}
+	resp.Body.Close()
+	return nil
+}
+
+// postInto posts body to path and decodes a JSON response into out. Same
+// request building + non-2xx handling as post; tolerates an empty body.
+func (c *Client) postInto(ctx context.Context, path string, body, out any) error {
+	if !c.Enabled() {
+		return nil
+	}
+	resp, err := c.do(ctx, path, body)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	// Decode only if there is a body; an empty response is not an error.
+	b, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("post %s: read body: %w", path, err)
+	}
+	if len(b) > 0 && out != nil {
+		if err := json.Unmarshal(b, out); err != nil {
+			return fmt.Errorf("post %s: decode: %w", path, err)
+		}
 	}
 	return nil
 }

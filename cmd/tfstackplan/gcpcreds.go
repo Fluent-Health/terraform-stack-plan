@@ -12,6 +12,26 @@ import (
 
 const cloudPlatformScope = "https://www.googleapis.com/auth/cloud-platform"
 
+// mintAccessToken returns a short-lived OAuth access token for sa via the IAM
+// Credentials generateAccessToken API, using the process ADC (which must hold
+// serviceAccountTokenCreator on sa). Swappable in tests.
+var mintAccessToken = realMintAccessToken
+
+func realMintAccessToken(ctx context.Context, sa string) (string, error) {
+	svc, err := iamcredentials.NewService(ctx)
+	if err != nil {
+		return "", fmt.Errorf("iamcredentials service: %w", err)
+	}
+	name := "projects/-/serviceAccounts/" + sa
+	resp, err := svc.Projects.ServiceAccounts.GenerateAccessToken(name, &iamcredentials.GenerateAccessTokenRequest{
+		Scope: []string{cloudPlatformScope},
+	}).Context(ctx).Do()
+	if err != nil {
+		return "", fmt.Errorf("mint access token for %s: %w", sa, err)
+	}
+	return resp.AccessToken, nil
+}
+
 // gcpCreds returns the ADC token func (for PAM list/revoke) and the SA
 // impersonation func (for PAM create), using Application Default Credentials.
 // The runtime identity needs PAM viewer + a revoke role on the targets, and

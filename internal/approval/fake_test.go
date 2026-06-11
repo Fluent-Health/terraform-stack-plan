@@ -52,3 +52,61 @@ func TestFakeApproveAndRevoke(t *testing.T) {
 func TestFakeImplementsBackend(t *testing.T) {
 	var _ Backend = (*Fake)(nil)
 }
+
+// TestFakePoolLease verifies that an empty Requester hint causes the Fake to
+// pick the first unused pool entry, and that a pre-set Requester hint is
+// honoured directly without touching the pool.
+func TestFakePoolLease(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("pool lease picks first unused", func(t *testing.T) {
+		f := NewFake()
+		f.Pool = []string{"sa0", "sa1"}
+		g, err := f.RequestGrant(ctx, Request{Class: "iam", Target: "proj-a", PR: 1, Environment: "e"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if g.Requester != "sa0" {
+			t.Errorf("Requester = %q, want sa0", g.Requester)
+		}
+		// second grant for a different target — sa0 is in use, must pick sa1
+		g2, err := f.RequestGrant(ctx, Request{Class: "iam", Target: "proj-b", PR: 1, Environment: "e"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if g2.Requester != "sa1" {
+			t.Errorf("Requester = %q, want sa1 (sa0 in use)", g2.Requester)
+		}
+	})
+
+	t.Run("requester hint is honoured", func(t *testing.T) {
+		f := NewFake()
+		f.Pool = []string{"sa0", "sa1"}
+		g, err := f.RequestGrant(ctx, Request{Class: "iam", Target: "proj-a", PR: 2, Environment: "e", Requester: "sa0"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if g.Requester != "sa0" {
+			t.Errorf("Requester = %q, want sa0 (hinted)", g.Requester)
+		}
+		// second grant with same hint — must reuse same pool identity
+		g2, err := f.RequestGrant(ctx, Request{Class: "iam", Target: "proj-b", PR: 2, Environment: "e", Requester: "sa0"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if g2.Requester != "sa0" {
+			t.Errorf("Requester = %q, want sa0 (hinted)", g2.Requester)
+		}
+	})
+
+	t.Run("empty pool means no requester", func(t *testing.T) {
+		f := NewFake()
+		g, err := f.RequestGrant(ctx, Request{Class: "iam", Target: "proj-a", PR: 3, Environment: "e"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if g.Requester != "" {
+			t.Errorf("Requester = %q, want empty (no pool)", g.Requester)
+		}
+	})
+}

@@ -25,6 +25,7 @@ func runApply(args []string) int {
 	script := fs.String("script", "apply", "terramate script name to run")
 	logFile := fs.String("log-file", "tfstackplan.log", "per-stack log filename the terramate script writes in each stack dir; streamed live to the server (empty disables)")
 	stateLock := fs.Bool("state-lock", false, "acquire a pessimistic GCS state lock around cross-state moves (fail-fast; requires ADC)")
+	impersonateRequester := fs.Bool("impersonate-requester", false, "run apply AS the leased PAM requester SA (mints GOOGLE_OAUTH_ACCESS_TOKEN for it)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -40,9 +41,19 @@ func runApply(args []string) int {
 	// Fail-closed gate pre-check FIRST: do not touch terramate if the gate is not
 	// satisfied. GateCheck no-ops when no server is configured, and errors (fail
 	// closed) when a configured server is unreachable or the gate is unsatisfied.
-	if err := client.GateCheck(ctx, events.GateCheck{PR: pr, Environment: env}); err != nil {
-		fmt.Fprintln(os.Stderr, "tfstackplan run apply: refusing to apply —", err)
+	requester, gateErr := client.GateCheck(ctx, events.GateCheck{PR: pr, Environment: env})
+	if gateErr != nil {
+		fmt.Fprintln(os.Stderr, "tfstackplan run apply: refusing to apply —", gateErr)
 		return 1
+	}
+	if *impersonateRequester && requester != "" {
+		tok, err := mintAccessToken(ctx, requester)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "tfstackplan run apply: impersonate", requester, ":", err)
+			return 1 // fail closed: asked to run elevated, could not
+		}
+		os.Setenv("GOOGLE_OAUTH_ACCESS_TOKEN", tok)
+		fmt.Fprintln(os.Stderr, "tfstackplan run apply: applying AS", requester)
 	}
 
 	// Fail-closed cross-state move pre-phase: execute any pending
