@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -273,7 +274,6 @@ func runStateApply(args []string) int {
 	fs := flag.NewFlagSet("state apply", flag.ContinueOnError)
 	dir := fs.String("dir", "", "terramate project root (required)")
 	execute := fs.Bool("execute", false, "perform the moves (default: dry-run, print only)")
-	backupDir := fs.String("backup-dir", "", "directory for pre-move state backups (default: <dir>/.tfsp-state-backups)")
 	lock := fs.Bool("lock", false, "acquire a pessimistic GCS state lock around each move (fail-fast if already locked; requires ADC)")
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -282,49 +282,71 @@ func runStateApply(args []string) int {
 		fmt.Fprintln(os.Stderr, "state apply: --dir is required")
 		return 2
 	}
-	tfPath, err := exec.LookPath("terraform")
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "state apply: terraform not found on PATH")
-		return 1
-	}
-	bdir := *backupDir
-	if bdir == "" {
-		bdir = filepath.Join(*dir, ".tfsp-state-backups")
-	}
-	found, err := statemove.DiscoverXMoves(*dir)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "state apply:", err)
-		return 1
-	}
-	deps := statemove.ExecDeps{
-		NewTF:     func(wd string) (statemove.Runner, error) { return statemove.NewTerraform(tfPath, wd) },
-		BackupDir: bdir,
-	}
+	var locker statemove.Locker
 	if *lock && *execute {
-		token, _, err := gcpCreds(context.Background())
+		l, err := gcsLockerFromADC(context.Background())
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "state apply: --lock:", err)
 			return 1
 		}
-		deps.Locker = newGCSLocker(token, "")
+		locker = l
+	}
+	if err := applyPendingMoves(context.Background(), *dir, *execute, locker, os.Stdout); err != nil {
+		fmt.Fprintln(os.Stderr, "state apply:", err)
+		return 1
+	}
+	return 0
+}
+
+// gcsLockerFromADC builds a GCS state Locker from Application Default
+// Credentials (the same token source the planner/applier uses).
+func gcsLockerFromADC(ctx context.Context) (statemove.Locker, error) {
+	token, _, err := gcpCreds(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return newGCSLocker(token, ""), nil
+}
+
+// applyPendingMoves discovers and runs every pending `_tfsp_xmove.*.hcl`
+// cross-state move manifest under dir. It is shared by `state apply` and the
+// `run apply` pre-phase. With execute=false it dry-runs (prints what it would
+// do). It is fail-closed: a terraform binary is required only when moves are
+// pending, and the first Execute error aborts the whole run. A nil locker
+// means no pessimistic lock.
+func applyPendingMoves(ctx context.Context, dir string, execute bool, locker statemove.Locker, w io.Writer) error {
+	found, err := statemove.DiscoverXMoves(dir)
+	if err != nil {
+		return err
+	}
+	if len(found) == 0 {
+		return nil
+	}
+	tfPath, err := exec.LookPath("terraform")
+	if err != nil {
+		return fmt.Errorf("terraform not found on PATH (required for %d pending cross-state move(s))", len(found))
+	}
+	deps := statemove.ExecDeps{
+		NewTF:     func(wd string) (statemove.Runner, error) { return statemove.NewTerraform(tfPath, wd) },
+		BackupDir: filepath.Join(dir, ".tfsp-state-backups"),
+		Locker:    locker,
 	}
 	for _, fx := range found {
-		actions, err := statemove.Execute(context.Background(), deps, *dir, fx.DestStack, fx.XMove, !*execute)
+		actions, err := statemove.Execute(ctx, deps, dir, fx.DestStack, fx.XMove, !execute)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "state apply: %s (%s → %s): %v\n", fx.Key, fx.XMove.SourceStack, fx.DestStack, err)
-			return 1
+			return fmt.Errorf("%s (%s → %s): %w", fx.Key, fx.XMove.SourceStack, fx.DestStack, err)
 		}
 		for _, a := range actions {
 			verb := "would move"
 			if a.Decision == statemove.DecisionSkip {
 				verb = "skip (already moved)"
-			} else if *execute {
+			} else if execute {
 				verb = "moved"
 			}
-			fmt.Printf("%s\t%s → %s\t%s %s → %s\n", fx.Key, fx.XMove.SourceStack, fx.DestStack, verb, a.From, a.To)
+			fmt.Fprintf(w, "%s\t%s → %s\t%s %s → %s\n", fx.Key, fx.XMove.SourceStack, fx.DestStack, verb, a.From, a.To)
 		}
 	}
-	return 0
+	return nil
 }
 
 func runStateCleanup(args []string) int {

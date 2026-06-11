@@ -10,7 +10,30 @@ import (
 	"testing"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/runner"
+	"github.com/Fluent-Health/terraform-stack-plan/internal/statemove"
 )
+
+// TestRunApplyAbortsOnPendingStateMove asserts the fail-closed pre-phase: a
+// pending cross-state move manifest must be executed before the apply, and when
+// it cannot run cleanly the whole apply aborts (exit 1). No TFSTACKPLAN_SERVER,
+// so the gate no-ops; the move can't execute against an unprepared stack.
+func TestRunApplyAbortsOnPendingStateMove(t *testing.T) {
+	if _, err := exec.LookPath("terraform"); err != nil {
+		t.Skip("terraform not on PATH")
+	}
+	root := t.TempDir()
+	dir := filepath.Join(root, "stacks/b")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	xm := statemove.XMove{SourceStack: "stacks/a", Pairs: []statemove.Move{{From: "x.y", To: "x.y"}}}
+	if err := os.WriteFile(filepath.Join(dir, statemove.XMoveFileName("PR-1")), []byte(statemove.RenderXMove("PR-1", xm)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code := runApply([]string{"--dir", root, "--changed=false"}); code != 1 {
+		t.Fatalf("run apply with a pending cross-state move = %d, want 1 (fail-closed pre-phase)", code)
+	}
+}
 
 func TestRunApplyRequiresDir(t *testing.T) {
 	if code := runApply([]string{}); code != 2 {

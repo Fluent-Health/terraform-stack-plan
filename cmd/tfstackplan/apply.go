@@ -9,6 +9,7 @@ import (
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/runner"
+	"github.com/Fluent-Health/terraform-stack-plan/internal/statemove"
 )
 
 // runApply is the CI apply driver. It refuses to apply unless the server says
@@ -23,6 +24,7 @@ func runApply(args []string) int {
 	base := fs.String("base", "", "git base ref for change detection")
 	script := fs.String("script", "apply", "terramate script name to run")
 	logFile := fs.String("log-file", "tfstackplan.log", "per-stack log filename the terramate script writes in each stack dir; streamed live to the server (empty disables)")
+	stateLock := fs.Bool("state-lock", false, "acquire a pessimistic GCS state lock around cross-state moves (fail-fast; requires ADC)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -40,6 +42,24 @@ func runApply(args []string) int {
 	// closed) when a configured server is unreachable or the gate is unsatisfied.
 	if err := client.GateCheck(ctx, events.GateCheck{PR: pr, Environment: env}); err != nil {
 		fmt.Fprintln(os.Stderr, "tfstackplan run apply: refusing to apply —", err)
+		return 1
+	}
+
+	// Fail-closed cross-state move pre-phase: execute any pending
+	// `_tfsp_xmove.*.hcl` manifests before the apply runs. No-op when none are
+	// present. A failure here aborts the apply (the moves must land cleanly,
+	// otherwise the apply would plan against a stale/half-moved state).
+	var stateLocker statemove.Locker
+	if *stateLock {
+		l, err := gcsLockerFromADC(ctx)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "tfstackplan run apply: --state-lock:", err)
+			return 1
+		}
+		stateLocker = l
+	}
+	if err := applyPendingMoves(ctx, *dir, true, stateLocker, os.Stderr); err != nil {
+		fmt.Fprintln(os.Stderr, "tfstackplan run apply: cross-state move failed:", err)
 		return 1
 	}
 
