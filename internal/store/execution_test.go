@@ -176,6 +176,25 @@ func TestListExecutions(t *testing.T) {
 	}
 }
 
+func TestLatestVerifyExecutionID(t *testing.T) {
+	db := newTestDB(t)
+	_ = UpsertInit(db, events.Init{ID: "plan-1", Repo: "o/r", PR: 7, Environment: "staging", Context: "plan/staging"})
+	_ = UpsertInit(db, events.Init{ID: "verify-1", Repo: "o/r", PR: 7, Environment: "staging", Context: "verify/staging"})
+	_ = UpsertInit(db, events.Init{ID: "verify-2", Repo: "o/r", PR: 7, Environment: "staging", Context: "verify/staging"})
+
+	id, ok := LatestVerifyExecutionID(db, 7, "staging")
+	if !ok {
+		t.Fatal("expected a verify execution")
+	}
+	if id != "verify-1" && id != "verify-2" {
+		t.Errorf("latest verify = %q, want a verify-* id (not the plan run)", id)
+	}
+
+	if _, ok := LatestVerifyExecutionID(db, 99, "staging"); ok {
+		t.Error("no verify run for PR 99 — ok should be false")
+	}
+}
+
 func TestUpdateStackAndReportAndRev(t *testing.T) {
 	db := newTestDB(t)
 	if err := UpsertInit(db, sampleInit()); err != nil {
