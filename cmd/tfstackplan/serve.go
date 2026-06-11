@@ -76,6 +76,7 @@ func buildServeApp(ctx context.Context, cfg *config.Config, secret string, creds
 		UseChecks:     s.UseChecks,
 		GroupDepth:    groupDepth(s),
 		GroupPattern:  groupPattern(s),
+		LogsDir:       s.LogsDir,
 	})
 
 	if s.Approval != nil && s.Approval.Backend == "gcp-pam" {
@@ -86,6 +87,15 @@ func buildServeApp(ctx context.Context, cfg *config.Config, secret string, creds
 		}
 		var b approval.Backend = gcppam.New(gcppamConfig(cfg), token, impersonate)
 		app.Approval = b
+	}
+
+	if s.Objects != nil && (s.Objects.Backend == "" || s.Objects.Backend == "gcs") && s.Objects.Bucket != "" {
+		token, _, err := creds(ctx)
+		if err != nil {
+			cleanup()
+			return nil, nil, fmt.Errorf("serve: gcp creds for objects: %w", err)
+		}
+		app.Objects = newGCSObjectStore(token, s.Objects.Bucket, s.Objects.Prefix, "")
 	}
 	return app, cleanup, nil
 }
