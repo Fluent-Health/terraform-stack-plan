@@ -636,6 +636,14 @@ the budget entirely.
   context — so an apply run's progress posts under the plan context. Harmless
   (separate execution id; no plan-state corruption), but per-environment
   `apply/<env>` / `verify/<env>` statuses are not yet distinct. Deferred.
+- **The release image job must lowercase the GHCR repo name.** `github.repository`
+  preserves the org's casing (`Fluent-Health/…`), but GHCR rejects uppercase
+  (`repository name must be lowercase`). `release.yml` derives a lowercased
+  `IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}` env var and tags from it. This first
+  surfaced on the v0.6.0 cut (the image job's debut): the binaries built fine but
+  the image push failed, so the tag/release had to be recreated on the fixed
+  commit — a `release: published` run replays the workflow file *as it was at the
+  tagged commit*, so the fix only takes effect once the tag points at it.
 
 ## Server foundations (in progress)
 
@@ -1118,12 +1126,12 @@ the same binary's `serve`. Because the binary is fully static (pure-Go SQLite,
 no cgo) and embeds its assets (migrations, and later the UI CSS) via `go:embed`,
 the image can use a minimal static/distroless base and needs no runtime files —
 `go build` alone always works and consumers never need a CSS/SQLite toolchain.
-The release GitHub Action builds and pushes a versioned, multi-arch image to a
-public registry (e.g. GHCR) alongside the binary, so a consumer points Cloud Run
-straight at `ghcr.io/<org>/tfstackplan:<tag>` with no per-consumer build. The
-image build lands in the `serve`-wiring increment (it is only useful once `serve`
-exists); Litestream replication and secret mounting are deployment concerns
-documented there and in `SECURITY.md`.
+The release GitHub Action builds and pushes a versioned, multi-arch
+(`linux/amd64`+`linux/arm64`) image to GHCR alongside the per-platform binaries,
+so a consumer points Cloud Run straight at
+`ghcr.io/<org>/terraform-stack-plan:<tag>` with no per-consumer build. The image
+job first ran for the **v0.6.0** release; Litestream replication and secret
+mounting are deployment concerns documented there and in `SECURITY.md`.
 
 The repo `README.md` is the user-facing guide for all four faces
 (`render`/`run`/`serve`/`state`), and `examples/serve.tfstackplan.hcl` is the
