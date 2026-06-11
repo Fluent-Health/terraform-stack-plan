@@ -25,6 +25,9 @@ func (f *fakeRunner) StatePull(context.Context, ...tfexec.StatePullOption) (stri
 	return f.stateJSON, nil
 }
 func (f *fakeRunner) ShowStateFile(context.Context, string, ...tfexec.ShowOption) (*tfjson.State, error) {
+	if f.show == nil {
+		return nil, fmt.Errorf("ShowStateFile called on empty state")
+	}
 	return f.show, nil
 }
 func (f *fakeRunner) StateMv(context.Context, string, string, ...tfexec.StateMvCmdOption) error {
@@ -55,8 +58,8 @@ func depsFor(src, dst *fakeRunner) ExecDeps {
 }
 
 func TestExecuteMovesSourceOnly(t *testing.T) {
-	src := &fakeRunner{show: stateWith("aws_s3_bucket.x")}
-	dst := &fakeRunner{show: stateWith()}
+	src := &fakeRunner{stateJSON: "non-empty", show: stateWith("aws_s3_bucket.x")}
+	dst := &fakeRunner{stateJSON: "non-empty", show: stateWith()}
 	xm := XMove{SourceStack: "a", Pairs: []Move{{From: "aws_s3_bucket.x", To: "aws_s3_bucket.x"}}}
 
 	// dry-run: no mv, no push.
@@ -83,10 +86,28 @@ func TestExecuteMovesSourceOnly(t *testing.T) {
 	}
 }
 
+func TestExecuteEmptyDestState(t *testing.T) {
+	// Source has the resource; dest is a brand-new stack → empty pull, no Show.
+	src := &fakeRunner{stateJSON: "non-empty", show: stateWith("aws_s3_bucket.x")}
+	dst := &fakeRunner{stateJSON: "", show: nil} // empty pull; ShowStateFile must not be called
+	deps := depsFor(src, dst)
+	xm := XMove{SourceStack: "a", Pairs: []Move{{From: "aws_s3_bucket.x", To: "aws_s3_bucket.x"}}}
+	acts, err := Execute(context.Background(), deps, t.TempDir(), "b", xm, false)
+	if err != nil {
+		t.Fatalf("execute into empty dest: %v", err)
+	}
+	if len(acts) != 1 || acts[0].Decision != DecisionMove {
+		t.Fatalf("actions = %+v, want one DecisionMove into the empty dest", acts)
+	}
+	if dst.mvs != 1 || dst.pushes != 1 || src.pushes != 1 {
+		t.Errorf("expected 1 mv on the mv-runner + push of both; got dst.mvs=%d dst.pushes=%d src.pushes=%d", dst.mvs, dst.pushes, src.pushes)
+	}
+}
+
 func TestExecuteSkipAndAmbiguous(t *testing.T) {
 	// dest already has it → skip, no mv/push.
-	src := &fakeRunner{show: stateWith()}
-	dst := &fakeRunner{show: stateWith("a.b")}
+	src := &fakeRunner{stateJSON: "non-empty", show: stateWith()}
+	dst := &fakeRunner{stateJSON: "non-empty", show: stateWith("a.b")}
 	xm := XMove{SourceStack: "a", Pairs: []Move{{From: "a.b", To: "a.b"}}}
 	acts, err := Execute(context.Background(), depsFor(src, dst), t.TempDir(), "b", xm, false)
 	if err != nil || len(acts) != 1 || acts[0].Decision != DecisionSkip {
@@ -97,8 +118,8 @@ func TestExecuteSkipAndAmbiguous(t *testing.T) {
 	}
 
 	// both have it → ambiguous error, no mutation.
-	src2 := &fakeRunner{show: stateWith("a.b")}
-	dst2 := &fakeRunner{show: stateWith("a.b")}
+	src2 := &fakeRunner{stateJSON: "non-empty", show: stateWith("a.b")}
+	dst2 := &fakeRunner{stateJSON: "non-empty", show: stateWith("a.b")}
 	if _, err := Execute(context.Background(), depsFor(src2, dst2), t.TempDir(), "b", xm, false); err == nil {
 		t.Error("both states have it → expected ambiguous error")
 	}
@@ -122,8 +143,8 @@ func (l *fakeLocker) Acquire(_ context.Context, stackDir string) (func() error, 
 }
 
 func TestExecuteAcquiresLockBeforePull(t *testing.T) {
-	src := &fakeRunner{show: stateWith("aws_s3_bucket.x")}
-	dst := &fakeRunner{show: stateWith()}
+	src := &fakeRunner{stateJSON: "non-empty", show: stateWith("aws_s3_bucket.x")}
+	dst := &fakeRunner{stateJSON: "non-empty", show: stateWith()}
 	lk := &fakeLocker{}
 	deps := depsFor(src, dst)
 	deps.Locker = lk
