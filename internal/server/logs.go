@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -61,7 +62,13 @@ func (a *App) appendLog(execID, stack, data string) error {
 	if err != nil {
 		return err
 	}
-	return store.UpsertStackOutput(a.db, execID, stack, "log", "", excerpt)
+	if err := store.UpsertStackOutput(a.db, execID, stack, "log", "", excerpt); err != nil {
+		return err
+	}
+	if a.hub != nil {
+		a.hub.publish(execID+"|"+stack, data)
+	}
+	return nil
 }
 
 // tailFile returns the last n bytes of a file as a string.
@@ -91,9 +98,14 @@ func tailFile(path string, n int64) (string, error) {
 
 // handleLogServe streams a stack's log buffer (public, like the live page —
 // viewers need no cloud IAM). 404 when there is no buffer.
+// With ?follow=1 it upgrades to Server-Sent Events.
 func (a *App) handleLogServe(w http.ResponseWriter, r *http.Request) {
 	exec := r.PathValue("exec")
 	stack := r.PathValue("stack")
+	if r.URL.Query().Get("follow") != "" {
+		a.streamLog(w, r, exec, stack)
+		return
+	}
 	p, ok := logFilePath(a.cfg.LogsDir, exec, stack)
 	if !ok {
 		http.Error(w, "not found", http.StatusNotFound)
@@ -107,6 +119,49 @@ func (a *App) handleLogServe(w http.ResponseWriter, r *http.Request) {
 	defer f.Close()
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	_, _ = io.Copy(w, f)
+}
+
+// streamLog upgrades to Server-Sent Events: subscribe first (so nothing is
+// missed between replay and live), replay the current buffer, then stream live
+// chunks until the client disconnects.
+func (a *App) streamLog(w http.ResponseWriter, r *http.Request, exec, stack string) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	flusher.Flush()
+
+	ch, unsub := a.hub.subscribe(exec + "|" + stack)
+	defer unsub()
+
+	if p, ok := logFilePath(a.cfg.LogsDir, exec, stack); ok {
+		if data, err := os.ReadFile(p); err == nil && len(data) > 0 {
+			writeSSE(w, string(data))
+			flusher.Flush()
+		}
+	}
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case chunk := <-ch:
+			writeSSE(w, chunk)
+			flusher.Flush()
+		}
+	}
+}
+
+// writeSSE writes one SSE event: each line of data on its own `data:` field,
+// terminated by a blank line.
+func writeSSE(w io.Writer, data string) {
+	for _, line := range strings.Split(strings.TrimSuffix(data, "\n"), "\n") {
+		fmt.Fprintf(w, "data: %s\n", line)
+	}
+	fmt.Fprint(w, "\n")
 }
 
 // handleLogs ingests a per-stack output chunk (bearer-authed).

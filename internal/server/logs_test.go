@@ -1,7 +1,9 @@
 package server
 
 import (
+	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -9,7 +11,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
@@ -115,4 +119,60 @@ func TestLogsE2E(t *testing.T) {
 	if r3.StatusCode != 404 {
 		t.Errorf("unknown log = %d, want 404", r3.StatusCode)
 	}
+}
+
+func TestLogStreamSSE(t *testing.T) {
+	db := newServerTestDB(t)
+	a := New(db, &MockGitHub{}, Config{LogsDir: t.TempDir()})
+	srv := httptest.NewServer(a.Routes())
+	defer srv.Close()
+
+	if err := a.appendLog("e1", "stacks/a", "before\n"); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, "GET", srv.URL+"/logs/e1/stacks/a?follow=1", nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if ct := resp.Header.Get("Content-Type"); ct != "text/event-stream" {
+		t.Fatalf("content-type = %q, want text/event-stream", ct)
+	}
+
+	var mu sync.Mutex
+	var buf strings.Builder
+	go func() {
+		sc := bufio.NewScanner(resp.Body)
+		for sc.Scan() {
+			mu.Lock()
+			buf.WriteString(sc.Text())
+			buf.WriteByte('\n')
+			mu.Unlock()
+		}
+	}()
+	seen := func(sub string) bool { mu.Lock(); defer mu.Unlock(); return strings.Contains(buf.String(), sub) }
+	waitFor := func(sub string) {
+		t.Helper()
+		deadline := time.After(2 * time.Second)
+		for !seen(sub) {
+			select {
+			case <-deadline:
+				mu.Lock()
+				got := buf.String()
+				mu.Unlock()
+				t.Fatalf("timed out waiting for %q; got:\n%s", sub, got)
+			case <-time.After(10 * time.Millisecond):
+			}
+		}
+	}
+
+	waitFor("data: before")
+	if err := a.appendLog("e1", "stacks/a", "after\n"); err != nil {
+		t.Fatal(err)
+	}
+	waitFor("data: after")
 }
