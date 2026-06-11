@@ -66,6 +66,8 @@ func (a *App) Routes() http.Handler {
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
+	mux.HandleFunc("GET /{$}", a.handleIndex)
+	mux.HandleFunc("GET /pr/{n}", a.handlePRTimeline)
 	mux.HandleFunc("GET /img/{name}", a.handleImg)
 	mux.HandleFunc("GET /assets/{file}", a.handleAsset)
 	mux.HandleFunc("GET /live/{id}", a.handleLive)

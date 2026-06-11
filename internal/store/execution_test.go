@@ -135,6 +135,47 @@ func TestUpsertInitIsReRunnable(t *testing.T) {
 	}
 }
 
+func TestListExecutions(t *testing.T) {
+	db := newTestDB(t)
+	for _, in := range []events.Init{
+		{ID: "e1", Repo: "o/r", PR: 1, Environment: "staging"},
+		{ID: "e2", Repo: "o/r", PR: 2, Environment: "prod"},
+		{ID: "e3", Repo: "o/r", PR: 1, Environment: "staging"},
+	} {
+		if err := UpsertInit(db, in); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	all, err := ListExecutions(db, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 3 {
+		t.Fatalf("ListExecutions = %d, want 3", len(all))
+	}
+	lim, _ := ListExecutions(db, 2)
+	if len(lim) != 2 {
+		t.Errorf("ListExecutions(2) = %d, want 2", len(lim))
+	}
+
+	pr1, err := ListExecutionsForPR(db, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pr1) != 2 {
+		t.Fatalf("ListExecutionsForPR(1) = %d, want 2", len(pr1))
+	}
+	for _, e := range pr1 {
+		if e.PR != 1 {
+			t.Errorf("PR filter leaked execution %s (pr=%d)", e.ID, e.PR)
+		}
+		if e.Repo != "o/r" {
+			t.Errorf("row missing repo: %+v", e)
+		}
+	}
+}
+
 func TestUpdateStackAndReportAndRev(t *testing.T) {
 	db := newTestDB(t)
 	if err := UpsertInit(db, sampleInit()); err != nil {

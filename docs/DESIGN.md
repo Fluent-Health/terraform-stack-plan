@@ -911,16 +911,21 @@ three tabs — **Log** (stored tail excerpt + link to the full `/logs` stream),
 Phase 4 placeholder). `liveView` carries the execution id (`Exec`) so the template
 can build the hrefs; `handleLive` sets it from `e.ID`.
 
+The final UI-v2 increment adds **execution navigation**: a landing index at
+`GET /{$}` (the most recent executions, newest first) and a per-PR timeline at
+`GET /pr/{n}`. Both render a shared `executions.gohtml` DaisyUI table whose rows
+link to `/live/{id}` (and back to `/pr/{n}`), backed by `store.ListExecutions`/
+`store.ListExecutionsForPR` over the indexed `created_at`; `handlePRTimeline`
+returns 400 on a non-numeric PR. This completes Phase 3's UI v2.
+
 Still deferred to later phases: the rest of Phase 3 — the `serve`-side wiring of
-the object store (a GCS `ObjectStore` impl + an `ObjectsDir`/bucket config knob);
-and the **UI v2** (grouped/folding list, per-stack Log/Plan/Verify
-tabs, collapsible DAG strip, phase timeline, execution index, PR timeline). Also:
+the object store (a GCS `ObjectStore` impl + an `ObjectsDir`/bucket config knob).
+Also:
 the **Pub/Sub-push + OIDC event ingestion** (a
 latency optimization over the polling reconcile loop, which already satisfies
 gates); **true requester-pool leasing** (today `requester()` is a `PR mod pool`
 slot — collisions possible up to pool size; leasing replaces it without an
-interface change); the richer UI v2 (grouped/folding list, SSE log streaming,
-per-stack Log/Plan/Verify tabs, hand-rolled diff renderer) — Phase 3; the
+interface change); the
 `run verify` driver + `verify/<env>` status — Phase 4; and the `state` subcommand
 (declarative cross-stack state surgery) — Phase 6.
 
