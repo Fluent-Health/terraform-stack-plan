@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -114,7 +115,7 @@ func UpdateStack(db *sql.DB, id, stack string, status events.Status, detail stri
 func LoadGraph(db *sql.DB, id string) (events.Graph, error) {
 	var g events.Graph
 	rows, err := db.Query(
-		`SELECT stack_path, COALESCE(project,''), COALESCE(status,''), COALESCE(detail,'')
+		`SELECT stack_path, COALESCE(project,''), COALESCE(status,''), COALESCE(detail,''), COALESCE(categories,'')
 		 FROM stacks WHERE execution_id = ? ORDER BY stack_path`, id)
 	if err != nil {
 		return g, err
@@ -122,11 +123,14 @@ func LoadGraph(db *sql.DB, id string) (events.Graph, error) {
 	defer rows.Close()
 	for rows.Next() {
 		var s events.StackState
-		var st string
-		if err := rows.Scan(&s.Path, &s.Project, &st, &s.Detail); err != nil {
+		var st, cats string
+		if err := rows.Scan(&s.Path, &s.Project, &st, &s.Detail, &cats); err != nil {
 			return g, err
 		}
 		s.Status = events.Status(st)
+		if cats != "" {
+			_ = json.Unmarshal([]byte(cats), &s.Categories)
+		}
 		g.Stacks = append(g.Stacks, s)
 	}
 	if err := rows.Err(); err != nil {
