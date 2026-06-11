@@ -14,6 +14,11 @@ type Fake struct {
 	mu     sync.Mutex
 	grants map[string]*Grant // key: class|target|pr|environment
 	seq    int
+	// Pool is an optional list of requester identities that the Fake leases like
+	// gcppam does: when req.Requester is empty and Pool is non-empty, the first
+	// pool entry that is not already the Requester of an open grant is chosen.
+	// Empty Pool ⇒ no requester (existing tests are unaffected).
+	Pool []string
 }
 
 var _ Backend = (*Fake)(nil)
@@ -31,8 +36,25 @@ func (f *Fake) RequestGrant(_ context.Context, req Request) (Grant, error) {
 	if g, ok := f.grants[fkey(req)]; ok && g.State.Open() {
 		return *g, nil
 	}
+	// Choose the requester: honour a pre-leased hint, otherwise pick the first
+	// pool entry not already in use by an open grant.
+	requester := req.Requester
+	if requester == "" && len(f.Pool) > 0 {
+		used := map[string]bool{}
+		for _, g := range f.grants {
+			if g.State.Open() && g.Requester != "" {
+				used[g.Requester] = true
+			}
+		}
+		for _, sa := range f.Pool {
+			if !used[sa] {
+				requester = sa
+				break
+			}
+		}
+	}
 	f.seq++
-	g := &Grant{Name: fmt.Sprintf("grant-%d", f.seq), State: StateAwaiting, Request: req}
+	g := &Grant{Name: fmt.Sprintf("grant-%d", f.seq), State: StateAwaiting, Request: req, Requester: requester}
 	f.grants[fkey(req)] = g
 	return *g, nil
 }

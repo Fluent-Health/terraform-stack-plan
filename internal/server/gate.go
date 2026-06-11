@@ -17,21 +17,36 @@ import (
 // each in the store with the backend's grant name + state. A backend error
 // records the target "blocked" (so the verdict stays unsatisfied and the live
 // page can surface it) rather than failing finalize. No-op without a backend.
+//
+// One requester identity is leased for the whole PR: the first successful grant
+// response that carries a Requester sets it, and every subsequent gate of the
+// same PR is requested with that identity pinned. After the loop the requester
+// (if any) is persisted on all gate_target rows for the PR.
 func (a *App) requestGrants(ctx context.Context, pr int, environment string, gates []events.GateTarget) {
 	if a.Approval == nil {
 		return
 	}
+	var leased string
 	for _, gt := range gates {
 		g, err := a.Approval.RequestGrant(ctx, approval.Request{
 			Class: gt.Class, Target: gt.Target, PR: pr, Environment: environment,
+			Requester: leased,
 		})
 		if err != nil {
 			log.Printf("gate: request grant pr=%d env=%s %s/%s: %v", pr, environment, gt.Class, gt.Target, err)
 			_ = store.UpsertTarget(a.db, pr, environment, gt.Class, gt.Target, "", "blocked")
 			continue
 		}
+		if leased == "" && g.Requester != "" {
+			leased = g.Requester
+		}
 		if uerr := store.UpsertTarget(a.db, pr, environment, gt.Class, gt.Target, g.Name, string(g.State)); uerr != nil {
 			log.Printf("gate: record target pr=%d env=%s %s/%s: %v", pr, environment, gt.Class, gt.Target, uerr)
+		}
+	}
+	if leased != "" {
+		if err := store.SetTargetRequester(a.db, pr, environment, leased); err != nil {
+			log.Printf("gate: set requester pr=%d env=%s: %v", pr, environment, err)
 		}
 	}
 }
@@ -146,7 +161,13 @@ func (a *App) handleGateCheck(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	requester := ""
+	if len(targets) > 0 {
+		requester = targets[0].Requester
+	}
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(map[string]string{"requester": requester})
 }
 
 // handleGateRevoke revokes the grants the server requested for (pr, environment)
