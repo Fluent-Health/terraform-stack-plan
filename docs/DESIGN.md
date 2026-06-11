@@ -833,8 +833,21 @@ per kind — the pointer is set later on object-store offload). A public
 `/live`); untrusted path components are sanitized and containment-checked against
 `LogsDir`. Log ingestion is disabled (a no-op) when `LogsDir` is unset.
 
-Still deferred to later phases: the rest of Phase 3 — **SSE rebroadcast** of log
-chunks to open UI sessions; **object-store offload** on stack completion (a
+The second increment landed **SSE log streaming**: an in-process fan-out `hub`
+(keyed `exec|stack`, non-blocking publish — a slow viewer drops chunks while the
+buffer + offload keep the full record) into which `appendLog` publishes after the
+durable write; `GET /logs/<exec>/<stack>?follow=1` upgrades to Server-Sent Events
+— it subscribes *before* replaying the buffer (so no chunk is missed between
+replay and live), then streams live chunks until the client disconnects (the
+deferred `unsubscribe` prevents subscriber leaks). _Limitation to address with
+the object-store offload: the replay reads the whole buffer into memory with no
+mid-replay cancellation — fine at current sizes, but offloaded/large buffers
+should stream from disk/object-store with context cancellation; a periodic SSE
+heartbeat + reconnect (`id:`/Last-Event-ID) are also wanted for the UI Log tab
+behind proxies._
+
+Still deferred to later phases: the rest of Phase 3 — **object-store offload**
+on stack completion (a
 `Store` interface with a filesystem impl for tests + GCS for deployment, setting
 the `stack_outputs.pointer`); **runner-side per-stack capture** streaming to
 `/api/logs`; and the **UI v2** (grouped/folding list, per-stack Log/Plan/Verify
