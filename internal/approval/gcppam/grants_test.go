@@ -3,6 +3,7 @@ package gcppam
 import (
 	"context"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
@@ -59,6 +60,45 @@ func TestRequestGrantCreatesThenReuses(t *testing.T) {
 	}
 	if g2.Name != g1.Name {
 		t.Errorf("reuse mismatch: %q vs %q", g2.Name, g1.Name)
+	}
+}
+
+func TestRequestGrantLeasesUnusedRequester(t *testing.T) {
+	var impersonated string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet { // an open grant held by sa0 (a different PR)
+			w.Write([]byte(`{"grants":[{"name":".../grants/g1","state":"ACTIVE","requester":"sa0","justification":{"unstructuredJustification":"PR #1 env=staging"}}]}`))
+			return
+		}
+		w.Write([]byte(`{"name":".../grants/g2"}`)) // create
+	}))
+	defer srv.Close()
+	b := New(
+		Config{BaseURL: srv.URL, Entitlements: map[string]string{"iam": "iam-elev"}, RequesterPool: []string{"sa0", "sa1"}},
+		func(context.Context) (string, error) { return "t", nil },
+		func(_ context.Context, sa string) (string, error) { impersonated = sa; return "imp-" + sa, nil },
+	)
+	if _, err := b.RequestGrant(context.Background(), approval.Request{Class: "iam", Target: "proj-a", PR: 2, Environment: "staging"}); err != nil {
+		t.Fatal(err)
+	}
+	if impersonated != "sa1" {
+		t.Errorf("leased requester = %q, want sa1 (sa0 holds an open grant)", impersonated)
+	}
+}
+
+func TestListGrantsCapturesRequester(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"grants":[{"name":".../grants/g1","state":"ACTIVE","requester":"sa0","justification":{"unstructuredJustification":"PR #1 env=staging"}}]}`))
+	}))
+	defer srv.Close()
+	b := New(Config{BaseURL: srv.URL, Entitlements: map[string]string{"iam": "iam-elev"}},
+		func(context.Context) (string, error) { return "t", nil }, nil)
+	gs, err := b.ListGrants(context.Background(), "iam", "proj-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(gs) != 1 || gs[0].Requester != "sa0" {
+		t.Fatalf("grants = %+v, want one with Requester sa0", gs)
 	}
 }
 

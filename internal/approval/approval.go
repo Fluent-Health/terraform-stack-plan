@@ -40,9 +40,10 @@ type Request struct {
 
 // Grant is a backend's record of an approval grant for a Request.
 type Grant struct {
-	Name    string // backend-assigned resource name/id
-	State   GrantState
-	Request Request // correlation, parsed back from the grant by the backend
+	Name      string // backend-assigned resource name/id
+	State     GrantState
+	Request   Request // correlation, parsed back from the grant by the backend
+	Requester string  // the requesting identity (populated by backends that pool requesters); "" when N/A
 }
 
 // Backend is an approval provider. The server requests grants and reads their

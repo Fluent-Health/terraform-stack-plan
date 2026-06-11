@@ -39,6 +39,7 @@ func New(cfg Config, token TokenFunc, impersonate ImpersonateFunc) *Backend {
 type pamGrant struct {
 	Name          string `json:"name"`
 	State         string `json:"state"`
+	Requester     string `json:"requester"`
 	Justification struct {
 		UnstructuredJustification string `json:"unstructuredJustification"`
 	} `json:"justification"`
@@ -109,7 +110,7 @@ func (b *Backend) ListGrants(ctx context.Context, class, target string) ([]appro
 				req.PR = pr
 				req.Environment = env
 			}
-			out = append(out, approval.Grant{Name: g.Name, State: mapState(g.State), Request: req})
+			out = append(out, approval.Grant{Name: g.Name, State: mapState(g.State), Request: req, Requester: g.Requester})
 		}
 		if page.NextPageToken == "" {
 			return out, nil

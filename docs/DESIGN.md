@@ -619,11 +619,14 @@ the budget entirely.
   read up to the first whitespace. Environments are slugs (`staging`/`prod`), so
   this holds, but an environment containing a space would not round-trip
   (correlation, reuse, and revoke would miss the grant).
-- **The `gcp-pam` requester pool uses a `PR mod pool-size` slot, not a true
-  lease.** Two concurrent PRs whose numbers collide on `PR mod N` impersonate the
-  same requester SA; approving one could elevate both. Bounded by pool size and
-  acceptable for now — true leasing (track open executions, pick an unleased
-  identity) replaces the slot function without an interface change.
+- **The `gcp-pam` requester pool uses true leasing, falling back to a
+  `PR mod pool-size` slot only when the pool is exhausted.** `RequestGrant` reads
+  the entitlement's open grants (the live leases — each grant carries its
+  `requester`) and impersonates the first pool identity not already holding one;
+  if every identity is leased it falls back to the deterministic `PR mod N` slot.
+  Collision is therefore bounded by *concurrent open grants exceeding pool size*,
+  not by PR-number arithmetic. Leasing is per (class, target) entitlement, where
+  contention occurs.
 - **`run apply` registers an `apply/<env>` execution, but the server still posts
   the plan-gate commit-status context for it.** The apply execution carries a
   non-`plan/<env>` context so no plan check-run is created for it, and it uses a
@@ -983,9 +986,10 @@ else `reconcilePending` — a latency optimization over the polling `ReconcileLo
 which remains the fallback. Configured via `serve { pubsub { audience
 service_account } }`; disabled (404) when the block is absent.
 
-Still deferred to a later phase: **true requester-pool leasing** (today
-`requester()` is a `PR mod pool` slot — collisions possible up to pool size;
-leasing replaces it without an interface change). The `state` subcommand (Phase 6) is now feature-complete for
+The `gcp-pam` requester pool now uses **true leasing**: `RequestGrant` picks a
+pool identity with no open grant on the entitlement (the open grants are the live
+leases), falling back to the `PR mod pool` slot only when the pool is exhausted —
+replacing the prior pure-modulo slot. The `state` subcommand (Phase 6) is now feature-complete for
 moves: SP1 (same-stack moves) and SP2 (cross-stack moves via native
 import/removed) shipped, and SP3 adds the lock-less `state mv` executor
 (`state move --via mv` + `state apply`). See *`tfstackplan state` (Phase 6)*

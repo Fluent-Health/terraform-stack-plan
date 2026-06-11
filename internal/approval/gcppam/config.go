@@ -92,6 +92,18 @@ func (c Config) requester(pr int) string {
 	return c.RequesterPool[i]
 }
 
+// leaseRequester returns the first pool identity not currently leased (i.e. not
+// holding an open grant), giving true leasing instead of a fixed pr-mod slot. When
+// every identity is leased it falls back to the deterministic mod slot.
+func (c Config) leaseRequester(pr int, leased map[string]bool) string {
+	for _, sa := range c.RequesterPool {
+		if !leased[sa] {
+			return sa
+		}
+	}
+	return c.requester(pr)
+}
+
 // justificationRE matches the justification this backend writes.
 var justificationRE = regexp.MustCompile(`PR #(\d+) env=(\S+)`)
 
