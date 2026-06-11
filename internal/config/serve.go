@@ -24,6 +24,14 @@ type ClassBinding struct {
 	Required         bool
 }
 
+// GroupConfig configures the live-DAG grouping. Depth groups by the first Depth
+// path segments (default 2 when the block is absent); Pattern (a regexp) overrides
+// it — the first capture group (or whole match) of the stack path is the group key.
+type GroupConfig struct {
+	Depth   int
+	Pattern string
+}
+
 // ServeConfig is the `serve {}` block: the control-plane server runtime config.
 type ServeConfig struct {
 	DBPath           string
@@ -32,6 +40,7 @@ type ServeConfig struct {
 	WebhookSecretEnv string // env var name holding the bearer secret (not the secret itself)
 	GitHubApp        *GitHubAppConfig
 	Approval         *ApprovalConfig
+	Group            *GroupConfig
 }
 
 // GitHubAppConfig is the `github_app {}` sub-block.
@@ -57,6 +66,10 @@ type serveBody struct {
 	WebhookSecretEnv string         `hcl:"webhook_secret_env,optional"`
 	GitHubApp        *githubAppBody `hcl:"github_app,block"`
 	Approval         *approvalBody  `hcl:"approval,block"`
+	Group            *struct {
+		Depth   int    `hcl:"depth,optional"`
+		Pattern string `hcl:"pattern,optional"`
+	} `hcl:"group,block"`
 }
 
 type githubAppBody struct {
@@ -88,6 +101,9 @@ func decodeServe(blk *hclsyntax.Block) (*ServeConfig, error) {
 	}
 	if b.Approval != nil {
 		s.Approval = &ApprovalConfig{Backend: b.Approval.Backend, Location: b.Approval.Location, Duration: b.Approval.Duration, RequesterPool: b.Approval.RequesterPool}
+	}
+	if b.Group != nil {
+		s.Group = &GroupConfig{Depth: b.Group.Depth, Pattern: b.Group.Pattern}
 	}
 	return s, nil
 }

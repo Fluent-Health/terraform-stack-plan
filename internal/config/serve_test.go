@@ -88,6 +88,26 @@ serve {
 	}
 }
 
+func TestLoadServeGroupBlock(t *testing.T) {
+	cfg, err := Load(writeCfg(t, `
+serve {
+  group {
+    depth   = 3
+    pattern = "^(x)"
+  }
+}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Serve == nil {
+		t.Fatal("serve block not parsed")
+	}
+	if cfg.Serve.Group == nil || cfg.Serve.Group.Depth != 3 || cfg.Serve.Group.Pattern != "^(x)" {
+		t.Errorf("serve.group = %+v, want depth 3 pattern ^(x)", cfg.Serve.Group)
+	}
+}
+
 func TestLoadRenderOnlyConfigStillWorks(t *testing.T) {
 	cfg, err := Load(writeCfg(t, `
 classification {
