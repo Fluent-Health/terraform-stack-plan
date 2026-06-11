@@ -25,10 +25,19 @@ func TestLogFilePathSanitizesAndContains(t *testing.T) {
 		{"../../etc", "x"},
 		{"e1", "../../../etc/passwd"},
 		{"e1", "a/../../b"},
+		{"..", ".."},
+		{"e1", "....//....//etc"},
 	} {
 		p, ok := logFilePath(base, bad.exec, bad.stack)
-		if ok && !strings.HasPrefix(filepath.Clean(p), filepath.Clean(base)) {
-			t.Errorf("traversal escaped base: exec=%q stack=%q → %q", bad.exec, bad.stack, p)
+		if !ok {
+			continue // rejected outright — also safe
+		}
+		if !strings.HasPrefix(filepath.Clean(p)+string(filepath.Separator), filepath.Clean(base)+string(filepath.Separator)) {
+			t.Errorf("traversal escaped base: exec=%q stack=%q → %q (base %q)", bad.exec, bad.stack, p, base)
+		}
+		// Belt-and-suspenders: the resolved path must not contain a parent ref.
+		if strings.Contains(p, ".."+string(filepath.Separator)) {
+			t.Errorf("sanitized path still has a parent ref: exec=%q stack=%q → %q", bad.exec, bad.stack, p)
 		}
 	}
 }
