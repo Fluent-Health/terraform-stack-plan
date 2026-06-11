@@ -89,3 +89,40 @@ func TestImgAndLiveHandlers(t *testing.T) {
 		t.Error("/img must be public (no auth)")
 	}
 }
+
+func TestStackDetailPage(t *testing.T) {
+	db := newServerTestDB(t)
+	a := New(db, &MockGitHub{}, Config{})
+	srv := httptest.NewServer(a.Routes())
+	defer srv.Close()
+
+	_ = store.UpsertInit(db, events.Init{ID: "e1", Repo: "o/r", Environment: "staging",
+		Stacks: []events.StackState{{Path: "stacks/a"}}})
+	_ = store.UpsertStackOutput(db, "e1", "stacks/a", "plan", "", "PLAN_SECTION_A")
+	_ = store.UpsertStackOutput(db, "e1", "stacks/a", "log", "", "LOG_TAIL_A")
+
+	resp, err := http.Get(srv.URL + "/live/e1/stack/stacks/a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	s := string(body)
+	for _, want := range []string{
+		"stacks/a", "PLAN_SECTION_A", "LOG_TAIL_A",
+		`/logs/e1/stacks/a`, "tabs", "Verify", "/assets/app.css",
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("stack page missing %q", want)
+		}
+	}
+
+	resp2, _ := http.Get(srv.URL + "/live/nope/stack/stacks/a")
+	resp2.Body.Close()
+	if resp2.StatusCode != 404 {
+		t.Errorf("unknown exec status = %d, want 404", resp2.StatusCode)
+	}
+}
