@@ -82,3 +82,32 @@ func TestMapState(t *testing.T) {
 		t.Error("unknown state should be closed")
 	}
 }
+
+func TestEntitlementNameScope(t *testing.T) {
+	c := Config{
+		Location: "global",
+		Entitlements: map[string]string{
+			"iam":      "iam-ent",
+			"database": "db-ent",
+			"org":      "org-ent",
+		},
+		EntitlementScopes: map[string]string{
+			"database": "folders",
+			"org":      "organizations",
+			// "iam" omitted → defaults to projects
+		},
+	}
+	cases := map[string]string{
+		"iam":      "projects/proj-1/locations/global/entitlements/iam-ent",
+		"database": "folders/proj-1/locations/global/entitlements/db-ent",
+		"org":      "organizations/proj-1/locations/global/entitlements/org-ent",
+	}
+	for class, want := range cases {
+		if got := c.entitlementName(class, "proj-1"); got != want {
+			t.Errorf("entitlementName(%q) = %q, want %q", class, got, want)
+		}
+	}
+	if got := c.entitlementName("missing", "proj-1"); got != "" {
+		t.Errorf("unconfigured class = %q, want \"\"", got)
+	}
+}

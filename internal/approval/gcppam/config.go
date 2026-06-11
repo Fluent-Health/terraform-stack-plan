@@ -26,6 +26,10 @@ type Config struct {
 	// Entitlements maps a classification class (e.g. "iam") to the PAM
 	// entitlement id requested for that class.
 	Entitlements map[string]string
+	// EntitlementScopes maps a class to the PAM entitlement resource scope —
+	// "projects" (default), "folders", or "organizations". The class's target is
+	// the id within that scope. Empty/absent ⇒ "projects" (backward compatible).
+	EntitlementScopes map[string]string
 	// RequesterPool is the set of service-account identities the backend
 	// impersonates when requesting a grant (one leased per PR). Per the PAM model
 	// the grant elevates the *requester*, so a pool avoids elevating every
@@ -58,14 +62,19 @@ func (c Config) duration() string {
 }
 
 // entitlementName builds the PAM entitlement resource for a (class, target):
-// projects/<target>/locations/<location>/entitlements/<entitlement>. Returns ""
-// when the class has no configured entitlement.
+// <scope>/<target>/locations/<location>/entitlements/<entitlement>, where scope
+// is the class's EntitlementScope (default "projects"). Returns "" when the class
+// has no configured entitlement.
 func (c Config) entitlementName(class, target string) string {
 	e := c.Entitlements[class]
 	if e == "" {
 		return ""
 	}
-	return fmt.Sprintf("projects/%s/locations/%s/entitlements/%s", target, c.location(), e)
+	scope := c.EntitlementScopes[class]
+	if scope == "" {
+		scope = "projects"
+	}
+	return fmt.Sprintf("%s/%s/locations/%s/entitlements/%s", scope, target, c.location(), e)
 }
 
 // requester returns the pool identity leased for a PR (a simple modulo slot;
