@@ -927,8 +927,9 @@ the **Pub/Sub-push + OIDC event ingestion** (a
 latency optimization over the polling reconcile loop, which already satisfies
 gates); **true requester-pool leasing** (today `requester()` is a `PR mod pool`
 slot — collisions possible up to pool size; leasing replaces it without an
-interface change); and the `state` subcommand
-(declarative cross-stack state surgery) — Phase 6.
+interface change); and the rest of the `state` subcommand
+(cross-stack state surgery) — Phase 6. SP1 (same-stack moves) has shipped; see
+*`tfstackplan state` (Phase 6)* below.
 
 **Phase 4: `run verify` (complete).** `tfstackplan run verify` runs the
 terramate `verify` script across changed stacks — no gate, read-only
@@ -949,6 +950,32 @@ approval class (e.g. `database`) therefore gates independently at its own scope
 without touching the IAM gate. No new machinery was needed: the gate, verdict,
 and UI are already `(class, target)`-generic — only the config surface and
 serve wiring grew.
+
+### `tfstackplan state` (Phase 6)
+
+`tfstackplan state` is the operator-driven cross-stack state-move machinery.
+**SP1 ships same-stack moves.** Verbs:
+
+- `state move --dir DIR --stack STACK [--pr N] <from> <to> …` validates each
+  declared `<from> <to>` pair against that stack's `tfplan.json` (fail-closed:
+  every resource destroyed under `from` must have a same-type create under `to`;
+  the prefix matcher covers resource / module / `count` / `for_each` addresses)
+  and writes native `moved {}` blocks to a PR-keyed shim
+  `_tfsp_move.<key>.tf` in the stack dir. The normal `run apply` then applies the
+  moves. Moves accumulate into the shim across invocations (existing blocks are
+  merged, not clobbered). The key is `PR-<n>` from `--pr` / `$TFSTACKPLAN_PR`,
+  else `branch-<name>` from the git branch, else `local`. An explicit
+  `stack:addr` prefix is accepted but must match `--stack` — a cross-stack pair
+  is rejected (SP1 scope).
+- `state list [--dir DIR] [--pr N]` lists discovered shims (`key`, stack, each
+  `from → to`).
+- `state cleanup --dir DIR (--pr N | --all)` removes the keyed shims (one PR's,
+  or all `_tfsp_move.*.tf` in the tree).
+
+Cross-stack relocation (the projecting side via `--state-moves` already classifies
+move-targets as relocations; the source side via `removed {}` / `import {}` or
+`terraform state mv`) is SP2/SP3, not yet implemented. See
+`docs/superpowers/specs/2026-06-11-state-subcommand-design.md`.
 
 ### Delivery: binary + Cloud Run container
 
