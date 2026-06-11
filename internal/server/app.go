@@ -5,6 +5,7 @@
 package server
 
 import (
+	"context"
 	"database/sql"
 	"embed"
 	"fmt"
@@ -40,6 +41,9 @@ type Config struct {
 	// GroupPattern is a regexp whose first capture group is the group key;
 	// overrides GroupDepth. Empty → fall back to GroupDepth grouping.
 	GroupPattern string
+	// PushServiceAccount is the allowed verified OIDC email for /pubsub/push.
+	// Empty accepts any verified token.
+	PushServiceAccount string
 }
 
 // App is the HTTP application.
@@ -55,6 +59,10 @@ type App struct {
 	// Objects is the optional object store for completed-log offload. nil keeps
 	// logs in the local buffer only. Set after construction, like Approval.
 	Objects ObjectStore
+	// PushVerifier verifies a Pub/Sub push OIDC bearer token, returning the
+	// token's email claim. Set externally (like Approval/Objects); nil disables
+	// the /pubsub/push endpoint (it returns 404).
+	PushVerifier func(ctx context.Context, bearer string) (email string, err error)
 	// tmpl holds the page templates (parsed once from the embedded FS in New).
 	tmpl *template.Template
 	// groupRE is the compiled Config.GroupPattern (nil → depth grouping).
@@ -92,6 +100,7 @@ func (a *App) Routes() http.Handler {
 	mux.HandleFunc("GET /live/{id}/events", a.handleLiveEvents)
 	mux.HandleFunc("GET /live/{id}/stack/{stack...}", a.handleStackDetail)
 	mux.HandleFunc("GET /logs/{exec}/{stack...}", a.handleLogServe)
+	mux.HandleFunc("POST /pubsub/push", a.handlePushEvent)
 	mux.Handle("POST /api/init", a.auth(http.HandlerFunc(a.handleInit)))
 	mux.Handle("POST /api/phase", a.auth(http.HandlerFunc(a.handlePhase)))
 	mux.Handle("POST /api/update", a.auth(http.HandlerFunc(a.handleUpdate)))
