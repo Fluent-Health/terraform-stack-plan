@@ -839,17 +839,28 @@ buffer + offload keep the full record) into which `appendLog` publishes after th
 durable write; `GET /logs/<exec>/<stack>?follow=1` upgrades to Server-Sent Events
 — it subscribes *before* replaying the buffer (so no chunk is missed between
 replay and live), then streams live chunks until the client disconnects (the
-deferred `unsubscribe` prevents subscriber leaks). _Limitation to address with
-the object-store offload: the replay reads the whole buffer into memory with no
-mid-replay cancellation — fine at current sizes, but offloaded/large buffers
-should stream from disk/object-store with context cancellation; a periodic SSE
-heartbeat + reconnect (`id:`/Last-Event-ID) are also wanted for the UI Log tab
-behind proxies._
+deferred `unsubscribe` prevents subscriber leaks).
 
-Still deferred to later phases: the rest of Phase 3 — **object-store offload**
-on stack completion (a
-`Store` interface with a filesystem impl for tests + GCS for deployment, setting
-the `stack_outputs.pointer`); **runner-side per-stack capture** streaming to
+The third increment landed **object-store offload**: an `ObjectStore` interface
+(`Put`/`Get`) with a containment-checked filesystem impl (`FSStore`, for
+tests/local; a GCS impl is wired by `serve` for deployment, mirroring the
+`gcppam` injection pattern), exposed as the optional `App.Objects` field (set
+after construction, like `Approval`). When a stack reaches a terminal status,
+`handleUpdate` calls `offloadLog`, which uploads the full buffer under
+`executions/<exec>/<stack>/log` and records that key as the
+`stack_outputs.pointer` (preserving the tail excerpt). The public static
+`GET /logs/<exec>/<stack>` now prefers the live buffer and falls back to
+streaming the offloaded object via the pointer (`io.Copy`, not slurped), so a
+completed execution's logs survive buffer cleanup with no cloud IAM for viewers.
+With `App.Objects` unset, behavior is unchanged (buffer-only). _Remaining log
+limitation for the UI sub-plan: the SSE **replay** still reads the buffer into
+memory with no mid-replay cancellation, and should stream from disk/object-store
+with context cancellation; a periodic SSE heartbeat + reconnect
+(`id:`/Last-Event-ID) are also wanted for the UI Log tab behind proxies._
+
+Still deferred to later phases: the rest of Phase 3 — the `serve`-side wiring of
+the object store (a GCS `ObjectStore` impl + an `ObjectsDir`/bucket config knob);
+**runner-side per-stack capture** streaming to
 `/api/logs`; and the **UI v2** (grouped/folding list, per-stack Log/Plan/Verify
 tabs, collapsible DAG strip, phase timeline, execution index, PR timeline). Also:
 the **Pub/Sub-push + OIDC event ingestion** (a
