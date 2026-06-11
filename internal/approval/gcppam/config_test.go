@@ -47,6 +47,23 @@ func TestRequester(t *testing.T) {
 	}
 }
 
+func TestLeaseRequester(t *testing.T) {
+	c := Config{RequesterPool: []string{"sa0", "sa1", "sa2"}}
+	// sa0 leased → pick the first free (sa1).
+	if got := c.leaseRequester(0, map[string]bool{"sa0": true}); got != "sa1" {
+		t.Errorf("leaseRequester = %q, want sa1", got)
+	}
+	// none leased → first pool identity.
+	if got := c.leaseRequester(5, nil); got != "sa0" {
+		t.Errorf("leaseRequester(none leased) = %q, want sa0", got)
+	}
+	// all leased → fall back to the pr-mod slot (pr=4 → pool[4%3]=sa1).
+	all := map[string]bool{"sa0": true, "sa1": true, "sa2": true}
+	if got := c.leaseRequester(4, all); got != "sa1" {
+		t.Errorf("leaseRequester(all leased, pr 4) = %q, want sa1 (mod fallback)", got)
+	}
+}
+
 func TestJustificationRoundTrip(t *testing.T) {
 	req := approval.Request{Class: "iam", Target: "proj-a", PR: 42, Environment: "staging"}
 	j := justification(req)

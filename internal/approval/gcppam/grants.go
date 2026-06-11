@@ -27,13 +27,20 @@ func (b *Backend) RequestGrant(ctx context.Context, req approval.Request) (appro
 	if err != nil {
 		return approval.Grant{}, err
 	}
+	leased := map[string]bool{}
 	for _, g := range grants {
-		if g.State.Open() && g.Request.PR == req.PR && g.Request.Environment == req.Environment {
+		if !g.State.Open() {
+			continue
+		}
+		if g.Request.PR == req.PR && g.Request.Environment == req.Environment {
 			return g, nil // reuse
+		}
+		if g.Requester != "" {
+			leased[g.Requester] = true
 		}
 	}
 
-	requester := b.cfg.requester(req.PR)
+	requester := b.cfg.leaseRequester(req.PR, leased)
 	if requester == "" {
 		return approval.Grant{}, fmt.Errorf("gcppam: empty requester pool")
 	}
