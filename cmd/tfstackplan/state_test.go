@@ -139,3 +139,23 @@ func TestStateListAndCleanup(t *testing.T) {
 		t.Error("cleanup --all should have removed the shim")
 	}
 }
+
+func TestStateMoveViaMv(t *testing.T) {
+	root := writeTwoStackPlans(t, "stacks/a", "aws_s3_bucket.x", "aws_s3_bucket", "id",
+		"stacks/b", "aws_s3_bucket.x", "aws_s3_bucket")
+	code := runState([]string{"move", "--dir", root, "--pr", "5", "--via", "mv",
+		"stacks/a:aws_s3_bucket.x", "stacks/b:aws_s3_bucket.x"})
+	if code != 0 {
+		t.Fatalf("state move --via mv = %d, want 0", code)
+	}
+	data, err := os.ReadFile(filepath.Join(root, "stacks/b", statemove.XMoveFileName("PR-5")))
+	if err != nil {
+		t.Fatalf("xmove manifest missing: %v", err)
+	}
+	if !strings.Contains(string(data), `source_stack = "stacks/a"`) || !strings.Contains(string(data), "xmove {") {
+		t.Errorf("manifest content:\n%s", data)
+	}
+	if _, err := os.Stat(filepath.Join(root, "stacks/b", statemove.ShimFileName("PR-5"))); err == nil {
+		t.Error("--via mv should not write a native import/removed shim")
+	}
+}

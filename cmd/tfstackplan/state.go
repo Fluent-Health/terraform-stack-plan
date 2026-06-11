@@ -82,6 +82,7 @@ func runStateMove(args []string) int {
 	dir := fs.String("dir", "", "terramate project root (required)")
 	stack := fs.String("stack", "", "default stack for unqualified addresses (same-stack moves)")
 	pr := fs.String("pr", "", "PR number for the shim key (default: $TFSTACKPLAN_PR or git branch)")
+	via := fs.String("via", "", "cross-stack mechanism: \"\" (native import/removed) or \"mv\" (faithful terraform state mv)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -119,6 +120,7 @@ func runStateMove(args []string) int {
 	}
 
 	opsByStack := map[string][]statemove.Op{}
+	xmoveByDest := map[string]statemove.XMove{}
 	for i := 0; i < len(rest); i += 2 {
 		fromStack, fromAddr, e1 := stackOf(rest[i])
 		toStack, toAddr, e2 := stackOf(rest[i+1])
@@ -145,6 +147,22 @@ func runStateMove(args []string) int {
 			fmt.Fprintln(os.Stderr, "state move:", cmp.Or(e3, e4))
 			return 1
 		}
+		if *via == "mv" {
+			pairs, err := statemove.CrossStackPairs(srcPlan, dstPlan, fromAddr, toAddr)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "state move:", err)
+				return 1
+			}
+			existing, ok := xmoveByDest[toStack]
+			if ok && existing.SourceStack != fromStack {
+				fmt.Fprintf(os.Stderr, "state move: dest stack %q already targets source %q; cannot also pull from %q (one manifest per dest+source)\n", toStack, existing.SourceStack, fromStack)
+				return 1
+			}
+			existing.SourceStack = fromStack
+			existing.Pairs = append(existing.Pairs, pairs...)
+			xmoveByDest[toStack] = existing
+			continue
+		}
 		srcOps, dstOps, err := statemove.ClassifyCrossStack(srcPlan, dstPlan, fromAddr, toAddr)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "state move:", err)
@@ -170,7 +188,43 @@ func runStateMove(args []string) int {
 		}
 		fmt.Printf("wrote %s (%d op(s))\n", shimPath, len(merged))
 	}
+	for destStack, xm := range xmoveByDest {
+		manifestPath := filepath.Join(*dir, filepath.FromSlash(destStack), statemove.XMoveFileName(key))
+		merged := xm
+		if data, rerr := os.ReadFile(manifestPath); rerr == nil {
+			_, prev, perr := statemove.ParseXMove(string(data))
+			if perr != nil {
+				fmt.Fprintf(os.Stderr, "state move: parse existing %s: %v\n", manifestPath, perr)
+				return 1
+			}
+			if prev.SourceStack != xm.SourceStack {
+				fmt.Fprintf(os.Stderr, "state move: existing manifest %s targets source %q, not %q\n", manifestPath, prev.SourceStack, xm.SourceStack)
+				return 1
+			}
+			merged.Pairs = mergeMoves(prev.Pairs, xm.Pairs)
+		}
+		if werr := os.WriteFile(manifestPath, []byte(statemove.RenderXMove(key, merged)), 0o644); werr != nil {
+			fmt.Fprintln(os.Stderr, "state move: write xmove:", werr)
+			return 1
+		}
+		fmt.Printf("wrote %s (%d move(s))\n", manifestPath, len(merged.Pairs))
+	}
 	return 0
+}
+
+// mergeMoves appends add to existing, de-duplicating whole pairs by From+To,
+// preserving order.
+func mergeMoves(existing, add []statemove.Move) []statemove.Move {
+	seen := map[statemove.Move]bool{}
+	out := make([]statemove.Move, 0, len(existing)+len(add))
+	for _, m := range append(append([]statemove.Move{}, existing...), add...) {
+		if seen[m] {
+			continue
+		}
+		seen[m] = true
+		out = append(out, m)
+	}
+	return out
 }
 
 func runStateList(args []string) int {
