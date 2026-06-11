@@ -130,6 +130,23 @@ serve {
 	}
 }
 
+func TestLoadServePubSub(t *testing.T) {
+	cfg, err := Load(writeCfg(t, `
+serve {
+  db_path = "x.db"
+  pubsub {
+    audience        = "https://h/pubsub/push"
+    service_account = "pusher@x.iam.gserviceaccount.com"
+  }
+}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Serve.PubSub == nil || cfg.Serve.PubSub.Audience != "https://h/pubsub/push" || cfg.Serve.PubSub.ServiceAccount != "pusher@x.iam.gserviceaccount.com" {
+		t.Errorf("pubsub = %+v", cfg.Serve.PubSub)
+	}
+}
+
 func TestLoadRenderOnlyConfigStillWorks(t *testing.T) {
 	cfg, err := Load(writeCfg(t, `
 classification {
