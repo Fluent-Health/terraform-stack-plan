@@ -727,6 +727,16 @@ and approval panel are trusted server-generated HTML, injected un-escaped
 is the source of truth — `web/build.sh` regenerates it on demand; nothing in the
 Go build or CI runs node. (PR #TBD.)
 
+The live page builds on this shell with three reviewer-oriented sections, fed by
+pure view-helpers in `internal/server/livedata.go` and a `liveView` input struct
+in `livepage.go`. A **phase timeline** (DaisyUI `steps`) shows lifecycle progress
+(`phaseTimeline` marks phases done/active/todo relative to the execution's current
+phase). A **project-grouped, folding stack list** (`groupStacks` — named projects
+alphabetical, `(ungrouped)` last) renders each stack as a status badge
+(`statusBadge`, registered as a template func), its path, and optional failure
+detail. The dependency-graph SVG sits in a **collapsible** strip. Stack
+paths/statuses/details and phase names are auto-escaped.
+
 The renderer/page are deliberately minimal — the richer UI v2
 (grouped/folding list, SSE log streaming, per-stack Log/Plan/Verify tabs,
 hand-rolled diff renderer, cluster containers, pan/zoom, dark toggle) is a

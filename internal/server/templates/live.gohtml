@@ -16,7 +16,39 @@
   </div>
   <main class="mx-auto w-full max-w-5xl px-4 py-6 space-y-6">
     {{ if .Panel }}<section class="card bg-base-100 shadow-sm"><div class="card-body p-4">{{ .Panel }}</div></section>{{ end }}
-    <section class="card bg-base-100 shadow-sm"><div class="card-body p-4 items-center">{{ .SVG }}</div></section>
+    <section class="card bg-base-100 shadow-sm"><div class="card-body p-4">
+      <ul class="steps w-full">
+        {{ range .Timeline }}
+        <li class="step {{ if eq .State "done" }}step-success{{ else if eq .State "active" }}step-primary{{ end }}">{{ .Name }}</li>
+        {{ end }}
+      </ul>
+    </div></section>
+    <section class="card bg-base-100 shadow-sm"><div class="card-body p-4">
+      <h2 class="text-sm font-semibold opacity-70 mb-2">Stacks</h2>
+      {{ range .Groups }}
+      <div tabindex="0" class="collapse collapse-arrow border border-base-300 rounded-lg mb-2">
+        <input type="checkbox" checked>
+        <div class="collapse-title text-sm font-medium">{{ .Name }} <span class="opacity-50">({{ len .Stacks }})</span></div>
+        <div class="collapse-content">
+          <ul class="divide-y divide-base-200">
+            {{ range .Stacks }}
+            <li class="flex items-center gap-3 py-1.5">
+              <span class="badge {{ statusBadge .Status }} badge-sm">{{ .Status }}</span>
+              <code class="text-xs">{{ .Path }}</code>
+              {{ if .Detail }}<span class="text-xs opacity-60 truncate">{{ .Detail }}</span>{{ end }}
+            </li>
+            {{ end }}
+          </ul>
+        </div>
+      </div>
+      {{ end }}
+    </div></section>
+    <section class="card bg-base-100 shadow-sm"><div class="card-body p-4">
+      <details open>
+        <summary class="cursor-pointer text-sm font-semibold opacity-70">Dependency graph</summary>
+        <div class="mt-3 flex justify-center">{{ .SVG }}</div>
+      </details>
+    </div></section>
     <section class="card bg-base-100 shadow-sm"><div class="card-body p-4">
       {{ if .Report }}<pre class="overflow-auto rounded-lg bg-neutral text-neutral-content p-4 text-xs">{{ .Report }}</pre>
       {{ else }}<p class="opacity-60 italic">Plan still running — this page refreshes every 10s; the report appears here when the plan completes.</p>{{ end }}
