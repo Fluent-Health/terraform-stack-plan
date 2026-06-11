@@ -57,6 +57,7 @@ func (a *App) Routes() http.Handler {
 		w.WriteHeader(http.StatusOK)
 	})
 	mux.HandleFunc("GET /img/{name}", a.handleImg)
+	mux.HandleFunc("GET /assets/{file}", a.handleAsset)
 	mux.HandleFunc("GET /live/{id}", a.handleLive)
 	mux.HandleFunc("GET /logs/{exec}/{stack...}", a.handleLogServe)
 	mux.Handle("POST /api/init", a.auth(http.HandlerFunc(a.handleInit)))
