@@ -25,6 +25,7 @@ func runPlan(args []string) int {
 	parallel := fs.Int("parallel", 0, "parallel plan jobs (0 = terramate default)")
 	base := fs.String("base", "", "git base ref for change detection")
 	script := fs.String("script", "plan", "terramate script name to run")
+	logFile := fs.String("log-file", "tfstackplan.log", "per-stack log filename the terramate script writes in each stack dir; streamed live to the server (empty disables)")
 	cfgPath := fs.String("config", "", "HCL config (default: auto-discover .tfstackplan.hcl under --dir)")
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -67,9 +68,16 @@ func runPlan(args []string) int {
 	var scriptErr error
 	if len(stacks) > 0 {
 		os.Setenv(runner.EnvExecution, execID)
+		var stop func()
+		if client.Enabled() && *logFile != "" {
+			stop = runner.NewLogPump(client, *dir, *logFile, execID).Start(stacks)
+		}
 		scriptErr = tm.ScriptRun(ctx, os.Stderr, runner.ScriptRunOptions{
 			Script: *script, Changed: *changed, Parallel: *parallel, Base: *base,
 		})
+		if stop != nil {
+			stop()
+		}
 	}
 
 	plansDir, gerr := gatherPlans(*dir, stacks)
