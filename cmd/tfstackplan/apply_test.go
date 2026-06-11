@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -155,5 +156,87 @@ func TestRunApplyE2EGateBlocks(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, "stacks/a", "applied")); err == nil {
 		t.Error("apply ran despite an unsatisfied gate")
+	}
+}
+
+// TestRunApplyImpersonatesRequester verifies that --impersonate-requester mints
+// a token for the SA returned by the gate-check and exports it as
+// GOOGLE_OAUTH_ACCESS_TOKEN before the apply runs.
+func TestRunApplyImpersonatesRequester(t *testing.T) {
+	dir := applyFixture(t)
+
+	// Stub mintAccessToken: record the SA it was called with, return a sentinel.
+	var calledWith string
+	orig := mintAccessToken
+	mintAccessToken = func(_ context.Context, sa string) (string, error) {
+		calledWith = sa
+		return "tok-123", nil
+	}
+	defer func() {
+		mintAccessToken = orig
+		os.Unsetenv("GOOGLE_OAUTH_ACCESS_TOKEN")
+	}()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/gate/check" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(200)
+			_, _ = w.Write([]byte(`{"requester":"poolA@x"}`))
+			return
+		}
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+	t.Setenv(runner.EnvServer, srv.URL)
+	t.Setenv(runner.EnvEnvironment, "staging")
+	t.Setenv("TFSTACKPLAN_PR", "7")
+
+	code := runApply([]string{"--dir", dir, "--changed=false", "--impersonate-requester"})
+	if code != 0 {
+		t.Fatalf("run apply (impersonate-requester) = %d, want 0", code)
+	}
+	if calledWith != "poolA@x" {
+		t.Errorf("mintAccessToken called with %q, want poolA@x", calledWith)
+	}
+	if got := os.Getenv("GOOGLE_OAUTH_ACCESS_TOKEN"); got != "tok-123" {
+		t.Errorf("GOOGLE_OAUTH_ACCESS_TOKEN = %q, want tok-123", got)
+	}
+}
+
+// TestRunApplyNoImpersonateWhenFlagAbsent verifies that without
+// --impersonate-requester, mintAccessToken is not called and
+// GOOGLE_OAUTH_ACCESS_TOKEN is not set by runApply.
+func TestRunApplyNoImpersonateWhenFlagAbsent(t *testing.T) {
+	dir := applyFixture(t)
+	os.Unsetenv("GOOGLE_OAUTH_ACCESS_TOKEN")
+
+	// Stub mintAccessToken to fail the test if called.
+	orig := mintAccessToken
+	mintAccessToken = func(_ context.Context, sa string) (string, error) {
+		t.Errorf("mintAccessToken called unexpectedly with %q", sa)
+		return "", nil
+	}
+	defer func() { mintAccessToken = orig }()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/gate/check" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(200)
+			_, _ = w.Write([]byte(`{"requester":"poolA@x"}`))
+			return
+		}
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+	t.Setenv(runner.EnvServer, srv.URL)
+	t.Setenv(runner.EnvEnvironment, "staging")
+	t.Setenv("TFSTACKPLAN_PR", "7")
+
+	code := runApply([]string{"--dir", dir, "--changed=false"})
+	if code != 0 {
+		t.Fatalf("run apply (no impersonate flag) = %d, want 0", code)
+	}
+	if got := os.Getenv("GOOGLE_OAUTH_ACCESS_TOKEN"); got != "" {
+		t.Errorf("GOOGLE_OAUTH_ACCESS_TOKEN set to %q but should be empty", got)
 	}
 }
