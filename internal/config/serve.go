@@ -39,6 +39,12 @@ type ObjectsConfig struct {
 	Prefix  string
 }
 
+// PubSubConfig configures the Pub/Sub push ingestion endpoint.
+type PubSubConfig struct {
+	Audience       string // expected OIDC audience (default: <public_base_url>/pubsub/push)
+	ServiceAccount string // the push subscription's OIDC service-account email
+}
+
 // ServeConfig is the `serve {}` block: the control-plane server runtime config.
 type ServeConfig struct {
 	DBPath           string
@@ -50,6 +56,7 @@ type ServeConfig struct {
 	Group            *GroupConfig
 	LogsDir          string
 	Objects          *ObjectsConfig
+	PubSub           *PubSubConfig
 }
 
 // GitHubAppConfig is the `github_app {}` sub-block.
@@ -85,6 +92,10 @@ type serveBody struct {
 		Bucket  string `hcl:"bucket,optional"`
 		Prefix  string `hcl:"prefix,optional"`
 	} `hcl:"objects,block"`
+	PubSub *struct {
+		Audience       string `hcl:"audience,optional"`
+		ServiceAccount string `hcl:"service_account,optional"`
+	} `hcl:"pubsub,block"`
 }
 
 type githubAppBody struct {
@@ -123,6 +134,9 @@ func decodeServe(blk *hclsyntax.Block) (*ServeConfig, error) {
 	}
 	if b.Objects != nil {
 		s.Objects = &ObjectsConfig{Backend: b.Objects.Backend, Bucket: b.Objects.Bucket, Prefix: b.Objects.Prefix}
+	}
+	if b.PubSub != nil {
+		s.PubSub = &PubSubConfig{Audience: b.PubSub.Audience, ServiceAccount: b.PubSub.ServiceAccount}
 	}
 	return s, nil
 }

@@ -974,12 +974,18 @@ objects live at `<prefix>/<key>`). Completed-stack logs offload to GCS and serve
 via the stored pointer once the on-disk buffer is gone; `FSStore` remains for
 tests/local. `buildServeApp` reuses the injected `creds` factory for the token.
 
-Still deferred to later phases:
-the **Pub/Sub-push + OIDC event ingestion** (a
-latency optimization over the polling reconcile loop, which already satisfies
-gates); **true requester-pool leasing** (today `requester()` is a `PR mod pool`
-slot — collisions possible up to pool size; leasing replaces it without an
-interface change). The `state` subcommand (Phase 6) is now feature-complete for
+**Pub/Sub push ingestion** is now wired. `POST /pubsub/push` ingests Google
+Pub/Sub push deliveries: the bearer token is OIDC-verified via `idtoken`
+(audience defaults to `<public_base_url>/pubsub/push`, or is set explicitly);
+the verified email is checked against the configured `service_account`. On
+success it triggers a targeted `drive` if the message carries an execution `id`,
+else `reconcilePending` — a latency optimization over the polling `ReconcileLoop`,
+which remains the fallback. Configured via `serve { pubsub { audience
+service_account } }`; disabled (404) when the block is absent.
+
+Still deferred to a later phase: **true requester-pool leasing** (today
+`requester()` is a `PR mod pool` slot — collisions possible up to pool size;
+leasing replaces it without an interface change). The `state` subcommand (Phase 6) is now feature-complete for
 moves: SP1 (same-stack moves) and SP2 (cross-stack moves via native
 import/removed) shipped, and SP3 adds the lock-less `state mv` executor
 (`state move --via mv` + `state apply`). See *`tfstackplan state` (Phase 6)*

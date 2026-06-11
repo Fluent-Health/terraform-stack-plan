@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/approval"
@@ -71,13 +72,22 @@ func buildServeApp(ctx context.Context, cfg *config.Config, secret string, creds
 	}
 
 	app := server.New(db, gh, server.Config{
-		WebhookSecret: secret,
-		PublicBaseURL: s.PublicBaseURL,
-		UseChecks:     s.UseChecks,
-		GroupDepth:    groupDepth(s),
-		GroupPattern:  groupPattern(s),
-		LogsDir:       s.LogsDir,
+		WebhookSecret:      secret,
+		PublicBaseURL:      s.PublicBaseURL,
+		UseChecks:          s.UseChecks,
+		GroupDepth:         groupDepth(s),
+		GroupPattern:       groupPattern(s),
+		LogsDir:            s.LogsDir,
+		PushServiceAccount: pubsubSA(s),
 	})
+
+	if s.PubSub != nil {
+		aud := s.PubSub.Audience
+		if aud == "" {
+			aud = strings.TrimRight(s.PublicBaseURL, "/") + "/pubsub/push"
+		}
+		app.PushVerifier = gcpOIDCVerifier(aud)
+	}
 
 	if s.Approval != nil && s.Approval.Backend == "gcp-pam" {
 		token, impersonate, err := creds(ctx)
@@ -98,6 +108,14 @@ func buildServeApp(ctx context.Context, cfg *config.Config, secret string, creds
 		app.Objects = newGCSObjectStore(token, s.Objects.Bucket, s.Objects.Prefix, "")
 	}
 	return app, cleanup, nil
+}
+
+// pubsubSA returns the configured Pub/Sub push service-account email ("" if unset).
+func pubsubSA(s *config.ServeConfig) string {
+	if s.PubSub != nil {
+		return s.PubSub.ServiceAccount
+	}
+	return ""
 }
 
 // groupDepth returns the configured live-DAG grouping depth (0 if unset).
