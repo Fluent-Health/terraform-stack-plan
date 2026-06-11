@@ -177,6 +177,56 @@ func TestLogStreamSSE(t *testing.T) {
 	waitFor("data: after")
 }
 
+func TestLogStreamResumeFromLastEventID(t *testing.T) {
+	db := newServerTestDB(t)
+	a := New(db, &MockGitHub{}, Config{LogsDir: t.TempDir()})
+	if err := a.appendLog("e1", "s/a", "line1\nline2\nline3\n"); err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(a.Routes())
+	defer srv.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, "GET", srv.URL+"/logs/e1/s/a?follow=1", nil)
+	req.Header.Set("Last-Event-ID", "6") // skip "line1\n"
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	sc := bufio.NewScanner(resp.Body)
+	var got strings.Builder
+	sawID := false
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if !sc.Scan() {
+			break
+		}
+		ln := sc.Text()
+		if strings.HasPrefix(ln, "id: ") {
+			sawID = true
+		}
+		if strings.HasPrefix(ln, "data: ") {
+			got.WriteString(strings.TrimPrefix(ln, "data: "))
+		}
+		if strings.Contains(got.String(), "line3") {
+			break
+		}
+	}
+	out := got.String()
+	if !sawID {
+		t.Error("expected id: lines in the stream")
+	}
+	if strings.Contains(out, "line1") {
+		t.Errorf("resume from offset 6 should skip line1; got %q", out)
+	}
+	if !strings.Contains(out, "line2") || !strings.Contains(out, "line3") {
+		t.Errorf("resume should include line2+line3; got %q", out)
+	}
+}
+
 func TestOffloadAndServeFromStore(t *testing.T) {
 	db := newServerTestDB(t)
 	a := New(db, &MockGitHub{}, Config{LogsDir: t.TempDir()})

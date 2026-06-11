@@ -9,7 +9,9 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
@@ -158,8 +160,9 @@ func (a *App) handleLogServe(w http.ResponseWriter, r *http.Request) {
 }
 
 // streamLog upgrades to Server-Sent Events: subscribe first (so nothing is
-// missed between replay and live), replay the current buffer, then stream live
-// chunks until the client disconnects.
+// missed between replay and live), replay the current buffer (streamed, from the
+// Last-Event-ID byte offset if resuming), then stream live chunks until the
+// client disconnects. A periodic comment heartbeat keeps the connection alive.
 func (a *App) streamLog(w http.ResponseWriter, r *http.Request, exec, stack string) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -174,18 +177,47 @@ func (a *App) streamLog(w http.ResponseWriter, r *http.Request, exec, stack stri
 	ch, unsub := a.hub.subscribe(exec + "|" + stack)
 	defer unsub()
 
-	if p, ok := logFilePath(a.cfg.LogsDir, exec, stack); ok {
-		if data, err := os.ReadFile(p); err == nil && len(data) > 0 {
-			writeSSE(w, string(data))
-			flusher.Flush()
+	var offset int64
+	if id := strings.TrimSpace(r.Header.Get("Last-Event-ID")); id != "" {
+		if n, err := strconv.ParseInt(id, 10, 64); err == nil && n >= 0 {
+			offset = n
 		}
 	}
+	if p, ok := logFilePath(a.cfg.LogsDir, exec, stack); ok {
+		if f, err := os.Open(p); err == nil {
+			if _, err := f.Seek(offset, io.SeekStart); err == nil {
+				buf := make([]byte, 32<<10)
+				for {
+					if r.Context().Err() != nil {
+						f.Close()
+						return
+					}
+					n, e := f.Read(buf)
+					if n > 0 {
+						offset += int64(n)
+						writeSSEEvent(w, offset, string(buf[:n]))
+						flusher.Flush()
+					}
+					if e != nil {
+						break
+					}
+				}
+			}
+			f.Close()
+		}
+	}
+	tick := time.NewTicker(25 * time.Second)
+	defer tick.Stop()
 	for {
 		select {
 		case <-r.Context().Done():
 			return
 		case chunk := <-ch:
-			writeSSE(w, chunk)
+			offset += int64(len(chunk))
+			writeSSEEvent(w, offset, chunk)
+			flusher.Flush()
+		case <-tick.C:
+			fmt.Fprint(w, ": ping\n\n")
 			flusher.Flush()
 		}
 	}
@@ -194,6 +226,16 @@ func (a *App) streamLog(w http.ResponseWriter, r *http.Request, exec, stack stri
 // writeSSE writes one SSE event: each line of data on its own `data:` field,
 // terminated by a blank line.
 func writeSSE(w io.Writer, data string) {
+	for _, line := range strings.Split(strings.TrimSuffix(data, "\n"), "\n") {
+		fmt.Fprintf(w, "data: %s\n", line)
+	}
+	fmt.Fprint(w, "\n")
+}
+
+// writeSSEEvent writes an id-tagged SSE event (id = cumulative byte offset, for
+// Last-Event-ID resume) followed by the data lines.
+func writeSSEEvent(w io.Writer, id int64, data string) {
+	fmt.Fprintf(w, "id: %d\n", id)
 	for _, line := range strings.Split(strings.TrimSuffix(data, "\n"), "\n") {
 		fmt.Fprintf(w, "data: %s\n", line)
 	}

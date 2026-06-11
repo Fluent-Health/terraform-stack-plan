@@ -149,6 +149,24 @@ func TestStackDetailVerifyLink(t *testing.T) {
 	}
 }
 
+func TestStackDetailLogFollow(t *testing.T) {
+	db := newServerTestDB(t)
+	a := New(db, &MockGitHub{}, Config{})
+	srv := httptest.NewServer(a.Routes())
+	defer srv.Close()
+	_ = store.UpsertInit(db, events.Init{ID: "e1", Repo: "o/r", Stacks: []events.StackState{{Path: "stacks/a"}}})
+
+	resp, _ := http.Get(srv.URL + "/live/e1/stack/stacks/a")
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	s := string(body)
+	for _, want := range []string{`id="stacklog"`, "new EventSource", `/logs/e1/stacks/a?follow=1`, "<noscript>"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("stack page Log tab missing %q", want)
+		}
+	}
+}
+
 func TestDrivePublishesChange(t *testing.T) {
 	db := newServerTestDB(t)
 	a := New(db, &MockGitHub{}, Config{})

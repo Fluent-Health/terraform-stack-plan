@@ -929,10 +929,17 @@ in the UI v2 (PR #TBD). This loop runs in both the failed and non-failed paths
 
 The sixth increment wired up **per-stack detail pages**: each stack row on the
 `/live/<id>` page now links to `GET /live/<id>/stack/<stack...>`, which serves
-three tabs — **Log** (stored tail excerpt + link to the full `/logs` stream),
-**Plan** (the stored per-stack plan section from step five), and **Verify** (a
-Phase 4 placeholder). `liveView` carries the execution id (`Exec`) so the template
-can build the hrefs; `handleLive` sets it from `e.ID`.
+three tabs — **Log**, **Plan** (the stored per-stack plan section from step five),
+and **Verify** (a Phase 4 placeholder). `liveView` carries the execution id
+(`Exec`) so the template can build the hrefs; `handleLive` sets it from `e.ID`.
+
+The Log tab live-tails via `EventSource` on `/logs/<exec>/<stack>?follow=1` (the
+hardened SSE stream from Phase 3's second increment — id-tagged, Last-Event-ID
+resumable, heartbeat-kept, with buffer replay on reconnect). The `<pre
+id="stacklog">` element carries a `data-follow-url` attribute (set in HTML
+context to avoid JS-context escaping), which the inline script reads to open the
+`EventSource` and append each `onmessage` line. A `<noscript>` block falls back
+to the stored tail excerpt (or "No log captured" when absent).
 
 The final UI-v2 increment adds **execution navigation**: a landing index at
 `GET /{$}` (the most recent executions, newest first) and a per-PR timeline at
