@@ -904,6 +904,13 @@ populated by the runner) and calls `store.UpsertStackOutput(id, stack, "plan",
 in the UI v2 (PR #TBD). This loop runs in both the failed and non-failed paths
 (it executes before the `f.Failed` early-return branch).
 
+The sixth increment wired up **per-stack detail pages**: each stack row on the
+`/live/<id>` page now links to `GET /live/<id>/stack/<stack...>`, which serves
+three tabs — **Log** (stored tail excerpt + link to the full `/logs` stream),
+**Plan** (the stored per-stack plan section from step five), and **Verify** (a
+Phase 4 placeholder). `liveView` carries the execution id (`Exec`) so the template
+can build the hrefs; `handleLive` sets it from `e.ID`.
+
 Still deferred to later phases: the rest of Phase 3 — the `serve`-side wiring of
 the object store (a GCS `ObjectStore` impl + an `ObjectsDir`/bucket config knob);
 and the **UI v2** (grouped/folding list, per-stack Log/Plan/Verify

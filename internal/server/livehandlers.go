@@ -44,6 +44,7 @@ func (a *App) handleLive(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Write([]byte(a.livePage(liveView{
+		Exec:        e.ID,
 		Repo:        e.Repo,
 		Environment: e.Environment,
 		Report:      report,

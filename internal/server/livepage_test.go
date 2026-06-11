@@ -67,7 +67,7 @@ func TestLivePageStackListAndTimeline(t *testing.T) {
 		{Path: "stacks/b", Status: events.StatusSafe},
 	}
 	html := a.livePage(liveView{
-		Repo: "o/r", Environment: "staging", Phase: events.PhasePlanning,
+		Exec: "e1", Repo: "o/r", Environment: "staging", Phase: events.PhasePlanning,
 		Stacks: stacks, Report: "", SVG: `<svg id="dag"></svg>`, Panel: "",
 	})
 	for _, want := range []string{
@@ -75,6 +75,7 @@ func TestLivePageStackListAndTimeline(t *testing.T) {
 		"badge-warning", "badge-success",
 		"steps", "planning",
 		`<svg id="dag">`,
+		"/live/e1/stack/stacks/a",
 	} {
 		if !strings.Contains(html, want) {
 			t.Errorf("live page missing %q", want)

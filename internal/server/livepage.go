@@ -42,6 +42,7 @@ func approvalPanel(targets []store.GateTarget) string {
 
 // liveView is the data the live template renders.
 type liveView struct {
+	Exec                      string
 	Repo, Environment, Report string
 	Phase                     events.Phase
 	Stacks                    []events.StackState
@@ -58,12 +59,13 @@ func (a *App) livePage(v liveView) string {
 	}
 	var buf bytes.Buffer
 	_ = a.tmpl.ExecuteTemplate(&buf, "live.gohtml", struct {
-		Title, Repo, Report string
-		Timeline            []phaseStep
-		Groups              []stackGroup
-		SVG, Panel          template.HTML
+		Title, Exec, Repo, Report string
+		Timeline                  []phaseStep
+		Groups                    []stackGroup
+		SVG, Panel                template.HTML
 	}{
 		Title:    title,
+		Exec:     v.Exec,
 		Repo:     v.Repo,
 		Report:   v.Report,
 		Timeline: phaseTimeline(v.Phase),
