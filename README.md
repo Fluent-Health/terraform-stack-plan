@@ -1,13 +1,24 @@
 # tfstackplan
 
-Render many Terraform `plan.json` files — one per stack, as produced by a
-Terramate / Terragrunt / multi-root-module monorepo — into a **single,
-reviewer-friendly markdown report** for a PR comment.
+One tool with **four faces** for multi-stack Terraform CI — a monorepo that
+produces N plans per PR (Terramate / Terragrunt / multi-root-module):
 
-It's the multi-stack rollup that single-plan renderers like
-[`tfplan2md`][tfplan2md] don't cover: a tier-level summary table plus a
-collapsed per-stack drill-down, with optional classification to flag stacks
-that need extra review (IAM, destructive changes, …).
+- **`render`** — merge many `plan.json` files (one per stack) into a single,
+  reviewer-friendly **markdown PR comment**, with optional classification. A
+  pure, offline renderer — it never runs `terraform` and never posts.
+- **`run`** — the **CI driver** that wraps your `terramate script run`, detects
+  the changed stacks, runs plan/apply/verify, renders + classifies in-process,
+  and reports the execution lifecycle to the control plane.
+- **`serve`** — the **control plane**: a live dependency-DAG UI, approval gates,
+  one GitHub check run per environment, and SSE-tailed per-stack logs.
+- **`state`** — declarative **cross-stack Terraform state moves**, applied as
+  part of the normal apply.
+
+Module path: `github.com/Fluent-Health/terraform-stack-plan`.
+
+`render` is fully standalone — you can use it on its own without ever touching
+`run` / `serve` / `state`. The other faces layer a control plane on top while
+Terraform keeps executing in *your* CI under *your* identities.
 
 [tfplan2md]: https://github.com/oocx/tfplan2md
 
@@ -76,45 +87,6 @@ one open row per resource showing its attributes:
 
 </details>
 
-Structured values (JSON/YAML strings and native HCL maps/lists) render as a
-**contextual diff** — canonically re-formatted, 2 lines of context, changed
-lines as `-`/`+`, tagged with the kind. Small ones stay inline (open); big ones
-**collapse** to a closed row:
-
-<details open><summary>📁&nbsp;<b>observability/grafana</b> · ✅ safe · structured fields (excerpt)</summary>
-
->
-> <details open><summary>✏️&nbsp;kubernetes_manifest.ingress<br>&nbsp;&nbsp;&nbsp;&nbsp;1 changed</summary>
->
-> ```diff
-> ~ manifest (yaml):
->  spec:
-> -    key_00: old
-> -    key_01: old
-> +    key_00: new
-> +    key_01: new
->      key_02: old
->      key_03: old
-> ```
->
-> </details>
->
-> <details><summary>✏️&nbsp;kubernetes_manifest.configmap<br>&nbsp;&nbsp;&nbsp;&nbsp;1 changed</summary>
->
-> ```diff
-> ~ manifest (yaml):
->  spec:
-> -    key_00: old
-> -    key_01: old
-> +    key_00: new
-> +    key_01: new
->   … (many paths changed → folds to a closed row)
-> ```
->
-> </details>
-
-</details>
-
 The first line of the real output is an HTML-comment marker
 (`<!-- tfstackplan:nonprod -->`, invisible above) that CI uses to upsert one
 comment per tier.
@@ -126,7 +98,6 @@ Key render behaviours:
 - **Aligned changes:** `~ path = old → new`, with `=` aligned and nested maps keeping their name via dotted paths (`+ labels.team = "platform"`). Diff-body markers stay ASCII `+/-/~` so GitHub colours them.
 - **Structured values** (JSON/YAML strings and native HCL maps/lists) render as a **contextual diff** — the value canonically re-formatted, 2 lines of context, changed lines as `-`/`+`, tagged with its kind (`~ policy (json):`). Small diffs stay inline; big ones collapse the row.
 - **State operations** surface as rows too: moved (↪️ `addr` / `moved from …`), imported (📥 `addr` / `imported · id=…`, the id monospaced), and removed-from-state (⏏️ `addr` / `forgotten`). These have no summary-table columns; their counts append to the stack's row text.
-- `--details open|auto` overrides the per-row default; zero-only columns are dropped; without a classification policy the `Categories` column disappears.
 
 ### More examples
 
@@ -137,345 +108,373 @@ biggest diffs first, then dropping detail. These files are real tool output
 - [`examples/big-plan.md`](examples/big-plan.md) — 58 changes across 8 stacks,
   full detail, fits the default 60 KB budget.
 - [`examples/over-budget-degraded.md`](examples/over-budget-degraded.md) —
-  tighter budget: large diffs collapse to one-line summaries
-  (`~ data · text · 120 lines · 240 changed (hidden to fit size limit)`), small
-  diffs kept.
+  tighter budget: large diffs collapse to one-line summaries, small diffs kept.
 - [`examples/over-budget-summary-only.md`](examples/over-budget-summary-only.md) —
   tighter still: all `<details>` dropped, summary table + a notice retained.
 - [`examples/over-budget-minimal.md`](examples/over-budget-minimal.md) — past
   every simplification and still over budget: a one-line aggregate is emitted
   and the tool exits non-zero so CI can surface it.
 - [`examples/state-ops.md`](examples/state-ops.md) — **moved** (↪️),
-  **imported** (📥), and **removed-from-state / forget** (⏏️) resources; and
-  **contextual diffs** for nested JSON, YAML, and native HCL blocks (2 lines of
-  context, `-`/`+` changes), in small (inline) and big (folded) form.
+  **imported** (📥), and **removed-from-state / forget** (⏏️) resources, plus
+  **contextual diffs** for nested JSON, YAML, and native HCL blocks.
 - [`examples/long-names.md`](examples/long-names.md) — deeply nested module
-  paths and **for-each `["key"]` indices** (a long member principal, an empty
-  `[""]` key) plus a long import id, rendered expanded so you can judge how long
-  row summaries wrap to two lines.
+  paths and **for-each `["key"]` indices**, rendered expanded to judge wrapping.
 
 ---
 
-## Install
+## Install / build
 
 ```bash
 go install github.com/Fluent-Health/terraform-stack-plan/cmd/tfstackplan@latest
+# or
+go build -o tfstackplan ./cmd/tfstackplan
 ```
 
-Or grab a prebuilt binary from the
-[Releases](https://github.com/Fluent-Health/terraform-stack-plan/releases) page,
-or build from source: `go build -o tfstackplan ./cmd/tfstackplan`.
+A prebuilt binary is on the
+[Releases](https://github.com/Fluent-Health/terraform-stack-plan/releases) page.
+The release also ships a **multi-arch, distroless Cloud Run container** (its
+entrypoint is `serve`) pushed to GHCR — the binary is fully static (pure-Go
+SQLite, no cgo) and embeds its assets, so the image needs no runtime files.
 
 ---
 
-## Usage
+## `render` — plan.json files → one markdown comment
 
 Each stack contributes one `tfplan.json` (`terraform show -json plan.bin`).
 Collect them under one directory that mirrors your stack tree —
 `out/<stack>/tfplan.json` — and point the tool at it:
 
 ```bash
-tfstackplan --plans-dir out/ \
+tfstackplan render --plans-dir out/ \
   --title  "Terraform plan — nonprod" \
   --marker tfstackplan:nonprod \
   --output report.md
 ```
 
-Each `tfplan.json` found defines a stack; its **name** is the directory holding
-it, relative to `--plans-dir` (so `out/platform/nonprod/tfplan.json` →
-`platform/nonprod`). Stacks render in alphabetical order. An empty (or absent)
-set of plans renders a header-only "0 stacks changed" report.
+A bare flags-first invocation (`tfstackplan --plans-dir …`) also renders, for
+backward compatibility. Each `tfplan.json` found defines a stack; its **name**
+is the directory holding it, relative to `--plans-dir` (so
+`out/platform/nonprod/tfplan.json` → `platform/nonprod`). Stacks render
+alphabetically. An empty (or absent) set of plans renders a header-only
+"0 stacks changed" report.
 
-### Driving from your orchestrator
-
-**Terramate** — a per-stack `script` writes each plan into the central tree
-(`terramate.stack.path.to_root` climbs back to the repo root), then one render
-step rolls them up:
-
-```hcl
-script "plan-report" {
-  job {
-    commands = [
-      ["terraform", "plan", "-out", "tfplan.bin"],
-      ["sh", "-c", "mkdir -p ${terramate.stack.path.to_root}/out/${terramate.stack.path.relative} && terraform show -json tfplan.bin > ${terramate.stack.path.to_root}/out/${terramate.stack.path.relative}/tfplan.json"],
-    ]
-  }
-}
-```
-
-```bash
-terramate script run plan-report
-tfstackplan --plans-dir out/ --output report.md
-```
-
-**Terragrunt** — its native `--json-out-dir` already produces the right shape:
-
-```bash
-terragrunt run --all --filter-affected plan --json-out-dir out
-tfstackplan --plans-dir out --output report.md
-```
-
-The source-aware links feature resolves each resource against
-`<repo-root>/<stack name>`, so it works automatically when `out/` mirrors the
-stack tree (the default above). Set `--repo-root` if you run the tool from
-elsewhere.
-
----
-
-## Classification (optional)
-
-Classification is **computed by the tool**, not supplied per stack: each stack's
-plan is matched against rules in an HCL policy file (`--config`, or
-auto-discovered `.tfstackplan.hcl` in the working directory). Every rule whose
-matcher fires contributes a category, so a stack carries the set of categories it
-matched; a stack that matches nothing is shown as the `default`.
-
-```hcl
-# .tfstackplan.hcl  — repo policy, checked into git
-classification {
-  default {
-    name = "safe"
-    icon = "✅"
-  }
-
-  preset "iam" {            # built-in matcher; you only pick the icon
-    icon = "🔐"
-  }
-
-  rule "destructive" {      # custom matcher
-    icon      = "💣"
-    actions   = ["delete"]
-    min_count = 1
-  }
-}
-```
-
-Every matching `preset`/`rule` fires independently (a stack can carry several
-categories); declaration order controls the **display order** of the badges, so
-put the most important first.
-
-**Presets** ship a maintained matcher so you don't hand-write regexes; only the
-icon is configurable:
-
-| Preset | Matches | Default icon |
-|--------|---------|--------------|
-| `iam`  | IAM resources on GCP (`*_iam_{policy,binding,member,audit_config}`), AWS (`aws_iam_*`), Azure (`azurerm_role_{assignment,definition}`). Any action, so an in-place policy update still flags as `iam`. | `🔐` |
-
-**Custom rules** take the category name from the block label, plus a small matcher:
-
-| Field                   | Meaning                                                          | Default    |
-|-------------------------|------------------------------------------------------------------|------------|
-| `icon`                  | Glyph prepended to the category name                            | none       |
-| `resource_type_pattern` | Regex matched against each change's `type`                      | `.*` (any) |
-| `actions`               | A change matches only if ALL listed actions appear in it        | any action |
-| `min_count`             | Minimum matching changes for the rule to fire                   | 1          |
-
-`default` can also be written as a bare string (`default = "safe"`) when you
-don't want an icon.
-
-### Sidecar JSON for CI gating
-
-`--emit-classification-json` hands CI the result as data — the sidecar nests
-per-stack categories under `stacks` plus a run-level `summary`:
-
-```bash
-tfstackplan --plans-dir out/ --config .tfstackplan.hcl \
-            --output report.md --emit-classification-json classes.json
-```
-
-```json
-{
-  "stacks": {
-    "platform/nonprod": { "categories": [
-      { "category": "iam",         "icon": "🔐", "attributes": { "project": ["fh-host-nonprod"] } },
-      { "category": "destructive", "icon": "💣" }
-    ]},
-    "service-projects/app-dev": { "categories": [] }
-  },
-  "summary": { "categories": [
-    { "category": "iam",         "icon": "🔐", "attributes": { "project": ["fh-host-nonprod", "fh-svc-dev"] } },
-    { "category": "destructive", "icon": "💣" }
-  ]}
-}
-```
-
-Each stack lists its matched `categories` (`[]` when it matched nothing — the
-`default`/`safe` fallback is display-only and never appears here). `icon` is
-`null` when the category has none. `summary.categories` lists every category
-present across the run with the per-key sorted-unique union of its attributes —
-this is what a CI gate consumes (one category → its subjects). The flag is a
-no-op without classification.
-
-#### Emitting matched attributes
-
-A `rule` or `preset` can also surface attributes of the changes it matched, so
-CI can gate on *which subjects* triggered the category — e.g. the GCP projects with
-IAM changes:
-
-```hcl
-classification {
-  preset "iam" {
-    icon            = "🔐"
-    emit_attributes = ["project"]
-  }
-}
-```
-
-The sidecar then carries the sorted-unique, non-null values per stack:
-
-```json
-{
-  "stacks": {
-    "platform/nonprod": { "categories": [
-      { "category": "iam", "icon": "🔐", "attributes": { "project": ["fh-host-nonprod", "fh-svc-dev"] } }
-    ]}
-  }
-}
-```
-
-- Values come from the **matched changes only** (a `safe` stack emits nothing),
-  read from each change's `after` (falling back to `before` for deletes).
-- **Top-level scalar attributes only**; nested paths are not supported.
-- **Sensitive values are never emitted.**
-- `attributes` is omitted when the firing rule declares no `emit_attributes` or
-  no values were found.
-- For `project` specifically: when the matched changes carry none (e.g.
-  bucket-scoped `google_storage_bucket_iam_member`), it falls back to the stack's
-  unique project (the single distinct `project` across all the stack's changes).
-  Ambiguous stacks (0 or >1 distinct projects) emit none — gates fail closed.
-
-#### Cross-state move targets (`--state-moves`)
-
-When a stack is the **destination** of a cross-state move (e.g. from an infra
-state-mover that runs `terraform state mv -state=old.tfstate -state-out=new.tfstate`),
-Terraform plans a **create** for the arriving resource. That create is a
-relocation — not a real mutation — and must not trip the per-project IAM gate.
-
-Pass a JSON manifest listing the destination addresses per stack:
-
-```bash
-tfstackplan --plans-dir out/ --config .tfstackplan.hcl \
-            --emit-classification-json classes.json \
-            --state-moves moves.json
-```
-
-```json
-{
-  "service-projects/migrated": [
-    "module.moved.google_project_iam_member.a",
-    "module.moved.google_storage_bucket_iam_member.logs"
-  ]
-}
-```
-
-Keys are the **stack names** as they appear in `--plans-dir` (i.e. the directory
-path of each `tfplan.json` relative to `--plans-dir`). Each listed address is
-treated as non-mutating: its planned create classifies the same way as an
-in-stack `moved` — it does not count toward any rule's `min_count` and its
-attributes are never emitted.
-
-**Absent flag is fail-safe:** omitting `--state-moves` leaves classification
-completely unchanged. Every create is treated as a real create, so the gate is
-never silently bypassed.
-
----
-
-## Diff configuration (optional)
-
-The same HCL file can tune per-attribute diffs via a `diff {}` block. The
-built-in renderer sniffs structured values (JSON / YAML / base64) and picks a
-sensible diff style; use a `rule` to force one when detection misfires.
-
-```hcl
-diff {
-  detect              = true   # auto-detect JSON/YAML/base64 (default: true)
-  max_attribute_lines = 200    # optional skimmability ceiling; unset = fit decides
-
-  rule {
-    resource_type_pattern = "^kubernetes_manifest$"
-    attribute             = "manifest"   # exact name or glob
-    differ                = "yaml"
-  }
-}
-```
-
----
-
-## Links (optional)
-
-The report can link out to your code and CI. URL **templates** live in the HCL
-policy; per-run **values** are supplied with `--link-var key=value` (repeatable)
-and `--repo-root` (base for computing file paths). The tool runs alongside the
-source, so it parses each stack's `.tf` (and modules resolved via
-`.terraform/modules/modules.json`) to find where each changed resource is
-declared and links the resource address to that `file#Lline` at the commit.
-
-```hcl
-links {
-  resource = "https://github.com/org/infra/blob/{sha}/{file}#L{line}"
-  stack    = "https://github.com/org/infra/tree/{sha}/{stack_dir}"
-  header {
-    label = "Cloud Build #{build_id}"
-    url   = "https://console.cloud.google.com/cloud-build/builds/{build_id}?project={project}"
-  }
-  header {
-    label = "PR #{pr}"
-    url   = "https://github.com/org/infra/pull/{pr}"
-  }
-}
-```
-
-```bash
-tfstackplan --plans-dir out/ --config .tfstackplan.hcl \
-  --repo-root . \
-  --link-var sha=$COMMIT_SHA --link-var pr=$_PR_NUMBER \
-  --link-var build_id=$BUILD_ID --link-var project=$PROJECT_ID
-```
-
-- **Three levels:** `header` (a line of links under the title), `stack` (the
-  stack heading → its directory at the commit), and `resource` (the resource
-  address → its `.tf` declaration at the commit).
-- **Template vars** are tool-computed — `{file}`, `{line}`, `{stack}`,
-  `{stack_dir}`, `{type}`, `{name}`, `{address}`, `{module}`, `{sha_short}` — or
-  supplied via `--link-var` (`{sha}`, `{build_id}`, `{pr}`, `{project}`, …). A
-  template that references a missing var renders empty, so that link is omitted
-  — partially-configured runs degrade cleanly.
-- **Stack source dir** is `<repo-root>/<stack name>`, where the stack name is
-  the directory of the `tfplan.json` relative to `--plans-dir`.
-- **Fallback:** a resource the tool can't resolve to a repo file (remote/cached
-  module, un-`init`-ed stack, parse gap) falls back to the **stack** link, never
-  a dead end. Deep-linking to the PR *diff hunk* isn't possible (GitHub
-  limitation) — the resource link points at its block at `{sha}`.
-
----
-
-## CLI reference
+### Flags
 
 ```
-tfstackplan --plans-dir DIR
+tfstackplan render --plans-dir DIR
             [--title TEXT] [--marker TEXT]
             [--config FILE]                 # HCL policy; default: auto-discover .tfstackplan.hcl
-            [--max-bytes N]                 # default 60000; 0 disables
+            [--max-bytes N]                 # default 60000; 0 disables the budget
             [--details auto|open|closed]    # default closed (auto = open iff one stack changed)
             [--emit-classification-json FILE]
-            [--state-moves FILE]            # JSON manifest of cross-state move targets (see below)
+            [--state-moves FILE]            # JSON manifest of cross-state move targets (see `state`)
             [--repo-root DIR]               # base for link file paths (default ".")
             [--link-var key=value]          # link template var (repeatable)
             [--output FILE | -]             # default '-' (stdout)
             [--version]
 ```
 
-`--plans-dir` is required; it is scanned for `tfplan.json` files. With no
-`--config` and no `.tfstackplan.hcl` present, classification is off, diffs use
-defaults, and no links are emitted.
+`--plans-dir` is required. With no `--config` and no `.tfstackplan.hcl` present,
+classification is off, diffs use defaults, and no links are emitted — the tool
+degrades gracefully with zero config.
+
+### Classification (presets + rules)
+
+Classification is **computed by the tool**: each stack's plan is matched against
+rules in the HCL policy. Every rule whose matcher fires contributes a category
+(a stack carries the *set* it matched, in declaration order); a stack matching
+nothing shows the `default`.
+
+```hcl
+classification {
+  default { name = "safe", icon = "✅" }   # or shorthand: default = "safe"
+
+  preset "iam" {            # built-in matcher (you only pick the icon)
+    icon            = "🔐"
+    emit_attributes = ["project"]   # surface matched subjects for CI gating
+  }
+
+  rule "destructive" {      # custom matcher; name = block label
+    icon                  = "💣"
+    resource_type_pattern = ".*"        # default: any type
+    actions               = ["delete"]  # matches iff ALL listed actions appear
+    min_count             = 1
+  }
+}
+```
+
+The **`iam` preset** matches IAM resources on GCP
+(`*_iam_{policy,binding,member,audit_config}`), AWS (`aws_iam_*`), and Azure
+(`azurerm_role_{assignment,definition}`); any action, so an in-place policy
+update still flags. Classification considers only changes that **mutate the real
+resource** (add/change/destroy/replace) — pure `move`/`import`/`forget` state
+operations never contribute a category.
+
+`--emit-classification-json` hands CI the result as data: per-stack `categories`
+under `stacks`, plus a run-level `summary` with the per-key sorted-unique union
+of emitted attributes — what a gate consumes. See
+[`examples/.tfstackplan.hcl`](examples/.tfstackplan.hcl) for a complete
+classification + diff policy.
+
+### The byte budget
+
+GitHub's 65,536-byte comment cap counts the raw markdown source (collapsed
+`<details>` still counts). `fit` keeps the report under `--max-bytes` (default
+60,000) by degrading the **largest diff first** — preferred → summary → hidden —
+deterministically (byte-identical re-runs, so CI upserts don't churn). If even
+all-minimal overflows, it cascades: summary-only → one-line aggregate → a
+best-effort floor that exits non-zero. The summary table and classification are
+**never** reduced.
+
+### Diff config + links (optional)
+
+A `diff {}` block tunes per-attribute diffs (force a `differ` when type
+detection misfires); a `links {}` block adds header/stack/resource links
+(resource → its `.tf` declaration at the commit, resolved by parsing the source
+tree). Both live in the same `.tfstackplan.hcl`; see
+[`examples/.tfstackplan.hcl`](examples/.tfstackplan.hcl).
+
+---
+
+## `run` — the CI driver
+
+`run` wraps your `terramate script run` and reports the execution to the control
+plane. It reads its context from the **environment** the orchestrator sets
+(`internal/runner/env.go`); an empty server URL is a full no-op, so local runs
+and `run tick` work offline:
+
+| Env var | Meaning |
+| --- | --- |
+| `TFSTACKPLAN_SERVER` | control-plane base URL (`""` = offline, no-op) |
+| `TFSTACKPLAN_TOKEN` | bearer secret for `/api/*` |
+| `TFSTACKPLAN_EXECUTION` | execution id this run reports under |
+| `TFSTACKPLAN_STACK` | current stack path (fallback for `run tick --stack`) |
+| `TFSTACKPLAN_ENVIRONMENT` | deployment environment for the execution |
+| `TFSTACKPLAN_PR` | PR number |
+| `TFSTACKPLAN_REPO` | `owner/repo` |
+| `TFSTACKPLAN_SHA` | head commit SHA |
+
+Server reporting is **best-effort**: a down or absent server degrades the build
+to "no live progress", never to failure. The apply-time gate check is the one
+**fail-closed** exception.
+
+### `run plan`
+
+```
+tfstackplan run plan --dir DIR
+        [--changed]          # only plan changed stacks (default true)
+        [--parallel N]       # parallel plan jobs (0 = terramate default)
+        [--base REF]         # git base ref for change detection
+        [--script NAME]      # terramate script name (default "plan")
+        [--log-file NAME]    # per-stack log file the script tees (default tfstackplan.log; empty disables)
+        [--config FILE]      # default: auto-discover .tfstackplan.hcl under --dir
+```
+
+Detects the changed stacks, registers the execution + dependency DAG (`Init`),
+runs the terramate plan script across the changed set (setting the
+`TFSTACKPLAN_*` env so each stack's `run tick` reports progress), gathers each
+stack's `tfplan.json`, renders + classifies **in-process**, derives the approval
+gates (each gating `class` × its emitted target values) and the moving stacks,
+and posts `Finalize`. Per-stack logs stream live to the server from the
+`--log-file` each stack's terramate script tees terraform output to.
+
+### `run apply`
+
+```
+tfstackplan run apply --dir DIR
+        [--changed] [--base REF] [--script NAME]   # default script "apply"
+        [--log-file NAME]
+        [--state-lock]       # pessimistic GCS lock around cross-state moves (requires ADC)
+```
+
+1. **Fail-closed gate pre-check** — asks the server whether the PR's gates are
+   satisfied *before touching terramate*; a 409, any non-2xx, or an unreachable
+   *configured* server blocks the apply (an unconfigured server is a no-op pass).
+2. **Cross-state move pre-phase** — executes any pending `_tfsp_xmove.*.hcl`
+   manifests (see [`state`](#state--cross-stack-state-moves)); `--state-lock`
+   wraps them in the pessimistic GCS lock. Fail-closed.
+3. Applies the changed stacks **in dependency order** (no `--parallel`), then
+   revokes the PR's grants afterward (best-effort).
+
+### `run verify`
+
+```
+tfstackplan run verify --dir DIR [--changed] [--base REF] [--script NAME] [--log-file NAME]
+```
+
+Runs the terramate `verify` script (default) across changed stacks — **no gate**,
+read-only post-apply validation — and reports a `verify/<env>` check run with its
+own live page and per-stack Verify tab.
+
+### `run tick`
+
+```
+tfstackplan run tick [--stack PATH] [--status STATUS] [--detail TEXT]
+```
+
+The internal per-stack reporter the terramate scripts call between commands. It
+reads the execution context from the `TFSTACKPLAN_*` env, posts a best-effort
+`update`, and is a no-op offline or on any server error — a tick never fails the
+build.
+
+---
+
+## `serve` — the control plane
+
+```
+tfstackplan serve [--config FILE] [--addr :8080]
+```
+
+`serve` ties the server together from the `serve {}` config block (see
+[Configuration](#configuration-tfstackplanhcl)): opens the SQLite store, builds
+the real GitHub App client and the gcp-pam approval backend (from ADC), starts
+the reconcile loop, and serves. Public read routes (same sensitivity as plan
+output already on the PR, behind unguessable execution ids); `/api/*` is
+bearer-authed.
+
+- **Live DAG.** The execution renders as a **group-level** dependency graph:
+  stacks fold into group nodes by their path → `env/kind` (configurable via the
+  `group {}` block — depth or regexp), laid out in **per-environment swimlanes**,
+  each node showing its stack-count, **worst status**, and 🔐/💣 category badges.
+  An inert, self-contained SVG (survives GitHub's image proxy).
+- **Drill-down.** A folding per-stack list (grouped by the same key); each stack
+  links to a detail page with **Log / Plan / Verify** tabs, **live-tailed via
+  Server-Sent Events** (no polling refresh).
+- **Navigation.** An execution index at `/` (most recent first) and a per-PR
+  timeline at `/pr/{n}`.
+- **Approval gates** keyed `(class, target)` — multiple approval classes, each
+  binding a classification class to a PAM entitlement and scope. The server only
+  ever *requests* a grant; humans approve in the backing provider. The **GCP PAM**
+  backend uses true requester leasing (impersonates the first pool identity with
+  no open grant, falling back to a `PR mod pool` slot only when exhausted).
+- **GitHub checks.** One check run per environment (`plan/<env>` — the same name
+  as the commit-status context, so branch protection requires one consistent
+  context). `use_checks = false` falls back to commit statuses (link mode).
+- **Pub/Sub push ingestion** (OIDC-verified) as a latency win over the poll loop.
+
+See [`examples/serve.tfstackplan.hcl`](examples/serve.tfstackplan.hcl) for the
+full config and [Deployment](#deployment) below.
+
+---
+
+## `state` — cross-stack state moves
+
+`tfstackplan state` is operator-driven, declarative Terraform state-move
+machinery. `state move` writes **PR-keyed shim files** that the normal `run
+apply` then applies — no out-of-band `terraform state` surgery in the apply path.
+
+```
+tfstackplan state move --dir DIR [--stack STACK] [--pr N] [--via mv] <from> <to> …
+tfstackplan state list    --dir DIR [--pr N]
+tfstackplan state cleanup --dir DIR (--pr N | --all)
+tfstackplan state apply   --dir DIR [--execute] [--lock]
+```
+
+`state move` routes each `<from> <to>` pair by comparing the two sides' stacks
+(`--stack` is the default for unqualified addresses; an explicit `stack:addr`
+prefix overrides). All pairs are validated against the relevant `tfplan.json`(s)
+before anything is written (fail-closed):
+
+- **Same-stack** → a native `moved {}` block.
+- **Cross-stack** → an `import { to id }` block in the destination shim (the `id`
+  is read from the destroyed resource's `before.id` in the source plan) + a
+  `removed { … lifecycle { destroy = false } }` block in the source shim — the
+  resource is adopted into the new state and dropped from the old without being
+  destroyed.
+- **`--via mv`** → instead records a `_tfsp_xmove.<key>.hcl` manifest in the
+  destination stack, applied by the faithful `terraform state mv` executor
+  (`state apply`) rather than by `run apply`.
+
+Shims are keyed `PR-<n>` (from `--pr` / `$TFSTACKPLAN_PR`), else `branch-<name>`,
+else `local`. `state apply` discovers every `_tfsp_xmove.*.hcl` manifest and runs
+it via terraform-exec (pull → back up under `.tfsp-state-backups` → per-pair
+fail-closed decision → `state mv` → push, never `--force`). It is **dry-run by
+default**; `--execute` performs the moves, and `--lock` adds a pessimistic GCS
+lock. The same executor runs in the `run apply` cross-state-move pre-phase
+(always `--execute`, behind `--state-lock`).
+
+On the projecting side, `render --state-moves moves.json` classifies cross-state
+move-targets (their planned *creates*) as relocations, so they don't trip the
+per-project IAM gate.
+
+---
+
+## Configuration (`.tfstackplan.hcl`)
+
+One HCL file drives all four faces; every block is optional and
+backward-compatible (a render-only file needs none of the server blocks).
+
+| Block | Used by | Purpose |
+| --- | --- | --- |
+| `classification {}` | render, run | presets / rules / `default`, with `emit_attributes` + `derive {}` |
+| `diff {}` | render | per-attribute diff defaults + overrides (`detect`, `max_attribute_lines`, `rule {}`) |
+| `links {}` | render | header / stack / resource URL templates |
+| `server {}` | run, serve | `url`, `environment` |
+| `class "<name>" {}` | run, serve | `backend`, `entitlement`, `entitlement_scope`, `required` — bind a class to an approval gate |
+| `serve {}` | serve | the control-plane runtime (below) |
+
+The `serve {}` block (real field names):
+
+```hcl
+serve {
+  db_path            = "/data/tfstackplan.db"
+  public_base_url    = "https://tfstackplan.example.com"
+  use_checks         = true
+  webhook_secret_env = "TFSTACKPLAN_WEBHOOK_SECRET"  # env var NAME, not the secret
+  logs_dir           = "/data/logs"
+
+  github_app {
+    app_id           = "123456"
+    installation_id  = "78901234"
+    private_key_path = "/secrets/github-app.pem"
+  }
+
+  approval "gcp-pam" {                  # block label = backend
+    location       = "global"
+    duration       = "28800s"
+    requester_pool = ["sa0@…", "sa1@…"]
+  }
+
+  group   { depth = 2 }                 # or: pattern = "regexp" (first capture = group key)
+  objects { backend = "gcs", bucket = "tfstackplan-logs", prefix = "executions" }
+  pubsub  { audience = "…/pubsub/push", service_account = "…@….gserviceaccount.com" }
+}
+```
+
+The full, commented reference is
+[`examples/serve.tfstackplan.hcl`](examples/serve.tfstackplan.hcl) (kept valid by
+a parse test).
+
+---
+
+## Deployment
+
+`serve` runs as a Cloud Run-class service:
+
+- **Container** — point Cloud Run at the released distroless image
+  (`ghcr.io/<org>/tfstackplan:<tag>`, entrypoint `serve`). Single instance per
+  environment (the SQLite store is single-writer by design; WAL + busy_timeout
+  set at the DSN level).
+- **Logs** — set `serve { logs_dir }` for per-stack buffers and `objects { … }`
+  for GCS offload of completed-stack logs (served back via a stored pointer, so
+  viewers need no cloud IAM).
+- **Pub/Sub** — `serve { pubsub { … } }` enables OIDC-verified push ingestion as
+  a latency win over the poll loop.
+- **Credentials** — Application Default Credentials supply the GCP creds for PAM
+  (impersonation), GCS, and OIDC verification; the GitHub App key is a mounted
+  PEM file (`github_app { private_key_path }`).
+
+Deeper notes live in `docs/deploy-cloud-run.md`, `docs/ci-integration.md`, and
+`SECURITY.md`.
 
 ---
 
 ## Out of scope
 
-- **Posting** to GitHub / GitLab / Bitbucket — the tool writes markdown; your CI
-  posts it. Keeps it a pure, offline-testable renderer.
-- **Running `terraform plan`** — inputs are pre-existing `plan.json` files.
+- **Posting** to GitHub / GitLab / Bitbucket — `render` writes markdown; your CI
+  posts it. (`serve` does post checks/statuses for its own check runs.)
+- **Running `terraform plan`** in `render` — its inputs are pre-existing
+  `plan.json` files. (`run` drives terramate, which runs terraform.)
 - **Static-analysis rollup** (Checkov, Trivy, SARIF) — possible later.
 
 See [`docs/DESIGN.md`](docs/DESIGN.md) for architecture and design rationale.

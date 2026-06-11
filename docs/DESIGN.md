@@ -1104,6 +1104,11 @@ image build lands in the `serve`-wiring increment (it is only useful once `serve
 exists); Litestream replication and secret mounting are deployment concerns
 documented there and in `SECURITY.md`.
 
+The repo `README.md` is the user-facing guide for all four faces
+(`render`/`run`/`serve`/`state`), and `examples/serve.tfstackplan.hcl` is the
+control-plane config reference (kept valid by a `config` parse test,
+`TestExampleServeConfigParses`).
+
 ## Future / deferred
 
 - `tfplan2md` shell-out renderer behind a `--render` flag.
