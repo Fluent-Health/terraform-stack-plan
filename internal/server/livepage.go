@@ -7,6 +7,7 @@ import (
 	"html/template"
 	"strings"
 
+	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
 
@@ -39,25 +40,36 @@ func approvalPanel(targets []store.GateTarget) string {
 		`<tbody>` + rows.String() + `</tbody></table></div>`
 }
 
+// liveView is the data the live template renders.
+type liveView struct {
+	Repo, Environment, Report string
+	Phase                     events.Phase
+	Stacks                    []events.StackState
+	SVG, Panel                string
+}
+
 // livePage renders the auto-refreshing execution page via the DaisyUI template.
-// svg and panel are trusted server-generated HTML, injected un-escaped; repo,
-// title and the report body are auto-escaped. The report is preformatted text
-// (no markdown engine — the PR check run carries the rich report).
-func (a *App) livePage(repo, environment, reportMarkdown, svg, panel string) string {
+// SVG and Panel are trusted server-generated HTML (injected un-escaped); Repo,
+// Title, Report, stack paths/statuses, and phase names are auto-escaped.
+func (a *App) livePage(v liveView) string {
 	title := "Terraform plan"
-	if environment != "" {
-		title += " — " + environment
+	if v.Environment != "" {
+		title += " — " + v.Environment
 	}
 	var buf bytes.Buffer
 	_ = a.tmpl.ExecuteTemplate(&buf, "live.gohtml", struct {
 		Title, Repo, Report string
+		Timeline            []phaseStep
+		Groups              []stackGroup
 		SVG, Panel          template.HTML
 	}{
-		Title:  title,
-		Repo:   repo,
-		Report: reportMarkdown,
-		SVG:    template.HTML(svg),
-		Panel:  template.HTML(panel),
+		Title:    title,
+		Repo:     v.Repo,
+		Report:   v.Report,
+		Timeline: phaseTimeline(v.Phase),
+		Groups:   groupStacks(v.Stacks),
+		SVG:      template.HTML(v.SVG),
+		Panel:    template.HTML(v.Panel),
 	})
 	return buf.String()
 }

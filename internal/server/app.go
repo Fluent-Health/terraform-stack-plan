@@ -53,7 +53,9 @@ type App struct {
 
 // New builds an App.
 func New(db *sql.DB, gh GitHub, cfg Config) *App {
-	tmpl := template.Must(template.ParseFS(templatesFS, "templates/*.gohtml"))
+	tmpl := template.Must(template.New("").Funcs(template.FuncMap{
+		"statusBadge": statusBadge,
+	}).ParseFS(templatesFS, "templates/*.gohtml"))
 	return &App{db: db, gh: gh, cfg: cfg, hub: newHub(), tmpl: tmpl}
 }
 

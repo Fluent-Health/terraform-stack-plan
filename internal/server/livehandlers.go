@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
 
@@ -41,5 +42,13 @@ func (a *App) handleLive(w http.ResponseWriter, r *http.Request) {
 		panel = approvalPanel(targets)
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Write([]byte(a.livePage(e.Repo, e.Environment, report, string(renderSVG(g)), panel)))
+	w.Write([]byte(a.livePage(liveView{
+		Repo:        e.Repo,
+		Environment: e.Environment,
+		Report:      report,
+		Phase:       events.Phase(e.Phase),
+		Stacks:      g.Stacks,
+		SVG:         string(renderSVG(g)),
+		Panel:       panel,
+	})))
 }
