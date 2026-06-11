@@ -732,8 +732,10 @@ plumbed per-stack from the `run plan` sidecar via `Finalize.Categories` → the
 default of 2; `pattern` overrides depth entirely — the group key is the regexp's
 first capture group (or whole match if it has none), and non-matching paths are
 their own group. The pattern is compiled once in `New` into `App.groupRE`; an
-invalid pattern is logged and falls back to depth grouping. A per-stack
-drill-down is a follow-on. a generic **approval panel** (one row per stored `(class, target)` with
+invalid pattern is logged and falls back to depth grouping. The folding stack list
+on `/live` is grouped by the same key, serving as the DAG's per-stack drill-down
+(expand a group → its stacks, each linking to the per-stack detail page). A
+generic **approval panel** (one row per stored `(class, target)` with
 its state — provider-neutral, no console URL; the deep link is added by the
 approval backend), and the plan report (shown as escaped preformatted text — no
 markdown engine). Both routes are public (read-access model: same sensitivity as
@@ -759,11 +761,13 @@ The live page builds on this shell with three reviewer-oriented sections, fed by
 pure view-helpers in `internal/server/livedata.go` and a `liveView` input struct
 in `livepage.go`. A **phase timeline** (DaisyUI `steps`) shows lifecycle progress
 (`phaseTimeline` marks phases done/active/todo relative to the execution's current
-phase). A **project-grouped, folding stack list** (`groupStacks` — named projects
-alphabetical, `(ungrouped)` last) renders each stack as a status badge
-(`statusBadge`, registered as a template func), its path, and optional failure
-detail. The dependency-graph SVG sits in a **collapsible** strip. Stack
-paths/statuses/details and phase names are auto-escaped.
+phase). A **folding stack list** (`groupStacksByKey` — groups alphabetical) renders
+each stack as a status badge (`statusBadge`, registered as a template func), its
+path, and optional failure detail. The list is grouped by the **same path key as
+the group DAG** (`groupKey` at `GroupDepth` / `groupRE`), so expanding a group in
+the list drills into the stacks that make up the corresponding DAG node. The
+dependency-graph SVG sits in a **collapsible** strip. Stack paths/statuses/details
+and phase names are auto-escaped.
 
 The renderer/page are deliberately minimal — the richer UI v2
 (grouped/folding list, SSE log streaming, per-stack Log/Plan/Verify tabs,

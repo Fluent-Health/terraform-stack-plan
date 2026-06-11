@@ -6,25 +6,17 @@ import (
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 )
 
-func TestGroupStacks(t *testing.T) {
-	in := []events.StackState{
-		{Path: "stacks/a", Project: "proj-b", Status: events.StatusPlanned},
-		{Path: "stacks/b", Project: "proj-a", Status: events.StatusSafe},
-		{Path: "stacks/c", Project: "proj-b", Status: events.StatusGated},
-		{Path: "stacks/d", Status: events.StatusPending}, // no project
+func TestGroupStacksByKey(t *testing.T) {
+	stacks := []events.StackState{
+		{Path: "nonprod/pipelines/x"},
+		{Path: "nonprod/projects/a"},
+		{Path: "nonprod/pipelines/y"},
 	}
-	groups := groupStacks(in)
-	if len(groups) != 3 {
-		t.Fatalf("groups = %d, want 3", len(groups))
-	}
-	if groups[0].Name != "proj-a" || groups[1].Name != "proj-b" {
-		t.Errorf("group order = %q,%q, want proj-a,proj-b", groups[0].Name, groups[1].Name)
-	}
-	if groups[2].Name != "(ungrouped)" || len(groups[2].Stacks) != 1 {
-		t.Errorf("last group = %q (%d stacks), want (ungrouped) (1)", groups[2].Name, len(groups[2].Stacks))
-	}
-	if len(groups[1].Stacks) != 2 {
-		t.Errorf("proj-b stacks = %d, want 2", len(groups[1].Stacks))
+	groups := groupStacksByKey(stacks, 2, nil)
+	if len(groups) != 2 ||
+		groups[0].Name != "nonprod/pipelines" || len(groups[0].Stacks) != 2 ||
+		groups[1].Name != "nonprod/projects" {
+		t.Fatalf("groups = %+v, want nonprod/pipelines(2), nonprod/projects(1)", groups)
 	}
 }
 

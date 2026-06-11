@@ -1,42 +1,35 @@
 package server
 
 import (
+	"regexp"
 	"sort"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 )
 
-// stackGroup is a set of stacks sharing a Project (the grouping/target key).
+// stackGroup is a set of stacks sharing a group key.
 type stackGroup struct {
 	Name   string
 	Stacks []events.StackState
 }
 
-// groupStacks groups stacks by Project: named projects first (alphabetical),
-// then the empty-project stacks last under "(ungrouped)". Stack order within a
-// group is preserved (the store returns them sorted by path).
-func groupStacks(stacks []events.StackState) []stackGroup {
-	const ungrouped = "(ungrouped)"
+// groupStacksByKey folds stacks into groups by the same key as the group DAG
+// (groupKey at the given depth / regexp), group names alphabetically sorted; stack
+// order within a group is preserved (the store returns them path-sorted). This
+// makes the folding list the DAG's per-stack drill-down.
+func groupStacksByKey(stacks []events.StackState, depth int, re *regexp.Regexp) []stackGroup {
 	byName := map[string][]events.StackState{}
+	var order []string
 	for _, s := range stacks {
-		name := s.Project
-		if name == "" {
-			name = ungrouped
+		k := groupKey(s.Path, depth, re)
+		if _, ok := byName[k]; !ok {
+			order = append(order, k)
 		}
-		byName[name] = append(byName[name], s)
+		byName[k] = append(byName[k], s)
 	}
-	names := make([]string, 0, len(byName))
-	for n := range byName {
-		if n != ungrouped {
-			names = append(names, n)
-		}
-	}
-	sort.Strings(names)
-	if _, ok := byName[ungrouped]; ok {
-		names = append(names, ungrouped)
-	}
-	groups := make([]stackGroup, 0, len(names))
-	for _, n := range names {
+	sort.Strings(order)
+	groups := make([]stackGroup, 0, len(order))
+	for _, n := range order {
 		groups = append(groups, stackGroup{Name: n, Stacks: byName[n]})
 	}
 	return groups
