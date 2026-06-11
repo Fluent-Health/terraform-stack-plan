@@ -18,9 +18,12 @@
       <div class="tabs tabs-border">
         <input type="radio" name="stacktabs" class="tab" aria-label="Log" checked>
         <div class="tab-content border-base-300 p-3">
-          {{ if .LogExcerpt }}<pre class="overflow-auto rounded-lg bg-neutral text-neutral-content p-4 text-xs">{{ .LogExcerpt }}</pre>
+          <pre id="stacklog" data-follow-url="/logs/{{ .Exec }}/{{ .Stack }}?follow=1" class="overflow-auto rounded-lg bg-neutral text-neutral-content p-4 text-xs" style="max-height:60vh"></pre>
           <a class="link text-xs" href="/logs/{{ .Exec }}/{{ .Stack }}">view full log →</a>
-          {{ else }}<p class="opacity-60 italic">No log captured for this stack.</p>{{ end }}
+          <noscript>
+            {{ if .LogExcerpt }}<pre class="overflow-auto rounded-lg bg-neutral text-neutral-content p-4 text-xs mt-2">{{ .LogExcerpt }}</pre>
+            {{ else }}<p class="opacity-60 italic mt-2">No log captured for this stack.</p>{{ end }}
+          </noscript>
         </div>
         <input type="radio" name="stacktabs" class="tab" aria-label="Plan">
         <div class="tab-content border-base-300 p-3">
@@ -35,5 +38,18 @@
       </div>
     </div></section>
   </main>
+  <script>
+    (function () {
+      var pre = document.getElementById("stacklog");
+      if (!pre) return;
+      try {
+        var es = new EventSource(pre.dataset.followUrl);
+        es.onmessage = function (e) {
+          pre.textContent += e.data + "\n";
+          pre.scrollTop = pre.scrollHeight;
+        };
+      } catch (e) { /* no EventSource → the noscript excerpt covers it */ }
+    })();
+  </script>
 </body>
 </html>
