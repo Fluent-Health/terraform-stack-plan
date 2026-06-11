@@ -3,6 +3,7 @@ package store
 import (
 	"database/sql"
 	"fmt"
+	"time"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 )
@@ -21,6 +22,7 @@ type Execution struct {
 	Status         string // execution-level commit status (e.g. "in_progress"/"success"/"failure"); written by the serve handler, distinct from per-stack events.Status
 	StatusContext  string
 	Phase          string
+	CreatedAt      time.Time
 }
 
 // UpsertInit records an execution and its changed subgraph from an Init event.
@@ -163,6 +165,45 @@ func BumpRev(db *sql.DB, id string) error {
 func SetCheckRunID(db *sql.DB, id string, checkRunID int64) error {
 	_, err := db.Exec(`UPDATE executions SET check_run_id = ? WHERE id = ?`, checkRunID, id)
 	return err
+}
+
+// listExecutions scans execution list rows from a query returning, in order:
+// id, repo, pr, environment, status, phase, created_at.
+func listExecutions(rows *sql.Rows) ([]Execution, error) {
+	defer rows.Close()
+	var out []Execution
+	for rows.Next() {
+		var e Execution
+		if err := rows.Scan(&e.ID, &e.Repo, &e.PR, &e.Environment, &e.Status, &e.Phase, &e.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
+// ListExecutions returns the most recent executions, newest first.
+func ListExecutions(db *sql.DB, limit int) ([]Execution, error) {
+	rows, err := db.Query(
+		`SELECT id, repo, COALESCE(pr,0), COALESCE(environment,''), COALESCE(status,''),
+		        COALESCE(phase,''), created_at
+		 FROM executions ORDER BY created_at DESC, id DESC LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	return listExecutions(rows)
+}
+
+// ListExecutionsForPR returns all executions for a PR, newest first.
+func ListExecutionsForPR(db *sql.DB, pr int) ([]Execution, error) {
+	rows, err := db.Query(
+		`SELECT id, repo, COALESCE(pr,0), COALESCE(environment,''), COALESCE(status,''),
+		        COALESCE(phase,''), created_at
+		 FROM executions WHERE pr = ? ORDER BY created_at DESC, id DESC`, pr)
+	if err != nil {
+		return nil, err
+	}
+	return listExecutions(rows)
 }
 
 // LatestExecutionID returns the most recent execution id for (pr, environment).
