@@ -739,8 +739,13 @@ The page is rendered with `html/template` from `internal/server/templates/`
 (parsed once into `App.tmpl` in `New`) as a DaisyUI shell that links a committed
 **Tailwind v4 + DaisyUI** stylesheet, served at `GET /assets/app.css`. The SVG
 and approval panel are trusted server-generated HTML, injected un-escaped
-(`template.HTML`); the repo, title and report body are auto-escaped; the 10s
-`<meta http-equiv="refresh">` is preserved. Regen contract: the CSS is built in
+(`template.HTML`); the repo, title and report body are auto-escaped. The live
+page now subscribes to `GET /live/<id>/events` (an SSE endpoint that emits a
+`changed` event on every execution state mutation) via an inline `EventSource`;
+on receipt, a debounced `location.reload()` fires after 800 ms. The 10s
+`<meta http-equiv="refresh">` is retained only as a `<noscript>` fallback for
+environments without JavaScript. Client-side partial re-render (no full reload)
+is a follow-on. Regen contract: the CSS is built in
 `web/` with yarn and the **committed** `internal/server/assets/app.css` (`go:embed`-ed)
 is the source of truth — `web/build.sh` regenerates it on demand; nothing in the
 Go build or CI runs node. (PR #TBD.)

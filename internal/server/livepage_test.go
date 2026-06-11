@@ -34,14 +34,16 @@ func TestLivePageRendersShell(t *testing.T) {
 		SVG: `<svg id="dag"></svg>`, Panel: `<div class="panel">P</div>`,
 	})
 	for _, want := range []string{
-		`/assets/app.css`,      // links the embedded stylesheet
-		`data-theme`,           // DaisyUI theme on <html>
-		`octo/repo`,            // repo shown
-		`staging`,              // environment shown
-		`<svg id="dag">`,       // trusted SVG injected un-escaped
-		`class="panel"`,        // trusted panel injected un-escaped
-		`PLAN_REPORT_BODY`,     // report body present
-		`http-equiv="refresh"`, // 10s auto-refresh preserved
+		`/assets/app.css`,                      // links the embedded stylesheet
+		`data-theme`,                           // DaisyUI theme on <html>
+		`octo/repo`,                            // repo shown
+		`staging`,                              // environment shown
+		`<svg id="dag">`,                       // trusted SVG injected un-escaped
+		`class="panel"`,                        // trusted panel injected un-escaped
+		`PLAN_REPORT_BODY`,                     // report body present
+		`new EventSource`,                      // SSE subscription
+		`/events`,                              // SSE endpoint path suffix
+		`<noscript><meta http-equiv="refresh"`, // meta-refresh is noscript fallback
 	} {
 		if !strings.Contains(html, want) {
 			t.Errorf("live page missing %q", want)
