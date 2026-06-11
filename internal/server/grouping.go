@@ -1,16 +1,28 @@
 package server
 
 import (
+	"regexp"
 	"sort"
 	"strings"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 )
 
-// groupKey is a stack's group: the first `depth` slash-separated path segments
-// joined back with "/". A path with fewer than `depth` segments (or depth<=0) is
-// its own group.
-func groupKey(path string, depth int) string {
+// groupKey is a stack's group. When re is non-nil it takes precedence: the
+// group is re's first capture group (or whole match if it has no groups);
+// paths that don't match are their own group. Otherwise the group is the first
+// `depth` slash-separated path segments joined with "/" (depth<=0 or fewer
+// segments → the path is its own group).
+func groupKey(path string, depth int, re *regexp.Regexp) string {
+	if re != nil {
+		if m := re.FindStringSubmatch(path); m != nil {
+			if len(m) > 1 {
+				return m[1]
+			}
+			return m[0]
+		}
+		return path
+	}
 	if depth <= 0 {
 		return path
 	}
@@ -73,11 +85,11 @@ type groupGraph struct {
 // buildGroupGraph folds an execution graph into group nodes (by groupKey at the
 // given depth) and aggregates the stack edges to the group level (cross-group
 // edges become group edges; intra-group edges dropped; duplicates collapsed).
-func buildGroupGraph(g events.Graph, depth int) groupGraph {
+func buildGroupGraph(g events.Graph, depth int, re *regexp.Regexp) groupGraph {
 	acc := map[string]*groupNode{}
 	cats := map[string]map[string]*catCount{} // groupKey → name → catCount
 	for _, s := range g.Stacks {
-		k := groupKey(s.Path, depth)
+		k := groupKey(s.Path, depth, re)
 		n := acc[k]
 		if n == nil {
 			n = &groupNode{Key: k}
@@ -105,7 +117,7 @@ func buildGroupGraph(g events.Graph, depth int) groupGraph {
 	}
 	keyOf := map[string]string{}
 	for _, s := range g.Stacks {
-		keyOf[s.Path] = groupKey(s.Path, depth)
+		keyOf[s.Path] = groupKey(s.Path, depth, re)
 	}
 	edgeSet := map[events.Edge]bool{}
 	for _, e := range g.Edges {

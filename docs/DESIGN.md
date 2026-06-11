@@ -727,8 +727,13 @@ renders a **category-badge line** (e.g. `🔐 12  💣 5`, icon when present els
 name, name-sorted) aggregating its stacks' matched classification categories —
 plumbed per-stack from the `run plan` sidecar via `Finalize.Categories` → the
 `stacks.categories` column → `LoadGraph` → `buildGroupGraph`'s per-group
-`catCount` tally → `groupBadges`. A configurable `group{}` block and per-stack
-drill-down are follow-ons. a generic **approval panel** (one row per stored `(class, target)` with
+`catCount` tally → `groupBadges`. Grouping is configurable via a
+`serve { group { depth = N | pattern = "regex" } }` block: `depth` overrides the
+default of 2; `pattern` overrides depth entirely — the group key is the regexp's
+first capture group (or whole match if it has none), and non-matching paths are
+their own group. The pattern is compiled once in `New` into `App.groupRE`; an
+invalid pattern is logged and falls back to depth grouping. A per-stack
+drill-down is a follow-on. a generic **approval panel** (one row per stored `(class, target)` with
 its state — provider-neutral, no console URL; the deep link is added by the
 approval backend), and the plan report (shown as escaped preformatted text — no
 markdown engine). Both routes are public (read-access model: same sensitivity as

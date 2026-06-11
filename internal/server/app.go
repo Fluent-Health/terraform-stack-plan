@@ -9,7 +9,9 @@ import (
 	"embed"
 	"fmt"
 	"html/template"
+	"log"
 	"net/http"
+	"regexp"
 	"strings"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/approval"
@@ -35,6 +37,9 @@ type Config struct {
 	// GroupDepth controls the live DAG's grouping: stacks fold into groups by
 	// their first GroupDepth path segments. 0 = unset → handlers default to 2.
 	GroupDepth int
+	// GroupPattern is a regexp whose first capture group is the group key;
+	// overrides GroupDepth. Empty → fall back to GroupDepth grouping.
+	GroupPattern string
 }
 
 // App is the HTTP application.
@@ -52,6 +57,8 @@ type App struct {
 	Objects ObjectStore
 	// tmpl holds the page templates (parsed once from the embedded FS in New).
 	tmpl *template.Template
+	// groupRE is the compiled Config.GroupPattern (nil → depth grouping).
+	groupRE *regexp.Regexp
 }
 
 // New builds an App.
@@ -59,7 +66,15 @@ func New(db *sql.DB, gh GitHub, cfg Config) *App {
 	tmpl := template.Must(template.New("").Funcs(template.FuncMap{
 		"statusBadge": statusBadge,
 	}).ParseFS(templatesFS, "templates/*.gohtml"))
-	return &App{db: db, gh: gh, cfg: cfg, hub: newHub(), tmpl: tmpl}
+	var groupRE *regexp.Regexp
+	if cfg.GroupPattern != "" {
+		if re, err := regexp.Compile(cfg.GroupPattern); err == nil {
+			groupRE = re
+		} else {
+			log.Printf("server: invalid group pattern %q: %v (falling back to depth grouping)", cfg.GroupPattern, err)
+		}
+	}
+	return &App{db: db, gh: gh, cfg: cfg, hub: newHub(), tmpl: tmpl, groupRE: groupRE}
 }
 
 // Routes returns the HTTP handler: a public health check plus bearer-authed
