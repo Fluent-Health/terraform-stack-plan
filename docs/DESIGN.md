@@ -927,10 +927,11 @@ the **Pub/Sub-push + OIDC event ingestion** (a
 latency optimization over the polling reconcile loop, which already satisfies
 gates); **true requester-pool leasing** (today `requester()` is a `PR mod pool`
 slot — collisions possible up to pool size; leasing replaces it without an
-interface change); and the rest of the `state` subcommand
-(cross-stack state surgery) — Phase 6. SP1 (same-stack moves) and SP2
-(cross-stack moves via native import/removed) have shipped; the lock-less
-`state mv` executor is SP3. See *`tfstackplan state` (Phase 6)* below.
+interface change). The `state` subcommand (Phase 6) is now feature-complete for
+moves: SP1 (same-stack moves) and SP2 (cross-stack moves via native
+import/removed) shipped, and SP3 adds the lock-less `state mv` executor
+(`state move --via mv` + `state apply`). See *`tfstackplan state` (Phase 6)*
+below.
 
 **Phase 4: `run verify` (complete).** `tfstackplan run verify` runs the
 terramate `verify` script across changed stacks — no gate, read-only
@@ -955,7 +956,8 @@ serve wiring grew.
 ### `tfstackplan state` (Phase 6)
 
 `tfstackplan state` is the operator-driven cross-stack state-move machinery.
-**SP1 ships same-stack moves; SP2 adds cross-stack moves.** Verbs:
+**SP1 ships same-stack moves; SP2 adds cross-stack moves via native
+import/removed; SP3 adds the faithful `terraform state mv` executor.** Verbs:
 
 - `state move --dir DIR [--stack STACK] [--pr N] <from> <to> …` routes each
   declared `<from> <to>` pair by comparing the two sides' stacks. `--stack` is
@@ -972,6 +974,10 @@ serve wiring grew.
     plan) plus a `removed { from = <from> lifecycle { destroy = false } }` block
     in the **source** stack's shim — so the resource is adopted into the new
     state and dropped from the old without being destroyed.
+    - With `--via mv`, the cross-stack pair is instead recorded as a
+      `_tfsp_xmove.<key>.hcl` manifest in the **destination** stack
+      (`source_stack` + `from`/`to` address pairs, one manifest per dest+source),
+      executed later by `state apply` (see below) rather than by `run apply`.
 
   Blocks are written to a PR-keyed shim `_tfsp_move.<key>.tf` in each affected
   stack dir; the normal `run apply` (backend-locked, no state surgery) applies
@@ -982,12 +988,20 @@ serve wiring grew.
   kind-aware op line: `moved from → to`, `import to (id=…)`, or `removed from`).
 - `state cleanup --dir DIR (--pr N | --all)` removes the keyed shims (one PR's,
   or all `_tfsp_move.*.tf` in the tree).
+- `state apply --dir DIR [--execute] [--backup-dir DIR]` discovers every
+  `_tfsp_xmove.*.hcl` manifest and runs it via terraform-exec: pull both states
+  → back up each (default `<dir>/.tfsp-state-backups`) → per-pair fail-closed
+  decision table (source-only → **move**, dest-only → **skip** (idempotent),
+  both/neither → **error**) → `terraform state mv -state/-state-out` against the
+  pulled local files → push both, **never** `--force`. **Dry-run by default**
+  (prints "would move" / "skip"); `--execute` performs the moves. Concurrency
+  safety rests on terraform's built-in serial/lineage check on `state push` plus
+  the backups — there is no pessimistic lock; a backend lock is a pluggable
+  follow-on. Requires `terraform` on `PATH`. Auto-executing this as a `run apply`
+  pre-phase is a follow-on.
 
 The projecting side already classifies cross-state move-targets as relocations
-via `--state-moves`. The lock-less `terraform state mv` executor (in-place state
-surgery as an alternative to the import/removed apply) remains SP3, not yet
-implemented. See
-`docs/superpowers/specs/2026-06-11-state-subcommand-design.md`.
+via `--state-moves`.
 
 ### Delivery: binary + Cloud Run container
 

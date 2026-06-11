@@ -2,6 +2,7 @@ package main
 
 import (
 	"cmp"
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -19,7 +20,7 @@ import (
 // machinery. SP1 implements same-stack moves (native `moved {}` shims).
 func runState(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "tfstackplan state: expected a subcommand (move|list|cleanup)")
+		fmt.Fprintln(os.Stderr, "tfstackplan state: expected a subcommand (move|list|cleanup|apply)")
 		return 2
 	}
 	switch args[0] {
@@ -29,6 +30,8 @@ func runState(args []string) int {
 		return runStateList(args[1:])
 	case "cleanup":
 		return runStateCleanup(args[1:])
+	case "apply":
+		return runStateApply(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "tfstackplan state: unknown subcommand %q\n", args[0])
 		return 2
@@ -82,6 +85,7 @@ func runStateMove(args []string) int {
 	dir := fs.String("dir", "", "terramate project root (required)")
 	stack := fs.String("stack", "", "default stack for unqualified addresses (same-stack moves)")
 	pr := fs.String("pr", "", "PR number for the shim key (default: $TFSTACKPLAN_PR or git branch)")
+	via := fs.String("via", "", "cross-stack mechanism: \"\" (native import/removed) or \"mv\" (faithful terraform state mv)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -119,6 +123,7 @@ func runStateMove(args []string) int {
 	}
 
 	opsByStack := map[string][]statemove.Op{}
+	xmoveByDest := map[string]statemove.XMove{}
 	for i := 0; i < len(rest); i += 2 {
 		fromStack, fromAddr, e1 := stackOf(rest[i])
 		toStack, toAddr, e2 := stackOf(rest[i+1])
@@ -145,6 +150,22 @@ func runStateMove(args []string) int {
 			fmt.Fprintln(os.Stderr, "state move:", cmp.Or(e3, e4))
 			return 1
 		}
+		if *via == "mv" {
+			pairs, err := statemove.CrossStackPairs(srcPlan, dstPlan, fromAddr, toAddr)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "state move:", err)
+				return 1
+			}
+			existing, ok := xmoveByDest[toStack]
+			if ok && existing.SourceStack != fromStack {
+				fmt.Fprintf(os.Stderr, "state move: dest stack %q already targets source %q; cannot also pull from %q (one manifest per dest+source)\n", toStack, existing.SourceStack, fromStack)
+				return 1
+			}
+			existing.SourceStack = fromStack
+			existing.Pairs = append(existing.Pairs, pairs...)
+			xmoveByDest[toStack] = existing
+			continue
+		}
 		srcOps, dstOps, err := statemove.ClassifyCrossStack(srcPlan, dstPlan, fromAddr, toAddr)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "state move:", err)
@@ -170,7 +191,43 @@ func runStateMove(args []string) int {
 		}
 		fmt.Printf("wrote %s (%d op(s))\n", shimPath, len(merged))
 	}
+	for destStack, xm := range xmoveByDest {
+		manifestPath := filepath.Join(*dir, filepath.FromSlash(destStack), statemove.XMoveFileName(key))
+		merged := xm
+		if data, rerr := os.ReadFile(manifestPath); rerr == nil {
+			_, prev, perr := statemove.ParseXMove(string(data))
+			if perr != nil {
+				fmt.Fprintf(os.Stderr, "state move: parse existing %s: %v\n", manifestPath, perr)
+				return 1
+			}
+			if prev.SourceStack != xm.SourceStack {
+				fmt.Fprintf(os.Stderr, "state move: existing manifest %s targets source %q, not %q\n", manifestPath, prev.SourceStack, xm.SourceStack)
+				return 1
+			}
+			merged.Pairs = mergeMoves(prev.Pairs, xm.Pairs)
+		}
+		if werr := os.WriteFile(manifestPath, []byte(statemove.RenderXMove(key, merged)), 0o644); werr != nil {
+			fmt.Fprintln(os.Stderr, "state move: write xmove:", werr)
+			return 1
+		}
+		fmt.Printf("wrote %s (%d move(s))\n", manifestPath, len(merged.Pairs))
+	}
 	return 0
+}
+
+// mergeMoves appends add to existing, de-duplicating whole pairs by From+To,
+// preserving order.
+func mergeMoves(existing, add []statemove.Move) []statemove.Move {
+	seen := map[statemove.Move]bool{}
+	out := make([]statemove.Move, 0, len(existing)+len(add))
+	for _, m := range append(append([]statemove.Move{}, existing...), add...) {
+		if seen[m] {
+			continue
+		}
+		seen[m] = true
+		out = append(out, m)
+	}
+	return out
 }
 
 func runStateList(args []string) int {
@@ -207,6 +264,55 @@ func runStateList(args []string) int {
 			case "removed":
 				fmt.Printf("%s\t%s\tremoved %s\n", s.Key, s.Stack, o.From)
 			}
+		}
+	}
+	return 0
+}
+
+func runStateApply(args []string) int {
+	fs := flag.NewFlagSet("state apply", flag.ContinueOnError)
+	dir := fs.String("dir", "", "terramate project root (required)")
+	execute := fs.Bool("execute", false, "perform the moves (default: dry-run, print only)")
+	backupDir := fs.String("backup-dir", "", "directory for pre-move state backups (default: <dir>/.tfsp-state-backups)")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if *dir == "" {
+		fmt.Fprintln(os.Stderr, "state apply: --dir is required")
+		return 2
+	}
+	tfPath, err := exec.LookPath("terraform")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "state apply: terraform not found on PATH")
+		return 1
+	}
+	bdir := *backupDir
+	if bdir == "" {
+		bdir = filepath.Join(*dir, ".tfsp-state-backups")
+	}
+	found, err := statemove.DiscoverXMoves(*dir)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "state apply:", err)
+		return 1
+	}
+	deps := statemove.ExecDeps{
+		NewTF:     func(wd string) (statemove.Runner, error) { return statemove.NewTerraform(tfPath, wd) },
+		BackupDir: bdir,
+	}
+	for _, fx := range found {
+		actions, err := statemove.Execute(context.Background(), deps, *dir, fx.DestStack, fx.XMove, !*execute)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "state apply: %s (%s → %s): %v\n", fx.Key, fx.XMove.SourceStack, fx.DestStack, err)
+			return 1
+		}
+		for _, a := range actions {
+			verb := "would move"
+			if a.Decision == statemove.DecisionSkip {
+				verb = "skip (already moved)"
+			} else if *execute {
+				verb = "moved"
+			}
+			fmt.Printf("%s\t%s → %s\t%s %s → %s\n", fx.Key, fx.XMove.SourceStack, fx.DestStack, verb, a.From, a.To)
 		}
 	}
 	return 0
