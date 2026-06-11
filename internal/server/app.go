@@ -54,6 +54,7 @@ func (a *App) Routes() http.Handler {
 	})
 	mux.HandleFunc("GET /img/{name}", a.handleImg)
 	mux.HandleFunc("GET /live/{id}", a.handleLive)
+	mux.HandleFunc("GET /logs/{exec}/{stack...}", a.handleLogServe)
 	mux.Handle("POST /api/init", a.auth(http.HandlerFunc(a.handleInit)))
 	mux.Handle("POST /api/phase", a.auth(http.HandlerFunc(a.handlePhase)))
 	mux.Handle("POST /api/update", a.auth(http.HandlerFunc(a.handleUpdate)))

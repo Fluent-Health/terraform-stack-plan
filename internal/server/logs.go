@@ -89,6 +89,26 @@ func tailFile(path string, n int64) (string, error) {
 	return string(b), nil
 }
 
+// handleLogServe streams a stack's log buffer (public, like the live page —
+// viewers need no cloud IAM). 404 when there is no buffer.
+func (a *App) handleLogServe(w http.ResponseWriter, r *http.Request) {
+	exec := r.PathValue("exec")
+	stack := r.PathValue("stack")
+	p, ok := logFilePath(a.cfg.LogsDir, exec, stack)
+	if !ok {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	f, err := os.Open(p)
+	if err != nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	defer f.Close()
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	_, _ = io.Copy(w, f)
+}
+
 // handleLogs ingests a per-stack output chunk (bearer-authed).
 func (a *App) handleLogs(w http.ResponseWriter, r *http.Request) {
 	var c events.LogChunk
