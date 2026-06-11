@@ -34,6 +34,7 @@ type App struct {
 	db  *sql.DB
 	gh  GitHub
 	cfg Config
+	hub *hub
 	// Approval is the optional approval-gate backend. nil disables gating
 	// (gates recorded AWAITING are never satisfied → action_required). Set after
 	// construction (e.g. by the serve command), so New's signature is unchanged.
@@ -42,7 +43,7 @@ type App struct {
 
 // New builds an App.
 func New(db *sql.DB, gh GitHub, cfg Config) *App {
-	return &App{db: db, gh: gh, cfg: cfg}
+	return &App{db: db, gh: gh, cfg: cfg, hub: newHub()}
 }
 
 // Routes returns the HTTP handler: a public health check plus bearer-authed
