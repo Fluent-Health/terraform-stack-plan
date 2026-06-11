@@ -54,3 +54,20 @@ func TestGatesFromSidecarEmpty(t *testing.T) {
 		t.Errorf("empty → gates %+v moving %+v", gates, moving)
 	}
 }
+
+func TestCategoriesFromSidecar(t *testing.T) {
+	data := []byte(`{"stacks":{
+		"stacks/a":{"categories":[{"category":"iam","icon":"🔐"},{"category":"destructive","icon":"💣"}]},
+		"stacks/b":{"categories":[{"category":"safe","icon":null}]}
+	}}`)
+	got, err := categoriesFromSidecar(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got["stacks/a"]) != 2 || got["stacks/a"][0] != (events.Category{Name: "iam", Icon: "🔐"}) {
+		t.Errorf("stacks/a = %+v", got["stacks/a"])
+	}
+	if len(got["stacks/b"]) != 1 || got["stacks/b"][0].Icon != "" {
+		t.Errorf("stacks/b (null icon) = %+v", got["stacks/b"])
+	}
+}

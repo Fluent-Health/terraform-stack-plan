@@ -51,3 +51,27 @@ func gatesFromSidecar(data []byte, gating map[string]bool) (gates []events.GateT
 	sort.Strings(moving)
 	return gates, moving, nil
 }
+
+// categoriesFromSidecar extracts each stack's matched categories (name + icon)
+// from the classification sidecar, for the server's group-DAG badges.
+func categoriesFromSidecar(data []byte) (map[string][]events.Category, error) {
+	var doc sidecarDoc
+	if err := json.Unmarshal(data, &doc); err != nil {
+		return nil, err
+	}
+	out := map[string][]events.Category{}
+	for path, entry := range doc.Stacks {
+		var cats []events.Category
+		for _, c := range entry.Categories {
+			icon := ""
+			if c.Icon != nil {
+				icon = *c.Icon
+			}
+			cats = append(cats, events.Category{Name: c.Category, Icon: icon})
+		}
+		if len(cats) > 0 {
+			out[path] = cats
+		}
+	}
+	return out, nil
+}
