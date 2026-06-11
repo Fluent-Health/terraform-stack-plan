@@ -152,41 +152,63 @@ func categoriesCell(s model.Stack, r model.Report) string {
 // <details> row is open by default; larger bodies collapse to a row you expand.
 const openThreshold = 10
 
+// renderStackSection renders one stack's <details> section (summary + the
+// blockquoted resource rows). Shared by renderDetails and PerStack.
+func renderStackSection(b *strings.Builder, s model.Stack, r model.Report) {
+	name := s.Name
+	if s.URL != "" {
+		name = fmt.Sprintf("<a href=%q>%s</a>", s.URL, s.Name)
+	}
+	// A folder icon + bold name marks the stack as a section header so it
+	// reads distinctly from the resource rows nested inside it. The icon is
+	// glued to the name with a non-breaking space so it can't be orphaned.
+	summary := "📁&nbsp;<b>" + name + "</b>"
+	if r.Classified {
+		summary += " · " + categoriesCell(s, r)
+	}
+	summary += " · " + changeWord(s.Counts)
+	open := ""
+	if r.DetailsOpen {
+		open = " open"
+	}
+	fmt.Fprintf(b, "\n<details%s><summary>%s</summary>\n\n", open, summary)
+	blocks := make([]string, 0, len(s.Changes))
+	for _, c := range s.Changes {
+		blocks = append(blocks, renderResource(c, r.DetailsOpen))
+	}
+	// A leading blank line gives the stack title room above the first row;
+	// blank lines between rows separate them. Both gaps sit inside the
+	// blockquote so the breathing room stays within the stack's scope bar.
+	body := "\n" + strings.Join(blocks, "\n\n")
+	// Wrap the resource rows in a blockquote so GitHub draws an indented
+	// left bar marking the stack scope ("you are inside this stack").
+	b.WriteString(blockquote(body))
+	b.WriteString("\n</details>\n")
+}
+
 func renderDetails(b *strings.Builder, r model.Report) {
 	for _, s := range r.Stacks {
 		if !s.Counts.AnyChange() {
 			continue
 		}
-		name := s.Name
-		if s.URL != "" {
-			name = fmt.Sprintf("<a href=%q>%s</a>", s.URL, s.Name)
-		}
-		// A folder icon + bold name marks the stack as a section header so it
-		// reads distinctly from the resource rows nested inside it. The icon is
-		// glued to the name with a non-breaking space so it can't be orphaned.
-		summary := "📁&nbsp;<b>" + name + "</b>"
-		if r.Classified {
-			summary += " · " + categoriesCell(s, r)
-		}
-		summary += " · " + changeWord(s.Counts)
-		open := ""
-		if r.DetailsOpen {
-			open = " open"
-		}
-		fmt.Fprintf(b, "\n<details%s><summary>%s</summary>\n\n", open, summary)
-		blocks := make([]string, 0, len(s.Changes))
-		for _, c := range s.Changes {
-			blocks = append(blocks, renderResource(c, r.DetailsOpen))
-		}
-		// A leading blank line gives the stack title room above the first row;
-		// blank lines between rows separate them. Both gaps sit inside the
-		// blockquote so the breathing room stays within the stack's scope bar.
-		body := "\n" + strings.Join(blocks, "\n\n")
-		// Wrap the resource rows in a blockquote so GitHub draws an indented
-		// left bar marking the stack scope ("you are inside this stack").
-		b.WriteString(blockquote(body))
-		b.WriteString("\n</details>\n")
+		renderStackSection(b, s, r)
 	}
+}
+
+// PerStack renders each changed stack's detail section independently, keyed by
+// stack name — useful for storing/serving one stack's plan in isolation. The
+// section is identical to what renderDetails emits for that stack.
+func PerStack(r model.Report) map[string]string {
+	out := make(map[string]string, len(r.Stacks))
+	for _, s := range r.Stacks {
+		if !s.Counts.AnyChange() {
+			continue
+		}
+		var b strings.Builder
+		renderStackSection(&b, s, r)
+		out[s.Name] = b.String()
+	}
+	return out
 }
 
 // blockquote prefixes every line with "> " (blank lines become ">") so GitHub
