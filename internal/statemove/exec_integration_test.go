@@ -54,16 +54,13 @@ func TestExecuteIntegration(t *testing.T) {
 	dstDir := filepath.Join(root, "dst")
 
 	srcTF := tfStack(t, tfPath, srcDir, "resource \"terraform_data\" \"thing\" {}\n")
-	// Dest declares no resources yet: it must already have a real (applied) state
-	// file so Execute's StatePull→ShowStateFile sees a valid-but-empty state. A
-	// never-applied local backend pulls 0 bytes, which `terraform show -json`
-	// rejects with "no state".
+	// Dest is a brand-new stack: empty config, init-only (NOT applied). Its
+	// StatePull returns 0 bytes — the realistic cross-state-move target. Execute
+	// must treat that empty pull as an empty address set and let `state mv
+	// -state-out` create the dest state file.
 	dstTF := tfStack(t, tfPath, dstDir, "")
 	if err := srcTF.Apply(ctx); err != nil { // create terraform_data.thing in source state
 		t.Fatalf("apply src: %v", err)
-	}
-	if err := dstTF.Apply(ctx); err != nil { // materialize a valid empty dest state
-		t.Fatalf("apply dst: %v", err)
 	}
 
 	if !addrSet(t, srcTF)["terraform_data.thing"] {

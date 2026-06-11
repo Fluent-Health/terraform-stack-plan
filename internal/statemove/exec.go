@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/hashicorp/terraform-exec/tfexec"
@@ -87,12 +88,6 @@ func Execute(ctx context.Context, deps ExecDeps, root, destStack string, xm XMov
 	defer os.RemoveAll(tmp)
 	srcFile := filepath.Join(tmp, "source.tfstate")
 	dstFile := filepath.Join(tmp, "dest.tfstate")
-	if err := os.WriteFile(srcFile, []byte(srcState), 0o600); err != nil {
-		return nil, err
-	}
-	if err := os.WriteFile(dstFile, []byte(dstState), 0o600); err != nil {
-		return nil, err
-	}
 	if err := backup(deps.BackupDir, xm.SourceStack, srcState); err != nil {
 		return nil, err
 	}
@@ -100,15 +95,14 @@ func Execute(ctx context.Context, deps ExecDeps, root, destStack string, xm XMov
 		return nil, err
 	}
 
-	srcShow, err := srcTF.ShowStateFile(ctx, srcFile)
+	srcAddrs, err := addressesOf(ctx, srcTF, srcState, srcFile)
 	if err != nil {
-		return nil, fmt.Errorf("show source state: %w", err)
+		return nil, fmt.Errorf("read source state: %w", err)
 	}
-	dstShow, err := dstTF.ShowStateFile(ctx, dstFile)
+	dstAddrs, err := addressesOf(ctx, dstTF, dstState, dstFile)
 	if err != nil {
-		return nil, fmt.Errorf("show dest state: %w", err)
+		return nil, fmt.Errorf("read dest state: %w", err)
 	}
-	srcAddrs, dstAddrs := stateAddresses(srcShow), stateAddresses(dstShow)
 
 	var actions []Action
 	var toMove []Move
@@ -138,6 +132,23 @@ func Execute(ctx context.Context, deps ExecDeps, root, destStack string, xm XMov
 		return nil, fmt.Errorf("push dest state (concurrent change? never --force): %w", err)
 	}
 	return actions, nil
+}
+
+// addressesOf returns the resource addresses in a pulled state. An empty/blank
+// state (e.g. a brand-new, never-applied stack) yields an empty set and is NOT
+// written to disk — so `terraform state mv -state-out` creates the out file.
+func addressesOf(ctx context.Context, tf Runner, state, file string) (map[string]bool, error) {
+	if strings.TrimSpace(state) == "" {
+		return map[string]bool{}, nil
+	}
+	if err := os.WriteFile(file, []byte(state), 0o600); err != nil {
+		return nil, err
+	}
+	st, err := tf.ShowStateFile(ctx, file)
+	if err != nil {
+		return nil, err
+	}
+	return stateAddresses(st), nil
 }
 
 func backup(dir, stack, state string) error {
