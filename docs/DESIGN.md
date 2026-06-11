@@ -715,7 +715,19 @@ its state — provider-neutral, no console URL; the deep link is added by the
 approval backend), and the plan report (shown as escaped preformatted text — no
 markdown engine). Both routes are public (read-access model: same sensitivity as
 plan output already on the PR, behind unguessable execution ids); `/api/*` stays
-bearer-authed. The renderer/page are deliberately minimal — the richer UI v2
+bearer-authed.
+
+The page is rendered with `html/template` from `internal/server/templates/`
+(parsed once into `App.tmpl` in `New`) as a DaisyUI shell that links a committed
+**Tailwind v4 + DaisyUI** stylesheet, served at `GET /assets/app.css`. The SVG
+and approval panel are trusted server-generated HTML, injected un-escaped
+(`template.HTML`); the repo, title and report body are auto-escaped; the 10s
+`<meta http-equiv="refresh">` is preserved. Regen contract: the CSS is built in
+`web/` with yarn and the **committed** `internal/server/assets/app.css` (`go:embed`-ed)
+is the source of truth — `web/build.sh` regenerates it on demand; nothing in the
+Go build or CI runs node. (PR #TBD.)
+
+The renderer/page are deliberately minimal — the richer UI v2
 (grouped/folding list, SSE log streaming, per-stack Log/Plan/Verify tabs,
 hand-rolled diff renderer, cluster containers, pan/zoom, dark toggle) is a
 separate later phase that replaces them behind the same routes.

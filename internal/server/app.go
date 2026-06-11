@@ -6,12 +6,17 @@ package server
 
 import (
 	"database/sql"
+	"embed"
 	"fmt"
+	"html/template"
 	"net/http"
 	"strings"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/approval"
 )
+
+//go:embed templates/*.gohtml
+var templatesFS embed.FS
 
 // Config is the server runtime configuration.
 type Config struct {
@@ -42,11 +47,14 @@ type App struct {
 	// Objects is the optional object store for completed-log offload. nil keeps
 	// logs in the local buffer only. Set after construction, like Approval.
 	Objects ObjectStore
+	// tmpl holds the page templates (parsed once from the embedded FS in New).
+	tmpl *template.Template
 }
 
 // New builds an App.
 func New(db *sql.DB, gh GitHub, cfg Config) *App {
-	return &App{db: db, gh: gh, cfg: cfg, hub: newHub()}
+	tmpl := template.Must(template.ParseFS(templatesFS, "templates/*.gohtml"))
+	return &App{db: db, gh: gh, cfg: cfg, hub: newHub(), tmpl: tmpl}
 }
 
 // Routes returns the HTTP handler: a public health check plus bearer-authed
@@ -57,6 +65,7 @@ func (a *App) Routes() http.Handler {
 		w.WriteHeader(http.StatusOK)
 	})
 	mux.HandleFunc("GET /img/{name}", a.handleImg)
+	mux.HandleFunc("GET /assets/{file}", a.handleAsset)
 	mux.HandleFunc("GET /live/{id}", a.handleLive)
 	mux.HandleFunc("GET /logs/{exec}/{stack...}", a.handleLogServe)
 	mux.Handle("POST /api/init", a.auth(http.HandlerFunc(a.handleInit)))

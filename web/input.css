@@ -1,0 +1,9 @@
+@import "tailwindcss";
+@plugin "daisyui" {
+  themes: light --default, dark --prefersdark;
+}
+
+/* Tailwind v4 scans these for class names. Any class used in a template or in
+   server-generated HTML must appear literally in one of these sources. */
+@source "../internal/server/templates/**/*.gohtml";
+@source "../internal/server/*.go";
