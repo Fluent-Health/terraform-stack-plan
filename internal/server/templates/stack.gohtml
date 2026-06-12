@@ -25,11 +25,14 @@
             {{ else }}<p class="opacity-60 italic mt-2">No log captured for this stack.</p>{{ end }}
           </noscript>
         </div>
+        {{ if eq .Kind "plan" }}
         <input type="radio" name="stacktabs" class="tab" aria-label="Plan">
         <div class="tab-content border-base-300 p-3">
           {{ if .Plan }}<pre class="overflow-auto rounded-lg bg-neutral text-neutral-content p-4 text-xs">{{ .Plan }}</pre>
           {{ else }}<p class="opacity-60 italic">No plan recorded for this stack.</p>{{ end }}
         </div>
+        {{ end }}
+        {{ if eq .Kind "apply" }}
         <input type="radio" name="stacktabs" class="tab" aria-label="Verify">
         <div class="tab-content border-base-300 p-3">
           {{ if .VerifyExec }}
@@ -41,6 +44,7 @@
           </noscript>
           {{ else }}<p class="opacity-60 italic">No verify run yet for this PR.</p>{{ end }}
         </div>
+        {{ end }}
       </div>
     </div></section>
   </main>
