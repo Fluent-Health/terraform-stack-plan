@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# asdf hook: install the binary extracted by bin/download into the asdf install
+# path. asdf env: ASDF_INSTALL_VERSION, ASDF_INSTALL_PATH, ASDF_DOWNLOAD_PATH.
+set -euo pipefail
+
+install_bin="${ASDF_INSTALL_PATH}/bin"
+mkdir -p "$install_bin"
+
+src="${ASDF_DOWNLOAD_PATH}/tfstackplan"
+if [ ! -f "$src" ]; then
+  echo "tfstackplan: binary not found at ${src} (did bin/download run?)." >&2
+  exit 1
+fi
+
+cp "$src" "${install_bin}/tfstackplan"
+chmod +x "${install_bin}/tfstackplan"
+
+# Smoke-test the installed binary so a bad asset fails the install loudly.
+if ! "${install_bin}/tfstackplan" -version >/dev/null 2>&1; then
+  echo "tfstackplan: installed binary failed to run ('-version')." >&2
+  exit 1
+fi
+
+echo "tfstackplan ${ASDF_INSTALL_VERSION} installed → ${install_bin}/tfstackplan"

@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# asdf hook: print every installable version, space-separated, oldest → newest.
+# Sourced from the repo's own release tags (vX.Y.Z); no GitHub token needed for
+# this public repo.
+set -euo pipefail
+
+GH_REPO="https://github.com/Fluent-Health/terraform-stack-plan"
+
+git ls-remote --tags --refs "$GH_REPO" \
+  | grep -oE 'refs/tags/v[0-9]+\.[0-9]+\.[0-9]+$' \
+  | sed 's|refs/tags/v||' \
+  | sort -t. -k1,1n -k2,2n -k3,3n \
+  | tr '\n' ' '
