@@ -18,13 +18,18 @@ func TestApprovalPanelStates(t *testing.T) {
 		{Class: "iam", Target: "proj-b", State: "AWAITING"},
 		{Class: "database", Target: "proj-c", State: "blocked"},
 	})
-	for _, want := range []string{"proj-a", "proj-b", "proj-c", "iam", "database", "Approved", "Waiting", "Blocked"} {
+	for _, want := range []string{"proj-a", "proj-b", "proj-c", "iam", "database", "Approved", "Awaiting approval", "Blocked"} {
 		if !strings.Contains(panel, want) {
 			t.Errorf("panel missing %q", want)
 		}
 	}
-	if strings.Contains(panel, "console.cloud.google.com") || strings.Contains(panel, "cloud.google") {
-		t.Error("approval panel must not hardcode a provider console URL")
+	// Pending gates get an "approve in PAM" deep-link to the target's grants page;
+	// the approved one does not.
+	if !strings.Contains(panel, "approve in PAM") || !strings.Contains(panel, pamConsoleURL("proj-b")) {
+		t.Error("pending gate must link to the PAM console to approve")
+	}
+	if strings.Contains(panel, pamConsoleURL("proj-a")) {
+		t.Error("approved gate must not show an approve link")
 	}
 }
 

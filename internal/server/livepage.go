@@ -26,21 +26,27 @@ func approvalPanel(targets []store.GateTarget) string {
 	var rows strings.Builder
 	for _, t := range targets {
 		var label string
+		active := false
 		switch t.State {
 		case "ACTIVE":
-			label = "✅ Approved"
-		case "AWAITING", "APPROVAL_AWAITED":
-			label = "⏳ Waiting"
+			label, active = "✅ Approved", true
+		case "AWAITING", "APPROVAL_AWAITED", "ACTIVATING", "SCHEDULED":
+			label = "⏳ Awaiting approval"
 		case "blocked":
 			label = "⚠️ Blocked"
 		default:
 			label = "❌ " + html.EscapeString(t.State)
 		}
-		fmt.Fprintf(&rows, "<tr><td><code>%s</code></td><td><code>%s</code></td><td>%s</td></tr>",
-			html.EscapeString(t.Class), html.EscapeString(t.Target), label)
+		action := ""
+		if !active {
+			action = fmt.Sprintf(`<a class="approve-link" href="%s" target="_blank" rel="noopener">approve in PAM ↗</a>`,
+				html.EscapeString(pamConsoleURL(t.Target)))
+		}
+		fmt.Fprintf(&rows, "<tr><td><code>%s</code></td><td><code>%s</code></td><td>%s</td><td>%s</td></tr>",
+			html.EscapeString(t.Class), html.EscapeString(t.Target), label, action)
 	}
-	return `<div class="panel"><table>` +
-		`<thead><tr><th>Class</th><th>Target</th><th>State</th></tr></thead>` +
+	return `<div class="panel"><h2 class="text-sm font-semibold opacity-70 mb-2">Approvals</h2><table>` +
+		`<thead><tr><th>Class</th><th>Target</th><th>State</th><th></th></tr></thead>` +
 		`<tbody>` + rows.String() + `</tbody></table></div>`
 }
 

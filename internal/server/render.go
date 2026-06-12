@@ -2,10 +2,43 @@ package server
 
 import (
 	"fmt"
+	"net/url"
 	"strings"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
+	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
+
+// pamConsoleURL deep-links to the GCP PAM grants page for a target. The iam
+// class emits the target as a GCP project (emit_attributes ["project"]), so the
+// approver lands on that project's Privileged Access Manager → Grants, where the
+// pending grant is approved. (gcp-pam is the only backend today; if more are
+// added this should move behind the approval.Backend.)
+func pamConsoleURL(target string) string {
+	return "https://console.cloud.google.com/iam-admin/pam/grants?project=" + url.QueryEscape(target)
+}
+
+// gatesSection renders an "awaiting approval" banner for the check run when any
+// gate target is not yet ACTIVE, with a deep link to approve each in PAM. Returns
+// "" when every gate is approved (or there are none).
+func gatesSection(targets []store.GateTarget) string {
+	var pending []store.GateTarget
+	for _, t := range targets {
+		if t.State != "ACTIVE" {
+			pending = append(pending, t)
+		}
+	}
+	if len(pending) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("### ⏳ Awaiting approval\n\nThis plan changes gated resources. Merge is blocked until each grant is approved in PAM:\n\n")
+	for _, t := range pending {
+		fmt.Fprintf(&b, "- 🔐 `%s` · `%s` — [approve in PAM ↗](%s)\n", t.Class, t.Target, pamConsoleURL(t.Target))
+	}
+	b.WriteString("\n---\n\n")
+	return b.String()
+}
 
 // statusGlyph maps a stack status to a display glyph for the progress list.
 func statusGlyph(s events.Status) string {
