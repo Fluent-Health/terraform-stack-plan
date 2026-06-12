@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# asdf hook: print the latest stable (non-prerelease) version. $1 is an optional
+# filter prefix asdf may pass (e.g. "0.8"); honor it if present.
+set -euo pipefail
+
+plugin_dir="$(dirname "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")")"
+filter="${1:-}"
+
+versions="$("${plugin_dir}/bin/list-all" | tr ' ' '\n' | grep -vE -- '-(rc|beta|alpha|pre)' || true)"
+if [ -n "$filter" ]; then
+  versions="$(printf '%s\n' "$versions" | grep -E "^${filter}([.[:space:]]|$)" || true)"
+fi
+
+printf '%s\n' "$versions" | grep -v '^$' | tail -n1

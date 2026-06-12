@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# asdf hook: fetch the released binary tarball for $ASDF_INSTALL_VERSION into
+# $ASDF_DOWNLOAD_PATH, verify its checksum, and extract the binary there.
+# asdf env: ASDF_INSTALL_TYPE (version|ref), ASDF_INSTALL_VERSION, ASDF_DOWNLOAD_PATH.
+set -euo pipefail
+
+GH_REPO="https://github.com/Fluent-Health/terraform-stack-plan"
+
+if [ "${ASDF_INSTALL_TYPE:-version}" != "version" ]; then
+  echo "tfstackplan: only release versions are installable, not refs (got '${ASDF_INSTALL_VERSION}')." >&2
+  echo "tfstackplan: build a ref yourself with 'go install ...@<ref>'." >&2
+  exit 1
+fi
+
+version="$ASDF_INSTALL_VERSION"
+
+os="$(uname -s)"
+case "$os" in
+  Linux) os=linux ;;
+  Darwin) os=darwin ;;
+  *) echo "tfstackplan: unsupported OS '$os' (asdf install supports linux/darwin)." >&2; exit 1 ;;
+esac
+
+arch="$(uname -m)"
+case "$arch" in
+  x86_64 | amd64) arch=amd64 ;;
+  aarch64 | arm64) arch=arm64 ;;
+  *) echo "tfstackplan: unsupported architecture '$arch'." >&2; exit 1 ;;
+esac
+
+asset="tfstackplan_v${version}_${os}_${arch}.tar.gz"
+url="${GH_REPO}/releases/download/v${version}/${asset}"
+
+mkdir -p "$ASDF_DOWNLOAD_PATH"
+
+echo "* Downloading tfstackplan ${version} (${os}/${arch})…"
+curl -fsSL -o "${ASDF_DOWNLOAD_PATH}/${asset}" "$url" \
+  || { echo "tfstackplan: download failed: $url" >&2; exit 1; }
+curl -fsSL -o "${ASDF_DOWNLOAD_PATH}/${asset}.sha256" "${url}.sha256" \
+  || { echo "tfstackplan: checksum download failed: ${url}.sha256" >&2; exit 1; }
+
+echo "* Verifying checksum…"
+(
+  cd "$ASDF_DOWNLOAD_PATH"
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum -c "${asset}.sha256"
+  else
+    # macOS ships shasum, not sha256sum; the .sha256 file is the same format.
+    shasum -a 256 -c "${asset}.sha256"
+  fi
+) || { echo "tfstackplan: checksum verification failed for ${asset}." >&2; exit 1; }
+
+tar -xzf "${ASDF_DOWNLOAD_PATH}/${asset}" -C "$ASDF_DOWNLOAD_PATH"
+rm -f "${ASDF_DOWNLOAD_PATH}/${asset}" "${ASDF_DOWNLOAD_PATH}/${asset}.sha256"

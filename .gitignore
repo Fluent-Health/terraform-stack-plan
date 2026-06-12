@@ -20,3 +20,6 @@ service-account*.json
 # docs/DESIGN.md. See CLAUDE.md.
 docs/superpowers/
 web/node_modules/
+
+# git worktrees (isolated dev workspaces; see using-git-worktrees)
+.worktrees/

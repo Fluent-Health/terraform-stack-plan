@@ -136,6 +136,23 @@ The release also ships a **multi-arch, distroless Cloud Run container** (its
 entrypoint is `serve`) pushed to GHCR — the binary is fully static (pure-Go
 SQLite, no cgo) and embeds its assets, so the image needs no runtime files.
 
+### asdf
+
+This repo is **its own [asdf](https://asdf-vm.com) plugin** — the hook scripts
+live in [`bin/`](./bin), so there is no separate plugin repo to maintain. The
+plugin downloads the prebuilt release binary (verifying its `.sha256`); no Go
+toolchain is needed on the target machine.
+
+```bash
+asdf plugin add tfstackplan https://github.com/Fluent-Health/terraform-stack-plan.git
+asdf install tfstackplan latest      # or a pinned version, e.g. 0.8.1
+asdf set tfstackplan 0.8.1           # writes .tool-versions
+```
+
+linux/darwin on amd64/arm64. asdf won't auto-add the plugin from a
+`.tool-versions`, so each machine runs `asdf plugin add …` once;
+`asdf install` thereafter honours the pinned version.
+
 ---
 
 ## `render` — plan.json files → one markdown comment
