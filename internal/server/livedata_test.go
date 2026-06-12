@@ -40,19 +40,55 @@ func TestStatusBadge(t *testing.T) {
 }
 
 func TestPhaseTimeline(t *testing.T) {
-	steps := phaseTimeline(events.PhasePlanning)
-	if len(steps) != 5 {
-		t.Fatalf("steps = %d, want 5", len(steps))
-	}
-	want := []string{"done", "done", "active", "todo", "todo"}
-	for i, st := range steps {
-		if st.State != want[i] {
-			t.Errorf("step %d (%s) state = %q, want %q", i, st.Name, st.State, want[i])
+	t.Run("plan in-progress", func(t *testing.T) {
+		steps := phaseTimeline("plan", events.PhasePlanning, false)
+		if len(steps) != 2 {
+			t.Fatalf("plan timeline: got %d steps, want 2", len(steps))
 		}
-	}
-	for _, st := range phaseTimeline(events.Phase("")) {
-		if st.State != "todo" {
-			t.Errorf("empty-phase step %s = %q, want todo", st.Name, st.State)
+		if steps[0].Name != "Plan" || steps[0].State != "active" {
+			t.Errorf("plan step 0: got {%q, %q}, want {Plan, active}", steps[0].Name, steps[0].State)
 		}
-	}
+		if steps[1].Name != "Report" || steps[1].State != "todo" {
+			t.Errorf("plan step 1: got {%q, %q}, want {Report, todo}", steps[1].Name, steps[1].State)
+		}
+	})
+
+	t.Run("plan finished", func(t *testing.T) {
+		steps := phaseTimeline("plan", events.PhasePlanning, true)
+		for _, st := range steps {
+			if st.State != "done" {
+				t.Errorf("finished plan: step %q = %q, want done", st.Name, st.State)
+			}
+		}
+	})
+
+	t.Run("apply in-progress", func(t *testing.T) {
+		steps := phaseTimeline("apply", events.PhaseApplying, false)
+		if len(steps) != 2 {
+			t.Fatalf("apply timeline: got %d steps, want 2", len(steps))
+		}
+		if steps[0].Name != "Apply" || steps[0].State != "active" {
+			t.Errorf("apply step 0: got {%q, %q}, want {Apply, active}", steps[0].Name, steps[0].State)
+		}
+		if steps[1].Name != "Verify" || steps[1].State != "todo" {
+			t.Errorf("apply step 1: got {%q, %q}, want {Verify, todo}", steps[1].Name, steps[1].State)
+		}
+	})
+
+	t.Run("apply finished", func(t *testing.T) {
+		steps := phaseTimeline("apply", events.PhaseVerifying, true)
+		for _, st := range steps {
+			if st.State != "done" {
+				t.Errorf("finished apply: step %q = %q, want done", st.Name, st.State)
+			}
+		}
+	})
+
+	t.Run("unknown phase is all todo", func(t *testing.T) {
+		for _, st := range phaseTimeline("plan", events.Phase(""), false) {
+			if st.State != "todo" {
+				t.Errorf("empty-phase step %s = %q, want todo", st.Name, st.State)
+			}
+		}
+	})
 }

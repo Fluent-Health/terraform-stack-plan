@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"fmt"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -108,6 +109,30 @@ func TestRenderGroupSVGBadges(t *testing.T) {
 	svg := string(renderGroupSVG(g, 2, nil))
 	if !strings.Contains(svg, "🔐 2") {
 		t.Errorf("group SVG missing the 🔐 2 badge:\n%s", svg)
+	}
+}
+
+func TestDagSVGSelection(t *testing.T) {
+	// Graphs with ≤ 40 stacks must use per-stack rendering (no lane labels).
+	smallStacks := make([]events.StackState, 3)
+	for i := range smallStacks {
+		smallStacks[i] = events.StackState{Path: fmt.Sprintf("stacks/%d", i)}
+	}
+	a := &App{}
+	small := string(a.dagSVG(events.Graph{Stacks: smallStacks}))
+	// Per-stack SVG has individual node boxes but no swimlane labels (group SVG has them).
+	if strings.Contains(small, "font-weight=\"bold\"") {
+		t.Error("small graph (≤40): expected per-stack SVG (no swimlane labels), got group SVG")
+	}
+
+	// Graphs with > 40 stacks must use group rendering (has swimlane labels).
+	largeStacks := make([]events.StackState, 41)
+	for i := range largeStacks {
+		largeStacks[i] = events.StackState{Path: fmt.Sprintf("nonprod/group/stack%d", i)}
+	}
+	large := string(a.dagSVG(events.Graph{Stacks: largeStacks}))
+	if !strings.Contains(large, "font-weight=\"bold\"") {
+		t.Error("large graph (>40): expected group SVG (with swimlane labels), got per-stack SVG")
 	}
 }
 

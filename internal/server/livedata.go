@@ -58,34 +58,59 @@ type phaseStep struct {
 	State string // "done" | "active" | "todo"
 }
 
-// phaseOrder is the lifecycle phase progression shown in the timeline.
-var phaseOrder = []events.Phase{
-	events.PhaseWarming, events.PhaseInitializing, events.PhasePlanning, events.PhaseApplying, events.PhaseVerifying,
-}
+// phaseTimeline returns the context-appropriate ordered phase steps.
+//
+// kind is derived from the execution's Context field: "apply" (starts with
+// "apply") vs "plan" (anything else). finished signals that the execution has
+// concluded (report present for plan, terminal Status for apply).
+//
+// Plan kind:  Plan → Report
+// Apply kind: Apply → Verify
+//
+// Step state: done = completed, active = current phase, todo = future.
+// When finished, all steps are "done" (nothing left stuck "active").
+func phaseTimeline(kind string, cur events.Phase, finished bool) []phaseStep {
+	type spec struct {
+		name  string
+		phase events.Phase // the runner phase that drives this step
+	}
+	var specs []spec
+	if kind == "apply" {
+		specs = []spec{
+			{name: "Apply", phase: events.PhaseApplying},
+			{name: "Verify", phase: events.PhaseVerifying},
+		}
+	} else {
+		specs = []spec{
+			{name: "Plan", phase: events.PhasePlanning},
+			{name: "Report", phase: ""}, // synthetic: no phase emitted; done when report lands
+		}
+	}
 
-// phaseTimeline returns the ordered phases with state relative to cur: phases
-// before cur are "done", cur is "active", later phases are "todo". An unknown or
-// empty cur (not in phaseOrder) leaves every phase "todo".
-func phaseTimeline(cur events.Phase) []phaseStep {
+	// Find which step is currently active (first whose phase matches cur, or the
+	// last step that has been passed).
 	curIdx := -1
-	for i, p := range phaseOrder {
-		if p == cur {
+	for i, s := range specs {
+		if s.phase != "" && s.phase == cur {
 			curIdx = i
 			break
 		}
 	}
-	steps := make([]phaseStep, 0, len(phaseOrder))
-	for i, p := range phaseOrder {
-		state := "todo"
-		if curIdx >= 0 {
-			switch {
-			case i < curIdx:
-				state = "done"
-			case i == curIdx:
-				state = "active"
-			}
+
+	steps := make([]phaseStep, 0, len(specs))
+	for i, s := range specs {
+		var state string
+		switch {
+		case finished:
+			state = "done"
+		case curIdx >= 0 && i < curIdx:
+			state = "done"
+		case curIdx >= 0 && i == curIdx:
+			state = "active"
+		default:
+			state = "todo"
 		}
-		steps = append(steps, phaseStep{Name: string(p), State: state})
+		steps = append(steps, phaseStep{Name: s.name, State: state})
 	}
 	return steps
 }

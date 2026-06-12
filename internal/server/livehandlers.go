@@ -11,8 +11,13 @@ import (
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
 
-// dagSVG renders the execution's group-level dependency DAG (default depth 2).
+// dagSVG renders the execution's dependency DAG. For graphs with ≤ 40 stacks
+// the per-stack graph (renderSVG) is used so the user can see individual nodes;
+// larger graphs fall back to the group-level view (renderGroupSVG) for readability.
 func (a *App) dagSVG(g events.Graph) []byte {
+	if len(g.Stacks) <= 40 {
+		return renderSVG(g)
+	}
 	depth := a.cfg.GroupDepth
 	if depth == 0 {
 		depth = 2
@@ -59,6 +64,10 @@ func (a *App) handleLive(w http.ResponseWriter, r *http.Request) {
 		Repo:        e.Repo,
 		Environment: e.Environment,
 		Report:      report,
+		PR:          e.PR,
+		SHA:         e.SHA,
+		Context:     e.StatusContext,
+		Status:      e.Status,
 		Phase:       events.Phase(e.Phase),
 		Stacks:      g.Stacks,
 		SVG:         string(a.dagSVG(g)),
@@ -106,6 +115,7 @@ func (a *App) handleLiveEvents(w http.ResponseWriter, r *http.Request) {
 // stackView is the data the per-stack detail template renders.
 type stackView struct {
 	Exec, Repo, Environment, Stack string
+	Kind                           string // "plan" or "apply" — controls which tabs show
 	Plan, LogExcerpt               string
 	VerifyExec                     string // latest verify run id for this PR/env ("" if none)
 	VerifyLog                      string // tail excerpt of the verify run's per-stack log ("" if none)
@@ -138,7 +148,9 @@ func (a *App) handleStackDetail(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Write([]byte(a.stackPage(stackView{
 		Exec: id, Repo: e.Repo, Environment: e.Environment, Stack: stack,
-		Plan: plan, LogExcerpt: logExcerpt,
+		Kind:       execKind(e.StatusContext),
+		Plan:       plan,
+		LogExcerpt: logExcerpt,
 		VerifyExec: verifyExec,
 		VerifyLog:  verifyLog,
 	})))

@@ -8,6 +8,7 @@ require (
 	github.com/hashicorp/terraform-json v0.27.2
 	github.com/pmezard/go-difflib v1.0.0
 	github.com/pressly/goose/v3 v3.27.1
+	github.com/yuin/goldmark v1.8.2
 	golang.org/x/oauth2 v0.36.0
 	google.golang.org/api v0.284.0
 	gopkg.in/yaml.v3 v3.0.1

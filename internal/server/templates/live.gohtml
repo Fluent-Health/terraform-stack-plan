@@ -6,12 +6,43 @@
   <noscript><meta http-equiv="refresh" content="10"></noscript>
   <title>{{ .Title }}</title>
   <link rel="stylesheet" href="/assets/app.css">
+  <style>
+    /* Scoped report markdown styles — no Tailwind Typography required */
+    .tfsp-report table { border-collapse: collapse; width: 100%; margin: 0.75rem 0; font-size: 0.8rem; }
+    .tfsp-report th, .tfsp-report td { border: 1px solid #d0d7de; padding: 0.35rem 0.6rem; text-align: left; }
+    .tfsp-report th { background: #f6f8fa; font-weight: 600; }
+    .tfsp-report tr:nth-child(even) td { background: #f6f8fa; }
+    .tfsp-report code { font-family: ui-monospace, Menlo, monospace; font-size: 0.8em; background: #eef0f2; padding: 0.1em 0.3em; border-radius: 3px; }
+    .tfsp-report pre { font-family: ui-monospace, Menlo, monospace; font-size: 0.75rem; background: #1b1f23; color: #e6edf3; padding: 0.75rem 1rem; border-radius: 6px; overflow-x: auto; margin: 0.5rem 0; }
+    .tfsp-report pre code { background: none; padding: 0; color: inherit; font-size: inherit; }
+    .tfsp-report details { margin: 0.5rem 0; }
+    .tfsp-report summary { cursor: pointer; font-weight: 600; color: #0969da; }
+    .tfsp-report h1, .tfsp-report h2, .tfsp-report h3 { font-weight: 700; margin: 1rem 0 0.4rem; }
+    .tfsp-report h1 { font-size: 1.2rem; }
+    .tfsp-report h2 { font-size: 1.05rem; }
+    .tfsp-report h3 { font-size: 0.95rem; }
+    .tfsp-report ul, .tfsp-report ol { padding-left: 1.5rem; margin: 0.4rem 0; }
+    .tfsp-report li { margin: 0.15rem 0; }
+    .tfsp-report p { margin: 0.4rem 0; }
+    .tfsp-report a { color: #0969da; }
+  </style>
 </head>
 <body class="min-h-screen bg-base-200">
   <div class="navbar bg-base-100 border-b border-base-300">
-    <div class="mx-auto w-full max-w-5xl px-4">
+    <div class="mx-auto w-full max-w-5xl px-4 flex items-center gap-3 flex-wrap">
       <span class="text-lg font-semibold">{{ .Title }}</span>
-      <span class="ml-3 text-sm opacity-60">{{ .Repo }} · live</span>
+      <span class="text-sm opacity-60">{{ .Repo }}</span>
+      {{ if gt .PR 0 }}
+      <a class="link link-hover text-sm opacity-70" href="https://github.com/{{ .Repo }}/pull/{{ .PR }}">#{{ .PR }}</a>
+      {{ end }}
+      {{ if .ShortSHA }}
+      <code class="text-xs opacity-50">{{ .ShortSHA }}</code>
+      {{ end }}
+      {{ if gt .PR 0 }}
+      <a class="link link-hover text-xs opacity-60 ml-auto" href="https://github.com/{{ .Repo }}/pull/{{ .PR }}/checks" target="_blank" rel="noopener">Checks ↗</a>
+      {{ else if .SHA }}
+      <a class="link link-hover text-xs opacity-60 ml-auto" href="https://github.com/{{ .Repo }}/commit/{{ .SHA }}" target="_blank" rel="noopener">Checks ↗</a>
+      {{ end }}
     </div>
   </div>
   <main class="mx-auto w-full max-w-5xl px-4 py-6 space-y-6">
@@ -26,7 +57,7 @@
     <section class="card bg-base-100 shadow-sm"><div class="card-body p-4">
       <h2 class="text-sm font-semibold opacity-70 mb-2">Stacks</h2>
       {{ range .Groups }}
-      <div tabindex="0" class="collapse collapse-arrow border border-base-300 rounded-lg mb-2">
+      <div class="collapse collapse-arrow border border-base-300 rounded-lg mb-2">
         <input type="checkbox" checked>
         <div class="collapse-title text-sm font-medium">{{ .Name }} <span class="opacity-50">({{ len .Stacks }})</span></div>
         <div class="collapse-content">
@@ -50,7 +81,7 @@
       </details>
     </div></section>
     <section class="card bg-base-100 shadow-sm"><div class="card-body p-4">
-      {{ if .Report }}<pre class="overflow-auto rounded-lg bg-neutral text-neutral-content p-4 text-xs">{{ .Report }}</pre>
+      {{ if .Report }}<div class="tfsp-report">{{ .ReportHTML }}</div>
       {{ else }}<p class="opacity-60 italic">Plan still running — the report appears here when the plan completes.</p>{{ end }}
     </div></section>
   </main>
