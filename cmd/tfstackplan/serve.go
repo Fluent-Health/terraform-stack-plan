@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -71,13 +72,16 @@ func buildServeApp(ctx context.Context, cfg *config.Config, secret string, creds
 		return nil, nil, fmt.Errorf("serve: github client: %w", err)
 	}
 
+	logsDir := defaultLogsDir(s.LogsDir, s.DBPath)
+	fmt.Fprintf(os.Stderr, "tfstackplan serve: log buffers in %s\n", logsDir)
+
 	app := server.New(db, gh, server.Config{
 		WebhookSecret:      secret,
 		PublicBaseURL:      s.PublicBaseURL,
 		UseChecks:          s.UseChecks,
 		GroupDepth:         groupDepth(s),
 		GroupPattern:       groupPattern(s),
-		LogsDir:            s.LogsDir,
+		LogsDir:            logsDir,
 		PushServiceAccount: pubsubSA(s),
 	})
 
@@ -132,6 +136,16 @@ func groupPattern(s *config.ServeConfig) string {
 		return s.Group.Pattern
 	}
 	return ""
+}
+
+// defaultLogsDir resolves the per-stack log buffer dir: an explicit logs_dir
+// wins; otherwise default to <dir(db_path)>/logs so log ingestion (live tail,
+// excerpt, offload) can never be silently disabled by an omitted knob.
+func defaultLogsDir(configured, dbPath string) string {
+	if configured != "" {
+		return configured
+	}
+	return filepath.Join(filepath.Dir(dbPath), "logs")
 }
 
 // runServe loads config, builds the app, starts the reconcile loop, and serves.
