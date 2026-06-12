@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 
+	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
 
@@ -82,10 +84,54 @@ func (a *App) reconcile(ctx context.Context, id, base string) {
 	}
 }
 
-// drive updates the GitHub surface for an execution after a state change: in
-// check mode it patches the check run; in link mode it posts the commit status.
+// isApplyContext reports whether a status context is a post-merge apply (e.g.
+// "apply/nonprod") rather than the plan gate.
+func isApplyContext(ctx string) bool {
+	return ctx == "apply" || strings.HasPrefix(ctx, "apply/")
+}
+
+// driveApply posts/updates the apply/<env> commit status for a post-merge apply
+// execution. Apply runs are not check-run gates (a check run on the default
+// branch would dangle), so serve surfaces them as a commit status linking to the
+// live page. State derives from the stacks: any failed ⇒ failure; all terminal
+// (safe) ⇒ success; otherwise pending (still applying). Best-effort.
+func (a *App) driveApply(ctx context.Context, e store.Execution, base string) {
+	g, err := store.LoadGraph(a.db, e.ID)
+	if err != nil {
+		log.Printf("apply status: load graph %s: %v", e.ID, err)
+		return
+	}
+	total := len(g.Stacks)
+	done, failed := 0, 0
+	for _, s := range g.Stacks {
+		switch s.Status {
+		case events.StatusSafe:
+			done++
+		case events.StatusFailed:
+			failed++
+		}
+	}
+	var state, desc string
+	switch {
+	case failed > 0:
+		state, desc = "failure", fmt.Sprintf("apply failed — %d/%d applied, %d failed", done, total, failed)
+	case total > 0 && done == total:
+		state, desc = "success", fmt.Sprintf("applied %d/%d stacks", done, total)
+	default:
+		state, desc = "pending", fmt.Sprintf("applying… %d/%d stacks", done, total)
+	}
+	if err := a.gh.PostStatus(ctx, e.Repo, e.SHA, e.StatusContext, state, desc, liveURL(base, e.ID)); err != nil {
+		log.Printf("apply status %s: %v", e.ID, err)
+	}
+}
+
+// drive updates the GitHub surface for an execution after a state change. A
+// post-merge apply (apply/<env> context) gets a commit status; the plan gate
+// gets a check run (check mode) or a plan/<env> commit status (link mode).
 func (a *App) drive(ctx context.Context, id, base string, terminal bool) {
-	if a.cfg.UseChecks {
+	if e, err := store.GetExecution(a.db, id); err == nil && isApplyContext(e.StatusContext) {
+		a.driveApply(ctx, e, base)
+	} else if a.cfg.UseChecks {
 		a.renderAndPatch(ctx, id, base, terminal)
 	} else {
 		a.reconcile(ctx, id, base)
