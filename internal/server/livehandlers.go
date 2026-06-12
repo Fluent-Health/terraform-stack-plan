@@ -116,6 +116,7 @@ func (a *App) handleLiveEvents(w http.ResponseWriter, r *http.Request) {
 type stackView struct {
 	Exec, Repo, Environment, Stack string
 	Kind                           string // "plan" or "apply" — controls which tabs show
+	Finished                       bool   // concluded → load static log instead of SSE follow
 	Plan, LogExcerpt               string
 	VerifyExec                     string // latest verify run id for this PR/env ("" if none)
 	VerifyLog                      string // tail excerpt of the verify run's per-stack log ("" if none)
@@ -145,10 +146,12 @@ func (a *App) handleStackDetail(w http.ResponseWriter, r *http.Request) {
 	if verifyExec != "" {
 		_, verifyLog, _, _ = store.GetStackOutput(a.db, verifyExec, stack, "log")
 	}
+	kind := execKind(e.StatusContext)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Write([]byte(a.stackPage(stackView{
 		Exec: id, Repo: e.Repo, Environment: e.Environment, Stack: stack,
-		Kind:       execKind(e.StatusContext),
+		Kind:       kind,
+		Finished:   isFinished(kind, e.ReportMarkdown, e.Status),
 		Plan:       plan,
 		LogExcerpt: logExcerpt,
 		VerifyExec: verifyExec,

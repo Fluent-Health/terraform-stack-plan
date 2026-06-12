@@ -225,6 +225,36 @@ func TestStackDetailApplyTabsNoVerifyLink(t *testing.T) {
 	}
 }
 
+func TestStackPageUsesStaticLogWhenFinished(t *testing.T) {
+	db := newServerTestDB(t)
+	a := New(db, &MockGitHub{}, Config{})
+	if err := store.UpsertInit(db, events.Init{ID: "e1", Repo: "o/r", SHA: "s", Environment: "nonprod",
+		Stacks: []events.StackState{{Path: "stacks/a", Status: events.StatusPlanned}}}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Live (no report yet) → follow mode.
+	rec := httptest.NewRecorder()
+	a.Routes().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/live/e1/stack/stacks/a", nil))
+	if !strings.Contains(rec.Body.String(), "follow=1") {
+		t.Fatalf("live page should stream with follow=1:\n%s", rec.Body.String())
+	}
+
+	// Finished (report present) → static load, no follow.
+	if err := store.SetReport(db, "e1", "# report"); err != nil {
+		t.Fatal(err)
+	}
+	rec = httptest.NewRecorder()
+	a.Routes().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/live/e1/stack/stacks/a", nil))
+	body := rec.Body.String()
+	if strings.Contains(body, "follow=1") {
+		t.Fatalf("finished page still streams follow=1:\n%s", body)
+	}
+	if !strings.Contains(body, `data-log-url="/logs/e1/stacks/a"`) {
+		t.Fatalf("finished page missing static log url:\n%s", body)
+	}
+}
+
 func TestDrivePublishesChange(t *testing.T) {
 	db := newServerTestDB(t)
 	a := New(db, &MockGitHub{}, Config{})
