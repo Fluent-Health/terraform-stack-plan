@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
+	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
 
 func TestRenderProgress(t *testing.T) {
@@ -38,5 +39,24 @@ func TestFailuresSection(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in:\n%s", want, out)
 		}
+	}
+}
+
+func TestGatesSection(t *testing.T) {
+	if gatesSection(nil) != "" {
+		t.Error("no targets → no banner")
+	}
+	if s := gatesSection([]store.GateTarget{{Class: "iam", Target: "p", State: "ACTIVE"}}); s != "" {
+		t.Errorf("all-active → no banner, got %q", s)
+	}
+	s := gatesSection([]store.GateTarget{
+		{Class: "iam", Target: "fh-dev-svc", State: "AWAITING"},
+		{Class: "iam", Target: "fh-stage-svc", State: "ACTIVE"},
+	})
+	if !strings.Contains(s, "Awaiting approval") || !strings.Contains(s, "fh-dev-svc") || !strings.Contains(s, pamConsoleURL("fh-dev-svc")) {
+		t.Errorf("pending gate banner missing content: %q", s)
+	}
+	if strings.Contains(s, "fh-stage-svc") {
+		t.Error("active gate should not appear in the awaiting banner")
 	}
 }

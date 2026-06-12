@@ -56,9 +56,12 @@ func (a *App) renderAndPatch(ctx context.Context, id, base string, terminal bool
 		log.Printf("load graph %s: %v", id, err)
 		return
 	}
+	// Surface pending approval gates at the top of the check run so an
+	// action_required conclusion is self-explanatory (which gate, how to approve).
+	targets, _ := store.TargetsFor(a.db, e.PR, e.Environment)
 	upd := CheckRunUpdate{
 		Summary:    renderProgress(g),
-		Text:       failuresSection(g, e.LogURL) + e.ReportMarkdown,
+		Text:       gatesSection(targets) + failuresSection(g, e.LogURL) + e.ReportMarkdown,
 		DetailsURL: liveURL(base, id),
 	}
 	if terminal {
