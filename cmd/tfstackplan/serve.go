@@ -174,6 +174,7 @@ func runServe(args []string) int {
 	defer cleanup()
 
 	go app.ReconcileLoop(ctx, 30*time.Second)
+	go app.CleanLogBuffers(24 * time.Hour)
 
 	fmt.Fprintf(os.Stderr, "tfstackplan serve: listening on %s\n", *addr)
 	srv := &http.Server{Addr: *addr, Handler: app.Routes(), ReadHeaderTimeout: 10 * time.Second}

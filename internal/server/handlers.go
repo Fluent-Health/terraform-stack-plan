@@ -66,7 +66,7 @@ func (a *App) handleUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if a.Objects != nil && done(u.Status) {
-		a.offloadLog(r.Context(), u.ID, u.Stack)
+		_ = a.offloadLog(r.Context(), u.ID, u.Stack)
 	}
 	a.drive(r.Context(), u.ID, a.baseURL(r), false)
 	w.WriteHeader(http.StatusOK)
@@ -106,6 +106,9 @@ func (a *App) handleFinalize(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		a.drive(r.Context(), f.ID, a.baseURL(r), true)
+		if g, gerr := store.LoadGraph(a.db, f.ID); gerr == nil {
+			a.finalizeLogs(r.Context(), f.ID, g.Stacks)
+		}
 		w.WriteHeader(http.StatusOK)
 		return
 	}
@@ -176,5 +179,8 @@ func (a *App) handleFinalize(w http.ResponseWriter, r *http.Request) {
 
 	// Drive terminally — AFTER gate targets are stored, so the conclusion sees them.
 	a.drive(r.Context(), f.ID, a.baseURL(r), true)
+	if g, gerr := store.LoadGraph(a.db, f.ID); gerr == nil {
+		a.finalizeLogs(r.Context(), f.ID, g.Stacks)
+	}
 	w.WriteHeader(http.StatusOK)
 }
