@@ -106,6 +106,8 @@ func (a *App) handleFinalize(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		a.drive(r.Context(), f.ID, a.baseURL(r), true)
+		// Re-offloads stacks handleUpdate already offloaded at terminal status —
+		// intentional: the full sweep is what licenses deleting the buffer dir.
 		if g, gerr := store.LoadGraph(a.db, f.ID); gerr == nil {
 			a.finalizeLogs(r.Context(), f.ID, g.Stacks)
 		}

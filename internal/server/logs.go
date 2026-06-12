@@ -77,6 +77,8 @@ func (a *App) appendLog(execID, stack, data string) error {
 }
 
 // errNoObjectStore reports that offload is impossible (no store configured).
+// Only its non-nil-ness is used today: finalizeLogs must treat "no store" as
+// not-offloaded so it never deletes the only copy of a buffer.
 var errNoObjectStore = errors.New("no object store")
 
 // offloadLog uploads a stack's full log buffer to the object store and records
