@@ -97,6 +97,8 @@ func isApplyContext(ctx string) bool {
 // execution. Apply runs surface as a commit status linking to the live page.
 // State derives from the stacks: any failed ⇒ failure; all terminal
 // (safe) ⇒ success; otherwise pending (still applying). Best-effort.
+// When UseChecks is enabled and the execution has a check run, it is also
+// updated so the apply progress is visible on the GitHub Checks page.
 func (a *App) driveApply(ctx context.Context, e store.Execution, base string) {
 	g, err := store.LoadGraph(a.db, e.ID)
 	if err != nil {
@@ -124,6 +126,23 @@ func (a *App) driveApply(ctx context.Context, e store.Execution, base string) {
 	}
 	if err := a.gh.PostStatus(ctx, e.Repo, e.SHA, e.StatusContext, state, desc, liveURL(base, e.ID)); err != nil {
 		log.Printf("apply status %s: %v", e.ID, err)
+	}
+	if a.cfg.UseChecks && e.CheckRunID.Valid && e.CheckRunID.Int64 != 0 {
+		var conclusion string
+		switch state {
+		case "success":
+			conclusion = "success"
+		case "failure":
+			conclusion = "failure"
+		}
+		upd := CheckRunUpdate{
+			Summary:    desc,
+			DetailsURL: liveURL(base, e.ID),
+			Conclusion: conclusion,
+		}
+		if err := a.gh.UpdateCheckRun(ctx, e.Repo, e.CheckRunID.Int64, upd); err != nil {
+			log.Printf("apply check run %s: %v", e.ID, err)
+		}
 	}
 }
 

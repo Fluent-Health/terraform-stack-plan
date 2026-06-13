@@ -25,6 +25,12 @@ func (a *App) handleInit(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if isApplyContext(in.Context) && a.cfg.UseChecks {
+		if err := a.ensureCheckRun(r.Context(), in.ID, in.Repo, in.SHA, in.Context, liveURL(base, in.ID)); err != nil {
+			http.Error(w, "create check run", http.StatusBadGateway)
+			return
+		}
+	}
 	a.drive(r.Context(), in.ID, base, false)
 	w.WriteHeader(http.StatusOK)
 }
@@ -47,6 +53,12 @@ func (a *App) handlePhase(w http.ResponseWriter, r *http.Request) {
 	base := a.baseURL(r)
 	if isGate(e.StatusContext, e.Environment) && a.cfg.UseChecks {
 		if err := a.ensureCheckRun(r.Context(), e.ID, e.Repo, e.SHA, checkRunName(e.Environment), liveURL(base, e.ID)); err != nil {
+			http.Error(w, "create check run", http.StatusBadGateway)
+			return
+		}
+	}
+	if isApplyContext(e.StatusContext) && a.cfg.UseChecks {
+		if err := a.ensureCheckRun(r.Context(), e.ID, e.Repo, e.SHA, e.StatusContext, liveURL(base, e.ID)); err != nil {
 			http.Error(w, "create check run", http.StatusBadGateway)
 			return
 		}
