@@ -120,7 +120,7 @@ func TestCreateCheckRun(t *testing.T) {
 		t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
 	})
 	c := newTestRealClient(t)
-	id, err := c.CreateCheckRun(context.Background(), "o/r", "sha123", "staging", "https://srv/live/e1")
+	id, err := c.CreateCheckRun(context.Background(), "o/r", "sha123", "plan/staging", "https://srv/live/e1")
 	if err != nil {
 		t.Fatal(err)
 	}

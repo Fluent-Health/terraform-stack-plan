@@ -141,14 +141,14 @@ func checkRunName(environment string) string {
 	return "plan/" + environment
 }
 
-// CreateCheckRun opens an in_progress check run for the environment.
-func (c *RealClient) CreateCheckRun(ctx context.Context, repo, sha, environment, detailsURL string) (int64, error) {
-	owner, name, err := splitRepo(repo)
+// CreateCheckRun opens an in_progress check run with the given name.
+func (c *RealClient) CreateCheckRun(ctx context.Context, repo, sha, name, detailsURL string) (int64, error) {
+	owner, repoName, err := splitRepo(repo)
 	if err != nil {
 		return 0, err
 	}
 	payload := map[string]any{
-		"name":     checkRunName(environment),
+		"name":     name,
 		"head_sha": sha,
 		"status":   "in_progress",
 		"output":   output("Planning…", ""),
@@ -157,7 +157,7 @@ func (c *RealClient) CreateCheckRun(ctx context.Context, repo, sha, environment,
 		payload["details_url"] = detailsURL
 	}
 	rb, err := c.do(ctx, http.MethodPost,
-		fmt.Sprintf("%s/repos/%s/%s/check-runs", apiBase, owner, name), payload)
+		fmt.Sprintf("%s/repos/%s/%s/check-runs", apiBase, owner, repoName), payload)
 	if err != nil {
 		return 0, err
 	}
