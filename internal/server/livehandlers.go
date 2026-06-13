@@ -116,8 +116,8 @@ func (a *App) handleLiveEvents(w http.ResponseWriter, r *http.Request) {
 // stackView is the data the per-stack detail template renders.
 type stackView struct {
 	Exec, Repo, Environment, Stack string
-	Kind                           string        // "plan" or "apply" — controls which tabs show
-	Finished                       bool          // concluded → load static log instead of SSE follow
+	Kind                           string // "plan" or "apply" — controls which tabs show
+	Finished                       bool   // concluded → load static log instead of SSE follow
 	Plan, LogExcerpt               string
 	PlanHTML                       template.HTML // Plan rendered via the shared markdown pipeline
 	VerifyExec                     string        // latest verify run id for this PR/env ("" if none)
