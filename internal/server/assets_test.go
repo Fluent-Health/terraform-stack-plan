@@ -13,6 +13,21 @@ func TestEmbeddedCSSNonEmpty(t *testing.T) {
 	}
 }
 
+func TestReportCSSServed(t *testing.T) {
+	a := New(newServerTestDB(t), &MockGitHub{}, Config{})
+	rec := httptest.NewRecorder()
+	a.Routes().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/assets/report.css", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("report.css: %d", rec.Code)
+	}
+	if ct := rec.Header().Get("Content-Type"); !strings.Contains(ct, "text/css") {
+		t.Fatalf("content-type = %q", ct)
+	}
+	if !strings.Contains(rec.Body.String(), ".tfsp-diff") {
+		t.Fatalf("report.css missing diff styles")
+	}
+}
+
 func TestServeAsset(t *testing.T) {
 	a := New(newServerTestDB(t), &MockGitHub{}, Config{})
 	srv := httptest.NewServer(a.Routes())
