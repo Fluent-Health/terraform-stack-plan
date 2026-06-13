@@ -270,6 +270,28 @@ func TestDrivePublishesChange(t *testing.T) {
 	}
 }
 
+func TestStackPageRendersPlanMarkdown(t *testing.T) {
+	db := newServerTestDB(t)
+	a := New(db, &MockGitHub{}, Config{})
+	if err := store.UpsertInit(db, events.Init{ID: "e1", Repo: "o/r", SHA: "s",
+		Stacks: []events.StackState{{Path: "stacks/a", Status: events.StatusPlanned}}}); err != nil {
+		t.Fatal(err)
+	}
+	md := "### changes\n\n```diff\n+ resource added\n```\n"
+	if err := store.UpsertStackOutput(db, "e1", "stacks/a", "plan", "", md); err != nil {
+		t.Fatal(err)
+	}
+	rec := httptest.NewRecorder()
+	a.Routes().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/live/e1/stack/stacks/a", nil))
+	body := rec.Body.String()
+	if !strings.Contains(body, "<h3>changes</h3>") {
+		t.Fatalf("plan markdown not rendered to HTML:\n%s", body)
+	}
+	if !strings.Contains(body, `<span class="diff-add">+ resource added`) {
+		t.Fatalf("plan diff not colorized:\n%s", body)
+	}
+}
+
 func TestLiveEventsSSE(t *testing.T) {
 	db := newServerTestDB(t)
 	a := New(db, &MockGitHub{}, Config{})
