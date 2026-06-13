@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ .Stack }} — {{ .Repo }}</title>
   <link rel="stylesheet" href="/assets/app.css">
+  <link rel="stylesheet" href="/assets/report.css">
 </head>
 <body class="min-h-screen bg-base-200">
   <div class="navbar bg-base-100 border-b border-base-300">
@@ -18,7 +19,7 @@
       <div class="tabs tabs-border">
         <input type="radio" name="stacktabs" class="tab" aria-label="Log" checked>
         <div class="tab-content border-base-300 p-3">
-          <pre id="stacklog" data-follow-url="/logs/{{ .Exec }}/{{ .Stack }}?follow=1" class="overflow-auto rounded-lg bg-neutral text-neutral-content p-4 text-xs" style="max-height:60vh"></pre>
+          <pre id="stacklog" data-log-url="/logs/{{ .Exec }}/{{ .Stack }}"{{ if not .Finished }} data-follow-url="/logs/{{ .Exec }}/{{ .Stack }}?follow=1"{{ end }} class="overflow-auto rounded-lg bg-neutral text-neutral-content p-4 text-xs" style="max-height:60vh"></pre>
           <a class="link text-xs" href="/logs/{{ .Exec }}/{{ .Stack }}">view full log →</a>
           <noscript>
             {{ if .LogExcerpt }}<pre class="overflow-auto rounded-lg bg-neutral text-neutral-content p-4 text-xs mt-2">{{ .LogExcerpt }}</pre>
@@ -28,7 +29,7 @@
         {{ if eq .Kind "plan" }}
         <input type="radio" name="stacktabs" class="tab" aria-label="Plan">
         <div class="tab-content border-base-300 p-3">
-          {{ if .Plan }}<pre class="overflow-auto rounded-lg bg-neutral text-neutral-content p-4 text-xs">{{ .Plan }}</pre>
+          {{ if .Plan }}<div class="tfsp-report">{{ .PlanHTML }}</div>
           {{ else }}<p class="opacity-60 italic">No plan recorded for this stack.</p>{{ end }}
         </div>
         {{ end }}
@@ -36,7 +37,7 @@
         <input type="radio" name="stacktabs" class="tab" aria-label="Verify">
         <div class="tab-content border-base-300 p-3">
           {{ if .VerifyExec }}
-          <pre id="verifylog" data-follow-url="/logs/{{ .VerifyExec }}/{{ .Stack }}?follow=1" class="overflow-auto rounded-lg bg-neutral text-neutral-content p-4 text-xs" style="max-height:60vh"></pre>
+          <pre id="verifylog" data-log-url="/logs/{{ .VerifyExec }}/{{ .Stack }}" data-follow-url="/logs/{{ .VerifyExec }}/{{ .Stack }}?follow=1" class="overflow-auto rounded-lg bg-neutral text-neutral-content p-4 text-xs" style="max-height:60vh"></pre>
           <a class="link text-xs" href="/live/{{ .VerifyExec }}">view the latest verify run →</a>
           <noscript>
             {{ if .VerifyLog }}<pre class="overflow-auto rounded-lg bg-neutral text-neutral-content p-4 text-xs mt-2">{{ .VerifyLog }}</pre>
@@ -50,14 +51,20 @@
   </main>
   <script>
     (function () {
-      document.querySelectorAll("[data-follow-url]").forEach(function (pre) {
-        try {
-          var es = new EventSource(pre.dataset.followUrl);
-          es.onmessage = function (e) {
-            pre.textContent += e.data + "\n";
-            pre.scrollTop = pre.scrollHeight;
-          };
-        } catch (e) { /* no EventSource → the noscript excerpt covers it */ }
+      document.querySelectorAll("[data-log-url]").forEach(function (pre) {
+        if (pre.dataset.followUrl) {
+          try {
+            var es = new EventSource(pre.dataset.followUrl);
+            es.onmessage = function (e) {
+              pre.textContent += e.data + "\n";
+              pre.scrollTop = pre.scrollHeight;
+            };
+            return;
+          } catch (e) { /* fall through to static fetch */ }
+        }
+        fetch(pre.dataset.logUrl).then(function (r) {
+          return r.ok ? r.text() : "";
+        }).then(function (t) { pre.textContent = t; }).catch(function () {});
       });
     })();
   </script>

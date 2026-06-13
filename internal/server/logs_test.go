@@ -235,7 +235,7 @@ func TestOffloadAndServeFromStore(t *testing.T) {
 	if err := a.appendLog("e1", "stacks/a", "archived log\n"); err != nil {
 		t.Fatal(err)
 	}
-	a.offloadLog(context.Background(), "e1", "stacks/a")
+	_ = a.offloadLog(context.Background(), "e1", "stacks/a")
 
 	pointer, _, ok, _ := store.GetStackOutput(db, "e1", "stacks/a", "log")
 	if !ok || pointer == "" {
@@ -276,5 +276,103 @@ func TestHandleUpdateTriggersOffloadOnTerminal(t *testing.T) {
 	pointer, _, ok, _ := store.GetStackOutput(db, "e1", "stacks/a", "log")
 	if !ok || pointer == "" {
 		t.Errorf("terminal update should offload the log (pointer=%q ok=%v)", pointer, ok)
+	}
+}
+
+// memObjects is an in-memory ObjectStore fake.
+type memObjects struct {
+	mu   sync.Mutex
+	data map[string][]byte
+}
+
+func newMemObjects() *memObjects { return &memObjects{data: map[string][]byte{}} }
+
+func (m *memObjects) Put(_ context.Context, key string, r io.Reader) error {
+	b, err := io.ReadAll(r)
+	if err != nil {
+		return err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.data[key] = b
+	return nil
+}
+
+func (m *memObjects) Get(_ context.Context, key string) (io.ReadCloser, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	b, ok := m.data[key]
+	if !ok {
+		return nil, os.ErrNotExist
+	}
+	return io.NopCloser(bytes.NewReader(b)), nil
+}
+
+func TestFinalizeLogsOffloadsAndDeletesBuffers(t *testing.T) {
+	db := newServerTestDB(t)
+	a := New(db, &MockGitHub{}, Config{LogsDir: t.TempDir()})
+	mem := newMemObjects()
+	a.Objects = mem
+
+	if err := store.UpsertInit(db, events.Init{ID: "e1", Repo: "o/r", SHA: "s",
+		Stacks: []events.StackState{{Path: "stacks/a", Status: events.StatusPlanned}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.appendLog("e1", "stacks/a", "hello\n"); err != nil {
+		t.Fatal(err)
+	}
+
+	a.finalizeLogs(context.Background(), "e1", []events.StackState{{Path: "stacks/a"}})
+
+	if _, ok := mem.data[objectKey("e1", "stacks/a")]; !ok {
+		t.Fatalf("log not offloaded to object store")
+	}
+	execDir := filepath.Join(a.cfg.LogsDir, sanitizeComponent("e1"))
+	if _, err := os.Stat(execDir); !os.IsNotExist(err) {
+		t.Fatalf("buffer dir survived finalize: %v", err)
+	}
+	// The static log route must now fall through to the object store.
+	req := httptest.NewRequest(http.MethodGet, "/logs/e1/stacks/a", nil)
+	rec := httptest.NewRecorder()
+	a.Routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "hello") {
+		t.Fatalf("static log after cleanup: code=%d body=%q", rec.Code, rec.Body.String())
+	}
+}
+
+func TestFinalizeLogsKeepsBuffersWhenOffloadFails(t *testing.T) {
+	db := newServerTestDB(t)
+	a := New(db, &MockGitHub{}, Config{LogsDir: t.TempDir()})
+	// nil Objects → offload is a no-op → buffers must survive.
+	if err := a.appendLog("e1", "stacks/a", "hello\n"); err != nil {
+		t.Fatal(err)
+	}
+	a.finalizeLogs(context.Background(), "e1", []events.StackState{{Path: "stacks/a"}})
+	p, _ := logFilePath(a.cfg.LogsDir, "e1", "stacks/a")
+	if _, err := os.Stat(p); err != nil {
+		t.Fatalf("buffer deleted without offload: %v", err)
+	}
+}
+
+func TestCleanLogBuffersSweepsOldDirs(t *testing.T) {
+	dir := t.TempDir()
+	a := New(newServerTestDB(t), &MockGitHub{}, Config{LogsDir: dir})
+	old := filepath.Join(dir, "old-exec")
+	fresh := filepath.Join(dir, "fresh-exec")
+	for _, d := range []string{old, fresh} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	stale := time.Now().Add(-48 * time.Hour)
+	if err := os.Chtimes(old, stale, stale); err != nil {
+		t.Fatal(err)
+	}
+	a.CleanLogBuffers(24 * time.Hour)
+	if _, err := os.Stat(old); !os.IsNotExist(err) {
+		t.Fatalf("stale dir survived")
+	}
+	if _, err := os.Stat(fresh); err != nil {
+		t.Fatalf("fresh dir swept: %v", err)
 	}
 }

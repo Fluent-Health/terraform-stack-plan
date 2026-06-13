@@ -9,7 +9,9 @@ import (
 
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/extension"
+	"github.com/yuin/goldmark/renderer"
 	goldmarkhtml "github.com/yuin/goldmark/renderer/html"
+	"github.com/yuin/goldmark/util"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
@@ -54,7 +56,10 @@ func approvalPanel(targets []store.GateTarget) string {
 // passthrough (needed for <details>/<summary> blocks in plan reports).
 var mdRenderer = goldmark.New(
 	goldmark.WithExtensions(extension.GFM),
-	goldmark.WithRendererOptions(goldmarkhtml.WithUnsafe()),
+	goldmark.WithRendererOptions(
+		goldmarkhtml.WithUnsafe(),
+		renderer.WithNodeRenderers(util.Prioritized(&diffCodeRenderer{}, 100)),
+	),
 )
 
 // renderMarkdown converts GitHub-flavoured markdown to HTML. The output is

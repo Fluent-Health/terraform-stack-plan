@@ -20,7 +20,13 @@ func (a *App) handleInit(w http.ResponseWriter, r *http.Request) {
 	}
 	base := a.baseURL(r)
 	if isGate(in.Context, in.Environment) && a.cfg.UseChecks {
-		if err := a.ensureCheckRun(r.Context(), in.ID, in.Repo, in.SHA, in.Environment, liveURL(base, in.ID)); err != nil {
+		if err := a.ensureCheckRun(r.Context(), in.ID, in.Repo, in.SHA, checkRunName(in.Environment), liveURL(base, in.ID)); err != nil {
+			http.Error(w, "create check run", http.StatusBadGateway)
+			return
+		}
+	}
+	if isApplyContext(in.Context) && a.cfg.UseChecks {
+		if err := a.ensureCheckRun(r.Context(), in.ID, in.Repo, in.SHA, in.Context, liveURL(base, in.ID)); err != nil {
 			http.Error(w, "create check run", http.StatusBadGateway)
 			return
 		}
@@ -46,7 +52,13 @@ func (a *App) handlePhase(w http.ResponseWriter, r *http.Request) {
 	}
 	base := a.baseURL(r)
 	if isGate(e.StatusContext, e.Environment) && a.cfg.UseChecks {
-		if err := a.ensureCheckRun(r.Context(), e.ID, e.Repo, e.SHA, e.Environment, liveURL(base, e.ID)); err != nil {
+		if err := a.ensureCheckRun(r.Context(), e.ID, e.Repo, e.SHA, checkRunName(e.Environment), liveURL(base, e.ID)); err != nil {
+			http.Error(w, "create check run", http.StatusBadGateway)
+			return
+		}
+	}
+	if isApplyContext(e.StatusContext) && a.cfg.UseChecks {
+		if err := a.ensureCheckRun(r.Context(), e.ID, e.Repo, e.SHA, e.StatusContext, liveURL(base, e.ID)); err != nil {
 			http.Error(w, "create check run", http.StatusBadGateway)
 			return
 		}
@@ -66,7 +78,7 @@ func (a *App) handleUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if a.Objects != nil && done(u.Status) {
-		a.offloadLog(r.Context(), u.ID, u.Stack)
+		_ = a.offloadLog(r.Context(), u.ID, u.Stack)
 	}
 	a.drive(r.Context(), u.ID, a.baseURL(r), false)
 	w.WriteHeader(http.StatusOK)
@@ -106,6 +118,11 @@ func (a *App) handleFinalize(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		a.drive(r.Context(), f.ID, a.baseURL(r), true)
+		// Re-offloads stacks handleUpdate already offloaded at terminal status —
+		// intentional: the full sweep is what licenses deleting the buffer dir.
+		if g, gerr := store.LoadGraph(a.db, f.ID); gerr == nil {
+			a.finalizeLogs(r.Context(), f.ID, g.Stacks)
+		}
 		w.WriteHeader(http.StatusOK)
 		return
 	}
@@ -176,5 +193,8 @@ func (a *App) handleFinalize(w http.ResponseWriter, r *http.Request) {
 
 	// Drive terminally — AFTER gate targets are stored, so the conclusion sees them.
 	a.drive(r.Context(), f.ID, a.baseURL(r), true)
+	if g, gerr := store.LoadGraph(a.db, f.ID); gerr == nil {
+		a.finalizeLogs(r.Context(), f.ID, g.Stacks)
+	}
 	w.WriteHeader(http.StatusOK)
 }

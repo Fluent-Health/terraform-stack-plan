@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -75,30 +76,78 @@ func (a *App) appendLog(execID, stack, data string) error {
 	return nil
 }
 
+// errNoObjectStore reports that offload is impossible (no store configured).
+// Only its non-nil-ness is used today: finalizeLogs must treat "no store" as
+// not-offloaded so it never deletes the only copy of a buffer.
+var errNoObjectStore = errors.New("no object store")
+
 // offloadLog uploads a stack's full log buffer to the object store and records
-// the key as the stack_outputs pointer (preserving the excerpt). A no-op without
-// an object store or a buffer. Best-effort: logged, never fatal.
-func (a *App) offloadLog(ctx context.Context, execID, stack string) {
+// the key as the stack_outputs pointer (preserving the excerpt). Returns
+// errNoObjectStore without a store, nil when there was no buffer to offload.
+func (a *App) offloadLog(ctx context.Context, execID, stack string) error {
 	if a.Objects == nil {
-		return
+		return errNoObjectStore
 	}
 	p, ok := logFilePath(a.cfg.LogsDir, execID, stack)
 	if !ok {
-		return
+		return nil
 	}
 	f, err := os.Open(p)
 	if err != nil {
-		return // no buffer → nothing to offload
+		return nil // no buffer → nothing to offload
 	}
 	defer f.Close()
 	key := objectKey(execID, stack)
 	if err := a.Objects.Put(ctx, key, f); err != nil {
 		log.Printf("offload log %s/%s: %v", execID, stack, err)
-		return
+		return err
 	}
 	_, excerpt, _, _ := store.GetStackOutput(a.db, execID, stack, "log")
 	if err := store.UpsertStackOutput(a.db, execID, stack, "log", key, excerpt); err != nil {
 		log.Printf("offload log pointer %s/%s: %v", execID, stack, err)
+		return err
+	}
+	return nil
+}
+
+// finalizeLogs offloads every stack's buffer and, when ALL offloads succeeded,
+// deletes the execution's buffer directory (the object store is now the source
+// of truth; the buffer volume is small). Best-effort: failures keep the buffer.
+func (a *App) finalizeLogs(ctx context.Context, execID string, stacks []events.StackState) {
+	ok := true
+	for _, s := range stacks {
+		if err := a.offloadLog(ctx, execID, s.Path); err != nil {
+			ok = false
+		}
+	}
+	if !ok || a.cfg.LogsDir == "" {
+		return
+	}
+	dir := filepath.Join(a.cfg.LogsDir, sanitizeComponent(execID))
+	if err := os.RemoveAll(dir); err != nil {
+		log.Printf("clean log buffers %s: %v", execID, err)
+	}
+}
+
+// CleanLogBuffers removes execution buffer directories older than maxAge —
+// orphans left by restarts mid-execution. Call at startup.
+func (a *App) CleanLogBuffers(maxAge time.Duration) {
+	if a.cfg.LogsDir == "" {
+		return
+	}
+	entries, err := os.ReadDir(a.cfg.LogsDir)
+	if err != nil {
+		return
+	}
+	cutoff := time.Now().Add(-maxAge)
+	for _, e := range entries {
+		info, err := e.Info()
+		if err != nil || !info.ModTime().Before(cutoff) {
+			continue
+		}
+		if err := os.RemoveAll(filepath.Join(a.cfg.LogsDir, e.Name())); err != nil {
+			log.Printf("clean log buffers: %s: %v", e.Name(), err)
+		}
 	}
 }
 

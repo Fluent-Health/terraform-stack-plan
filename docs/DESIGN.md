@@ -644,15 +644,11 @@ the budget entirely.
   fixes the identity the rest of the PR's grants share it. Collision is therefore
   bounded by *concurrent open PRs exceeding pool size*, not by PR-number
   arithmetic.
-- **`run apply` registers an `apply/<env>` execution, but the server still posts
-  the plan-gate commit-status context for it.** The apply execution carries a
-  non-`plan/<env>` context so no plan check-run is created for it, and it uses a
-  distinct execution id (so the plan execution's state is untouched). But in
-  link mode the server's single commit-status writer always posts
-  `statusContext(environment)` = `plan/<env>`, regardless of the execution's
-  context — so an apply run's progress posts under the plan context. Harmless
-  (separate execution id; no plan-state corruption), but per-environment
-  `apply/<env>` / `verify/<env>` statuses are not yet distinct. Deferred.
+- **`run apply` registers an `apply/<env>` execution under a distinct execution
+  id.** The plan execution's state is untouched. An `apply/<env>` check run is
+  now created on the merge SHA (visible on GitHub's Checks page) and a commit
+  status is posted as before (colors the commit-list icon). Per-environment
+  `verify/<env>` statuses are not yet distinct (deferred to a later increment).
 - **The release image job must lowercase the GHCR repo name.** `github.repository`
   preserves the org's casing (`Fluent-Health/…`), but GHCR rejects uppercase
   (`repository name must be lowercase`). `release.yml` derives a lowercased
@@ -1021,6 +1017,40 @@ moves: SP1 (same-stack moves) and SP2 (cross-stack moves via native
 import/removed) shipped, and SP3 adds the lock-less `state mv` executor
 (`state move --via mv` + `state apply`). See *`tfstackplan state` (Phase 6)*
 below.
+
+The eighth increment landed **Live UI v2 — P1 bug fixes** (see PR #63):
+
+- **`logs_dir` now always resolves.** When `logs_dir` is unset in the config, `serve`
+  derives it from `db_path` (`<db-dir>/logs`), so log ingestion can never be
+  silently disabled. An explicit `logs_dir` still wins. Startup logs the resolved
+  path. An infra companion PR adds an explicit `logs_dir = "/data/logs"` to the
+  Cloud Run config.
+- **Log buffer lifecycle.** At finalize, after every stack's buffer is successfully
+  offloaded to the object store, the execution's buffer directory is deleted (the
+  in-memory `/data` volume on Cloud Run is small). A startup janitor removes
+  orphaned buffer dirs older than 24 h. Buffers are never deleted without a
+  successful offload (the `errNoObjectStore` sentinel prevents deletion when no
+  store is configured).
+- **Finished executions serve logs statically.** The stack detail page detects
+  whether the execution has concluded (`isFinished`) and, if so, fetches the log
+  from `/logs/<exec>/<stack>` (which falls back to GCS) via a plain `fetch()`
+  instead of opening an SSE stream. Live executions continue live-tailing as before.
+- **Per-stack Plan tab renders as HTML.** The stored per-stack plan section is now
+  piped through the shared goldmark pipeline before being served; `stack.gohtml`
+  renders it inside a `tfsp-report`-styled container instead of a raw `<pre>`.
+- **GFM-style diff colorization.** A goldmark `diffCodeRenderer` overrides
+  ` ```diff ` fenced-code blocks: each line is wrapped in a `<span>` with
+  `diff-add` / `diff-del` / `diff-chg` classes (GitHub dark-palette colors via
+  `report.css`). Non-diff fences reproduce goldmark's default output.
+- **Shared `report.css`.** Report and approval-panel styles moved from
+  `live.gohtml`'s inline `<style>` into a committed `assets/report.css` file
+  served at `/assets/report.css` and linked by both `live.gohtml` and `stack.gohtml`.
+  The diff palette lives there too.
+- **`apply/<env>` check run.** `handleInit`/`handlePhase` now call `ensureCheckRun`
+  for apply contexts (in addition to the existing gate-context path), creating a
+  check run named after the status context (e.g. `apply/nonprod`). `driveApply`
+  updates that check run with progress and a terminal conclusion. The existing
+  commit status is preserved alongside it.
 
 **Phase 4: `run verify` (complete).** `tfstackplan run verify` runs the
 terramate `verify` script across changed stacks — no gate, read-only

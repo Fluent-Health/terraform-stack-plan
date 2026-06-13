@@ -13,7 +13,7 @@ import (
 // ensureCheckRun creates the GitHub check run for an execution if it does not yet
 // have one, and persists the id. Idempotent: a no-op when check_run_id is set, so
 // an early phase event and a later init can both call it safely.
-func (a *App) ensureCheckRun(ctx context.Context, id, repo, sha, environment, detailsURL string) error {
+func (a *App) ensureCheckRun(ctx context.Context, id, repo, sha, name, detailsURL string) error {
 	e, err := store.GetExecution(a.db, id)
 	if err != nil {
 		return err
@@ -21,7 +21,7 @@ func (a *App) ensureCheckRun(ctx context.Context, id, repo, sha, environment, de
 	if e.CheckRunID.Valid && e.CheckRunID.Int64 != 0 {
 		return nil
 	}
-	crID, err := a.gh.CreateCheckRun(ctx, repo, sha, environment, detailsURL)
+	crID, err := a.gh.CreateCheckRun(ctx, repo, sha, name, detailsURL)
 	if err != nil {
 		return err
 	}
@@ -94,10 +94,11 @@ func isApplyContext(ctx string) bool {
 }
 
 // driveApply posts/updates the apply/<env> commit status for a post-merge apply
-// execution. Apply runs are not check-run gates (a check run on the default
-// branch would dangle), so serve surfaces them as a commit status linking to the
-// live page. State derives from the stacks: any failed ⇒ failure; all terminal
+// execution. Apply runs surface as a commit status linking to the live page.
+// State derives from the stacks: any failed ⇒ failure; all terminal
 // (safe) ⇒ success; otherwise pending (still applying). Best-effort.
+// When UseChecks is enabled and the execution has a check run, it is also
+// updated so the apply progress is visible on the GitHub Checks page.
 func (a *App) driveApply(ctx context.Context, e store.Execution, base string) {
 	g, err := store.LoadGraph(a.db, e.ID)
 	if err != nil {
@@ -125,6 +126,23 @@ func (a *App) driveApply(ctx context.Context, e store.Execution, base string) {
 	}
 	if err := a.gh.PostStatus(ctx, e.Repo, e.SHA, e.StatusContext, state, desc, liveURL(base, e.ID)); err != nil {
 		log.Printf("apply status %s: %v", e.ID, err)
+	}
+	if a.cfg.UseChecks && e.CheckRunID.Valid && e.CheckRunID.Int64 != 0 {
+		var conclusion string
+		switch state {
+		case "success":
+			conclusion = "success"
+		case "failure":
+			conclusion = "failure"
+		}
+		upd := CheckRunUpdate{
+			Summary:    desc,
+			DetailsURL: liveURL(base, e.ID),
+			Conclusion: conclusion,
+		}
+		if err := a.gh.UpdateCheckRun(ctx, e.Repo, e.CheckRunID.Int64, upd); err != nil {
+			log.Printf("apply check run %s: %v", e.ID, err)
+		}
 	}
 }
 

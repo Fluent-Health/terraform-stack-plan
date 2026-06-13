@@ -15,9 +15,9 @@ type CheckRunUpdate struct {
 // (statuses:write) whose target URL points at the live page. The real
 // implementation lands in a later sub-plan; tests use MockGitHub.
 type GitHub interface {
-	// CreateCheckRun opens an in_progress check run for the environment whose
+	// CreateCheckRun opens an in_progress check run with the given name whose
 	// Details link is detailsURL; returns its id.
-	CreateCheckRun(ctx context.Context, repo, sha, environment, detailsURL string) (int64, error)
+	CreateCheckRun(ctx context.Context, repo, sha, name, detailsURL string) (int64, error)
 	// UpdateCheckRun patches an existing check run.
 	UpdateCheckRun(ctx context.Context, repo string, checkRunID int64, u CheckRunUpdate) error
 	// PostStatus sets a commit status (link-mode fallback).
@@ -29,7 +29,7 @@ type GitHub interface {
 
 // MockGitHub is a test double for GitHub. Unset funcs are no-ops.
 type MockGitHub struct {
-	CreateCheckRunFn func(ctx context.Context, repo, sha, environment, detailsURL string) (int64, error)
+	CreateCheckRunFn func(ctx context.Context, repo, sha, name, detailsURL string) (int64, error)
 	UpdateCheckRunFn func(ctx context.Context, repo string, checkRunID int64, u CheckRunUpdate) error
 	PostStatusFn     func(ctx context.Context, repo, sha, context_, state, description, targetURL string) error
 	PRHeadSHAFn      func(ctx context.Context, repo string, pr int) (string, error)
@@ -38,10 +38,10 @@ type MockGitHub struct {
 	CreateCheckRunCalls int
 }
 
-func (m *MockGitHub) CreateCheckRun(ctx context.Context, repo, sha, environment, detailsURL string) (int64, error) {
+func (m *MockGitHub) CreateCheckRun(ctx context.Context, repo, sha, name, detailsURL string) (int64, error) {
 	m.CreateCheckRunCalls++
 	if m.CreateCheckRunFn != nil {
-		return m.CreateCheckRunFn(ctx, repo, sha, environment, detailsURL)
+		return m.CreateCheckRunFn(ctx, repo, sha, name, detailsURL)
 	}
 	return 0, nil
 }

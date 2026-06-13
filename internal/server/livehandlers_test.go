@@ -225,6 +225,36 @@ func TestStackDetailApplyTabsNoVerifyLink(t *testing.T) {
 	}
 }
 
+func TestStackPageUsesStaticLogWhenFinished(t *testing.T) {
+	db := newServerTestDB(t)
+	a := New(db, &MockGitHub{}, Config{})
+	if err := store.UpsertInit(db, events.Init{ID: "e1", Repo: "o/r", SHA: "s", Environment: "nonprod",
+		Stacks: []events.StackState{{Path: "stacks/a", Status: events.StatusPlanned}}}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Live (no report yet) → follow mode.
+	rec := httptest.NewRecorder()
+	a.Routes().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/live/e1/stack/stacks/a", nil))
+	if !strings.Contains(rec.Body.String(), "follow=1") {
+		t.Fatalf("live page should stream with follow=1:\n%s", rec.Body.String())
+	}
+
+	// Finished (report present) → static load, no follow.
+	if err := store.SetReport(db, "e1", "# report"); err != nil {
+		t.Fatal(err)
+	}
+	rec = httptest.NewRecorder()
+	a.Routes().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/live/e1/stack/stacks/a", nil))
+	body := rec.Body.String()
+	if strings.Contains(body, "follow=1") {
+		t.Fatalf("finished page still streams follow=1:\n%s", body)
+	}
+	if !strings.Contains(body, `data-log-url="/logs/e1/stacks/a"`) {
+		t.Fatalf("finished page missing static log url:\n%s", body)
+	}
+}
+
 func TestDrivePublishesChange(t *testing.T) {
 	db := newServerTestDB(t)
 	a := New(db, &MockGitHub{}, Config{})
@@ -237,6 +267,28 @@ func TestDrivePublishesChange(t *testing.T) {
 	case <-ch:
 	case <-time.After(2 * time.Second):
 		t.Fatal("drive did not publish a change to exec:e1")
+	}
+}
+
+func TestStackPageRendersPlanMarkdown(t *testing.T) {
+	db := newServerTestDB(t)
+	a := New(db, &MockGitHub{}, Config{})
+	if err := store.UpsertInit(db, events.Init{ID: "e1", Repo: "o/r", SHA: "s",
+		Stacks: []events.StackState{{Path: "stacks/a", Status: events.StatusPlanned}}}); err != nil {
+		t.Fatal(err)
+	}
+	md := "### changes\n\n```diff\n+ resource added\n```\n"
+	if err := store.UpsertStackOutput(db, "e1", "stacks/a", "plan", "", md); err != nil {
+		t.Fatal(err)
+	}
+	rec := httptest.NewRecorder()
+	a.Routes().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/live/e1/stack/stacks/a", nil))
+	body := rec.Body.String()
+	if !strings.Contains(body, "<h3>changes</h3>") {
+		t.Fatalf("plan markdown not rendered to HTML:\n%s", body)
+	}
+	if !strings.Contains(body, `<span class="diff-add">+ resource added`) {
+		t.Fatalf("plan diff not colorized:\n%s", body)
 	}
 }
 

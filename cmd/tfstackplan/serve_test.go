@@ -98,3 +98,12 @@ func TestGcppamConfigPerClassScope(t *testing.T) {
 		t.Errorf("iam should have no explicit scope (defaults to projects)")
 	}
 }
+
+func TestDefaultLogsDir(t *testing.T) {
+	if got := defaultLogsDir("/explicit/logs", "/data/tfstackplan.db"); got != "/explicit/logs" {
+		t.Fatalf("explicit logs_dir overridden: %q", got)
+	}
+	if got := defaultLogsDir("", "/data/tfstackplan.db"); got != filepath.Join("/data", "logs") {
+		t.Fatalf("default = %q, want /data/logs", got)
+	}
+}
