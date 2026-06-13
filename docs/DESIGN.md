@@ -1018,7 +1018,7 @@ import/removed) shipped, and SP3 adds the lock-less `state mv` executor
 (`state move --via mv` + `state apply`). See *`tfstackplan state` (Phase 6)*
 below.
 
-The eighth increment landed **Live UI v2 — P1 bug fixes** (see PR #TBD):
+The eighth increment landed **Live UI v2 — P1 bug fixes** (see PR #63):
 
 - **`logs_dir` now always resolves.** When `logs_dir` is unset in the config, `serve`
   derives it from `db_path` (`<db-dir>/logs`), so log ingestion can never be
