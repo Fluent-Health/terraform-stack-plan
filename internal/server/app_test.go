@@ -25,13 +25,13 @@ func TestHealthz(t *testing.T) {
 	a := New(nil, &MockGitHub{}, Config{})
 	srv := httptest.NewServer(a.Routes())
 	defer srv.Close()
-	resp, err := http.Get(srv.URL + "/healthz")
+	resp, err := http.Get(srv.URL + "/ready")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
-		t.Fatalf("healthz = %d, want 200", resp.StatusCode)
+		t.Fatalf("ready = %d, want 200", resp.StatusCode)
 	}
 }
 

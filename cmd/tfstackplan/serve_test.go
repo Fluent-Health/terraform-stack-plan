@@ -26,7 +26,7 @@ func writePEM(t *testing.T) string {
 	return p
 }
 
-func TestBuildServeAppBootsHealthz(t *testing.T) {
+func TestBuildServeAppBootsReady(t *testing.T) {
 	cfg := &config.Config{
 		Serve: &config.ServeConfig{
 			DBPath:        filepath.Join(t.TempDir(), "s.db"),
@@ -49,13 +49,13 @@ func TestBuildServeAppBootsHealthz(t *testing.T) {
 
 	srv := httptest.NewServer(app.Routes())
 	defer srv.Close()
-	resp, err := http.Get(srv.URL + "/healthz")
+	resp, err := http.Get(srv.URL + "/ready")
 	if err != nil {
 		t.Fatal(err)
 	}
 	resp.Body.Close()
 	if resp.StatusCode != 200 {
-		t.Fatalf("healthz = %d", resp.StatusCode)
+		t.Fatalf("ready = %d", resp.StatusCode)
 	}
 }
 

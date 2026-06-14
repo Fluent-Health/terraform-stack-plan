@@ -96,7 +96,7 @@ func New(db *sql.DB, gh GitHub, cfg Config) *App {
 //   - /logs/*           public (accessed inline by the live page after view auth)
 func (a *App) Routes() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("GET /ready", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
 	mux.Handle("GET /{$}", a.viewAuth(http.HandlerFunc(a.handleIndex)))
