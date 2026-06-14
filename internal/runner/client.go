@@ -17,16 +17,24 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
+	"golang.org/x/oauth2"
+	"google.golang.org/api/idtoken"
 )
 
 // Client posts execution lifecycle events to the control-plane server.
 type Client struct {
-	baseURL string
-	secret  string
-	hc      *http.Client
+	baseURL     string
+	secret      string
+	iapAudience string // OAuth2 client ID for IAP; empty = no IAP
+	hc          *http.Client
+	// lazy IAP token source; initialized once on first use
+	iapOnce sync.Once
+	iapTS   oauth2.TokenSource
+	iapErr  error
 }
 
 // NewClient builds a client for the server at baseURL (empty disables it) using
@@ -38,6 +46,23 @@ func NewClient(baseURL, secret string) *Client {
 		secret:  secret,
 		hc:      &http.Client{Timeout: 10 * time.Second},
 	}
+}
+
+// iapToken returns a short-lived GCP IAP OIDC token for c.iapAudience using
+// Application Default Credentials. The underlying TokenSource is created once
+// and reused (it caches the token and refreshes automatically).
+func (c *Client) iapToken(ctx context.Context) (string, error) {
+	c.iapOnce.Do(func() {
+		c.iapTS, c.iapErr = idtoken.NewTokenSource(context.Background(), c.iapAudience)
+	})
+	if c.iapErr != nil {
+		return "", fmt.Errorf("iap token source: %w", c.iapErr)
+	}
+	tok, err := c.iapTS.Token()
+	if err != nil {
+		return "", fmt.Errorf("iap token: %w", err)
+	}
+	return tok.AccessToken, nil
 }
 
 // Enabled reports whether a server is configured. When false, every call is a
@@ -57,7 +82,19 @@ func (c *Client) do(ctx context.Context, path string, payload any) (*http.Respon
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	if c.secret != "" {
+	if c.iapAudience != "" {
+		// IAP-fronted: Authorization carries the IAP OIDC token; the webhook
+		// secret moves to X-Tfstackplan-Token (IAP strips Authorization before
+		// forwarding, so the server reads the secret from the custom header).
+		tok, err := c.iapToken(ctx)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Authorization", "Bearer "+tok)
+		if c.secret != "" {
+			req.Header.Set("X-Tfstackplan-Token", c.secret)
+		}
+	} else if c.secret != "" {
 		req.Header.Set("Authorization", "Bearer "+c.secret)
 	}
 	resp, err := c.hc.Do(req)

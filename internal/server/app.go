@@ -113,12 +113,22 @@ func (a *App) Routes() http.Handler {
 
 // auth enforces a bearer token on mutations. An empty configured secret disables
 // the check (local/dev).
+// Supports two modes:
+//   - Direct (no IAP): secret in Authorization: Bearer <secret>
+//   - IAP-fronted: IAP consumes Authorization; secret arrives in X-Tfstackplan-Token
 func (a *App) auth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if a.cfg.WebhookSecret != "" {
-			const prefix = "Bearer "
-			h := r.Header.Get("Authorization")
-			if !strings.HasPrefix(h, prefix) || strings.TrimPrefix(h, prefix) != a.cfg.WebhookSecret {
+			token := r.Header.Get("X-Tfstackplan-Token")
+			if token == "" {
+				// non-IAP path: secret sent as Authorization: Bearer
+				const prefix = "Bearer "
+				h := r.Header.Get("Authorization")
+				if strings.HasPrefix(h, prefix) {
+					token = strings.TrimPrefix(h, prefix)
+				}
+			}
+			if token != a.cfg.WebhookSecret {
 				http.Error(w, "unauthorized", http.StatusUnauthorized)
 				return
 			}
