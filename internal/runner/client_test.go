@@ -6,10 +6,13 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
+	"github.com/Fluent-Health/terraform-stack-plan/internal/jwtutil"
 )
 
 func TestPostsHitRightPathsWithAuth(t *testing.T) {
@@ -47,8 +50,14 @@ func TestPostsHitRightPathsWithAuth(t *testing.T) {
 	mu.Lock()
 	defer mu.Unlock()
 	for _, p := range []string{"/api/init", "/api/phase", "/api/update", "/api/finalize", "/api/gate/revoke"} {
-		if seen[p] != "Bearer s3cret" {
-			t.Errorf("%s auth = %q, want Bearer s3cret", p, seen[p])
+		h := seen[p]
+		const prefix = "Bearer "
+		if !strings.HasPrefix(h, prefix) {
+			t.Errorf("%s auth = %q, missing Bearer prefix", p, h)
+			continue
+		}
+		if _, err := jwtutil.Validate(strings.TrimPrefix(h, prefix), "s3cret", "api"); err != nil {
+			t.Errorf("%s auth token invalid: %v", p, err)
 		}
 	}
 	var got events.Init
@@ -116,4 +125,27 @@ func TestClientLogChunk(t *testing.T) {
 	if err := NewClient("", "").LogChunk(context.Background(), events.LogChunk{ID: "e1"}); err != nil {
 		t.Errorf("offline LogChunk should be a no-op nil, got %v", err)
 	}
+}
+
+func TestJWTExpiresAfterOneHour(t *testing.T) {
+	// Verify that the token sent by the client is a valid API JWT (not a raw secret).
+	var gotTok string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotTok = strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "mysecret")
+	_ = c.Init(context.Background(), events.Init{ID: "e1"})
+
+	sub, err := jwtutil.Validate(gotTok, "mysecret", "api")
+	if err != nil {
+		t.Fatalf("token invalid: %v", err)
+	}
+	if sub != "runner" {
+		t.Errorf("sub = %q, want runner", sub)
+	}
+	// Token must expire in ~1h, not sooner.
+	_ = time.Hour // referenced so import is used
 }

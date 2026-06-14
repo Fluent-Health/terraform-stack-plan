@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
+	"github.com/Fluent-Health/terraform-stack-plan/internal/jwtutil"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
 
@@ -79,10 +80,11 @@ func TestLogsE2E(t *testing.T) {
 	srv := httptest.NewServer(a.Routes())
 	defer srv.Close()
 
+	apiTok, _ := jwtutil.Make("s", "runner", "api", time.Hour)
 	post := func(c events.LogChunk) int {
 		b, _ := json.Marshal(c)
 		req, _ := http.NewRequest("POST", srv.URL+"/api/logs", bytes.NewReader(b))
-		req.Header.Set("Authorization", "Bearer s")
+		req.Header.Set("Authorization", "Bearer "+apiTok)
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			t.Fatal(err)

@@ -62,7 +62,7 @@ func (a *App) renderAndPatch(ctx context.Context, id, base string, terminal bool
 	upd := CheckRunUpdate{
 		Summary:    renderProgress(g),
 		Text:       gatesSection(targets) + failuresSection(g, e.LogURL) + e.ReportMarkdown,
-		DetailsURL: liveURL(base, id),
+		DetailsURL: a.liveURL(base, id),
 	}
 	if terminal {
 		if snap, _, ok := loadSnapshot(a.db, id); ok {
@@ -82,7 +82,7 @@ func (a *App) reconcile(ctx context.Context, id, base string) {
 		return
 	}
 	st := gateStatus(snap)
-	if err := a.gh.PostStatus(ctx, e.Repo, e.SHA, statusContext(e.Environment), st.state, st.desc, liveURL(base, id)); err != nil {
+	if err := a.gh.PostStatus(ctx, e.Repo, e.SHA, statusContext(e.Environment), st.state, st.desc, a.liveURL(base, id)); err != nil {
 		log.Printf("reconcile status %s: %v", id, err)
 	}
 }
@@ -124,7 +124,7 @@ func (a *App) driveApply(ctx context.Context, e store.Execution, base string) {
 	default:
 		state, desc = "pending", fmt.Sprintf("applying… %d/%d stacks", done, total)
 	}
-	if err := a.gh.PostStatus(ctx, e.Repo, e.SHA, e.StatusContext, state, desc, liveURL(base, e.ID)); err != nil {
+	if err := a.gh.PostStatus(ctx, e.Repo, e.SHA, e.StatusContext, state, desc, a.liveURL(base, e.ID)); err != nil {
 		log.Printf("apply status %s: %v", e.ID, err)
 	}
 	if a.cfg.UseChecks && e.CheckRunID.Valid && e.CheckRunID.Int64 != 0 {
@@ -137,7 +137,7 @@ func (a *App) driveApply(ctx context.Context, e store.Execution, base string) {
 		}
 		upd := CheckRunUpdate{
 			Summary:    desc,
-			DetailsURL: liveURL(base, e.ID),
+			DetailsURL: a.liveURL(base, e.ID),
 			Conclusion: conclusion,
 		}
 		if err := a.gh.UpdateCheckRun(ctx, e.Repo, e.CheckRunID.Int64, upd); err != nil {

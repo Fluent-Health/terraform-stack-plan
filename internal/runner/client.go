@@ -17,26 +17,17 @@ import (
 	"io"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
-	"cloud.google.com/go/compute/metadata"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
-	"golang.org/x/oauth2"
-	"google.golang.org/api/idtoken"
-	"google.golang.org/api/impersonate"
+	"github.com/Fluent-Health/terraform-stack-plan/internal/jwtutil"
 )
 
 // Client posts execution lifecycle events to the control-plane server.
 type Client struct {
-	baseURL     string
-	secret      string
-	iapAudience string // OAuth2 client ID for IAP; empty = no IAP
-	hc          *http.Client
-	// lazy IAP token source; initialized once on first use
-	iapOnce sync.Once
-	iapTS   oauth2.TokenSource
-	iapErr  error
+	baseURL string
+	secret  string
+	hc      *http.Client
 }
 
 // NewClient builds a client for the server at baseURL (empty disables it) using
@@ -48,38 +39,6 @@ func NewClient(baseURL, secret string) *Client {
 		secret:  secret,
 		hc:      &http.Client{Timeout: 10 * time.Second},
 	}
-}
-
-// iapToken returns a short-lived GCP IAP OIDC token for c.iapAudience.
-// Primary path: metadata identity endpoint (works on GCE / Cloud Run / GKE).
-// Fallback: IAM Credentials API via impersonate (works in Cloud Build with a
-// custom SA, where the metadata identity endpoint is unavailable).
-func (c *Client) iapToken(ctx context.Context) (string, error) {
-	c.iapOnce.Do(func() {
-		c.iapTS, c.iapErr = idtoken.NewTokenSource(context.Background(), c.iapAudience)
-		if c.iapErr != nil {
-			// Cloud Build with a custom SA: metadata identity endpoint unavailable.
-			// Fall back to the IAM Credentials API (SA can self-generate ID tokens
-			// without extra permissions; metadata.Email still works for the SA email).
-			if sa, err := metadata.Email("default"); err == nil && sa != "" {
-				c.iapTS, c.iapErr = impersonate.IDTokenSource(context.Background(),
-					impersonate.IDTokenConfig{
-						Audience:        c.iapAudience,
-						TargetPrincipal: sa,
-						IncludeEmail:    true,
-					},
-				)
-			}
-		}
-	})
-	if c.iapErr != nil {
-		return "", fmt.Errorf("iap token source: %w", c.iapErr)
-	}
-	tok, err := c.iapTS.Token()
-	if err != nil {
-		return "", fmt.Errorf("iap token: %w", err)
-	}
-	return tok.AccessToken, nil
 }
 
 // Enabled reports whether a server is configured. When false, every call is a
@@ -99,20 +58,12 @@ func (c *Client) do(ctx context.Context, path string, payload any) (*http.Respon
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	if c.iapAudience != "" {
-		// IAP-fronted: Authorization carries the IAP OIDC token; the webhook
-		// secret moves to X-Tfstackplan-Token (IAP strips Authorization before
-		// forwarding, so the server reads the secret from the custom header).
-		tok, err := c.iapToken(ctx)
+	if c.secret != "" {
+		tok, err := jwtutil.Make(c.secret, "runner", "api", time.Hour)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("api jwt: %w", err)
 		}
 		req.Header.Set("Authorization", "Bearer "+tok)
-		if c.secret != "" {
-			req.Header.Set("X-Tfstackplan-Token", c.secret)
-		}
-	} else if c.secret != "" {
-		req.Header.Set("Authorization", "Bearer "+c.secret)
 	}
 	resp, err := c.hc.Do(req)
 	if err != nil {
