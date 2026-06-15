@@ -15,6 +15,7 @@ import (
 // Runner is the subset of *tfexec.Terraform the executor needs (so tests can fake
 // it without a binary).
 type Runner interface {
+	Init(ctx context.Context, opts ...tfexec.InitOption) error
 	StatePull(ctx context.Context, opts ...tfexec.StatePullOption) (string, error)
 	StatePush(ctx context.Context, path string, opts ...tfexec.StatePushCmdOption) error
 	ShowStateFile(ctx context.Context, statePath string, opts ...tfexec.ShowOption) (*tfjson.State, error)
@@ -70,6 +71,17 @@ func Execute(ctx context.Context, deps ExecDeps, root, destStack string, xm XMov
 	dstTF, err := deps.NewTF(dstDir)
 	if err != nil {
 		return nil, err
+	}
+
+	// Init both stacks so the GCS backend is configured before StatePull.
+	// The CI changed-stack init loop only covers stacks that are "changed" in
+	// the current PR; source and dest may both be absent when a follow-up PR
+	// (e.g. a CI fix) triggers the apply with neither stack in the diff.
+	if err := srcTF.Init(ctx); err != nil {
+		return nil, fmt.Errorf("init source %s: %w", xm.SourceStack, err)
+	}
+	if err := dstTF.Init(ctx); err != nil {
+		return nil, fmt.Errorf("init dest %s: %w", destStack, err)
 	}
 
 	srcState, err := srcTF.StatePull(ctx)
