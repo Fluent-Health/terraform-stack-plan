@@ -248,3 +248,38 @@ func TestMintTokenFailurePropagates(t *testing.T) {
 		t.Fatal("expected error when token mint fails")
 	}
 }
+
+func TestRealClientPRClosed(t *testing.T) {
+	var wantState string
+	fakeGitHub(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/app/installations/67890/access_tokens" {
+			w.Write([]byte(`{"token":"ghs_test"}`))
+			return
+		}
+		if r.Method == "GET" && r.URL.Path == "/repos/o/r/pulls/7" {
+			w.Write([]byte(`{"state":"` + wantState + `"}`))
+			return
+		}
+		t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+		w.WriteHeader(404)
+	})
+	c := newTestRealClient(t)
+
+	wantState = "closed"
+	closed, err := c.PRClosed(context.Background(), "o/r", 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !closed {
+		t.Error("closed PR: PRClosed returned false")
+	}
+
+	wantState = "open"
+	closed, err = c.PRClosed(context.Background(), "o/r", 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if closed {
+		t.Error("open PR: PRClosed returned true")
+	}
+}

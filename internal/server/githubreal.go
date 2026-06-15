@@ -228,3 +228,23 @@ func (c *RealClient) PRHeadSHA(ctx context.Context, repo string, pr int) (string
 	}
 	return out.Head.SHA, nil
 }
+
+// PRClosed reports whether the pull request's state is "closed".
+func (c *RealClient) PRClosed(ctx context.Context, repo string, pr int) (bool, error) {
+	owner, name, err := splitRepo(repo)
+	if err != nil {
+		return false, err
+	}
+	rb, err := c.do(ctx, http.MethodGet,
+		fmt.Sprintf("%s/repos/%s/%s/pulls/%d", apiBase, owner, name, pr), nil)
+	if err != nil {
+		return false, err
+	}
+	var out struct {
+		State string `json:"state"`
+	}
+	if err := json.Unmarshal(rb, &out); err != nil {
+		return false, err
+	}
+	return out.State == "closed", nil
+}
