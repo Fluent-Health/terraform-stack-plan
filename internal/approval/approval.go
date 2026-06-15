@@ -6,7 +6,10 @@
 // the tests.
 package approval
 
-import "context"
+import (
+	"context"
+	"fmt"
+)
 
 // GrantState is the lifecycle of an approval grant, normalised across backends.
 type GrantState string
@@ -62,4 +65,18 @@ type Backend interface {
 	ListGrants(ctx context.Context, class, target string) ([]Grant, error)
 	// Revoke revokes the open grants matching req. Idempotent (a no-op when none).
 	Revoke(ctx context.Context, req Request) error
+}
+
+// SlotCollisionError is returned by RequestGrant when the PAM create call fails
+// because an open grant for a different (PR, environment) already holds the
+// requester's slot on this entitlement. Callers can detect this with errors.As
+// and decide whether to auto-revoke the blocker.
+type SlotCollisionError struct {
+	// BlockingGrant is the open grant occupying the slot.
+	BlockingGrant Grant
+}
+
+func (e *SlotCollisionError) Error() string {
+	return fmt.Sprintf("grant slot occupied by PR #%d env=%s",
+		e.BlockingGrant.Request.PR, e.BlockingGrant.Request.Environment)
 }
