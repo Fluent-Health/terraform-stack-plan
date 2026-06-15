@@ -409,6 +409,42 @@ func TestStepTable(t *testing.T) {
 			wantGate:  "Pending",
 			wantKinds: []string{"PublishSSE", "RenderCheckRun"},
 		},
+
+		{
+			name:      "partial downgrade: one of two ACTIVE targets expires on tick",
+			prior:     ChangeSet{PR: 7, Environment: "staging", Gate: Satisfied{Lease: Lease{Requester: "sa3"}, Targets: []Target{active("p1"), active("p2")}}},
+			signal:    GateTick{Grants: []ObservedGrant{{Class: "iam", Target: "p1", Name: "g-p1", State: approval.StateActive}, {Class: "iam", Target: "p2", Name: "g-p2", State: approval.StateExpired}}},
+			wantGate:  "Blocked",
+			wantKinds: []string{"PublishSSE", "RenderCheckRun"},
+		},
+		{
+			name:      "lease established from a later observation (first has no requester)",
+			prior:     ChangeSet{PR: 7, Environment: "staging", Gate: Pending{Targets: []Target{{Class: "iam", Target: "p1", GrantName: "g1", Grant: approval.StateAwaiting}, {Class: "iam", Target: "p2"}}}},
+			signal:    GrantsObserved{Grants: []ObservedGrant{{Class: "iam", Target: "p1", Name: "g1", State: approval.StateAwaiting}, {Class: "iam", Target: "p2", Name: "g2", State: approval.StateAwaiting, Requester: "sa9"}}},
+			wantGate:  "Pending",
+			wantKinds: []string{"PublishSSE", "RenderCheckRun"},
+		},
+		{
+			name:      "terminal-block wins over an ungranted target",
+			prior:     ChangeSet{PR: 7, Environment: "staging", Gate: Pending{Targets: []Target{{Class: "iam", Target: "p1"}, {Class: "iam", Target: "p2"}}}},
+			signal:    GrantsObserved{Grants: []ObservedGrant{{Class: "iam", Target: "p1", Name: "g1", State: approval.StateDenied}}},
+			wantGate:  "Blocked",
+			wantKinds: []string{"PublishSSE", "RenderCheckRun"},
+		},
+		{
+			name:      "EXPIRED on a never-active Pending target stays Pending (no misfire)",
+			prior:     ChangeSet{PR: 7, Environment: "staging", Gate: Pending{Lease: Lease{Requester: "sa3"}, Targets: []Target{{Class: "iam", Target: "p1", GrantName: "g1", Grant: approval.StateAwaiting}}}},
+			signal:    GateTick{Grants: []ObservedGrant{{Class: "iam", Target: "p1", Name: "g1", State: approval.StateExpired}}},
+			wantGate:  "Pending",
+			wantKinds: []string{"PublishSSE", "RenderCheckRun"},
+		},
+		{
+			name:      "GateTick absent target downgrades Satisfied (full re-list)",
+			prior:     ChangeSet{PR: 7, Environment: "staging", Gate: Satisfied{Lease: Lease{Requester: "sa3"}, Targets: []Target{active("p1")}}},
+			signal:    GateTick{Grants: []ObservedGrant{}},
+			wantGate:  "Blocked",
+			wantKinds: []string{"PublishSSE", "RenderCheckRun"},
+		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

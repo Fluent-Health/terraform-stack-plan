@@ -82,3 +82,29 @@ func TestObserveDeniedBecomesBlockedDenied(t *testing.T) {
 		t.Fatalf("want action_required render, got %v", actions)
 	}
 }
+
+func TestGateTickAbsentTargetDowngradesSatisfied(t *testing.T) {
+	// Full re-list (GateTick) that OMITS the target entirely (grant vanished
+	// from the backend) must downgrade a previously-Satisfied gate. Regression
+	// for the absent-as-signal gap.
+	prior := ChangeSet{PR: 7, Environment: "staging", Gate: Satisfied{
+		Lease:   Lease{Requester: "sa3"},
+		Targets: []Target{{Class: "iam", Target: "p1", GrantName: "g1", Grant: approval.StateActive}},
+	}}
+	got, _ := Step(World{Prior: prior}, GateTick{Grants: []ObservedGrant{}}) // empty re-list
+	if _, ok := got.Gate.(Blocked); !ok {
+		t.Fatalf("want Blocked after target vanished from full re-list, got %T", got.Gate)
+	}
+}
+
+func TestGrantsObservedAbsentTargetIsLeftUntouched(t *testing.T) {
+	// Partial feedback (GrantsObserved) must NOT clear targets it doesn't mention.
+	prior := ChangeSet{PR: 7, Environment: "staging", Gate: Satisfied{
+		Lease:   Lease{Requester: "sa3"},
+		Targets: []Target{{Class: "iam", Target: "p1", GrantName: "g1", Grant: approval.StateActive}},
+	}}
+	got, _ := Step(World{Prior: prior}, GrantsObserved{Grants: []ObservedGrant{}}) // empty partial
+	if _, ok := got.Gate.(Satisfied); !ok {
+		t.Fatalf("want Satisfied unchanged on empty partial feedback, got %T", got.Gate)
+	}
+}

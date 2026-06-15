@@ -1,6 +1,8 @@
 package reconcile
 
 import (
+	"sort"
+
 	"github.com/Fluent-Health/terraform-stack-plan/internal/approval"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 )
@@ -33,9 +35,9 @@ func Step(w World, s Signal) (ChangeSet, []Action) {
 	case RunnerFinalize:
 		return stepFinalize(cs, sig)
 	case GrantsObserved:
-		return stepObserve(cs, sig.Grants)
+		return stepObserve(cs, sig.Grants, false)
 	case GateTick:
-		return stepObserve(cs, sig.Grants)
+		return stepObserve(cs, sig.Grants, true)
 	case PRClosed:
 		return stepPRClosed(cs)
 	default:
@@ -92,9 +94,15 @@ func stepFinalize(cs ChangeSet, f RunnerFinalize) (ChangeSet, []Action) {
 		}
 	}
 
-	// Prune (revoke) targets the new plan dropped.
+	// Prune (revoke) targets the new plan dropped — sorted for deterministic output.
 	var actions []Action
-	for key, pt := range prior {
+	prunedKeys := make([]string, 0, len(prior))
+	for key := range prior {
+		prunedKeys = append(prunedKeys, key)
+	}
+	sort.Strings(prunedKeys)
+	for _, key := range prunedKeys {
+		pt := prior[key]
 		if !want[key] && pt.GrantName != "" {
 			actions = append(actions, RevokeGrant{
 				Class: pt.Class, Target: pt.Target, PR: cs.PR, Environment: cs.Environment,
@@ -164,6 +172,8 @@ func stepApplySucceeded(cs ChangeSet) (ChangeSet, []Action) {
 	default:
 		return cs, nil
 	}
+	// No RenderCheckRun/PublishSSE here: post-apply the runner drives its own
+	// apply check run; this transition only releases the grants.
 	cs.Gate = Clean{}
 	return cs, actions
 }
@@ -186,9 +196,9 @@ func revokeAll(cs ChangeSet, targets []Target) []Action {
 // the gate variant: pins the lease from the first leased grant and requests any
 // still-ungranted targets (fixpoint), promotes to Satisfied when every target is
 // ACTIVE, downgrades a previously-active target whose grant is gone (gap ①),
-// and surfaces DENIED/EXPIRED as Blocked (gap ③). Slot collisions are handled
-// in Task 8. No-op for non-gated states.
-func stepObserve(cs ChangeSet, obs []ObservedGrant) (ChangeSet, []Action) {
+// and surfaces DENIED/EXPIRED as Blocked (gap ③). Slot collisions are resolved
+// by resolveCollision in this file. No-op for non-gated states.
+func stepObserve(cs ChangeSet, obs []ObservedGrant, fullRelist bool) (ChangeSet, []Action) {
 	targets := gateTargets(cs.Gate)
 	lease := priorLease(cs.Gate)
 	if targets == nil {
@@ -213,10 +223,13 @@ func stepObserve(cs ChangeSet, obs []ObservedGrant) (ChangeSet, []Action) {
 	for i := range targets {
 		o, ok := byKey[targets[i].Class+"|"+targets[i].Target]
 		if !ok {
-			continue
-		}
-		// A slot collision is resolved in Task 8; ignore here.
-		if o.Collision != nil {
+			// On a full re-list (GateTick), a target the backend no longer
+			// reports has lost its grant — clear it so a previously-active gate
+			// downgrades (gap ①). Partial feedback (GrantsObserved) leaves
+			// unmentioned targets untouched.
+			if fullRelist {
+				targets[i].Grant = ""
+			}
 			continue
 		}
 		if o.Name != "" {
