@@ -47,17 +47,17 @@ type PubSubConfig struct {
 
 // ServeConfig is the `serve {}` block: the control-plane server runtime config.
 type ServeConfig struct {
-	DBPath                  string
-	PublicBaseURL           string
-	UseChecks               bool
-	WebhookSecretEnv        string // env var name holding the bearer secret (not the secret itself)
-	GitHubWebhookSecretEnv  string // env var name holding the GitHub webhook HMAC secret
-	GitHubApp               *GitHubAppConfig
-	Approval                *ApprovalConfig
-	Group                   *GroupConfig
-	LogsDir                 string
-	Objects                 *ObjectsConfig
-	PubSub                  *PubSubConfig
+	DBPath                 string
+	PublicBaseURL          string
+	UseChecks              bool
+	WebhookSecretEnv       string // env var name holding the bearer secret (not the secret itself)
+	GitHubWebhookSecretEnv string // env var name holding the GitHub webhook HMAC secret
+	GitHubApp              *GitHubAppConfig
+	Approval               *ApprovalConfig
+	Group                  *GroupConfig
+	LogsDir                string
+	Objects                *ObjectsConfig
+	PubSub                 *PubSubConfig
 }
 
 // GitHubAppConfig is the `github_app {}` sub-block.
