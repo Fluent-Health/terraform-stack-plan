@@ -93,12 +93,15 @@ func isApplyContext(ctx string) bool {
 	return ctx == "apply" || strings.HasPrefix(ctx, "apply/")
 }
 
-// driveApply posts/updates the apply/<env> commit status for a post-merge apply
-// execution. Apply runs surface as a commit status linking to the live page.
-// State derives from the stacks: any failed ⇒ failure; all terminal
-// (safe) ⇒ success; otherwise pending (still applying). Best-effort.
-// When UseChecks is enabled and the execution has a check run, it is also
-// updated so the apply progress is visible on the GitHub Checks page.
+// driveApply updates the GitHub surface for a post-merge apply execution.
+// State derives from the stacks: any failed ⇒ failure; all terminal ⇒ success;
+// otherwise pending. Best-effort.
+//
+// Surface selection: when UseChecks is on and the execution has a check run,
+// only the check run is updated — posting a redundant commit status with the
+// same context name would make GitHub display two entries for the same apply.
+// When there is no check run (UseChecks off or check run not yet created), fall
+// back to a plain commit status.
 func (a *App) driveApply(ctx context.Context, e store.Execution, base string) {
 	g, err := store.LoadGraph(a.db, e.ID)
 	if err != nil {
@@ -124,9 +127,6 @@ func (a *App) driveApply(ctx context.Context, e store.Execution, base string) {
 	default:
 		state, desc = "pending", fmt.Sprintf("applying… %d/%d stacks", done, total)
 	}
-	if err := a.gh.PostStatus(ctx, e.Repo, e.SHA, e.StatusContext, state, desc, a.liveURL(base, e.ID)); err != nil {
-		log.Printf("apply status %s: %v", e.ID, err)
-	}
 	if a.cfg.UseChecks && e.CheckRunID.Valid && e.CheckRunID.Int64 != 0 {
 		var conclusion string
 		switch state {
@@ -143,6 +143,10 @@ func (a *App) driveApply(ctx context.Context, e store.Execution, base string) {
 		if err := a.gh.UpdateCheckRun(ctx, e.Repo, e.CheckRunID.Int64, upd); err != nil {
 			log.Printf("apply check run %s: %v", e.ID, err)
 		}
+		return
+	}
+	if err := a.gh.PostStatus(ctx, e.Repo, e.SHA, e.StatusContext, state, desc, a.liveURL(base, e.ID)); err != nil {
+		log.Printf("apply status %s: %v", e.ID, err)
 	}
 }
 
