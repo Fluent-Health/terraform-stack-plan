@@ -47,16 +47,17 @@ type PubSubConfig struct {
 
 // ServeConfig is the `serve {}` block: the control-plane server runtime config.
 type ServeConfig struct {
-	DBPath           string
-	PublicBaseURL    string
-	UseChecks        bool
-	WebhookSecretEnv string // env var name holding the bearer secret (not the secret itself)
-	GitHubApp        *GitHubAppConfig
-	Approval         *ApprovalConfig
-	Group            *GroupConfig
-	LogsDir          string
-	Objects          *ObjectsConfig
-	PubSub           *PubSubConfig
+	DBPath                  string
+	PublicBaseURL           string
+	UseChecks               bool
+	WebhookSecretEnv        string // env var name holding the bearer secret (not the secret itself)
+	GitHubWebhookSecretEnv  string // env var name holding the GitHub webhook HMAC secret
+	GitHubApp               *GitHubAppConfig
+	Approval                *ApprovalConfig
+	Group                   *GroupConfig
+	LogsDir                 string
+	Objects                 *ObjectsConfig
+	PubSub                  *PubSubConfig
 }
 
 // GitHubAppConfig is the `github_app {}` sub-block.
@@ -76,14 +77,15 @@ type ApprovalConfig struct {
 }
 
 type serveBody struct {
-	DBPath           string         `hcl:"db_path,optional"`
-	PublicBaseURL    string         `hcl:"public_base_url,optional"`
-	UseChecks        bool           `hcl:"use_checks,optional"`
-	WebhookSecretEnv string         `hcl:"webhook_secret_env,optional"`
-	LogsDir          string         `hcl:"logs_dir,optional"`
-	GitHubApp        *githubAppBody `hcl:"github_app,block"`
-	Approval         *approvalBody  `hcl:"approval,block"`
-	Group            *struct {
+	DBPath                 string         `hcl:"db_path,optional"`
+	PublicBaseURL          string         `hcl:"public_base_url,optional"`
+	UseChecks              bool           `hcl:"use_checks,optional"`
+	WebhookSecretEnv       string         `hcl:"webhook_secret_env,optional"`
+	GitHubWebhookSecretEnv string         `hcl:"github_webhook_secret_env,optional"`
+	LogsDir                string         `hcl:"logs_dir,optional"`
+	GitHubApp              *githubAppBody `hcl:"github_app,block"`
+	Approval               *approvalBody  `hcl:"approval,block"`
+	Group                  *struct {
 		Depth   int    `hcl:"depth,optional"`
 		Pattern string `hcl:"pattern,optional"`
 	} `hcl:"group,block"`
@@ -117,11 +119,12 @@ func decodeServe(blk *hclsyntax.Block) (*ServeConfig, error) {
 		return nil, fmt.Errorf("serve block: %s", d.Error())
 	}
 	s := &ServeConfig{
-		DBPath:           b.DBPath,
-		PublicBaseURL:    b.PublicBaseURL,
-		UseChecks:        b.UseChecks,
-		WebhookSecretEnv: b.WebhookSecretEnv,
-		LogsDir:          b.LogsDir,
+		DBPath:                 b.DBPath,
+		PublicBaseURL:          b.PublicBaseURL,
+		UseChecks:              b.UseChecks,
+		WebhookSecretEnv:       b.WebhookSecretEnv,
+		GitHubWebhookSecretEnv: b.GitHubWebhookSecretEnv,
+		LogsDir:                b.LogsDir,
 	}
 	if b.GitHubApp != nil {
 		s.GitHubApp = &GitHubAppConfig{AppID: b.GitHubApp.AppID, InstallationID: b.GitHubApp.InstallationID, PrivateKeyPath: b.GitHubApp.PrivateKeyPath}

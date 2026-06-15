@@ -47,6 +47,9 @@ type Config struct {
 	// PushServiceAccount is the allowed verified OIDC email for /pubsub/push.
 	// Empty accepts any verified token.
 	PushServiceAccount string
+	// GitHubWebhookSecret is the HMAC-SHA256 secret GitHub sends on every webhook
+	// delivery (X-Hub-Signature-256). Empty disables the /github/webhook endpoint.
+	GitHubWebhookSecret string
 }
 
 // App is the HTTP application.

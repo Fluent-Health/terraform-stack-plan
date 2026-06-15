@@ -41,7 +41,7 @@ func TestBuildServeAppBootsReady(t *testing.T) {
 		return func(context.Context) (string, error) { return "tok", nil },
 			func(context.Context, string) (string, error) { return "imp", nil }, nil
 	}
-	app, cleanup, err := buildServeApp(context.Background(), cfg, "secret", fakeCreds)
+	app, cleanup, err := buildServeApp(context.Background(), cfg, "secret", "", fakeCreds)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +60,7 @@ func TestBuildServeAppBootsReady(t *testing.T) {
 }
 
 func TestBuildServeAppRequiresServeBlock(t *testing.T) {
-	if _, _, err := buildServeApp(context.Background(), &config.Config{}, "", nil); err == nil {
+	if _, _, err := buildServeApp(context.Background(), &config.Config{}, "", "", nil); err == nil {
 		t.Error("want error when no serve block is configured")
 	}
 }
