@@ -6,6 +6,16 @@ import (
 	"testing"
 )
 
+func writeXMoveManifest(t *testing.T, dir, key string, xm XMove) {
+	t.Helper()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, XMoveFileName(key)), []byte(RenderXMove(key, xm)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func writeShim(t *testing.T, dir, key string, ops []Op) {
 	t.Helper()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -54,6 +64,42 @@ func TestDiscoverAndCleanup(t *testing.T) {
 		t.Errorf("Cleanup(all) removed %d, want 1", n)
 	}
 	if rest, _ := Discover(root); len(rest) != 0 {
+		t.Errorf("after cleanup-all, %d remain", len(rest))
+	}
+}
+
+func TestDiscoverAndCleanupXMoves(t *testing.T) {
+	root := t.TempDir()
+	xm := XMove{SourceStack: "src", Pairs: []Move{{From: "a.b", To: "a.b"}}}
+	writeXMoveManifest(t, filepath.Join(root, "stacks/dst1"), "PR-5", xm)
+	writeXMoveManifest(t, filepath.Join(root, "stacks/dst2"), "PR-5", xm)
+	writeXMoveManifest(t, filepath.Join(root, "stacks/dst3"), "PR-6", xm)
+
+	all, err := DiscoverXMoves(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 3 {
+		t.Fatalf("DiscoverXMoves = %d, want 3", len(all))
+	}
+
+	n, err := CleanupXMoves(root, "PR-5")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 2 {
+		t.Errorf("CleanupXMoves(PR-5) removed %d, want 2", n)
+	}
+	left, _ := DiscoverXMoves(root)
+	if len(left) != 1 || left[0].Key != "PR-6" {
+		t.Errorf("after cleanup, remaining = %+v, want one PR-6", left)
+	}
+
+	n, _ = CleanupXMoves(root, "")
+	if n != 1 {
+		t.Errorf("CleanupXMoves(all) removed %d, want 1", n)
+	}
+	if rest, _ := DiscoverXMoves(root); len(rest) != 0 {
 		t.Errorf("after cleanup-all, %d remain", len(rest))
 	}
 }

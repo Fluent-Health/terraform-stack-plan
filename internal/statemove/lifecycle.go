@@ -57,8 +57,8 @@ func Discover(root string) ([]Shim, error) {
 	return out, err
 }
 
-// Cleanup removes shim files matching key; an empty key removes ALL shims.
-// Returns the number of files removed.
+// Cleanup removes same-state shim files (_tfsp_move.*.tf) matching key;
+// an empty key removes ALL shims. Returns the number of files removed.
 func Cleanup(root, key string) (int, error) {
 	shims, err := Discover(root)
 	if err != nil {
@@ -70,6 +70,26 @@ func Cleanup(root, key string) (int, error) {
 			continue
 		}
 		if err := os.Remove(s.Path); err != nil {
+			return n, err
+		}
+		n++
+	}
+	return n, nil
+}
+
+// CleanupXMoves removes cross-state xmove manifests (_tfsp_xmove.*.hcl) matching
+// key; an empty key removes ALL xmove manifests. Returns the number removed.
+func CleanupXMoves(root, key string) (int, error) {
+	found, err := DiscoverXMoves(root)
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, f := range found {
+		if key != "" && f.Key != key {
+			continue
+		}
+		if err := os.Remove(f.Path); err != nil {
 			return n, err
 		}
 		n++

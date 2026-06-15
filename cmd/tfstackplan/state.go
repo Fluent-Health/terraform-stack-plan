@@ -376,6 +376,11 @@ func runStateCleanup(args []string) int {
 		fmt.Fprintln(os.Stderr, "state cleanup:", err)
 		return 1
 	}
-	fmt.Printf("removed %d shim file(s)\n", n)
+	nx, err := statemove.CleanupXMoves(*dir, key)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "state cleanup xmoves:", err)
+		return 1
+	}
+	fmt.Printf("removed %d shim file(s), %d xmove manifest(s)\n", n, nx)
 	return 0
 }
