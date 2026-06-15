@@ -1,6 +1,7 @@
 package server
 
 import (
+	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/reconcile"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
@@ -61,6 +62,24 @@ func (sh *Shell) save(cs reconcile.ChangeSet) error {
 			}
 		}
 	}
+	// Write the derived gated/safe overlay onto the changeset's stacks (the live
+	// page reads stacks.status). Mirrors the legacy gated-flip + gated→safe flip,
+	// now owned by the gate state. failed/moving always win, so skip them.
+	if display := overlayStatus(cs.Gate); display != "" {
+		if execID, ok := store.LatestExecutionID(sh.app.db, cs.PR, cs.Environment); ok {
+			for _, t := range desired {
+				if _, err := tx.Exec(
+					`UPDATE stacks SET status = ?
+					   WHERE execution_id = ? AND project = ?
+					     AND status NOT IN (?, ?)`,
+					display, execID, t.Target,
+					string(events.StatusFailed), string(events.StatusMoving)); err != nil {
+					return err
+				}
+			}
+		}
+	}
+
 	return tx.Commit()
 }
 
@@ -75,4 +94,17 @@ func reconcileGateTargets(g reconcile.GateState) []reconcile.Target {
 		return v.Targets
 	}
 	return nil
+}
+
+// overlayStatus is the derived gated/safe status a gate imposes on its stacks.
+// "" means no overlay (NotClassified/Clean impose nothing — clean stacks keep
+// their runner-told status).
+func overlayStatus(g reconcile.GateState) string {
+	switch g.(type) {
+	case reconcile.Satisfied:
+		return string(events.StatusSafe)
+	case reconcile.Pending, reconcile.Blocked:
+		return string(events.StatusGated)
+	}
+	return ""
 }
