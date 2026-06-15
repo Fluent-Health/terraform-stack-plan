@@ -13,3 +13,13 @@ func TestStepUnknownSignalIsNoOp(t *testing.T) {
 		t.Fatalf("want gate unchanged NotClassified, got %T", got.Gate)
 	}
 }
+
+// hasAction reports whether actions contains an action of type A.
+func hasAction[A Action](actions []Action) bool {
+	for _, a := range actions {
+		if _, ok := a.(A); ok {
+			return true
+		}
+	}
+	return false
+}

@@ -8,6 +8,23 @@ func Step(w World, s Signal) (ChangeSet, []Action) {
 	switch sig := s.(type) {
 	case ApplySucceeded:
 		return stepApplySucceeded(cs)
+	case RunnerInit:
+		cs.Exec = sig.Exec
+		if cs.Gate == nil {
+			cs.Gate = NotClassified{}
+		}
+		return cs, []Action{RenderCheckRun{}, PublishSSE{}}
+	case RunnerPhase:
+		cs.Exec.Phase = sig.Phase
+		return cs, []Action{RenderCheckRun{}, PublishSSE{}}
+	case RunnerUpdate:
+		for i := range cs.Exec.Stacks {
+			if cs.Exec.Stacks[i].Path == sig.Stack {
+				cs.Exec.Stacks[i].RunStatus = sig.Status
+				cs.Exec.Stacks[i].Detail = sig.Detail
+			}
+		}
+		return cs, []Action{RenderCheckRun{}, PublishSSE{}}
 	default:
 		_ = sig
 		return cs, nil
