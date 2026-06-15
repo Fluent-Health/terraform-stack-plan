@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"log"
 	"sync"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/reconcile"
@@ -61,6 +62,8 @@ func (sh *Shell) Handle(ctx context.Context, pr int, env, repo string, sig recon
 				outerErr = err
 				return
 			}
+			// Defensive: gather already sets these from the args; keep them set
+			// even if a future gather path leaves them zero.
 			world.Prior.PR, world.Prior.Environment = pr, env
 			state, actions := reconcile.Step(world, cur)
 			if err := sh.save(state); err != nil {
@@ -73,6 +76,10 @@ func (sh *Shell) Handle(ctx context.Context, pr int, env, repo string, sig recon
 			}
 			cur = reconcile.GrantsObserved{Grants: results}
 		}
+		// Reached the iteration ceiling with work still pending — should not
+		// happen in normal flows (a finalize converges in ≤3 iterations). Log so
+		// a silent partial state is visible.
+		log.Printf("shell: maxIters=%d reached for pr=%d env=%s", maxIters, pr, env)
 	})
 	return outerErr
 }

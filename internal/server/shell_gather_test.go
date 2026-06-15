@@ -4,7 +4,12 @@ import (
 	"testing"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/reconcile"
+	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
+
+// storeRaw / storeTarget mirror the store shapes so tests can build fixtures.
+type storeRaw = store.RawChangeSet
+type storeTarget = store.GateTarget
 
 func TestGatherMapsRawGateToSumType(t *testing.T) {
 	raw := store_RawChangeSet(7, "staging", true, []rawTarget{
@@ -36,4 +41,23 @@ func store_RawChangeSet(pr int, env string, classified bool, targets []rawTarget
 		r.Targets = append(r.Targets, storeTarget{Class: t.class, Target: t.target, GrantName: t.grant, State: t.state, Requester: t.requester})
 	}
 	return r
+}
+
+func TestGatherMapsBlockedPendingClean(t *testing.T) {
+	bl := mapRawGate(store_RawChangeSet(7, "staging", true, []rawTarget{
+		{class: "iam", target: "p1", grant: "g1", state: "DENIED", requester: "sa3"},
+	}))
+	if _, ok := bl.Gate.(reconcile.Blocked); !ok {
+		t.Fatalf("want Blocked for DENIED, got %T", bl.Gate)
+	}
+	pe := mapRawGate(store_RawChangeSet(7, "staging", true, []rawTarget{
+		{class: "iam", target: "p1", grant: "g1", state: "AWAITING", requester: "sa3"},
+	}))
+	if _, ok := pe.Gate.(reconcile.Pending); !ok {
+		t.Fatalf("want Pending for AWAITING, got %T", pe.Gate)
+	}
+	cl := mapRawGate(store_RawChangeSet(7, "staging", true, nil))
+	if _, ok := cl.Gate.(reconcile.Clean); !ok {
+		t.Fatalf("want Clean for classified zero-target, got %T", cl.Gate)
+	}
 }

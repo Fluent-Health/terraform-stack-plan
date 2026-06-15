@@ -6,11 +6,6 @@ import (
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
 
-// storeRaw / storeTarget mirror the store shapes so tests can build fixtures
-// without depending on store internals.
-type storeRaw = store.RawChangeSet
-type storeTarget = store.GateTarget
-
 // gather loads the scoped World for (pr, env). For now the World carries only
 // the prior ChangeSet's gate; signal-specific external observations (ListGrants,
 // PRClosed) are attached by the caller before Step (later tasks). Execution

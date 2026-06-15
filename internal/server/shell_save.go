@@ -47,6 +47,9 @@ func (sh *Shell) save(cs reconcile.ChangeSet) error {
 	}
 
 	// Prune persisted targets the new state dropped.
+	// Prune set is read via the pooled connection (not tx): under the per-(pr,env)
+	// lock no other writer touches these rows, and the tx's own upserts are in
+	// `keep`, so this can only select genuinely-dropped targets for deletion.
 	existing, err := store.TargetsFor(sh.app.db, cs.PR, cs.Environment)
 	if err != nil {
 		return err
