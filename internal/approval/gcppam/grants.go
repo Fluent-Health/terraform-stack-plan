@@ -68,6 +68,9 @@ func (b *Backend) RequestGrant(ctx context.Context, req approval.Request) (appro
 	url := fmt.Sprintf("%s/%s/grants", b.cfg.baseURL(), ent)
 	rb, err := b.do(ctx, tok, http.MethodPost, url, payload)
 	if err != nil {
+		if blocker, ok := b.findForeignOpenGrant(ctx, req); ok {
+			return approval.Grant{}, &approval.SlotCollisionError{BlockingGrant: blocker}
+		}
 		return approval.Grant{}, err
 	}
 	var created struct {
@@ -102,4 +105,21 @@ func (b *Backend) Revoke(ctx context.Context, req approval.Request) error {
 		}
 	}
 	return nil
+}
+
+// findForeignOpenGrant lists open grants on the (class, target) entitlement
+// and returns the first one whose (PR, environment) differs from req — i.e.
+// a grant from a different PR occupying the slot. Returns (Grant{}, false)
+// when no foreign grant is found or when the list itself fails.
+func (b *Backend) findForeignOpenGrant(ctx context.Context, req approval.Request) (approval.Grant, bool) {
+	grants, err := b.ListGrants(ctx, req.Class, req.Target)
+	if err != nil {
+		return approval.Grant{}, false
+	}
+	for _, g := range grants {
+		if g.State.Open() && (g.Request.PR != req.PR || g.Request.Environment != req.Environment) {
+			return g, true
+		}
+	}
+	return approval.Grant{}, false
 }
