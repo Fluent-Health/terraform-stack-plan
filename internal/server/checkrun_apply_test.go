@@ -84,3 +84,40 @@ func TestApplyDriveUpdatesCheckRun(t *testing.T) {
 		t.Fatalf("summary missing stack count: %q", updatedSummary)
 	}
 }
+
+// A no-op apply (zero changed stacks — e.g. a docs/CI-only merge, or a PR whose
+// only work was a cross-state move done in the pre-phase) must resolve the apply
+// check run to a success conclusion on init, not hang forever at in_progress:
+// nothing emits a stack-completion event to flip it terminal.
+func TestApplyInitZeroStacksResolvesSuccess(t *testing.T) {
+	db := newServerTestDB(t)
+	var conclusion string
+	gh := &MockGitHub{
+		CreateCheckRunFn: func(_ context.Context, _, _, _ string, _ string) (int64, error) {
+			return 7, nil
+		},
+		UpdateCheckRunFn: func(_ context.Context, _ string, _ int64, u CheckRunUpdate) error {
+			conclusion = u.Conclusion
+			return nil
+		},
+		PostStatusFn: func(_ context.Context, _, _, _, _, _, _ string) error {
+			t.Error("PostStatus must not be called when a check run exists")
+			return nil
+		},
+	}
+	a := New(db, gh, Config{UseChecks: true, PublicBaseURL: "https://serve.example"})
+
+	body, _ := json.Marshal(events.Init{
+		ID: "apply-noop", Repo: "o/r", SHA: "abc", PR: 9, Environment: "nonprod",
+		Context: "apply/nonprod",
+		Stacks:  []events.StackState{}, // no changed stacks
+	})
+	rec := httptest.NewRecorder()
+	a.Routes().ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/init", bytes.NewReader(body)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("init: %d %s", rec.Code, rec.Body.String())
+	}
+	if conclusion != "success" {
+		t.Fatalf("zero-stack apply check run conclusion = %q, want success", conclusion)
+	}
+}
