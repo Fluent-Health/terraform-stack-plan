@@ -111,6 +111,29 @@ func TargetsFor(db *sql.DB, pr int, environment string) ([]GateTarget, error) {
 	return out, rows.Err()
 }
 
+// RawChangeSet is the persisted state for (pr, environment): the classified
+// marker and gate targets. It is the store-level shape the server maps into
+// reconcile.ChangeSet.
+type RawChangeSet struct {
+	PR          int
+	Environment string
+	Classified  bool
+	Targets     []GateTarget
+}
+
+// LoadChangeSet reads the classified marker and gate targets for (pr, env).
+func LoadChangeSet(db *sql.DB, pr int, environment string) (RawChangeSet, error) {
+	classified, err := IsClassified(db, pr, environment)
+	if err != nil {
+		return RawChangeSet{}, err
+	}
+	targets, err := TargetsFor(db, pr, environment)
+	if err != nil {
+		return RawChangeSet{}, err
+	}
+	return RawChangeSet{PR: pr, Environment: environment, Classified: classified, Targets: targets}, nil
+}
+
 // SetTargetRequester records the leased requester SA for every gate target of a
 // (pr, environment). Idempotent; no-op if no rows match.
 func SetTargetRequester(db *sql.DB, pr int, environment, requester string) error {

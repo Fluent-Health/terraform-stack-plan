@@ -136,6 +136,32 @@ func TestClassifiedMarker(t *testing.T) {
 	}
 }
 
+func TestLoadChangeSetReadsGateAndExecution(t *testing.T) {
+	db := newTestDB(t)
+	if err := UpsertTarget(db, 7, "staging", "iam", "p1", "g1", "ACTIVE"); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetTargetRequester(db, 7, "staging", "sa3"); err != nil {
+		t.Fatal(err)
+	}
+	if err := MarkClassified(db, 7, "staging"); err != nil {
+		t.Fatal(err)
+	}
+	cs, err := LoadChangeSet(db, 7, "staging")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cs.PR != 7 || cs.Environment != "staging" {
+		t.Fatalf("bad key: %+v", cs)
+	}
+	if len(cs.Targets) != 1 || cs.Targets[0].State != "ACTIVE" || cs.Targets[0].Requester != "sa3" {
+		t.Fatalf("bad targets: %+v", cs.Targets)
+	}
+	if !cs.Classified {
+		t.Fatal("want classified")
+	}
+}
+
 func TestPRTargets(t *testing.T) {
 	db := newTestDB(t)
 	// Two environments for PR 7.
