@@ -194,6 +194,14 @@ func stepObserve(cs ChangeSet, obs []ObservedGrant) (ChangeSet, []Action) {
 	}
 	prevWasActive := isAllActive(targets)
 
+	// Resolve any slot collision first; it determines the whole gate outcome.
+	for _, o := range obs {
+		if o.Collision == nil {
+			continue
+		}
+		return resolveCollision(cs, targets, lease, o)
+	}
+
 	byKey := map[string]ObservedGrant{}
 	for _, o := range obs {
 		byKey[o.Class+"|"+o.Target] = o
@@ -277,4 +285,27 @@ func firstTerminalBlock(targets []Target) (BlockReason, bool) {
 		}
 	}
 	return "", false
+}
+
+// resolveCollision implements the slot-collision policy:
+//   - blocker is a different, closed PR  → revoke it and retry our request (Bug #2)
+//   - blocker is a different, open PR     → Blocked{slot_foreign}, wait
+//   - blocker is THIS PR (another env)    → Blocked{slot_self}, wait, never self-revoke (gap ⑥)
+func resolveCollision(cs ChangeSet, targets []Target, lease Lease, o ObservedGrant) (ChangeSet, []Action) {
+	c := o.Collision
+	if c.BySelf {
+		cs.Gate = Blocked{Targets: targets, Lease: lease, By: Blocker{Reason: ReasonSlotSelf, ByPR: c.ByPR, ByEnv: c.ByEnv}}
+		return cs, []Action{RenderCheckRun{}, PublishSSE{}}
+	}
+	if !c.ByPRClosed {
+		cs.Gate = Blocked{Targets: targets, Lease: lease, By: Blocker{Reason: ReasonSlotForeign, ByPR: c.ByPR, ByEnv: c.ByEnv}}
+		return cs, []Action{RenderCheckRun{}, PublishSSE{}}
+	}
+	// Closed foreign blocker: revoke it, retry our request, stay Pending.
+	cs.Gate = Pending{Targets: targets, Lease: lease}
+	return cs, []Action{
+		RevokeGrant{Class: o.Class, Target: o.Target, PR: c.ByPR, Environment: c.ByEnv},
+		RequestGrant{Class: o.Class, Target: o.Target, Requester: lease.Requester},
+		RenderCheckRun{}, PublishSSE{},
+	}
 }
