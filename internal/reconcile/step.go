@@ -214,9 +214,18 @@ func stepObserve(cs ChangeSet, obs []ObservedGrant, fullRelist bool) (ChangeSet,
 		return resolveCollision(cs, targets, lease, o)
 	}
 
+	// A full re-list can return several grants for the same (class, target):
+	// stale terminal ones from earlier retries plus the current open/ACTIVE one.
+	// Keep the best per target (prefer ACTIVE, then open-pending, then terminal)
+	// so a stale REVOKED/EXPIRED grant can't clobber a live one and wedge the
+	// gate via firstTerminalBlock. Terminal grants are immutable and re-listed
+	// forever, so last-write-wins here would block the gate permanently.
 	byKey := map[string]ObservedGrant{}
 	for _, o := range obs {
-		byKey[o.Class+"|"+o.Target] = o
+		k := o.Class + "|" + o.Target
+		if cur, ok := byKey[k]; !ok || grantStateRank(o.State) > grantStateRank(cur.State) {
+			byKey[k] = o
+		}
 	}
 
 	var actions []Action
@@ -273,6 +282,25 @@ func stepObserve(cs ChangeSet, obs []ObservedGrant, fullRelist bool) (ChangeSet,
 
 	cs.Gate = Pending{Targets: targets, Lease: lease}
 	return cs, append(actions, RenderCheckRun{Terminal: true, Conclusion: "action_required"}, PublishSSE{})
+}
+
+// grantStateRank orders grant states for folding multiple observations of the
+// same target down to one: ACTIVE wins, then open-pending states, then any
+// terminal state, then absent. This makes a live grant beat the stale terminal
+// grants a full re-list also returns for the same (PR, target).
+func grantStateRank(s approval.GrantState) int {
+	switch s {
+	case approval.StateActive:
+		return 4
+	case approval.StateActivating:
+		return 3
+	case approval.StateAwaiting:
+		return 2
+	case "":
+		return 0
+	default: // terminal: DENIED / REVOKED / EXPIRED
+		return 1
+	}
 }
 
 // isAllActive reports whether every target has an ACTIVE grant.

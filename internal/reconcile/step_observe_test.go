@@ -83,6 +83,63 @@ func TestObserveDeniedBecomesBlockedDenied(t *testing.T) {
 	}
 }
 
+func TestObserveMultipleGrantsPerTargetPrefersActive(t *testing.T) {
+	// A full re-list can return several PAM grants for the same (PR, target):
+	// stale terminal ones from earlier retries PLUS the current ACTIVE one (this
+	// happens whenever a gate is re-requested after grants expire/are revoked).
+	// The fold must prefer the ACTIVE grant; a stale REVOKED/EXPIRED grant must
+	// not clobber it (which would trip firstTerminalBlock and wedge the gate
+	// permanently, since terminal grants are immutable and re-listed forever).
+	// The terminal grant is listed LAST here to defeat last-write-wins.
+	prior := ChangeSet{PR: 7, Environment: "staging", Gate: Pending{
+		Lease:   Lease{Requester: "sa3"},
+		Targets: []Target{{Class: "iam", Target: "p1", GrantName: "g-old", Grant: approval.StateAwaiting}},
+	}}
+	got, actions := Step(World{Prior: prior}, GateTick{Grants: []ObservedGrant{
+		{Class: "iam", Target: "p1", Name: "g-new", State: approval.StateActive},
+		{Class: "iam", Target: "p1", Name: "g-old", State: approval.StateRevoked},
+	}})
+	if _, ok := got.Gate.(Satisfied); !ok {
+		t.Fatalf("want Satisfied (an ACTIVE grant exists for the target), got %T %+v", got.Gate, got.Gate)
+	}
+	if !hasRender(actions, "success") {
+		t.Fatalf("want terminal success render, got %v", actions)
+	}
+}
+
+func TestObserveActiveBeatsTerminalRegardlessOfOrder(t *testing.T) {
+	// Same as above but with the ACTIVE grant listed LAST — the outcome must not
+	// depend on the (PAM-defined) re-list order.
+	prior := ChangeSet{PR: 7, Environment: "staging", Gate: Pending{
+		Lease:   Lease{Requester: "sa3"},
+		Targets: []Target{{Class: "iam", Target: "p1", GrantName: "g-old", Grant: approval.StateAwaiting}},
+	}}
+	got, _ := Step(World{Prior: prior}, GateTick{Grants: []ObservedGrant{
+		{Class: "iam", Target: "p1", Name: "g-old", State: approval.StateExpired},
+		{Class: "iam", Target: "p1", Name: "g-new", State: approval.StateActive},
+	}})
+	if _, ok := got.Gate.(Satisfied); !ok {
+		t.Fatalf("want Satisfied, got %T %+v", got.Gate, got.Gate)
+	}
+}
+
+func TestObserveOpenPendingSupersedesStaleTerminal(t *testing.T) {
+	// A target re-requested after a prior revoke shows BOTH a terminal REVOKED
+	// grant and a fresh AWAITING one. The open request must win (Pending), not be
+	// blocked by the stale revoke.
+	prior := ChangeSet{PR: 7, Environment: "staging", Gate: Pending{
+		Lease:   Lease{Requester: "sa3"},
+		Targets: []Target{{Class: "iam", Target: "p1", GrantName: "g-new", Grant: approval.StateAwaiting}},
+	}}
+	got, _ := Step(World{Prior: prior}, GateTick{Grants: []ObservedGrant{
+		{Class: "iam", Target: "p1", Name: "g-new", State: approval.StateAwaiting},
+		{Class: "iam", Target: "p1", Name: "g-old", State: approval.StateRevoked},
+	}})
+	if _, ok := got.Gate.(Blocked); ok {
+		t.Fatalf("a stale REVOKED grant must not block a target with an open request, got %+v", got.Gate)
+	}
+}
+
 func TestGateTickAbsentTargetDowngradesSatisfied(t *testing.T) {
 	// Full re-list (GateTick) that OMITS the target entirely (grant vanished
 	// from the backend) must downgrade a previously-Satisfied gate. Regression
