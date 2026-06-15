@@ -618,12 +618,11 @@ the budget entirely.
   pooled connection retry instead of returning `SQLITE_BUSY`. Still single-writer
   by design (one server instance per environment).
 - **A classified plan with zero recorded gate targets passes the apply gate.**
-  This is the legitimate clean-plan case, but it is indistinguishable from the
-  pathological case where finalize *did* have gates yet every `gate_targets` write
-  failed (those write errors are logged but not fatal, to keep finalize alive).
-  The latter requires DB write failures at finalize and is considered acceptable;
-  the apply gate's primary protection is `IsClassified` (a never-planned PR fails
-  closed).
+  _(Resolved by the reconciler core — see below.)_ `NotClassified` (never planned)
+  and `Clean` (classified, zero gate targets) are now distinct sum-type states in
+  `GateState`, so a never-planned PR fails closed and a genuinely clean plan passes;
+  the old ambiguity where every `gate_targets` write failure was indistinguishable
+  from a clean plan no longer applies when `reconciler_core` is on.
 - **The `gcp-pam` grant justification correlates by `environment`, which must be
   whitespace-free.** The backend encodes the change as `PR #<n> env=<env>` and
   parses it back to map a grant to its `(PR, environment)`; the `env` token is
@@ -631,19 +630,15 @@ the budget entirely.
   this holds, but an environment containing a space would not round-trip
   (correlation, reuse, and revoke would miss the grant).
 - **The `gcp-pam` requester pool leases one SA per (PR, environment), reused
-  across all of that PR's gates.** At finalize the server iterates the PR's gate
-  targets and calls `RequestGrant` in sequence. The first successful grant
-  response that carries a `Requester` sets the leased identity, and every
-  subsequent `RequestGrant` call for the same PR passes that identity pinned via
-  `approval.Request.Requester`, so PAM always receives the same requester
-  throughout. After the loop `store.SetTargetRequester` persists the leased SA
-  on every `gate_targets` row for the (PR, environment). The underlying
-  `RequestGrant` still performs entitlement-level true leasing when no requester
-  is pinned (picks a pool SA with no open grant on that entitlement, falling back
-  to `PR mod pool-size` when the pool is exhausted), but once the first grant
-  fixes the identity the rest of the PR's grants share it. Collision is therefore
-  bounded by *concurrent open PRs exceeding pool size*, not by PR-number
-  arithmetic.
+  across all of that PR's gates.** `RequestGrant` picks a pool identity with no
+  open grant on the entitlement (falling back to `PR mod pool-size` when
+  exhausted), so collision is bounded by *concurrent open PRs exceeding pool
+  size*, not by PR-number arithmetic. Once the first grant fixes the identity the
+  rest of the PR's grants share it. With `reconciler_core` on, the leased
+  requester lives inside the `GateState` sum type and is carried forward
+  structurally by `Step` — the old `store.SetTargetRequester` / `UpsertTarget`
+  `ON CONFLICT` carve-out that preserved the requester column is gone; clobbering
+  the lease on re-plan is structurally impossible.
 - **`run apply` registers an `apply/<env>` execution under a distinct execution
   id.** The plan execution's state is untouched. An `apply/<env>` check run is
   now created on the merge SHA (visible on GitHub's Checks page) and a commit
@@ -1077,6 +1072,39 @@ approval class (e.g. `database`) therefore gates independently at its own scope
 without touching the IAM gate. No new machinery was needed: the gate, verdict,
 and UI are already `(class, target)`-generic — only the config surface and
 serve wiring grew.
+
+### Reconciler core
+
+`internal/reconcile` is the pure functional core for server-side gate and
+execution-lifecycle state. Its single entry point —
+`Step(World, Signal) → (ChangeSet, []Action)` — is a total function with no I/O:
+given the current observed world and an incoming signal (plan finalized, grant
+observed, revoke requested, etc.) it returns a set of state changes and a list of
+idempotent actions to execute. The imperative shell (`internal/server/shell.go`)
+wraps it: gather a scoped `World`, call `Step`, execute the returned `Action`s
+(persisting each result back as a `GrantsObserved` signal), persist the `ChangeSet`,
+and repeat to a fixpoint — serialized per `(pr, environment)`.
+
+`GateState` is a proper sum type: `NotClassified` (PR never finalized — apply fails
+closed), `Clean` (classified, zero gate targets — apply passes), `Pending` (grants
+in flight), `Satisfied` (all grants `ACTIVE`), `Blocked` (denied/expired/revoked or
+slot-collision). `NotClassified` ≠ `Clean`, removing the old ambiguity. The leased
+requester SA lives inside the gate variant, not in a separately clobberable column,
+so the clobber bug that existed when a re-plan called `SetTargetRequester` is
+structurally impossible. The per-stack `gated`/`safe` overlay written to
+`stacks.status` by `save()` is a **derived** projection of `GateState` — it is not
+separately tracked truth.
+
+The engine ships behind the off-by-default `reconciler_core` serve-config flag. It
+engages only at quiescence (`tfstackplan serve --check-quiescent`, with a startup
+guard that falls back to the legacy engine if the store has in-flight rows). Legacy
+gate handlers remain as the flag-OFF path pending a post-cutover cleanup.
+
+The permutation test harness (`internal/reconcile/step_table_test.go`) is the
+correctness oracle, covering all state permutations as a table-driven suite. It
+fixed six latent invariant gaps — ACTIVE-grant downgrade, re-plan pruning, Blocked
+surfacing for DENIED/REVOKED, revoke persistence, per-ChangeSet serialization, and
+same-PR cross-env slot self-deadlock — see PR for the full reasoning.
 
 ### `tfstackplan state` (Phase 6)
 

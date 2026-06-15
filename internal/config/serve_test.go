@@ -88,6 +88,25 @@ serve {
 	}
 }
 
+func TestLoadServeReconcilerCore(t *testing.T) {
+	cfg, err := Load(writeCfg(t, `
+serve {
+  db_path         = "/data/server.db"
+  reconciler_core = true
+}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := cfg.Serve
+	if s == nil {
+		t.Fatal("serve block not parsed")
+	}
+	if !s.ReconcilerCore {
+		t.Errorf("serve.reconciler_core = false, want true")
+	}
+}
+
 func TestLoadServeGroupBlock(t *testing.T) {
 	cfg, err := Load(writeCfg(t, `
 serve {

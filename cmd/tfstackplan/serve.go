@@ -57,6 +57,17 @@ func buildServeApp(ctx context.Context, cfg *config.Config, secret, ghWebhookSec
 	}
 	cleanup := func() { db.Close() }
 
+	reconcilerCore := s.ReconcilerCore
+	if reconcilerCore {
+		if q, qerr := store.IsQuiescent(db); qerr != nil {
+			fmt.Fprintf(os.Stderr, "serve: quiescence check failed (%v) — using legacy engine\n", qerr)
+			reconcilerCore = false
+		} else if !q {
+			fmt.Fprintln(os.Stderr, "serve: reconciler_core requested but store not quiescent (PRs in flight) — using legacy engine until drained")
+			reconcilerCore = false
+		}
+	}
+
 	if s.GitHubApp == nil {
 		cleanup()
 		return nil, nil, fmt.Errorf("serve: github_app block is required")
@@ -80,6 +91,7 @@ func buildServeApp(ctx context.Context, cfg *config.Config, secret, ghWebhookSec
 		GitHubWebhookSecret: ghWebhookSecret,
 		PublicBaseURL:       s.PublicBaseURL,
 		UseChecks:           s.UseChecks,
+		ReconcilerCore:      reconcilerCore,
 		GroupDepth:          groupDepth(s),
 		GroupPattern:        groupPattern(s),
 		LogsDir:             logsDir,
@@ -154,12 +166,36 @@ func runServe(args []string) int {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	cfgPath := fs.String("config", config.DefaultFilename, "HCL config file")
 	addr := fs.String("addr", ":8080", "listen address")
+	checkQ := fs.Bool("check-quiescent", false, "report whether the store is drained (no in-flight gates) and exit 0/1")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
 	cfg, err := config.Load(*cfgPath)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "tfstackplan serve:", err)
+		return 1
+	}
+	if *checkQ {
+		if cfg.Serve == nil || cfg.Serve.DBPath == "" {
+			fmt.Fprintln(os.Stderr, "tfstackplan serve: db_path required for --check-quiescent")
+			return 1
+		}
+		db, err := store.Open(cfg.Serve.DBPath)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "tfstackplan serve: open store:", err)
+			return 1
+		}
+		defer db.Close()
+		q, err := store.IsQuiescent(db)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "tfstackplan serve: quiescence check:", err)
+			return 1
+		}
+		if q {
+			fmt.Println("quiescent")
+			return 0
+		}
+		fmt.Println("in-flight")
 		return 1
 	}
 	secret := ""
