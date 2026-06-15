@@ -108,3 +108,18 @@ func TestGrantsObservedAbsentTargetIsLeftUntouched(t *testing.T) {
 		t.Fatalf("want Satisfied unchanged on empty partial feedback, got %T", got.Gate)
 	}
 }
+
+func TestObserveSettledPendingRendersActionRequired(t *testing.T) {
+	// All targets have grants, none ACTIVE yet → awaiting approval = a COMPLETED
+	// check run with action_required (not in_progress).
+	prior := ChangeSet{PR: 7, Environment: "staging", Gate: Pending{
+		Lease:   Lease{Requester: "sa0"},
+		Targets: []Target{{Class: "iam", Target: "p1", GrantName: "g1", Grant: approval.StateAwaiting}},
+	}}
+	_, actions := Step(World{Prior: prior}, GateTick{Grants: []ObservedGrant{
+		{Class: "iam", Target: "p1", Name: "g1", State: approval.StateAwaiting},
+	}})
+	if !hasRender(actions, "action_required") {
+		t.Fatalf("settled-Pending should render terminal action_required, got %v", actions)
+	}
+}

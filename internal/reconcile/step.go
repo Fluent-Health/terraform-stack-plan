@@ -272,7 +272,7 @@ func stepObserve(cs ChangeSet, obs []ObservedGrant, fullRelist bool) (ChangeSet,
 	}
 
 	cs.Gate = Pending{Targets: targets, Lease: lease}
-	return cs, append(actions, RenderCheckRun{}, PublishSSE{})
+	return cs, append(actions, RenderCheckRun{Terminal: true, Conclusion: "action_required"}, PublishSSE{})
 }
 
 // isAllActive reports whether every target has an ACTIVE grant.
