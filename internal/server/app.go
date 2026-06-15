@@ -35,6 +35,10 @@ type Config struct {
 	// UseChecks true → drive a rich GitHub check run (needs checks:write);
 	// false → link mode, posting a commit status (needs statuses:write).
 	UseChecks bool
+	// ReconcilerCore routes server-side gate/execution state transitions through
+	// the pure reconcile core (internal/reconcile) instead of the legacy
+	// handlers. Off by default; engaged only at quiescence (see Task 19).
+	ReconcilerCore bool
 	// LogsDir is where per-stack log buffers are written. Empty disables log
 	// ingestion (the endpoints become no-ops).
 	LogsDir string

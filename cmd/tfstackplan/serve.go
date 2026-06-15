@@ -80,6 +80,7 @@ func buildServeApp(ctx context.Context, cfg *config.Config, secret, ghWebhookSec
 		GitHubWebhookSecret: ghWebhookSecret,
 		PublicBaseURL:       s.PublicBaseURL,
 		UseChecks:           s.UseChecks,
+		ReconcilerCore:      s.ReconcilerCore,
 		GroupDepth:          groupDepth(s),
 		GroupPattern:        groupPattern(s),
 		LogsDir:             logsDir,

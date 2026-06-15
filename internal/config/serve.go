@@ -50,6 +50,7 @@ type ServeConfig struct {
 	DBPath                 string
 	PublicBaseURL          string
 	UseChecks              bool
+	ReconcilerCore         bool
 	WebhookSecretEnv       string // env var name holding the bearer secret (not the secret itself)
 	GitHubWebhookSecretEnv string // env var name holding the GitHub webhook HMAC secret
 	GitHubApp              *GitHubAppConfig
@@ -80,6 +81,7 @@ type serveBody struct {
 	DBPath                 string         `hcl:"db_path,optional"`
 	PublicBaseURL          string         `hcl:"public_base_url,optional"`
 	UseChecks              bool           `hcl:"use_checks,optional"`
+	ReconcilerCore         bool           `hcl:"reconciler_core,optional"`
 	WebhookSecretEnv       string         `hcl:"webhook_secret_env,optional"`
 	GitHubWebhookSecretEnv string         `hcl:"github_webhook_secret_env,optional"`
 	LogsDir                string         `hcl:"logs_dir,optional"`
@@ -122,6 +124,7 @@ func decodeServe(blk *hclsyntax.Block) (*ServeConfig, error) {
 		DBPath:                 b.DBPath,
 		PublicBaseURL:          b.PublicBaseURL,
 		UseChecks:              b.UseChecks,
+		ReconcilerCore:         b.ReconcilerCore,
 		WebhookSecretEnv:       b.WebhookSecretEnv,
 		GitHubWebhookSecretEnv: b.GitHubWebhookSecretEnv,
 		LogsDir:                b.LogsDir,
