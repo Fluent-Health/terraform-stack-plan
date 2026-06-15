@@ -111,6 +111,7 @@ func (a *App) Routes() http.Handler {
 	mux.Handle("GET /live/{id}/stack/{stack...}", a.viewAuth(http.HandlerFunc(a.handleStackDetail)))
 	mux.HandleFunc("GET /logs/{exec}/{stack...}", a.handleLogServe)
 	mux.HandleFunc("POST /pubsub/push", a.handlePushEvent)
+	mux.HandleFunc("POST /github/webhook", a.handleGitHubWebhook)
 	mux.Handle("POST /api/init", a.auth(http.HandlerFunc(a.handleInit)))
 	mux.Handle("POST /api/phase", a.auth(http.HandlerFunc(a.handlePhase)))
 	mux.Handle("POST /api/update", a.auth(http.HandlerFunc(a.handleUpdate)))
