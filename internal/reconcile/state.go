@@ -53,8 +53,8 @@ type Target struct {
 // GateState is a sum type: a gate is EXACTLY one of these.
 type GateState interface{ isGate() }
 
-type NotClassified struct{}                                  // never planned → apply fails closed
-type Clean struct{}                                          // classified, zero gates → apply passes
+type NotClassified struct{} // never planned → apply fails closed
+type Clean struct{}         // classified, zero gates → apply passes
 type Pending struct {
 	Targets []Target
 	Lease   Lease
