@@ -1,6 +1,9 @@
 package reconcile
 
-import "github.com/Fluent-Health/terraform-stack-plan/internal/events"
+import (
+	"github.com/Fluent-Health/terraform-stack-plan/internal/approval"
+	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
+)
 
 // Step is the one pure front door. Given the observed World and an incoming
 // Signal it returns the new ChangeSet and the minimal Actions the shell must
@@ -29,6 +32,10 @@ func Step(w World, s Signal) (ChangeSet, []Action) {
 		return cs, []Action{RenderCheckRun{}, PublishSSE{}}
 	case RunnerFinalize:
 		return stepFinalize(cs, sig)
+	case GrantsObserved:
+		return stepObserve(cs, sig.Grants)
+	case GateTick:
+		return stepObserve(cs, sig.Grants)
 	default:
 		_ = sig
 		return cs, nil
@@ -171,4 +178,103 @@ func revokeAll(cs ChangeSet, targets []Target) []Action {
 		})
 	}
 	return actions
+}
+
+// stepObserve folds grant observations into the gate's targets, then recomputes
+// the gate variant: pins the lease from the first leased grant and requests any
+// still-ungranted targets (fixpoint), promotes to Satisfied when every target is
+// ACTIVE, downgrades a previously-active target whose grant is gone (gap ①),
+// and surfaces DENIED/EXPIRED as Blocked (gap ③). Slot collisions are handled
+// in Task 8. No-op for non-gated states.
+func stepObserve(cs ChangeSet, obs []ObservedGrant) (ChangeSet, []Action) {
+	targets := gateTargets(cs.Gate)
+	lease := priorLease(cs.Gate)
+	if targets == nil {
+		return cs, nil
+	}
+	prevWasActive := isAllActive(targets)
+
+	byKey := map[string]ObservedGrant{}
+	for _, o := range obs {
+		byKey[o.Class+"|"+o.Target] = o
+	}
+
+	var actions []Action
+	for i := range targets {
+		o, ok := byKey[targets[i].Class+"|"+targets[i].Target]
+		if !ok {
+			continue
+		}
+		// A slot collision is resolved in Task 8; ignore here.
+		if o.Collision != nil {
+			continue
+		}
+		if o.Name != "" {
+			targets[i].GrantName = o.Name
+		}
+		targets[i].Grant = o.State
+		if lease.Requester == "" && o.Requester != "" {
+			lease.Requester = o.Requester
+		}
+	}
+
+	// Denied/Expired/Revoked → Blocked terminal (gap ③).
+	if r, blocked := firstTerminalBlock(targets); blocked {
+		cs.Gate = Blocked{Targets: targets, Lease: lease, By: Blocker{Reason: r}}
+		return cs, append(actions, RenderCheckRun{Terminal: true, Conclusion: "action_required"}, PublishSSE{})
+	}
+
+	// Request any target still lacking a grant (pinned to the lease).
+	requested := false
+	for _, t := range targets {
+		if t.GrantName == "" {
+			actions = append(actions, RequestGrant{Class: t.Class, Target: t.Target, Requester: lease.Requester})
+			requested = true
+		}
+	}
+	if requested {
+		cs.Gate = Pending{Targets: targets, Lease: lease}
+		return cs, append(actions, RenderCheckRun{}, PublishSSE{})
+	}
+
+	if isAllActive(targets) {
+		cs.Gate = Satisfied{Targets: targets, Lease: lease}
+		return cs, append(actions, RenderCheckRun{Terminal: true, Conclusion: "success"}, PublishSSE{})
+	}
+
+	// gap ①: was satisfied, a grant is now gone (not terminal-denied) → downgrade.
+	if prevWasActive {
+		cs.Gate = Blocked{Targets: targets, Lease: lease, By: Blocker{Reason: ReasonExpired}}
+		return cs, append(actions, RenderCheckRun{Terminal: true, Conclusion: "action_required"}, PublishSSE{})
+	}
+
+	cs.Gate = Pending{Targets: targets, Lease: lease}
+	return cs, append(actions, RenderCheckRun{}, PublishSSE{})
+}
+
+// isAllActive reports whether every target has an ACTIVE grant.
+func isAllActive(targets []Target) bool {
+	if len(targets) == 0 {
+		return false
+	}
+	for _, t := range targets {
+		if t.Grant != approval.StateActive {
+			return false
+		}
+	}
+	return true
+}
+
+// firstTerminalBlock returns the block reason for the first target observed in a
+// terminal-denied state, if any.
+func firstTerminalBlock(targets []Target) (BlockReason, bool) {
+	for _, t := range targets {
+		switch t.Grant {
+		case approval.StateDenied:
+			return ReasonDenied, true
+		case approval.StateRevoked:
+			return ReasonRevoked, true
+		}
+	}
+	return "", false
 }
