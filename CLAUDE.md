@@ -20,3 +20,17 @@ Instruction priority: these rules win over the superpowers skills' defaults.
   including **Known limitations / gotchas** — to *current truth*, concisely,
   linking the PR for the full reasoning. Capture what is true now and what to
   watch out for; do **not** paste the spec or the why/how journey.
+
+## Server-side state (reconciler core)
+
+All server-side gate/execution state transitions go through `internal/reconcile`'s
+pure `Step(World, Signal) → (ChangeSet, []Action)`. The imperative shell
+(`internal/server/shell.go`) gathers a scoped `World`, calls `Step`, executes the
+returned `Action`s, and persists the new `ChangeSet` — serialized per
+`(pr, environment)`. Never mutate gate/execution state inline in a handler.
+
+Add new behavior as a `Step` transition with a row in the permutation harness
+(`internal/reconcile/step_table_test.go`), not as a new handler branch. The
+engine is gated behind the off-by-default `reconciler_core` serve flag (engaged
+only at quiescence; see `serve --check-quiescent`); the legacy gate handlers
+remain as the flag-OFF path until a post-cutover cleanup.
