@@ -36,6 +36,8 @@ func Step(w World, s Signal) (ChangeSet, []Action) {
 		return stepObserve(cs, sig.Grants)
 	case GateTick:
 		return stepObserve(cs, sig.Grants)
+	case PRClosed:
+		return stepPRClosed(cs)
 	default:
 		_ = sig
 		return cs, nil
@@ -285,6 +287,26 @@ func firstTerminalBlock(targets []Target) (BlockReason, bool) {
 		}
 	}
 	return "", false
+}
+
+// stepPRClosed revokes every open grant for the closed PR and moves the gate to
+// a terminal Blocked{revoked} so the persisted state matches the backend (gap
+// ④) and no later apply check can read it as satisfied (Bug #1).
+func stepPRClosed(cs ChangeSet) (ChangeSet, []Action) {
+	targets := gateTargets(cs.Gate)
+	if targets == nil {
+		return cs, nil
+	}
+	actions := revokeAll(cs, targets)
+	if len(actions) == 0 {
+		return cs, nil
+	}
+	for i := range targets {
+		targets[i].Grant = approval.StateRevoked
+	}
+	cs.Gate = Blocked{Targets: targets, Lease: priorLease(cs.Gate), By: Blocker{Reason: ReasonRevoked}}
+	actions = append(actions, PublishSSE{})
+	return cs, actions
 }
 
 // resolveCollision implements the slot-collision policy:
