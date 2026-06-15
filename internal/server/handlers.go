@@ -153,7 +153,7 @@ func (a *App) handleFinalize(w http.ResponseWriter, r *http.Request) {
 	// verdict still parks at action_required. Either way, collect the targets so
 	// the matching stacks can be marked gated.
 	if a.Approval != nil {
-		a.requestGrants(r.Context(), e.PR, e.Environment, f.Gates)
+		a.requestGrants(r.Context(), e.PR, e.Environment, e.Repo, f.Gates)
 	} else {
 		for _, gt := range f.Gates {
 			if err := store.UpsertTarget(a.db, e.PR, e.Environment, gt.Class, gt.Target, "", "AWAITING"); err != nil {

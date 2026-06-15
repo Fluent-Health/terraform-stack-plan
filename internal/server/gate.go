@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 	"strings"
@@ -22,16 +23,16 @@ import (
 // response that carries a Requester sets it, and every subsequent gate of the
 // same PR is requested with that identity pinned. After the loop the requester
 // (if any) is persisted on all gate_target rows for the PR.
-func (a *App) requestGrants(ctx context.Context, pr int, environment string, gates []events.GateTarget) {
+func (a *App) requestGrants(ctx context.Context, pr int, environment, repo string, gates []events.GateTarget) {
 	if a.Approval == nil {
 		return
 	}
 	var leased string
 	for _, gt := range gates {
-		g, err := a.Approval.RequestGrant(ctx, approval.Request{
+		g, err := a.tryRequestGrant(ctx, approval.Request{
 			Class: gt.Class, Target: gt.Target, PR: pr, Environment: environment,
 			Requester: leased,
-		})
+		}, repo)
 		if err != nil {
 			log.Printf("gate: request grant pr=%d env=%s %s/%s: %v", pr, environment, gt.Class, gt.Target, err)
 			_ = store.UpsertTarget(a.db, pr, environment, gt.Class, gt.Target, "", "blocked")
@@ -47,6 +48,62 @@ func (a *App) requestGrants(ctx context.Context, pr int, environment string, gat
 	if leased != "" {
 		if err := store.SetTargetRequester(a.db, pr, environment, leased); err != nil {
 			log.Printf("gate: set requester pr=%d env=%s: %v", pr, environment, err)
+		}
+	}
+}
+
+// tryRequestGrant calls RequestGrant and, on a SlotCollisionError, checks
+// whether the blocking PR is closed via GitHub. If closed, revokes the blocking
+// grant and retries once. If open (or the GitHub check fails), logs the blocker
+// and returns the original error so the target is recorded "blocked".
+func (a *App) tryRequestGrant(ctx context.Context, req approval.Request, repo string) (approval.Grant, error) {
+	g, err := a.Approval.RequestGrant(ctx, req)
+	if err == nil {
+		return g, nil
+	}
+	var colErr *approval.SlotCollisionError
+	if !errors.As(err, &colErr) {
+		return approval.Grant{}, err
+	}
+	blocker := colErr.BlockingGrant
+	closed, cerr := a.gh.PRClosed(ctx, repo, blocker.Request.PR)
+	if cerr != nil {
+		log.Printf("gate: slot-collision check PR #%d: %v", blocker.Request.PR, cerr)
+		return approval.Grant{}, err
+	}
+	if !closed {
+		log.Printf("gate: slot occupied by open PR #%d env=%s on %s/%s — waiting",
+			blocker.Request.PR, blocker.Request.Environment, req.Class, req.Target)
+		return approval.Grant{}, err
+	}
+	if rerr := a.Approval.Revoke(ctx, blocker.Request); rerr != nil {
+		log.Printf("gate: revoke blocker PR #%d: %v", blocker.Request.PR, rerr)
+		return approval.Grant{}, err
+	}
+	log.Printf("gate: auto-revoked orphaned grant from closed PR #%d, retrying", blocker.Request.PR)
+	return a.Approval.RequestGrant(ctx, req)
+}
+
+// revokeOrphans revokes every open grant stored for pr across all environments.
+// Called from the PR-closed webhook. Errors are logged but not propagated.
+func (a *App) revokeOrphans(ctx context.Context, pr int) {
+	if a.Approval == nil {
+		return
+	}
+	targets, err := store.PRTargets(a.db, pr)
+	if err != nil {
+		log.Printf("webhook: load targets for PR #%d: %v", pr, err)
+		return
+	}
+	for _, t := range targets {
+		if err := a.Approval.Revoke(ctx, approval.Request{
+			Class:       t.Class,
+			Target:      t.Target,
+			PR:          pr,
+			Environment: t.Environment,
+		}); err != nil {
+			log.Printf("webhook: revoke PR #%d env=%s %s/%s: %v",
+				pr, t.Environment, t.Class, t.Target, err)
 		}
 	}
 }

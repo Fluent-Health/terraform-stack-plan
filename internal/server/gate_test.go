@@ -180,7 +180,7 @@ func TestRequestGrantsSharedRequester(t *testing.T) {
 		{Class: "iam", Target: "proj-1"},
 		{Class: "iam", Target: "proj-2"},
 	}
-	a.requestGrants(context.Background(), 7, "nonprod", gates)
+	a.requestGrants(context.Background(), 7, "nonprod", "o/r", gates)
 
 	ts, err := store.TargetsFor(db, 7, "nonprod")
 	if err != nil {
@@ -224,4 +224,111 @@ func TestGateCheckReturnsRequester(t *testing.T) {
 	if body["requester"] != want {
 		t.Errorf("body[requester] = %q, want %q", body["requester"], want)
 	}
+}
+
+func TestTryRequestGrantRevokesClosedBlockerAndRetries(t *testing.T) {
+	db := newServerTestDB(t)
+	fake := approval.NewFake()
+	gh := &MockGitHub{
+		PRClosedFn: func(_ context.Context, _ string, pr int) (bool, error) {
+			return pr == 99, nil
+		},
+	}
+	a := New(db, gh, Config{})
+
+	collided := false
+	a.Approval = &slotCollisionBackend{
+		inner: fake,
+		blockFn: func(req approval.Request) bool {
+			if !collided && req.PR == 7 {
+				collided = true
+				return true
+			}
+			return false
+		},
+		blocker: approval.Grant{
+			Name:      "grants/blocker",
+			State:     approval.StateActive,
+			Request:   approval.Request{Class: "iam", Target: "proj-a", PR: 99, Environment: "staging"},
+			Requester: "sa0",
+		},
+	}
+
+	req := approval.Request{Class: "iam", Target: "proj-a", PR: 7, Environment: "staging"}
+	g, err := a.tryRequestGrant(context.Background(), req, "o/r")
+	if err != nil {
+		t.Fatalf("closed blocker: unexpected error: %v", err)
+	}
+	if g.Name == "" {
+		t.Error("closed blocker: expected a grant name")
+	}
+}
+
+func TestTryRequestGrantSurfacesOpenBlocker(t *testing.T) {
+	db := newServerTestDB(t)
+	fake := approval.NewFake()
+	a := New(db, &MockGitHub{
+		PRClosedFn: func(_ context.Context, _ string, _ int) (bool, error) { return false, nil },
+	}, Config{})
+	a.Approval = &slotCollisionBackend{
+		inner:   fake,
+		blockFn: func(r approval.Request) bool { return r.PR == 7 },
+		blocker: approval.Grant{
+			Name:    "grants/blocker",
+			State:   approval.StateActive,
+			Request: approval.Request{Class: "iam", Target: "proj-a", PR: 99, Environment: "staging"},
+		},
+	}
+
+	_, err := a.tryRequestGrant(context.Background(),
+		approval.Request{Class: "iam", Target: "proj-a", PR: 7, Environment: "staging"}, "o/r")
+	if err == nil {
+		t.Error("open blocker: expected error")
+	}
+}
+
+func TestRevokeOrphansRevokesAcrossEnvironments(t *testing.T) {
+	db := newServerTestDB(t)
+	fake := approval.NewFake()
+	a := New(db, &MockGitHub{}, Config{})
+	a.Approval = fake
+
+	_ = store.UpsertTarget(db, 7, "nonprod", "iam", "proj-a", "", "AWAITING")
+	_ = store.UpsertTarget(db, 7, "prod", "iam", "proj-b", "", "AWAITING")
+	_, _ = fake.RequestGrant(context.Background(), approval.Request{Class: "iam", Target: "proj-a", PR: 7, Environment: "nonprod"})
+	_, _ = fake.RequestGrant(context.Background(), approval.Request{Class: "iam", Target: "proj-b", PR: 7, Environment: "prod"})
+
+	a.revokeOrphans(context.Background(), 7)
+
+	for _, tc := range []struct{ class, target string }{{"iam", "proj-a"}, {"iam", "proj-b"}} {
+		grants, _ := fake.ListGrants(context.Background(), tc.class, tc.target)
+		for _, g := range grants {
+			if g.Request.PR == 7 && g.State.Open() {
+				t.Errorf("grant PR 7 %s/%s still open after revokeOrphans", tc.class, tc.target)
+			}
+		}
+	}
+}
+
+// slotCollisionBackend wraps a Fake and returns SlotCollisionError when blockFn
+// returns true, then falls through to the Fake for retries.
+type slotCollisionBackend struct {
+	inner   *approval.Fake
+	blockFn func(approval.Request) bool
+	blocker approval.Grant
+}
+
+func (s *slotCollisionBackend) RequestGrant(ctx context.Context, req approval.Request) (approval.Grant, error) {
+	if s.blockFn(req) {
+		return approval.Grant{}, &approval.SlotCollisionError{BlockingGrant: s.blocker}
+	}
+	return s.inner.RequestGrant(ctx, req)
+}
+
+func (s *slotCollisionBackend) ListGrants(ctx context.Context, class, target string) ([]approval.Grant, error) {
+	return s.inner.ListGrants(ctx, class, target)
+}
+
+func (s *slotCollisionBackend) Revoke(ctx context.Context, req approval.Request) error {
+	return s.inner.Revoke(ctx, req)
 }
