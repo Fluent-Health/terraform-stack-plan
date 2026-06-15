@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/reconcile"
+	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
 
 // Shell is the imperative shell around the pure reconcile core. It gathers a
@@ -82,4 +83,41 @@ func (sh *Shell) Handle(ctx context.Context, pr int, env, repo string, sig recon
 		log.Printf("shell: maxIters=%d reached for pr=%d env=%s", maxIters, pr, env)
 	})
 	return outerErr
+}
+
+// tick builds a full grant re-list for the changeset's stored targets and runs
+// it through Step as a GateTick (which folds states, promotes to Satisfied,
+// downgrades vanished grants, and drives the check run). Used by the
+// reconcile-loop and the apply-time gate pre-check in reconciler-core mode.
+func (sh *Shell) tick(ctx context.Context, pr int, env string) error {
+	targets, err := store.TargetsFor(sh.app.db, pr, env)
+	if err != nil {
+		return err
+	}
+	if len(targets) == 0 {
+		return nil
+	}
+	var obs []reconcile.ObservedGrant
+	if sh.app.Approval != nil {
+		for _, t := range targets {
+			grants, lerr := sh.app.Approval.ListGrants(ctx, t.Class, t.Target)
+			if lerr != nil {
+				continue
+			}
+			for _, g := range grants {
+				if g.Request.PR == pr && g.Request.Environment == env {
+					obs = append(obs, reconcile.ObservedGrant{
+						Class: t.Class, Target: t.Target, Name: g.Name, State: g.State, Requester: g.Requester,
+					})
+				}
+			}
+		}
+	}
+	repo := ""
+	if id, ok := store.LatestExecutionID(sh.app.db, pr, env); ok {
+		if e, gerr := store.GetExecution(sh.app.db, id); gerr == nil {
+			repo = e.Repo
+		}
+	}
+	return sh.Handle(ctx, pr, env, repo, reconcile.GateTick{Grants: obs})
 }

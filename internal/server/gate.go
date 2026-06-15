@@ -11,6 +11,7 @@ import (
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/approval"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
+	"github.com/Fluent-Health/terraform-stack-plan/internal/reconcile"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
 
@@ -87,6 +88,23 @@ func (a *App) tryRequestGrant(ctx context.Context, req approval.Request, repo st
 // revokeOrphans revokes every open grant stored for pr across all environments.
 // Called from the PR-closed webhook. Errors are logged but not propagated.
 func (a *App) revokeOrphans(ctx context.Context, pr int) {
+	if a.cfg.ReconcilerCore && a.shell != nil {
+		targets, err := store.PRTargets(a.db, pr)
+		if err != nil {
+			log.Printf("webhook: load targets for PR #%d: %v", pr, err)
+			return
+		}
+		envs := map[string]bool{}
+		for _, t := range targets {
+			envs[t.Environment] = true
+		}
+		for env := range envs {
+			if herr := a.shell.Handle(ctx, pr, env, "", reconcile.PRClosed{}); herr != nil {
+				log.Printf("reconcile-core: pr-closed pr=%d env=%s: %v", pr, env, herr)
+			}
+		}
+		return
+	}
 	if a.Approval == nil {
 		return
 	}
@@ -130,6 +148,12 @@ func matchGrantState(grants []approval.Grant, pr int, environment string) approv
 // the activating→active transition and any missed provider events. No-op without
 // a backend or stored targets.
 func (a *App) reconcileGate(ctx context.Context, pr int, environment string) {
+	if a.cfg.ReconcilerCore && a.shell != nil {
+		if err := a.shell.tick(ctx, pr, environment); err != nil {
+			log.Printf("reconcile-core: tick pr=%d env=%s: %v", pr, environment, err)
+		}
+		return
+	}
 	if a.Approval == nil {
 		return
 	}
@@ -233,6 +257,13 @@ func (a *App) handleGateRevoke(w http.ResponseWriter, r *http.Request) {
 	var p events.GateRevoke
 	if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
 		badRequest(w, err)
+		return
+	}
+	if a.cfg.ReconcilerCore && a.shell != nil {
+		if err := a.shell.Handle(r.Context(), p.PR, p.Environment, "", reconcile.ApplySucceeded{}); err != nil {
+			log.Printf("reconcile-core: gate revoke pr=%d env=%s: %v", p.PR, p.Environment, err)
+		}
+		w.WriteHeader(http.StatusOK)
 		return
 	}
 	if a.Approval != nil {

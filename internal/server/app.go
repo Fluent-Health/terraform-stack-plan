@@ -77,6 +77,8 @@ type App struct {
 	tmpl *template.Template
 	// groupRE is the compiled Config.GroupPattern (nil → depth grouping).
 	groupRE *regexp.Regexp
+	// shell is the reconcile shell (always set; used only when cfg.ReconcilerCore is on).
+	shell *Shell
 }
 
 // New builds an App.
@@ -92,7 +94,9 @@ func New(db *sql.DB, gh GitHub, cfg Config) *App {
 			log.Printf("server: invalid group pattern %q: %v (falling back to depth grouping)", cfg.GroupPattern, err)
 		}
 	}
-	return &App{db: db, gh: gh, cfg: cfg, hub: newHub(), tmpl: tmpl, groupRE: groupRE}
+	a := &App{db: db, gh: gh, cfg: cfg, hub: newHub(), tmpl: tmpl, groupRE: groupRE}
+	a.shell = NewShell(a)
+	return a
 }
 
 // Routes returns the HTTP handler. Uses stdlib method-pattern routing (Go 1.22+).
