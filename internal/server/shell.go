@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"sync"
+
+	"github.com/Fluent-Health/terraform-stack-plan/internal/reconcile"
 )
 
 // Shell is the imperative shell around the pure reconcile core. It gathers a
@@ -43,4 +45,34 @@ func (sh *Shell) withLock(_ context.Context, pr int, env string, fn func()) {
 	m.Lock()
 	defer m.Unlock()
 	fn()
+}
+
+// Handle processes one signal for (pr, env) to a fixpoint: gather → Step →
+// save → execute → feed results back, repeating while RequestGrant actions
+// yield new observations. Serialized per (pr, env). maxIters guards the loop.
+func (sh *Shell) Handle(ctx context.Context, pr int, env, repo string, sig reconcile.Signal) error {
+	const maxIters = 16
+	var outerErr error
+	sh.withLock(ctx, pr, env, func() {
+		cur := sig
+		for i := 0; i < maxIters; i++ {
+			world, err := sh.gather(pr, env)
+			if err != nil {
+				outerErr = err
+				return
+			}
+			world.Prior.PR, world.Prior.Environment = pr, env
+			state, actions := reconcile.Step(world, cur)
+			if err := sh.save(state); err != nil {
+				outerErr = err
+				return
+			}
+			results := sh.execute(ctx, state, repo, actions)
+			if len(results) == 0 {
+				return
+			}
+			cur = reconcile.GrantsObserved{Grants: results}
+		}
+	})
+	return outerErr
 }
