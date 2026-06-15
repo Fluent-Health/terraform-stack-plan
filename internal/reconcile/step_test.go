@@ -23,3 +23,24 @@ func hasAction[A Action](actions []Action) bool {
 	}
 	return false
 }
+
+// actionsOf returns all actions of type A.
+func actionsOf[A Action](actions []Action) []A {
+	var out []A
+	for _, a := range actions {
+		if v, ok := a.(A); ok {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
+// hasRender reports whether actions contains a RenderCheckRun with the given conclusion.
+func hasRender(actions []Action, conclusion string) bool {
+	for _, a := range actions {
+		if r, ok := a.(RenderCheckRun); ok && r.Conclusion == conclusion {
+			return true
+		}
+	}
+	return false
+}
