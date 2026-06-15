@@ -144,6 +144,14 @@ func SetTargetRequester(db *sql.DB, pr int, environment, requester string) error
 	return err
 }
 
+// DeleteTarget removes a single gate target row.
+func DeleteTarget(tx *sql.Tx, pr int, environment, class, target string) error {
+	_, err := tx.Exec(
+		`DELETE FROM gate_targets WHERE pr=? AND environment=? AND class=? AND target=?`,
+		pr, environment, class, target)
+	return err
+}
+
 // PRTarget is a (environment, class, target) tuple recorded for a PR, used by
 // the PR-closed webhook to revoke orphaned grants across all environments.
 type PRTarget struct {
