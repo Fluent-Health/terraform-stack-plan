@@ -102,7 +102,12 @@ func (sh *Shell) tick(ctx context.Context, pr int, env string) error {
 		for _, t := range targets {
 			grants, lerr := sh.app.Approval.ListGrants(ctx, t.Class, t.Target)
 			if lerr != nil {
-				continue
+				// Abort the whole tick on a backend error rather than omitting the
+				// target: an omitted target reads as a vanished grant (full re-list)
+				// and would spuriously downgrade a Satisfied gate. A genuinely-gone
+				// grant returns an empty list (no error), so the legitimate
+				// downgrade path is unaffected. The next tick retries.
+				return fmt.Errorf("tick: list grants %s/%s pr=%d env=%s: %w", t.Class, t.Target, pr, env, lerr)
 			}
 			for _, g := range grants {
 				if g.Request.PR == pr && g.Request.Environment == env {
