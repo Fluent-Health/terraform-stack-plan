@@ -135,3 +135,38 @@ func TestClassifiedMarker(t *testing.T) {
 		t.Fatalf("re-mark: %v", err)
 	}
 }
+
+func TestPRTargets(t *testing.T) {
+	db := newTestDB(t)
+	// Two environments for PR 7.
+	_ = UpsertTarget(db, 7, "nonprod", "iam", "proj-a", "g1", "AWAITING")
+	_ = UpsertTarget(db, 7, "prod", "iam", "proj-b", "g2", "ACTIVE")
+	// Different PR — must not appear in PR 7's results.
+	_ = UpsertTarget(db, 8, "nonprod", "iam", "proj-a", "g3", "AWAITING")
+
+	ts, err := PRTargets(db, 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ts) != 2 {
+		t.Fatalf("PRTargets(7) = %d rows, want 2", len(ts))
+	}
+	envs := map[string]bool{}
+	for _, pt := range ts {
+		envs[pt.Environment] = true
+		if pt.Class != "iam" {
+			t.Errorf("class = %q, want iam", pt.Class)
+		}
+	}
+	if !envs["nonprod"] || !envs["prod"] {
+		t.Errorf("environments = %v, want nonprod + prod", envs)
+	}
+
+	ts8, err := PRTargets(db, 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ts8) != 1 || ts8[0].Target != "proj-a" {
+		t.Fatalf("PRTargets(8) = %+v, want one row for proj-a", ts8)
+	}
+}

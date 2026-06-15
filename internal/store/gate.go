@@ -120,3 +120,31 @@ func SetTargetRequester(db *sql.DB, pr int, environment, requester string) error
 		requester, pr, environment)
 	return err
 }
+
+// PRTarget is a (environment, class, target) tuple recorded for a PR, used by
+// the PR-closed webhook to revoke orphaned grants across all environments.
+type PRTarget struct {
+	Environment string
+	Class       string
+	Target      string
+}
+
+// PRTargets returns every (environment, class, target) recorded for pr across
+// all environments. Returns a non-nil empty slice when none match.
+func PRTargets(db *sql.DB, pr int) ([]PRTarget, error) {
+	rows, err := db.Query(
+		`SELECT DISTINCT environment, class, target FROM gate_targets WHERE pr = ?`, pr)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []PRTarget{}
+	for rows.Next() {
+		var t PRTarget
+		if err := rows.Scan(&t.Environment, &t.Class, &t.Target); err != nil {
+			return nil, err
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
