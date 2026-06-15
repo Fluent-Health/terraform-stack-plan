@@ -94,8 +94,8 @@ func isApplyContext(ctx string) bool {
 }
 
 // driveApply updates the GitHub surface for a post-merge apply execution.
-// State derives from the stacks: any failed ⇒ failure; all terminal ⇒ success;
-// otherwise pending. Best-effort.
+// State derives from the stacks: any failed ⇒ failure; all terminal (or no
+// stacks at all — a no-op apply) ⇒ success; otherwise pending. Best-effort.
 //
 // Surface selection: when UseChecks is on and the execution has a check run,
 // only the check run is updated — posting a redundant commit status with the
@@ -122,7 +122,13 @@ func (a *App) driveApply(ctx context.Context, e store.Execution, base string) {
 	switch {
 	case failed > 0:
 		state, desc = "failure", fmt.Sprintf("apply failed — %d/%d applied, %d failed", done, total, failed)
-	case total > 0 && done == total:
+	case total == 0:
+		// No changed stacks — a no-op apply (e.g. a docs/CI-only merge, or a PR
+		// whose work was a cross-state move done in the pre-phase). Nothing will
+		// emit a stack-completion event to flip this to terminal, so resolve it
+		// to success here rather than leaving it pending forever.
+		state, desc = "success", "no stacks to apply"
+	case done == total:
 		state, desc = "success", fmt.Sprintf("applied %d/%d stacks", done, total)
 	default:
 		state, desc = "pending", fmt.Sprintf("applying… %d/%d stacks", done, total)
