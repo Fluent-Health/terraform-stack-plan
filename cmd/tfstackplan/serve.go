@@ -43,7 +43,7 @@ func gcppamConfig(cfg *config.Config) gcppam.Config {
 
 // buildServeApp wires config → store + GitHub client + gcp-pam backend → App.
 // Returns a cleanup that closes the store. The GCP creds are injected.
-func buildServeApp(ctx context.Context, cfg *config.Config, secret string, creds credsFactory) (*server.App, func(), error) {
+func buildServeApp(ctx context.Context, cfg *config.Config, secret, ghWebhookSecret string, creds credsFactory) (*server.App, func(), error) {
 	if cfg.Serve == nil {
 		return nil, nil, fmt.Errorf("serve: no `serve {}` block in config")
 	}
@@ -76,13 +76,14 @@ func buildServeApp(ctx context.Context, cfg *config.Config, secret string, creds
 	fmt.Fprintf(os.Stderr, "tfstackplan serve: log buffers in %s\n", logsDir)
 
 	app := server.New(db, gh, server.Config{
-		WebhookSecret:      secret,
-		PublicBaseURL:      s.PublicBaseURL,
-		UseChecks:          s.UseChecks,
-		GroupDepth:         groupDepth(s),
-		GroupPattern:       groupPattern(s),
-		LogsDir:            logsDir,
-		PushServiceAccount: pubsubSA(s),
+		WebhookSecret:       secret,
+		GitHubWebhookSecret: ghWebhookSecret,
+		PublicBaseURL:       s.PublicBaseURL,
+		UseChecks:           s.UseChecks,
+		GroupDepth:          groupDepth(s),
+		GroupPattern:        groupPattern(s),
+		LogsDir:             logsDir,
+		PushServiceAccount:  pubsubSA(s),
 	})
 
 	if s.PubSub != nil {
@@ -165,8 +166,12 @@ func runServe(args []string) int {
 	if cfg.Serve != nil && cfg.Serve.WebhookSecretEnv != "" {
 		secret = os.Getenv(cfg.Serve.WebhookSecretEnv)
 	}
+	ghWebhookSecret := ""
+	if cfg.Serve != nil && cfg.Serve.GitHubWebhookSecretEnv != "" {
+		ghWebhookSecret = os.Getenv(cfg.Serve.GitHubWebhookSecretEnv)
+	}
 	ctx := context.Background()
-	app, cleanup, err := buildServeApp(ctx, cfg, secret, gcpCreds)
+	app, cleanup, err := buildServeApp(ctx, cfg, secret, ghWebhookSecret, gcpCreds)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "tfstackplan serve:", err)
 		return 1

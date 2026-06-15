@@ -2,6 +2,7 @@ package gcppam
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -170,5 +171,37 @@ func TestRequestGrantUsesHintedRequester(t *testing.T) {
 	// (b) returned Grant must carry the hinted requester
 	if g.Requester != "sa-pinned" {
 		t.Errorf("grant.Requester = %q, want sa-pinned", g.Requester)
+	}
+}
+
+func TestRequestGrantReturnsSlotCollisionOnForeignGrant(t *testing.T) {
+	var createCalls int
+	b := fakePAM(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == "GET" && strings.HasSuffix(r.URL.Path, "/grants"):
+			// A different PR already holds an open grant.
+			w.Write([]byte(`{"grants":[{"name":"projects/proj-a/locations/global/entitlements/iam-elev/grants/foreign","state":"ACTIVE","requester":"sa0","justification":{"unstructuredJustification":"PR #99 env=nonprod"}}]}`))
+		case r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/grants"):
+			createCalls++
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"error":{"code":400,"message":"INVALID_ARGUMENT: only one open grant per requester"}}`))
+		default:
+			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+	})
+
+	_, err := b.RequestGrant(context.Background(), approval.Request{Class: "iam", Target: "proj-a", PR: 7, Environment: "staging"})
+	if err == nil {
+		t.Fatal("expected error on slot collision")
+	}
+	var colErr *approval.SlotCollisionError
+	if !errors.As(err, &colErr) {
+		t.Fatalf("expected SlotCollisionError, got %T: %v", err, err)
+	}
+	if colErr.BlockingGrant.Request.PR != 99 {
+		t.Errorf("blocking grant PR = %d, want 99", colErr.BlockingGrant.Request.PR)
+	}
+	if createCalls != 1 {
+		t.Errorf("createCalls = %d, want 1 (no retry)", createCalls)
 	}
 }

@@ -14,10 +14,16 @@ type fakeRunner struct {
 	dir       string
 	stateJSON string        // returned by StatePull
 	show      *tfjson.State // returned by ShowStateFile
+	inits     int
 	mvs       int
 	pushes    int
 	pulls     int
 	forceUsed bool
+}
+
+func (f *fakeRunner) Init(context.Context, ...tfexec.InitOption) error {
+	f.inits++
+	return nil
 }
 
 func (f *fakeRunner) StatePull(context.Context, ...tfexec.StatePullOption) (string, error) {
