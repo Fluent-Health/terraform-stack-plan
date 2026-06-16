@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 
@@ -86,6 +87,21 @@ func renderClassification(dir string, stacks []string, cfgPath string) (classify
 		repoRoot:  dir,
 		classJSON: sidecar,
 	}
+
+	// Reconcile pending cross-state moves: discover the committed move shims +
+	// xmove manifests under dir and feed their two-sided targets to classification
+	// (--state-moves), so a move-out (planned destroy) and a move-in (planned
+	// create) classify as 🚚 (non-iam) instead of "iam + destructive". This mirrors
+	// the apply pre-phase (applyPendingMoves), which executes every pending move
+	// regardless of PR — so we collect all (want == "") for a consistent verdict.
+	// Fail-closed: a malformed manifest errors the pass rather than silently
+	// classifying a relocation as a real IAM change.
+	if movesPath, merr := writeStateMovesManifest(dir, plansDir); merr != nil {
+		return classifyResult{}, merr
+	} else if movesPath != "" {
+		o.stateMoves = movesPath
+	}
+
 	report, stackReports, _, rerr := run(o)
 	if rerr != nil {
 		return classifyResult{}, rerr
@@ -103,4 +119,28 @@ func renderClassification(dir string, stacks []string, cfgPath string) (classify
 		res.Categories, _ = categoriesFromSidecar(data)
 	}
 	return res, nil
+}
+
+// writeStateMovesManifest discovers all pending cross-state moves under dir and
+// writes their two-sided --state-moves JSON into outDir, returning the file path.
+// It returns ("", nil) when there are no pending moves (the common case), so the
+// caller leaves --state-moves unset. The file lives under the caller's plansDir,
+// which is removed when the classify pass finishes.
+func writeStateMovesManifest(dir, outDir string) (string, error) {
+	manifest, err := collectStateMoves(dir, "")
+	if err != nil {
+		return "", err
+	}
+	if len(manifest) == 0 {
+		return "", nil
+	}
+	b, err := json.Marshal(manifest)
+	if err != nil {
+		return "", err
+	}
+	path := filepath.Join(outDir, "_state_moves.json")
+	if err := os.WriteFile(path, b, 0o644); err != nil {
+		return "", err
+	}
+	return path, nil
 }
