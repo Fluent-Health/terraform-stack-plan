@@ -670,6 +670,11 @@ the budget entirely.
   lease/token the runner presents and the server re-validates at apply time
   (deferred — touches the runner protocol). The check itself is now fail-closed
   on anything observable server-side up to the moment it answers.
+- **A lost `pull_request.closed` webhook no longer orphans grants forever.** The
+  periodic orphan-grant sweep (`OrphanSweepLoop`) is the backstop: within ~5 min
+  it revokes grants for any closed/merged PR that escaped the webhook and the
+  post-apply revoke. (It still depends on the GitHub API being reachable to learn
+  a PR is closed; it is conservative — keeps the grant — on a GitHub error.)
 
 ## Server foundations (in progress)
 
@@ -830,7 +835,12 @@ target)` gate and records the grant name + state; `reconcileGate` refreshes each
 target's state from the backend and, once all are `ACTIVE`, flips the gated
 stacks safe and re-drives the check run to `success`; a periodic `ReconcileLoop`
 runs that over `PendingGates`, self-healing the activating→active transition with
-no provider event required. The apply path uses `POST /api/gate/check`
+no provider event required. A periodic **orphan-grant sweep** (`OrphanSweepLoop`,
+~5 min) backstops the close-webhook: it lists every PR still holding an open grant
+— including fully-ACTIVE (Satisfied) gates the 30s reconcile loop skips — checks
+each PR's GitHub state, and revokes (via the same `revokeOrphans` path) any whose
+PR is closed/merged. It is conservative on a GitHub error (keeps the grant) and
+idempotent. The apply path uses `POST /api/gate/check`
 (**fail-closed**: 200 only when the PR was classified *and* every gate target is
 `ACTIVE` — a clean classified plan with zero gates passes; a never-planned PR
 fails closed) and `POST /api/gate/revoke` (best-effort post-apply cleanup). The
