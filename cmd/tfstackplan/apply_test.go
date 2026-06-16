@@ -3,11 +3,13 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
@@ -18,7 +20,9 @@ import (
 // TestRunApplyAbortsOnPendingStateMove asserts the fail-closed pre-phase: a
 // pending cross-state move manifest must be executed before the apply, and when
 // it cannot run cleanly the whole apply aborts (exit 1). No TFSTACKPLAN_SERVER,
-// so the gate no-ops; the move can't execute against an unprepared stack.
+// so the gate no-ops; the move can't execute against an unprepared stack. A fake
+// terramate supplies one changed stack so the run reaches the move pre-phase
+// (under the self-healing ordering, stacks are computed before the gate/move).
 func TestRunApplyAbortsOnPendingStateMove(t *testing.T) {
 	if _, err := exec.LookPath("terraform"); err != nil {
 		t.Skip("terraform not on PATH")
@@ -32,7 +36,8 @@ func TestRunApplyAbortsOnPendingStateMove(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, statemove.XMoveFileName("PR-1")), []byte(statemove.RenderXMove("PR-1", xm)), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if code := runApply([]string{"--dir", root, "--changed=false"}); code != 1 {
+	withFakeTM(t, &fakeTM{changed: []string{"stacks/b"}}, nil)
+	if code := runApply([]string{"--dir", root}); code != 1 {
 		t.Fatalf("run apply with a pending cross-state move = %d, want 1 (fail-closed pre-phase)", code)
 	}
 }
@@ -43,34 +48,29 @@ func TestRunApplyRequiresDir(t *testing.T) {
 	}
 }
 
+// TestRunApplyFailsClosedOnUnsatisfiedGate asserts the fail-closed gate: with a
+// changed stack and a gate/check that 409s, apply checks the gate exactly once,
+// never runs the apply script, and exits 1. Under the self-healing ordering the
+// apply execution IS registered (Init) before the gate so the rejection renders
+// in the apply check run; the apply script is the line that must not be crossed.
 func TestRunApplyFailsClosedOnUnsatisfiedGate(t *testing.T) {
-	var mu sync.Mutex
-	hits := map[string]int{}
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		mu.Lock()
-		hits[r.URL.Path]++
-		mu.Unlock()
-		if r.URL.Path == "/api/gate/check" {
-			http.Error(w, "gate not satisfied", http.StatusConflict)
-			return
-		}
-		w.WriteHeader(200)
-	}))
-	defer srv.Close()
-	t.Setenv(runner.EnvServer, srv.URL)
-	t.Setenv(runner.EnvEnvironment, "staging")
-	t.Setenv("TFSTACKPLAN_PR", "7")
+	srv, rs := stubServer(t)
+	rs.gateCheckStatus = http.StatusConflict
+	setApplyEnv(t, srv.URL, 7, "staging")
+	f := &fakeTM{changed: []string{"stacks/a"}}
+	withFakeTM(t, f, nil)
 
 	if code := runApply([]string{"--dir", t.TempDir()}); code != 1 {
 		t.Fatalf("run apply on unsatisfied gate = %d, want 1 (fail closed)", code)
 	}
-	mu.Lock()
-	defer mu.Unlock()
-	if hits["/api/gate/check"] != 1 {
-		t.Errorf("gate check hits = %d, want 1", hits["/api/gate/check"])
+	if rs.gateCheckHits != 1 {
+		t.Errorf("gate check hits = %d, want 1", rs.gateCheckHits)
 	}
-	if hits["/api/init"] != 0 {
-		t.Errorf("init hit %d times; apply must not start when the gate is unsatisfied", hits["/api/init"])
+	if f.scriptRan {
+		t.Error("apply script ran despite an unsatisfied gate")
+	}
+	if !rs.has("/api/init") {
+		t.Error("apply execution should be registered (Init) so the gate rejection renders in the check run")
 	}
 }
 
@@ -282,5 +282,135 @@ func TestRunApplyNoImpersonateWhenFlagAbsent(t *testing.T) {
 	}
 	if got := os.Getenv("GOOGLE_OAUTH_ACCESS_TOKEN"); got != "" {
 		t.Errorf("GOOGLE_OAUTH_ACCESS_TOKEN set to %q but should be empty", got)
+	}
+}
+
+// TestApplyZeroStacksSkipsGate asserts a zero-changed-stack apply short-circuits
+// to success WITHOUT touching the gate: it Inits the (empty) apply execution and
+// finalizes, never calling /api/gate/check. Reproduces #332 (bootstrap-only PR).
+func TestApplyZeroStacksSkipsGate(t *testing.T) {
+	srv, rs := stubServer(t)
+	setApplyEnv(t, srv.URL, 332, "prod")
+	withFakeTM(t, &fakeTM{changed: nil}, nil)
+
+	code := runApply([]string{"--dir", t.TempDir()})
+	if code != 0 {
+		t.Fatalf("exit=%d want 0", code)
+	}
+	if rs.has("/api/gate/check") {
+		t.Fatal("gate checked on zero-stack apply")
+	}
+	if !rs.has("/api/init") {
+		t.Fatal("expected Init even with zero stacks")
+	}
+}
+
+// TestApplyClassifiesBeforeGate asserts the self-sufficient ordering: with a
+// changed stack, apply submits the classify Finalize (re-establishing the gate's
+// classification + grant requests, keyed to pr/env) BEFORE it checks the gate.
+// This is what recovers a stranded merged PR after a serve restart.
+func TestApplyClassifiesBeforeGate(t *testing.T) {
+	srv, rs := stubServer(t)
+	setApplyEnv(t, srv.URL, 331, "test")
+	withFakeTM(t, &fakeTM{changed: []string{"cluster/fh-test"}}, nil)
+
+	_ = runApply([]string{"--dir", t.TempDir()})
+
+	if !rs.orderedBefore("/api/finalize", "/api/gate/check") {
+		t.Fatal("apply must finalize (classify) before checking the gate")
+	}
+}
+
+// TestApplyFailureFinalizes asserts the always-terminal-Finalize invariant: when
+// the apply script fails, apply emits Finalize{Failed:true} (so the check run
+// concludes failure with per-stack attribution) and exits 1.
+func TestApplyFailureFinalizes(t *testing.T) {
+	srv, rs := stubServer(t)
+	setApplyEnv(t, srv.URL, 331, "test")
+	withFakeTM(t, &fakeTM{changed: []string{"cluster/fh-test"}, scriptErr: errBoom}, nil)
+
+	code := runApply([]string{"--dir", t.TempDir()})
+	if code != 1 {
+		t.Fatalf("exit=%d want 1", code)
+	}
+	if !rs.finalizeFailed() {
+		t.Fatal("expected Finalize{Failed:true} on apply failure")
+	}
+}
+
+// TestApplyStateMoveFailureFinalizes asserts a failed cross-state move pre-phase
+// is surfaced to the apply check run as a Finalize{Failed:true} carrying the
+// cause, and apply exits 1 without running the apply script.
+func TestApplyStateMoveFailureFinalizes(t *testing.T) {
+	srv, rs := stubServer(t)
+	setApplyEnv(t, srv.URL, 331, "test")
+	f := &fakeTM{changed: []string{"cluster/fh-test"}}
+	withFakeTM(t, f, nil)
+
+	orig := applyMovesFn
+	applyMovesFn = func(_ context.Context, _ string, _ bool, _ statemove.Locker, _ io.Writer) error {
+		return errBoom
+	}
+	t.Cleanup(func() { applyMovesFn = orig })
+
+	code := runApply([]string{"--dir", t.TempDir()})
+	if code != 1 {
+		t.Fatalf("exit=%d want 1", code)
+	}
+	fin, ok := rs.lastFinalize()
+	if !ok || !fin.Failed {
+		t.Fatal("expected a terminal Finalize{Failed:true} on state-move failure")
+	}
+	if !strings.Contains(fin.ReportMarkdown, "cross-state move failed") {
+		t.Errorf("state-move Finalize report = %q, want it to mention the move failure", fin.ReportMarkdown)
+	}
+	if f.scriptRan {
+		t.Error("apply script ran despite a failed state-move pre-phase")
+	}
+}
+
+// TestApplyHappyPathOrder locks in the full self-healing ordering on the happy
+// path: init → finalize(classify) → gate/check → finalize(terminal) → gate/revoke,
+// and exit 0 when the gate approves.
+func TestApplyHappyPathOrder(t *testing.T) {
+	srv, rs := stubServer(t)
+	setApplyEnv(t, srv.URL, 200, "prod")
+	withFakeTM(t, &fakeTM{changed: []string{"cluster/fh-prod"}}, nil)
+
+	code := runApply([]string{"--dir", t.TempDir()})
+	if code != 0 {
+		t.Fatalf("exit=%d want 0", code)
+	}
+	for _, pair := range [][2]string{
+		{"/api/init", "/api/finalize"},
+		{"/api/finalize", "/api/gate/check"},
+		{"/api/gate/check", "/api/gate/revoke"},
+	} {
+		if !rs.orderedBefore(pair[0], pair[1]) {
+			t.Errorf("expected %s before %s; order=%v", pair[0], pair[1], rs.order)
+		}
+	}
+}
+
+// TestPrintGateRejectedClassifies asserts the fail-closed gate rejection prints
+// a classified, actionable message: a not-classified/awaiting gate points the
+// operator at the live URL + "approve" + "re-run"; an unreachable serve points
+// at the break-glass runbook.
+func TestPrintGateRejectedClassifies(t *testing.T) {
+	t.Setenv(runner.EnvServer, "https://serve.example")
+
+	var awaiting strings.Builder
+	printGateRejected(&awaiting, fmt.Errorf("apply gate not satisfied (fail-closed): post /api/gate/check: 409: not classified"), runner.ClientFromEnv(), 331)
+	got := awaiting.String()
+	for _, want := range []string{"AWAITING_APPROVAL", "https://serve.example", "approve", "re-run", "#331"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("awaiting message missing %q in:\n%s", want, got)
+		}
+	}
+
+	var down strings.Builder
+	printGateRejected(&down, fmt.Errorf("apply gate not satisfied (fail-closed): post /api/gate/check: connection refused"), runner.ClientFromEnv(), 331)
+	if !strings.Contains(down.String(), "GATE_UNREACHABLE") || !strings.Contains(down.String(), "break-glass") {
+		t.Errorf("unreachable message missing break-glass guidance:\n%s", down.String())
 	}
 }

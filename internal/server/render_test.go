@@ -30,12 +30,31 @@ func TestRenderProgress(t *testing.T) {
 
 func TestFailuresSection(t *testing.T) {
 	none := events.Graph{Stacks: []events.StackState{{Path: "a", Status: events.StatusPlanned}}}
-	if failuresSection(none, "") != "" {
+	if failuresSection(none, "", "") != "" {
 		t.Error("no failures should render empty")
 	}
 	g := events.Graph{Stacks: []events.StackState{{Path: "stacks/x", Status: events.StatusFailed, Detail: "boom"}}}
-	out := failuresSection(g, "https://ci/log")
+	out := failuresSection(g, "https://ci/log", "")
 	for _, want := range []string{"Failures (1)", "stacks/x", "boom", "https://ci/log"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in:\n%s", want, out)
+		}
+	}
+}
+
+// TestFailuresSectionPerStackLogLink asserts that when a per-stack log prefix is
+// given (apply context), each failing stack gets a deep-link to its own streamed
+// log at <prefix>/<stack>, and the failure detail (init vs apply phase) renders.
+func TestFailuresSectionPerStackLogLink(t *testing.T) {
+	g := events.Graph{Stacks: []events.StackState{
+		{Path: "cluster/fh-prod", Status: events.StatusFailed, Detail: "terraform apply failed"},
+	}}
+	out := failuresSection(g, "https://ci/log", "https://serve/logs/apply-1")
+	for _, want := range []string{
+		"cluster/fh-prod",
+		"terraform apply failed",
+		"https://serve/logs/apply-1/cluster/fh-prod",
+	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in:\n%s", want, out)
 		}

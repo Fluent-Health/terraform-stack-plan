@@ -97,8 +97,12 @@ func renderProgress(g events.Graph) string {
 }
 
 // failuresSection renders a collapsible block per failed stack with the captured
-// error detail and a link to the build log. Returns "" when nothing failed.
-func failuresSection(g events.Graph, logURL string) string {
+// error detail (which, for an apply, names the phase it died in — terraform init
+// vs apply) and links. logURL is the CI build log; stackLogPrefix, when non-empty
+// (apply context), is the per-execution log base (e.g. "<base>/logs/<exec>") used
+// to deep-link each failing stack's own streamed log at "<prefix>/<stack>".
+// Returns "" when nothing failed.
+func failuresSection(g events.Graph, logURL, stackLogPrefix string) string {
 	var failed []events.StackState
 	for _, s := range g.Stacks {
 		if s.Status == events.StatusFailed {
@@ -119,6 +123,9 @@ func failuresSection(g events.Graph, logURL string) string {
 			fmt.Fprintf(&b, "```\n%s\n```\n", s.Detail)
 		} else {
 			b.WriteString("_No error detail captured — see the build log._\n")
+		}
+		if stackLogPrefix != "" {
+			fmt.Fprintf(&b, "\n📄 [Stack log](%s/%s)\n", strings.TrimRight(stackLogPrefix, "/"), s.Path)
 		}
 		b.WriteString("\n</details>\n\n")
 	}

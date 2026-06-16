@@ -61,7 +61,7 @@ func (a *App) renderAndPatch(ctx context.Context, id, base string, terminal bool
 	targets, _ := store.TargetsFor(a.db, e.PR, e.Environment)
 	upd := CheckRunUpdate{
 		Summary:    renderProgress(g),
-		Text:       gatesSection(targets) + failuresSection(g, e.LogURL) + e.ReportMarkdown,
+		Text:       gatesSection(targets) + failuresSection(g, e.LogURL, "") + e.ReportMarkdown,
 		DetailsURL: a.liveURL(base, id),
 	}
 	if terminal {
@@ -121,12 +121,16 @@ func (a *App) driveApply(ctx context.Context, e store.Execution, base string) {
 	var state, desc string
 	switch {
 	case failed > 0:
-		state, desc = "failure", fmt.Sprintf("apply failed — %d/%d applied, %d failed", done, total, failed)
+		// STACK_INIT_FAILED / STACK_APPLY_FAILED: a stack died during the apply.
+		// The phase (init vs apply) is carried structurally in each failing
+		// stack's Detail and rendered (with a per-stack log deep-link) below.
+		desc = fmt.Sprintf("apply failed — %d/%d applied, %d failed; see the failing stack below — fix-forward or re-run this tier's apply", done, total, failed)
+		state = "failure"
 	case total == 0:
-		// No changed stacks — a no-op apply (e.g. a docs/CI-only merge, or a PR
-		// whose work was a cross-state move done in the pre-phase). Nothing will
-		// emit a stack-completion event to flip this to terminal, so resolve it
-		// to success here rather than leaving it pending forever.
+		// NOTHING_TO_APPLY: no changed stacks — a no-op apply (e.g. a docs/CI-only
+		// merge, or a PR whose work was a cross-state move done in the pre-phase).
+		// Nothing will emit a stack-completion event to flip this to terminal, so
+		// resolve it to success here rather than leaving it pending forever.
 		state, desc = "success", "no stacks to apply"
 	case done == total:
 		state, desc = "success", fmt.Sprintf("applied %d/%d stacks", done, total)
@@ -145,6 +149,11 @@ func (a *App) driveApply(ctx context.Context, e store.Execution, base string) {
 			Summary:    desc,
 			DetailsURL: a.liveURL(base, e.ID),
 			Conclusion: conclusion,
+		}
+		// On failure, attribute the failing stack(s) + phase in the body with a
+		// deep-link to each stack's own streamed log.
+		if failed > 0 {
+			upd.Text = failuresSection(g, e.LogURL, strings.TrimRight(base, "/")+"/logs/"+e.ID)
 		}
 		if err := a.gh.UpdateCheckRun(ctx, e.Repo, e.CheckRunID.Int64, upd); err != nil {
 			log.Printf("apply check run %s: %v", e.ID, err)

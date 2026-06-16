@@ -80,50 +80,18 @@ func runPlan(args []string) int {
 		}
 	}
 
-	plansDir, gerr := gatherPlans(*dir, stacks)
-	if gerr != nil {
-		fmt.Fprintln(os.Stderr, "tfstackplan run plan:", gerr)
-		return 1
-	}
-	defer os.RemoveAll(plansDir)
-
-	// Auto-discover config from --dir when none was given explicitly, so the
-	// classification + gates pipeline fires without requiring an extra flag.
-	resolvedCfg := *cfgPath
-	if resolvedCfg == "" {
-		if p, ok := config.Discover(*dir); ok {
-			resolvedCfg = p
-		}
-	}
-
-	sidecar := filepath.Join(plansDir, "_classes.json")
-	o := opts{
-		plansDir:  plansDir,
-		title:     "Terraform plan",
-		marker:    "tfstackplan",
-		config:    resolvedCfg,
-		maxBytes:  defaultMaxBytes,
-		output:    "-",
-		details:   "closed",
-		repoRoot:  *dir,
-		classJSON: sidecar,
-	}
-	report, stackReports, _, rerr := run(o)
+	// Render + classify the produced plans (shared with the apply-time classify
+	// pass via renderClassification).
+	res, rerr := renderClassification(*dir, stacks, *cfgPath)
 	if rerr != nil {
 		fmt.Fprintln(os.Stderr, "tfstackplan run plan:", rerr)
 		return 1
 	}
-	fmt.Print(report)
+	fmt.Print(res.Report)
 
-	gates, moving := []events.GateTarget{}, []string{}
-	categories := map[string][]events.Category{}
-	if data, e := os.ReadFile(sidecar); e == nil {
-		gates, moving, _ = gatesFromSidecar(data, gatingClasses(resolvedCfg, *dir))
-		categories, _ = categoriesFromSidecar(data)
-	}
 	_ = client.Finalize(ctx, events.Finalize{
-		ID: execID, ReportMarkdown: report, StackReports: stackReports, Gates: gates, Moving: moving, Failed: scriptErr != nil,
-		Categories: categories,
+		ID: execID, ReportMarkdown: res.Report, StackReports: res.StackReports, Gates: res.Gates, Moving: res.Moving, Failed: scriptErr != nil,
+		Categories: res.Categories,
 	})
 
 	if scriptErr != nil {

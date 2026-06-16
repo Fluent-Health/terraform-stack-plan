@@ -85,6 +85,53 @@ func TestApplyDriveUpdatesCheckRun(t *testing.T) {
 	}
 }
 
+// TestApplyDriveFailureSurfacesStackAndNextSteps asserts a failed apply stack is
+// attributed in the check run: the Summary carries a failure verdict + next-steps
+// ("re-run"), and the Text shows the failing stack, its phase detail, and a
+// per-stack log deep-link.
+func TestApplyDriveFailureSurfacesStackAndNextSteps(t *testing.T) {
+	db := newServerTestDB(t)
+	var conclusion, summary, text string
+	gh := &MockGitHub{
+		CreateCheckRunFn: func(_ context.Context, _, _, _ string, _ string) (int64, error) { return 5, nil },
+		UpdateCheckRunFn: func(_ context.Context, _ string, _ int64, u CheckRunUpdate) error {
+			conclusion, summary, text = u.Conclusion, u.Summary, u.Text
+			return nil
+		},
+	}
+	a := New(db, gh, Config{UseChecks: true, PublicBaseURL: "https://serve.example"})
+
+	initBody, _ := json.Marshal(events.Init{
+		ID: "apply-fail", Repo: "o/r", SHA: "abc", PR: 0, Environment: "prod",
+		Context: "apply/prod",
+		Stacks:  []events.StackState{{Path: "cluster/fh-prod", Status: events.StatusPending}},
+	})
+	rec := httptest.NewRecorder()
+	a.Routes().ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/init", bytes.NewReader(initBody)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("init: %d", rec.Code)
+	}
+
+	updBody, _ := json.Marshal(events.Update{ID: "apply-fail", Stack: "cluster/fh-prod", Status: events.StatusFailed, Detail: "terraform apply failed"})
+	rec = httptest.NewRecorder()
+	a.Routes().ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/update", bytes.NewReader(updBody)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("update: %d", rec.Code)
+	}
+
+	if conclusion != "failure" {
+		t.Errorf("conclusion = %q, want failure", conclusion)
+	}
+	if !strings.Contains(strings.ToLower(summary), "re-run") {
+		t.Errorf("summary missing next-steps guidance: %q", summary)
+	}
+	for _, want := range []string{"cluster/fh-prod", "terraform apply failed", "/logs/apply-fail/cluster/fh-prod"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("text missing %q in:\n%s", want, text)
+		}
+	}
+}
+
 // A no-op apply (zero changed stacks — e.g. a docs/CI-only merge, or a PR whose
 // only work was a cross-state move done in the pre-phase) must resolve the apply
 // check run to a success conclusion on init, not hang forever at in_progress:

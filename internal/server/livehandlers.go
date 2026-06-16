@@ -54,7 +54,7 @@ func (a *App) handleLive(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
-	report := failuresSection(g, e.LogURL) + e.ReportMarkdown
+	report := failuresSection(g, e.LogURL, a.baseURL(r)+"/logs/"+e.ID) + e.ReportMarkdown
 	var panel string
 	if targets, terr := store.TargetsFor(a.db, e.PR, e.Environment); terr == nil {
 		panel = approvalPanel(targets)
