@@ -189,6 +189,31 @@ func TestObserveEqualRankFoldIsDeterministic(t *testing.T) {
 	}
 }
 
+func TestObserveEqualRankPrefersLeaseMatch(t *testing.T) {
+	// At equal rank, the grant whose Requester matches the pinned lease wins —
+	// even when the other grant has the lexicographically greater Name. This
+	// preserves requester continuity across a re-list, order-independently.
+	mk := func(order []ObservedGrant) Pending {
+		prior := ChangeSet{PR: 7, Environment: "staging", Gate: Pending{
+			Lease:   Lease{Requester: "sa1"},
+			Targets: []Target{{Class: "iam", Target: "p1"}},
+		}}
+		got, _ := Step(World{Prior: prior}, GateTick{Grants: order})
+		return got.Gate.(Pending)
+	}
+	// g-a matches the lease (sa1); g-z has the greater Name but a different requester.
+	a := ObservedGrant{Class: "iam", Target: "p1", Name: "g-a", State: approval.StateAwaiting, Requester: "sa1"}
+	z := ObservedGrant{Class: "iam", Target: "p1", Name: "g-z", State: approval.StateAwaiting, Requester: "sa2"}
+	fwd := mk([]ObservedGrant{a, z})
+	rev := mk([]ObservedGrant{z, a})
+	if fwd.Targets[0].GrantName != "g-a" {
+		t.Fatalf("want lease-matching g-a to win over greater-Name g-z, got %+v", fwd)
+	}
+	if rev.Targets[0].GrantName != fwd.Targets[0].GrantName {
+		t.Fatalf("lease-match tiebreak not order-independent: fwd=%+v rev=%+v", fwd, rev)
+	}
+}
+
 func TestObserveSettledPendingRendersActionRequired(t *testing.T) {
 	// All targets have grants, none ACTIVE yet → awaiting approval = a COMPLETED
 	// check run with action_required (not in_progress).

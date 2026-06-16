@@ -314,7 +314,9 @@ func grantStateRank(s approval.GrantState) int {
 // the grant matching the pinned lease wins (requester continuity), then the
 // lexicographically greater Name wins. The Name tiebreak makes the fold a total,
 // backend-order-independent order so the chosen grant (and the requester it pins)
-// is deterministic regardless of PAM's unspecified re-list order.
+// is deterministic regardless of PAM's unspecified re-list order. Name is the
+// backend-assigned grant id (unique per (class,target,PR,env)), so equal Names
+// don't arise in practice; if they ever did, the fold would degrade to slice order.
 func foldBetter(a, b ObservedGrant, lease Lease) bool {
 	if ra, rb := grantStateRank(a.State), grantStateRank(b.State); ra != rb {
 		return ra > rb
