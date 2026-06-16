@@ -229,7 +229,7 @@ func stepObserve(cs ChangeSet, obs []ObservedGrant, fullRelist bool) (ChangeSet,
 	byKey := map[string]ObservedGrant{}
 	for _, o := range obs {
 		k := o.Class + "|" + o.Target
-		if cur, ok := byKey[k]; !ok || grantStateRank(o.State) > grantStateRank(cur.State) {
+		if cur, ok := byKey[k]; !ok || foldBetter(o, cur, lease) {
 			byKey[k] = o
 		}
 	}
@@ -307,6 +307,24 @@ func grantStateRank(s approval.GrantState) int {
 	default: // terminal: DENIED / REVOKED / EXPIRED
 		return 1
 	}
+}
+
+// foldBetter reports whether observation a should win over b when both describe
+// the same (class,target) in a re-list. Higher grant-state rank wins; on a tie
+// the grant matching the pinned lease wins (requester continuity), then the
+// lexicographically greater Name wins. The Name tiebreak makes the fold a total,
+// backend-order-independent order so the chosen grant (and the requester it pins)
+// is deterministic regardless of PAM's unspecified re-list order.
+func foldBetter(a, b ObservedGrant, lease Lease) bool {
+	if ra, rb := grantStateRank(a.State), grantStateRank(b.State); ra != rb {
+		return ra > rb
+	}
+	aMatch := lease.Requester != "" && a.Requester == lease.Requester
+	bMatch := lease.Requester != "" && b.Requester == lease.Requester
+	if aMatch != bMatch {
+		return aMatch
+	}
+	return a.Name > b.Name
 }
 
 // isAllActive reports whether every target has an ACTIVE grant.

@@ -166,6 +166,29 @@ func TestGrantsObservedAbsentTargetIsLeftUntouched(t *testing.T) {
 	}
 }
 
+func TestObserveEqualRankFoldIsDeterministic(t *testing.T) {
+	// Two AWAITING grants (equal rank) for one target with different requesters.
+	// The fold must pick the SAME grant regardless of backend re-list order, so
+	// the pinned lease is reproducible. Tiebreak is by greater Name (lease empty).
+	mk := func(order []ObservedGrant) Pending {
+		prior := ChangeSet{PR: 7, Environment: "staging", Gate: Pending{
+			Targets: []Target{{Class: "iam", Target: "p1"}},
+		}}
+		got, _ := Step(World{Prior: prior}, GateTick{Grants: order})
+		return got.Gate.(Pending)
+	}
+	a := ObservedGrant{Class: "iam", Target: "p1", Name: "g-a", State: approval.StateAwaiting, Requester: "sa1"}
+	b := ObservedGrant{Class: "iam", Target: "p1", Name: "g-b", State: approval.StateAwaiting, Requester: "sa2"}
+	fwd := mk([]ObservedGrant{a, b})
+	rev := mk([]ObservedGrant{b, a})
+	if fwd.Lease.Requester != "sa2" || fwd.Targets[0].GrantName != "g-b" {
+		t.Fatalf("want g-b/sa2 chosen (greater Name), got %+v", fwd)
+	}
+	if rev.Lease.Requester != fwd.Lease.Requester || rev.Targets[0].GrantName != fwd.Targets[0].GrantName {
+		t.Fatalf("fold not order-independent: fwd=%+v rev=%+v", fwd, rev)
+	}
+}
+
 func TestObserveSettledPendingRendersActionRequired(t *testing.T) {
 	// All targets have grants, none ACTIVE yet → awaiting approval = a COMPLETED
 	// check run with action_required (not in_progress).
