@@ -116,9 +116,15 @@ func Execute(ctx context.Context, deps ExecDeps, root, destStack string, xm XMov
 		return nil, fmt.Errorf("read dest state: %w", err)
 	}
 
+	// Resolve declared pairs against the live states: a whole-module / prefix pair
+	// fans out to its concrete per-resource children, so the manifest can name a
+	// module (module.x[0] -> module.y) and the move still works (decide/state mv
+	// operate on exact addresses). Mirrors classify's prefix-aware Covers.
+	pairs := expandPairs(srcAddrs, dstAddrs, xm.Pairs)
+
 	var actions []Action
 	var toMove []Move
-	for _, p := range xm.Pairs {
+	for _, p := range pairs {
 		d, err := decide(srcAddrs, dstAddrs, p.From, p.To)
 		if err != nil {
 			return nil, fmt.Errorf("move %s → %s: %w", p.From, p.To, err)
