@@ -167,6 +167,10 @@ func (a *App) reconcileGate(ctx context.Context, pr int, environment string) err
 	}
 	allActive := true
 	var reconcileErr error
+	// A later target's ListGrants failure returns an error after the loop, so the
+	// gate-check fails closed. Any earlier target already refreshed via UpsertTarget
+	// is a harmless partial — MarkActive is skipped, and the next successful
+	// reconcile fully refreshes both. (The core path's tick is all-or-nothing.)
 	for _, t := range targets {
 		grants, lerr := a.Approval.ListGrants(ctx, t.Class, t.Target)
 		if lerr != nil {
