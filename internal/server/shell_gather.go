@@ -44,8 +44,9 @@ func mapRawGate(raw store.RawChangeSet) reconcile.ChangeSet {
 			allActive = false
 		}
 		// EXPIRED is terminal for reconstruction too, so a reloaded expired gate
-		// shows Blocked rather than Pending. The reason is refined to the precise
-		// terminal cause on the next GateTick; ReasonDenied is the reload default.
+		// shows Blocked rather than Pending. ReasonDenied is the reload default for
+		// every terminal state (Denied/Revoked/Expired); the precise terminal cause
+		// is refined on the next GateTick, and no caller branches on it before then.
 		if gs == approval.StateDenied || gs == approval.StateRevoked || gs == approval.StateExpired {
 			anyTerminal = true
 		}
