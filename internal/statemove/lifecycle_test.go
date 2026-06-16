@@ -68,6 +68,35 @@ func TestDiscoverAndCleanup(t *testing.T) {
 	}
 }
 
+func TestDiscoverErrorsOnCorruptShim(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "stacks/a")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ShimFileName("PR-1")), []byte("not a shim\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Discover(root); err == nil {
+		t.Fatal("Discover must fail-closed on a corrupt _tfsp_move file, got nil error")
+	}
+}
+
+func TestDiscoverErrorsOnKeyMismatch(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "stacks/a")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := RenderShim("PR-2", []Op{{Kind: "moved", From: "x.a", To: "x.b"}})
+	if err := os.WriteFile(filepath.Join(dir, ShimFileName("PR-1")), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Discover(root); err == nil {
+		t.Fatal("Discover must error on filename/header key mismatch, got nil")
+	}
+}
+
 func TestDiscoverAndCleanupXMoves(t *testing.T) {
 	root := t.TempDir()
 	xm := XMove{SourceStack: "src", Pairs: []Move{{From: "a.b", To: "a.b"}}}
