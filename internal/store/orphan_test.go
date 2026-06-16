@@ -2,6 +2,30 @@ package store
 
 import "testing"
 
+func TestOpenGrantPRsCollapsesMultiEnv(t *testing.T) {
+	// A PR with open grants in two environments must appear as ONE row (GROUP BY
+	// pr) — the sweep checks the PR once and revokeOrphans handles every env.
+	db := newTestDB(t)
+	if _, err := db.Exec(
+		`INSERT INTO executions (id, repo, sha, pr, environment) VALUES (?,?,?,?,?)`,
+		"e1", "o/r", "sha", 7, "staging"); err != nil {
+		t.Fatal(err)
+	}
+	if err := UpsertTarget(db, 7, "staging", "iam", "p1", "g1", "ACTIVE"); err != nil {
+		t.Fatal(err)
+	}
+	if err := UpsertTarget(db, 7, "prod", "iam", "p1", "g2", "AWAITING"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := OpenGrantPRs(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].PR != 7 {
+		t.Fatalf("multi-env PR must collapse to one row, got %+v", got)
+	}
+}
+
 func TestOpenGrantPRs(t *testing.T) {
 	db := newTestDB(t)
 	mkExec := func(id, repo string, pr int, env string) {
