@@ -11,6 +11,33 @@ import (
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
 
+func TestSweepSkipsPRWithoutExecutionRepo(t *testing.T) {
+	// A PR with an open grant but no execution row → OpenGrantPRs yields repo "".
+	// The sweep must skip it (can't ask GitHub) without calling PRClosed or revoking.
+	db := newServerTestDB(t)
+	called := false
+	gh := &MockGitHub{
+		PRClosedFn: func(context.Context, string, int) (bool, error) { called = true; return true, nil },
+	}
+	a := New(db, gh, Config{ReconcilerCore: true})
+	a.Approval = approval.NewFake()
+	if err := store.MarkClassified(db, 7, "staging"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpsertTarget(db, 7, "staging", "iam", "p1", "g1", "ACTIVE"); err != nil {
+		t.Fatal(err)
+	}
+
+	a.sweepOrphanedGrants(context.Background())
+
+	if called {
+		t.Fatal("sweep must skip a PR with no execution repo without calling PRClosed")
+	}
+	if st := gateTargetState(t, a); st != "ACTIVE" {
+		t.Fatalf("grant must be untouched on empty-repo skip, got %q", st)
+	}
+}
+
 // setupActiveGate drives PR 7 / staging to a stored ACTIVE grant via the real
 // init → finalize → approve → tick flow, with gh.PRClosed stubbed by prClosed.
 func setupActiveGate(t *testing.T, prClosed func(context.Context, string, int) (bool, error)) *App {
