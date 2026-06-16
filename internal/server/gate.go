@@ -145,27 +145,35 @@ func matchGrantState(grants []approval.Grant, pr int, environment string) approv
 // reconcileGate refreshes each stored gate target's state from the backend and,
 // once every target is ACTIVE, marks the gate active, flips its gated stacks to
 // safe, and re-drives the check run terminally (conclusion → success). Self-heals
-// the activating→active transition and any missed provider events. No-op without
-// a backend or stored targets.
-func (a *App) reconcileGate(ctx context.Context, pr int, environment string) {
+// the activating→active transition and any missed provider events.
+//
+// Returns a non-nil error when the reconcile could NOT confirm current grant
+// state (a backend/list failure). Callers that gate apply on the result MUST
+// treat that as fail-closed — never fall back to the (possibly stale) cache. A
+// successful reconcile, no backend, or no targets returns nil.
+func (a *App) reconcileGate(ctx context.Context, pr int, environment string) error {
 	if a.cfg.ReconcilerCore && a.shell != nil {
-		if err := a.shell.tick(ctx, pr, environment); err != nil {
-			log.Printf("reconcile-core: tick pr=%d env=%s: %v", pr, environment, err)
-		}
-		return
+		return a.shell.tick(ctx, pr, environment)
 	}
 	if a.Approval == nil {
-		return
+		return nil
 	}
 	targets, err := store.TargetsFor(a.db, pr, environment)
-	if err != nil || len(targets) == 0 {
-		return
+	if err != nil {
+		return err
+	}
+	if len(targets) == 0 {
+		return nil
 	}
 	allActive := true
+	var reconcileErr error
 	for _, t := range targets {
-		grants, err := a.Approval.ListGrants(ctx, t.Class, t.Target)
-		if err != nil {
+		grants, lerr := a.Approval.ListGrants(ctx, t.Class, t.Target)
+		if lerr != nil {
+			// Could not confirm this target — remember it and surface to the caller
+			// so an apply gate-check fails closed instead of trusting the cache.
 			allActive = false
+			reconcileErr = lerr
 			continue
 		}
 		st := matchGrantState(grants, pr, environment)
@@ -178,8 +186,11 @@ func (a *App) reconcileGate(ctx context.Context, pr int, environment string) {
 			allActive = false
 		}
 	}
+	if reconcileErr != nil {
+		return reconcileErr
+	}
 	if !allActive {
-		return
+		return nil
 	}
 	if err := store.MarkActive(a.db, pr, environment); err != nil {
 		log.Printf("gate: mark active pr=%d env=%s: %v", pr, environment, err)
@@ -193,6 +204,7 @@ func (a *App) reconcileGate(ctx context.Context, pr int, environment string) {
 	if id, ok := store.LatestExecutionID(a.db, pr, environment); ok {
 		a.drive(ctx, id, strings.TrimRight(a.cfg.PublicBaseURL, "/"), true)
 	}
+	return nil
 }
 
 // reconcilePending re-evaluates every gate that is not yet fully ACTIVE.
@@ -206,7 +218,9 @@ func (a *App) reconcilePending(ctx context.Context) {
 		return
 	}
 	for _, g := range pending {
-		a.reconcileGate(ctx, g.PR, g.Environment)
+		if err := a.reconcileGate(ctx, g.PR, g.Environment); err != nil {
+			log.Printf("reconcile: gate pr=%d env=%s: %v", g.PR, g.Environment, err)
+		}
 	}
 }
 
@@ -230,7 +244,12 @@ func (a *App) handleGateCheck(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "not classified", http.StatusConflict)
 		return
 	}
-	a.reconcileGate(r.Context(), p.PR, p.Environment)
+	if err := a.reconcileGate(r.Context(), p.PR, p.Environment); err != nil {
+		// Could not freshly confirm the gate (e.g. PAM unreachable). Fail closed —
+		// never authorize apply from a possibly-stale cache. 503 = transient/retriable.
+		http.Error(w, "gate state could not be confirmed", http.StatusServiceUnavailable)
+		return
+	}
 	targets, err := store.TargetsFor(a.db, p.PR, p.Environment)
 	if err != nil {
 		http.Error(w, "load targets", http.StatusInternalServerError)
