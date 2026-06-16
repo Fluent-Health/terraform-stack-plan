@@ -180,3 +180,32 @@ func TestExecuteFailsBeforePullWhenLocked(t *testing.T) {
 		t.Errorf("state must NOT be pulled when locking failed (fail-before); pulls src=%d dst=%d", src.pulls, dst.pulls)
 	}
 }
+
+// TestExecuteMovesWholeModule proves a manifest may name a whole module: Execute
+// fans the single module pair out to the children present in the source state and
+// state-mv's each (the original problem — a bare module address never matched
+// decide's exact lookup).
+func TestExecuteMovesWholeModule(t *testing.T) {
+	src := &fakeRunner{stateJSON: "non-empty", show: stateWith(
+		"module.a[0].google_x.one",
+		"module.a[0].google_y.two[\"k\"]",
+		"module.a[0].module.sub.google_z.three",
+	)}
+	dst := &fakeRunner{stateJSON: "", show: stateWith()} // empty dest
+	xm := XMove{SourceStack: "a", Pairs: []Move{{From: "module.a[0]", To: "module.b"}}}
+	actions, err := Execute(context.Background(), depsFor(src, dst), ".", "b", xm, false)
+	if err != nil {
+		t.Fatalf("Execute whole-module: %v", err)
+	}
+	if len(actions) != 3 {
+		t.Fatalf("want 3 expanded actions, got %d: %+v", len(actions), actions)
+	}
+	for _, a := range actions {
+		if a.Decision != DecisionMove {
+			t.Errorf("action %+v: want Move", a)
+		}
+	}
+	if dst.mvs != 3 {
+		t.Errorf("want 3 state mv calls, got %d", dst.mvs)
+	}
+}

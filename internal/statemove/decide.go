@@ -2,9 +2,52 @@ package statemove
 
 import (
 	"fmt"
+	"sort"
 
 	tfjson "github.com/hashicorp/terraform-json"
 )
+
+// expandPairs resolves each declared move pair against the live source/dest state
+// addresses. A module-/prefix-level pair (e.g. module.x[0] -> module.y) fans out
+// to the concrete per-resource pairs it covers (module.x[0].r -> module.y.r),
+// mirroring CrossStackPairs (which fans out against a plan) — so a manifest may
+// name a whole module and the move still works. An exact resource/instance pair
+// resolves to itself. An already-moved pair (nothing under `from` in the source,
+// children under `to` in the dest) is re-keyed from `to`'s children so decide()
+// returns Skip (idempotent re-run). A pair matching neither side is kept verbatim
+// so decide() fails closed. matches() is the same exact-or-child ("."/"[" boundary)
+// relation classify uses, keeping plan-time and apply-time semantics aligned.
+func expandPairs(srcAddrs, dstAddrs map[string]bool, pairs []Move) []Move {
+	var out []Move
+	for _, p := range pairs {
+		var src, dst []string
+		for a := range srcAddrs {
+			if matches(a, p.From) {
+				src = append(src, a)
+			}
+		}
+		for a := range dstAddrs {
+			if matches(a, p.To) {
+				dst = append(dst, a)
+			}
+		}
+		switch {
+		case len(src) > 0:
+			sort.Strings(src)
+			for _, s := range src {
+				out = append(out, Move{From: s, To: p.To + s[len(p.From):]})
+			}
+		case len(dst) > 0:
+			sort.Strings(dst)
+			for _, d := range dst {
+				out = append(out, Move{From: p.From + d[len(p.To):], To: d})
+			}
+		default:
+			out = append(out, p)
+		}
+	}
+	return out
+}
 
 // Decision is the per-move runtime action derived from the two live states.
 type Decision int
