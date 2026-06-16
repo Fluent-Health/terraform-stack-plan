@@ -623,6 +623,17 @@ the budget entirely.
   `GateState`, so a never-planned PR fails closed and a genuinely clean plan passes;
   the old ambiguity where every `gate_targets` write failure was indistinguishable
   from a clean plan no longer applies when `reconciler_core` is on.
+- **An `EXPIRED` grant on a never-active gate target stays `Pending` (not re-armed
+  until the next plan).** When an `AWAITING`/`ACTIVATING` grant expires in place on
+  a target that was never `ACTIVE`, the observe path leaves the gate `Pending`
+  (`firstTerminalBlock` matches only `DENIED`/`REVOKED`; the `prevWasActive`
+  downgrade does not fire) and does not re-request it (it still has a `GrantName`).
+  It is **fail-closed** (apply stays denied while `Pending`) and a re-plan re-arms
+  it (the Phase-1 carry-forward `Open()` guard), but a `GateTick` alone will not.
+  Reload mirrors this: a persisted `EXPIRED` target reconstructs as `Pending`, not
+  `Blocked` (the flat row can't tell a never-active expiry from a was-active
+  downgrade). Auto re-request of a lapsed grant on the observe path is queued for a
+  later phase (the orphan/observe-path re-arm theme).
 - **The `gcp-pam` grant justification correlates by `environment`, which must be
   whitespace-free.** The backend encodes the change as `PR #<n> env=<env>` and
   parses it back to map a grant to its `(PR, environment)`; the `env` token is
@@ -1113,8 +1124,7 @@ target re-enters the request cycle on the next plan instead of wedging (re-armin
 on a fresh plan, not on every tick, so a standing denial does not auto-retry).
 The grant-observation fold is deterministic on equal rank (rank → lease-requester
 match → greater grant name), and the lease is never pinned from a terminal grant.
-On reload, an expired gate reconstructs as `Blocked`, consistent with the live
-core's downgrade path.
+These three are coherent on a single `Open()` (live vs terminal) distinction.
 
 ### `tfstackplan state` (Phase 6)
 
