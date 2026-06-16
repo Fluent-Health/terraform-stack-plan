@@ -8,6 +8,87 @@ import (
 	"testing"
 )
 
+// TestRenderClassificationReconcilesXMove proves the gate auto-reconciles a
+// pending cross-state move: with an xmove manifest colocated in the destination
+// stack, renderClassification must classify BOTH the source move-out (a planned
+// IAM delete) and the destination move-in (a planned IAM create) as a relocation
+// — so neither trips the IAM gate — without the caller passing --state-moves.
+//
+// This is the regression the run-consolidation introduced: renderClassification
+// built opts{} without stateMoves, so a cross-state move showed up as
+// "iam + destructive" instead of a 🚚 move. The whole-module xmove pair covers
+// both addresses by prefix.
+func TestRenderClassificationReconcilesXMove(t *testing.T) {
+	dir := t.TempDir()
+	const (
+		srcStack = "stacks/nonprod/service-projects/fh-dev-svc"
+		dstStack = "stacks/nonprod/workloads/cms/fh-dev-svc"
+	)
+
+	write := func(rel, body string) {
+		p := filepath.Join(dir, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Source: the cms module leaving — an IAM member DELETE (project p1).
+	write(srcStack+"/tfplan.json", `{"format_version":"1.2","resource_changes":[
+	  {"address":"module.main.module.cms[0].google_project_iam_member.a","type":"google_project_iam_member","name":"a",
+	   "change":{"actions":["delete"],"before":{"project":"p1","role":"roles/viewer"},"after":null}}]}`)
+	// Destination: the same member arriving — an IAM member CREATE (project p1).
+	write(dstStack+"/tfplan.json", `{"format_version":"1.2","resource_changes":[
+	  {"address":"module.cms.google_project_iam_member.a","type":"google_project_iam_member","name":"a",
+	   "change":{"actions":["create"],"before":null,"after":{"project":"p1","role":"roles/viewer"}}}]}`)
+	// Whole-module xmove manifest in the destination stack.
+	write(dstStack+"/_tfsp_xmove.PR-1.hcl", `# tfstackplan:key=PR-1
+xmove {
+  source_stack = "`+srcStack+`"
+  moves = {
+    "module.main.module.cms[0]" = "module.cms"
+  }
+}
+`)
+	cfgPath := filepath.Join(dir, ".tfstackplan.hcl")
+	write(".tfstackplan.hcl", `
+classification {
+  default {
+    name = "safe"
+    icon = "✅"
+  }
+  preset "iam" {
+    icon            = "🔐"
+    emit_attributes = ["project"]
+  }
+}
+`)
+
+	res, err := renderClassification(dir, []string{srcStack, dstStack}, cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The move is reconciled on BOTH sides: neither the source move-out nor the
+	// destination move-in is classified as iam (so the iam gate never fires).
+	for stack, cats := range res.Categories {
+		for _, c := range cats {
+			if c.Name == "iam" {
+				t.Fatalf("a cross-state move must not classify as iam; stack %s got %+v", stack, cats)
+			}
+		}
+	}
+	// Both stacks adopted/released via the move → marked moving.
+	movingSet := map[string]bool{}
+	for _, s := range res.Moving {
+		movingSet[s] = true
+	}
+	if !movingSet[dstStack] {
+		t.Fatalf("destination stack must be marked moving; moving=%v", res.Moving)
+	}
+}
+
 // TestClassifyForGateReturnsGates runs the shared classify pass over the plan
 // fixture (whose stacks carry an IAM create on project "proj-a") and asserts it
 // returns the IAM gate target, the rendered report, and per-stack categories.

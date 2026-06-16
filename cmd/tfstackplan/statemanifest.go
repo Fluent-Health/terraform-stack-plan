@@ -33,6 +33,38 @@ func runStateMovesManifest(args []string) int {
 		want = "PR-" + *pr
 	}
 
+	manifest, err := collectStateMoves(*dir, want)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "state moves-manifest:", err)
+		return 1
+	}
+
+	b, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "state moves-manifest:", err)
+		return 1
+	}
+	b = append(b, '\n')
+	if *out == "" {
+		os.Stdout.Write(b)
+		return 0
+	}
+	if err := os.WriteFile(*out, b, 0o644); err != nil {
+		fmt.Fprintln(os.Stderr, "state moves-manifest:", err)
+		return 1
+	}
+	return 0
+}
+
+// collectStateMoves discovers every pending move shim + xmove manifest under dir
+// and returns the two-sided state-moves map ({"<stack>":["<addr>",…]}): per stack,
+// the destination move-ins (which plan as creates) AND the source move-outs (which
+// plan as destroys). It is the shared core of the `state moves-manifest` CLI and
+// the run plan/apply classify pass (renderClassification), which feeds it to
+// classification so both sides of a cross-state move classify as 🚚 (non-iam).
+// want == "" collects all pending moves (matching applyPendingMoves, which applies
+// every pending xmove regardless of PR); a non-empty want filters to that key.
+func collectStateMoves(dir, want string) (map[string][]string, error) {
 	byStack := map[string]map[string]bool{}
 	add := func(stack, addr string) {
 		if stack == "" || addr == "" {
@@ -44,10 +76,9 @@ func runStateMovesManifest(args []string) int {
 		byStack[stack][addr] = true
 	}
 
-	shims, err := statemove.Discover(*dir)
+	shims, err := statemove.Discover(dir)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "state moves-manifest:", err)
-		return 1
+		return nil, err
 	}
 	for _, s := range shims {
 		if want != "" && s.Key != want {
@@ -65,10 +96,9 @@ func runStateMovesManifest(args []string) int {
 		}
 	}
 
-	xmoves, err := statemove.DiscoverXMoves(*dir)
+	xmoves, err := statemove.DiscoverXMoves(dir)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "state moves-manifest:", err)
-		return 1
+		return nil, err
 	}
 	for _, fx := range xmoves {
 		if want != "" && fx.Key != want {
@@ -89,20 +119,5 @@ func runStateMovesManifest(args []string) int {
 		sort.Strings(addrs)
 		manifest[stack] = addrs
 	}
-
-	b, err := json.MarshalIndent(manifest, "", "  ")
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "state moves-manifest:", err)
-		return 1
-	}
-	b = append(b, '\n')
-	if *out == "" {
-		os.Stdout.Write(b)
-		return 0
-	}
-	if err := os.WriteFile(*out, b, 0o644); err != nil {
-		fmt.Fprintln(os.Stderr, "state moves-manifest:", err)
-		return 1
-	}
-	return 0
+	return manifest, nil
 }
