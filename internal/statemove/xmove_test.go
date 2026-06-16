@@ -27,6 +27,35 @@ func TestXMoveRenderParse(t *testing.T) {
 	}
 }
 
+func TestDiscoverXMovesErrorsOnCorruptManifest(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "stacks/dst")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, XMoveFileName("PR-1")), []byte("# tfstackplan:key=PR-1\nxmove { not valid hcl\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := DiscoverXMoves(root); err == nil {
+		t.Fatal("DiscoverXMoves must fail-closed on a corrupt _tfsp_xmove file, got nil")
+	}
+}
+
+func TestDiscoverXMovesErrorsOnKeyMismatch(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "stacks/dst")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	xm := XMove{SourceStack: "src", Pairs: []Move{{From: "a.b", To: "a.b"}}}
+	if err := os.WriteFile(filepath.Join(dir, XMoveFileName("PR-1")), []byte(RenderXMove("PR-2", xm)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := DiscoverXMoves(root); err == nil {
+		t.Fatal("DiscoverXMoves must error on filename/header key mismatch, got nil")
+	}
+}
+
 func TestDiscoverXMoves(t *testing.T) {
 	root := t.TempDir()
 	dir := filepath.Join(root, "stacks/b")

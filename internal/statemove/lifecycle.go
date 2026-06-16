@@ -1,6 +1,7 @@
 package statemove
 
 import (
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -29,70 +30,92 @@ type Shim struct {
 	Ops   []Op
 }
 
-// Discover walks root for `_tfsp_move.*.tf` shim files and parses each.
-func Discover(root string) ([]Shim, error) {
-	var out []Shim
-	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+// walkManifestFiles walks root and invokes fn(path, key) for every file in our
+// reserved namespace, where key is the filename-authoritative manifest key
+// (keyOf returns "" for a file that is not ours). keyOf is keyFromFile for shims
+// and xmoveKeyFromFile for xmove manifests. Errors from fn (and the walk) abort.
+func walkManifestFiles(root string, keyOf func(name string) string, fn func(path, key string) error) error {
+	return filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 		if d.IsDir() {
 			return nil
 		}
-		if keyFromFile(d.Name()) == "" {
+		key := keyOf(d.Name())
+		if key == "" {
 			return nil
 		}
+		return fn(path, key)
+	})
+}
+
+// Discover walks root for `_tfsp_move.*.tf` shim files and parses each. It is
+// fail-closed: a file in our reserved namespace that won't parse, or whose
+// header key disagrees with its filename, returns an error (the filename is the
+// authoritative key). Use Cleanup to remove such a file.
+func Discover(root string) ([]Shim, error) {
+	var out []Shim
+	err := walkManifestFiles(root, keyFromFile, func(path, fileKey string) error {
 		data, rerr := os.ReadFile(path)
 		if rerr != nil {
 			return rerr
 		}
 		pk, ops, perr := ParseShim(string(data))
 		if perr != nil {
-			return nil // a file matching the glob but not our format — skip
+			return fmt.Errorf("state-move shim %s: %w", path, perr)
+		}
+		if pk != fileKey {
+			return fmt.Errorf("state-move shim %s: key mismatch (filename %q != header %q)", path, fileKey, pk)
 		}
 		rel, _ := filepath.Rel(root, filepath.Dir(path))
-		out = append(out, Shim{Path: path, Stack: filepath.ToSlash(rel), Key: pk, Ops: ops})
+		out = append(out, Shim{Path: path, Stack: filepath.ToSlash(rel), Key: fileKey, Ops: ops})
 		return nil
 	})
 	return out, err
 }
 
-// Cleanup removes same-state shim files (_tfsp_move.*.tf) matching key;
-// an empty key removes ALL shims. Returns the number of files removed.
+// Cleanup removes same-state shim files (_tfsp_move.*.tf) matching key; an empty
+// key removes ALL shims. It matches by FILENAME and does not parse, so a corrupt
+// or key-mismatched shim (which Discover rejects) is still removable. Returns the
+// number of files removed.
 func Cleanup(root, key string) (int, error) {
-	shims, err := Discover(root)
+	var paths []string
+	err := walkManifestFiles(root, keyFromFile, func(path, fileKey string) error {
+		if key == "" || fileKey == key {
+			paths = append(paths, path)
+		}
+		return nil
+	})
 	if err != nil {
 		return 0, err
 	}
-	n := 0
-	for _, s := range shims {
-		if key != "" && s.Key != key {
-			continue
+	for i, p := range paths {
+		if rerr := os.Remove(p); rerr != nil {
+			return i, rerr
 		}
-		if err := os.Remove(s.Path); err != nil {
-			return n, err
-		}
-		n++
 	}
-	return n, nil
+	return len(paths), nil
 }
 
 // CleanupXMoves removes cross-state xmove manifests (_tfsp_xmove.*.hcl) matching
-// key; an empty key removes ALL xmove manifests. Returns the number removed.
+// key; an empty key removes ALL. Like Cleanup it matches by filename and does not
+// parse. Returns the number removed.
 func CleanupXMoves(root, key string) (int, error) {
-	found, err := DiscoverXMoves(root)
+	var paths []string
+	err := walkManifestFiles(root, xmoveKeyFromFile, func(path, fileKey string) error {
+		if key == "" || fileKey == key {
+			paths = append(paths, path)
+		}
+		return nil
+	})
 	if err != nil {
 		return 0, err
 	}
-	n := 0
-	for _, f := range found {
-		if key != "" && f.Key != key {
-			continue
+	for i, p := range paths {
+		if rerr := os.Remove(p); rerr != nil {
+			return i, rerr
 		}
-		if err := os.Remove(f.Path); err != nil {
-			return n, err
-		}
-		n++
 	}
-	return n, nil
+	return len(paths), nil
 }

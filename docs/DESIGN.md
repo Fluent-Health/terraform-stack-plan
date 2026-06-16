@@ -1214,6 +1214,15 @@ via `--state-moves`. With `state moves-manifest`, the `--state-moves` JSON is
 now two-sided (source move-outs AND dest move-ins), produced entirely from the
 project's own move declarations.
 
+State-move discovery is **fail-closed**: a file in the reserved `_tfsp_move.*` /
+`_tfsp_xmove.*` namespace that cannot be parsed, or whose `# tfstackplan:key=`
+header disagrees with its filename, errors the read path (the classify pass,
+`state apply`, `state list`, `moves-manifest`) rather than being silently
+skipped — a silently dropped manifest would let a relocation classify as (and
+apply as) a real destroy+create. The filename is the authoritative key; `state
+cleanup` matches by filename and does not parse, so a corrupt or key-mismatched
+file is always removable.
+
 ### Delivery: binary + Cloud Run container
 
 The `serve` face is intended to run as a Cloud Run-class service, so a release
