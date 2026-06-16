@@ -411,6 +411,38 @@ func TestStepTable(t *testing.T) {
 		},
 
 		{
+			name: "B: re-plan re-arms a REVOKED target (was wedged)",
+			prior: ChangeSet{PR: 7, Environment: "staging", Gate: Blocked{
+				Lease:   Lease{Requester: "sa1"},
+				Targets: []Target{{Class: "iam", Target: "p1", GrantName: "g-p1", Grant: approval.StateRevoked}},
+				By:      Blocker{Reason: ReasonRevoked},
+			}},
+			signal:    RunnerFinalize{Gates: []events.GateTarget{{Class: "iam", Target: "p1"}}},
+			wantGate:  "Pending",
+			wantKinds: []string{"PublishSSE", "RenderCheckRun", "RequestGrant"},
+		},
+		{
+			name: "B: re-plan re-arms an EXPIRED target",
+			prior: ChangeSet{PR: 7, Environment: "staging", Gate: Pending{
+				Lease:   Lease{Requester: "sa1"},
+				Targets: []Target{{Class: "iam", Target: "p1", GrantName: "g-p1", Grant: approval.StateExpired}},
+			}},
+			signal:    RunnerFinalize{Gates: []events.GateTarget{{Class: "iam", Target: "p1"}}},
+			wantGate:  "Pending",
+			wantKinds: []string{"PublishSSE", "RenderCheckRun", "RequestGrant"},
+		},
+		{
+			name: "B: re-plan re-arms a DENIED target",
+			prior: ChangeSet{PR: 7, Environment: "staging", Gate: Blocked{
+				Targets: []Target{{Class: "iam", Target: "p1", GrantName: "g-p1", Grant: approval.StateDenied}},
+				By:      Blocker{Reason: ReasonDenied},
+			}},
+			signal:    RunnerFinalize{Gates: []events.GateTarget{{Class: "iam", Target: "p1"}}},
+			wantGate:  "Pending",
+			wantKinds: []string{"PublishSSE", "RenderCheckRun", "RequestGrant"},
+		},
+
+		{
 			name:      "partial downgrade: one of two ACTIVE targets expires on tick",
 			prior:     ChangeSet{PR: 7, Environment: "staging", Gate: Satisfied{Lease: Lease{Requester: "sa3"}, Targets: []Target{active("p1"), active("p2")}}},
 			signal:    GateTick{Grants: []ObservedGrant{{Class: "iam", Target: "p1", Name: "g-p1", State: approval.StateActive}, {Class: "iam", Target: "p2", Name: "g-p2", State: approval.StateExpired}}},

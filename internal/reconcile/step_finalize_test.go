@@ -3,6 +3,7 @@ package reconcile
 import (
 	"testing"
 
+	"github.com/Fluent-Health/terraform-stack-plan/internal/approval"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 )
 
@@ -59,5 +60,26 @@ func TestFinalizePrunesDroppedTargets(t *testing.T) {
 	revs := actionsOf[RevokeGrant](actions)
 	if len(revs) != 1 || revs[0].Target != "p2" {
 		t.Fatalf("want revoke of dropped p2, got %+v", revs)
+	}
+}
+
+func TestFinalizeReArmsTerminalButKeepsLiveGrant(t *testing.T) {
+	// Mixed prior: p1 ACTIVE (live), p2 REVOKED (terminal). A re-plan listing both
+	// must re-request ONLY p2 — the live ACTIVE grant on p1 is carried forward and
+	// not needlessly re-requested (preserves the re-plan anti-clobber intent).
+	prior := ChangeSet{PR: 7, Environment: "staging", Gate: Pending{
+		Lease: Lease{Requester: "sa1"},
+		Targets: []Target{
+			{Class: "iam", Target: "p1", GrantName: "g-p1", Grant: approval.StateActive},
+			{Class: "iam", Target: "p2", GrantName: "g-p2", Grant: approval.StateRevoked},
+		},
+	}}
+	_, actions := Step(World{Prior: prior}, RunnerFinalize{Gates: []events.GateTarget{
+		{Class: "iam", Target: "p1"},
+		{Class: "iam", Target: "p2"},
+	}})
+	reqs := actionsOf[RequestGrant](actions)
+	if len(reqs) != 1 || reqs[0].Target != "p2" {
+		t.Fatalf("want exactly one RequestGrant for p2, got %+v", reqs)
 	}
 }

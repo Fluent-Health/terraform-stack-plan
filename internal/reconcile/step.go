@@ -87,9 +87,15 @@ func stepFinalize(cs ChangeSet, f RunnerFinalize) (ChangeSet, []Action) {
 	for _, g := range f.Gates {
 		key := g.Class + "|" + g.Target
 		want[key] = true
-		if pt, ok := prior[key]; ok {
+		if pt, ok := prior[key]; ok && pt.Grant.Open() {
+			// Carry forward a still-live grant so a re-plan never re-requests a
+			// valid grant (gap② anti-clobber intent).
 			targets = append(targets, pt)
 		} else {
+			// A fresh target, or a prior target whose grant is terminal/absent
+			// (DENIED/REVOKED/EXPIRED): start it clean so the request loop below
+			// re-arms it. A new plan is a new request cycle — a standing
+			// denial/revoke/expiry must not wedge the target with no new request.
 			targets = append(targets, Target{Class: g.Class, Target: g.Target})
 		}
 	}
