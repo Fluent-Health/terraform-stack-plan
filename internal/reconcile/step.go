@@ -251,7 +251,7 @@ func stepObserve(cs ChangeSet, obs []ObservedGrant, fullRelist bool) (ChangeSet,
 			targets[i].GrantName = o.Name
 		}
 		targets[i].Grant = o.State
-		if lease.Requester == "" && o.Requester != "" {
+		if lease.Requester == "" && o.Requester != "" && o.State.Open() {
 			lease.Requester = o.Requester
 		}
 	}

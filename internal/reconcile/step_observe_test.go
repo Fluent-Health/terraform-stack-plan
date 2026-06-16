@@ -214,6 +214,24 @@ func TestObserveEqualRankPrefersLeaseMatch(t *testing.T) {
 	}
 }
 
+func TestObserveTerminalGrantDoesNotPinLease(t *testing.T) {
+	// The only observation for a target is a terminal REVOKED grant carrying a
+	// requester. It must NOT pin the lease — a dead grant's requester is not a
+	// valid lease. The gate blocks on the revoke; the lease stays undecided.
+	prior := ChangeSet{PR: 7, Environment: "staging", Gate: Pending{
+		Targets: []Target{{Class: "iam", Target: "p1"}},
+	}}
+	got, _ := Step(World{Prior: prior}, GateTick{Grants: []ObservedGrant{
+		{Class: "iam", Target: "p1", Name: "g1", State: approval.StateRevoked, Requester: "sa9"},
+	}})
+	if r := priorLease(got.Gate).Requester; r != "" {
+		t.Fatalf("lease pinned from a terminal grant: %q", r)
+	}
+	if _, ok := got.Gate.(Blocked); !ok {
+		t.Fatalf("want Blocked{revoked}, got %T", got.Gate)
+	}
+}
+
 func TestObserveSettledPendingRendersActionRequired(t *testing.T) {
 	// All targets have grants, none ACTIVE yet → awaiting approval = a COMPLETED
 	// check run with action_required (not in_progress).
