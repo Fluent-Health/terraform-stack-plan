@@ -315,13 +315,19 @@ func (a *App) sweepOrphanedGrants(ctx context.Context) {
 		return
 	}
 	for _, p := range prs {
+		if p.Repo == "" {
+			// No execution on record → no repo to ask GitHub about. Skip (can't
+			// confirm closed); the next reconcile/finalize re-establishes the repo.
+			log.Printf("sweep: PR #%d has open grants but no execution repo — skipping", p.PR)
+			continue
+		}
 		closed, cerr := a.gh.PRClosed(ctx, p.Repo, p.PR)
 		if cerr != nil {
 			log.Printf("sweep: PRClosed(repo=%s pr=%d): %v", p.Repo, p.PR, cerr)
 			continue
 		}
 		if closed {
-			log.Printf("sweep: PR #%d is closed but holds open grants — revoking", p.PR)
+			log.Printf("sweep: PR #%d (repo=%s) is closed but holds open grants — revoking", p.PR, p.Repo)
 			a.revokeOrphans(ctx, p.PR)
 		}
 	}
