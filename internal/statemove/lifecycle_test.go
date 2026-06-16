@@ -97,6 +97,63 @@ func TestDiscoverErrorsOnKeyMismatch(t *testing.T) {
 	}
 }
 
+func TestCleanupRemovesCorruptShimByFilename(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "stacks/a")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ShimFileName("PR-1")), []byte("garbage\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	n, err := Cleanup(root, "PR-1")
+	if err != nil {
+		t.Fatalf("Cleanup must be parse-free, got err %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("Cleanup removed %d, want 1", n)
+	}
+	if _, statErr := os.Stat(filepath.Join(dir, ShimFileName("PR-1"))); !os.IsNotExist(statErr) {
+		t.Fatal("corrupt shim was not removed")
+	}
+}
+
+func TestCleanupReachesKeyMismatchedShim(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "stacks/a")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ShimFileName("PR-1")), []byte(RenderShim("PR-2", []Op{{Kind: "moved", From: "x.a", To: "x.b"}})), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	n, err := Cleanup(root, "PR-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Fatalf("Cleanup(PR-1) removed %d, want 1 (filename-authoritative)", n)
+	}
+}
+
+func TestCleanupXMovesRemovesCorruptByFilename(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "stacks/dst")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, XMoveFileName("PR-1")), []byte("garbage\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	n, err := CleanupXMoves(root, "PR-1")
+	if err != nil {
+		t.Fatalf("CleanupXMoves must be parse-free, got %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("CleanupXMoves removed %d, want 1", n)
+	}
+}
+
 func TestDiscoverAndCleanupXMoves(t *testing.T) {
 	root := t.TempDir()
 	xm := XMove{SourceStack: "src", Pairs: []Move{{From: "a.b", To: "a.b"}}}

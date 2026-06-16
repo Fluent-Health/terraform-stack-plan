@@ -75,42 +75,47 @@ func Discover(root string) ([]Shim, error) {
 	return out, err
 }
 
-// Cleanup removes same-state shim files (_tfsp_move.*.tf) matching key;
-// an empty key removes ALL shims. Returns the number of files removed.
+// Cleanup removes same-state shim files (_tfsp_move.*.tf) matching key; an empty
+// key removes ALL shims. It matches by FILENAME and does not parse, so a corrupt
+// or key-mismatched shim (which Discover rejects) is still removable. Returns the
+// number of files removed.
 func Cleanup(root, key string) (int, error) {
-	shims, err := Discover(root)
+	var paths []string
+	err := walkManifestFiles(root, keyFromFile, func(path, fileKey string) error {
+		if key == "" || fileKey == key {
+			paths = append(paths, path)
+		}
+		return nil
+	})
 	if err != nil {
 		return 0, err
 	}
-	n := 0
-	for _, s := range shims {
-		if key != "" && s.Key != key {
-			continue
+	for i, p := range paths {
+		if rerr := os.Remove(p); rerr != nil {
+			return i, rerr
 		}
-		if err := os.Remove(s.Path); err != nil {
-			return n, err
-		}
-		n++
 	}
-	return n, nil
+	return len(paths), nil
 }
 
 // CleanupXMoves removes cross-state xmove manifests (_tfsp_xmove.*.hcl) matching
-// key; an empty key removes ALL xmove manifests. Returns the number removed.
+// key; an empty key removes ALL. Like Cleanup it matches by filename and does not
+// parse. Returns the number removed.
 func CleanupXMoves(root, key string) (int, error) {
-	found, err := DiscoverXMoves(root)
+	var paths []string
+	err := walkManifestFiles(root, xmoveKeyFromFile, func(path, fileKey string) error {
+		if key == "" || fileKey == key {
+			paths = append(paths, path)
+		}
+		return nil
+	})
 	if err != nil {
 		return 0, err
 	}
-	n := 0
-	for _, f := range found {
-		if key != "" && f.Key != key {
-			continue
+	for i, p := range paths {
+		if rerr := os.Remove(p); rerr != nil {
+			return i, rerr
 		}
-		if err := os.Remove(f.Path); err != nil {
-			return n, err
-		}
-		n++
 	}
-	return n, nil
+	return len(paths), nil
 }
