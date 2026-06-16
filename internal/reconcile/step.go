@@ -87,9 +87,15 @@ func stepFinalize(cs ChangeSet, f RunnerFinalize) (ChangeSet, []Action) {
 	for _, g := range f.Gates {
 		key := g.Class + "|" + g.Target
 		want[key] = true
-		if pt, ok := prior[key]; ok {
+		if pt, ok := prior[key]; ok && pt.Grant.Open() {
+			// Carry forward a still-live grant so a re-plan never re-requests a
+			// valid grant (gap② anti-clobber intent).
 			targets = append(targets, pt)
 		} else {
+			// A fresh target, or a prior target whose grant is terminal/absent
+			// (DENIED/REVOKED/EXPIRED): start it clean so the request loop below
+			// re-arms it. A new plan is a new request cycle — a standing
+			// denial/revoke/expiry must not wedge the target with no new request.
 			targets = append(targets, Target{Class: g.Class, Target: g.Target})
 		}
 	}
@@ -223,7 +229,7 @@ func stepObserve(cs ChangeSet, obs []ObservedGrant, fullRelist bool) (ChangeSet,
 	byKey := map[string]ObservedGrant{}
 	for _, o := range obs {
 		k := o.Class + "|" + o.Target
-		if cur, ok := byKey[k]; !ok || grantStateRank(o.State) > grantStateRank(cur.State) {
+		if cur, ok := byKey[k]; !ok || foldBetter(o, cur, lease) {
 			byKey[k] = o
 		}
 	}
@@ -245,7 +251,7 @@ func stepObserve(cs ChangeSet, obs []ObservedGrant, fullRelist bool) (ChangeSet,
 			targets[i].GrantName = o.Name
 		}
 		targets[i].Grant = o.State
-		if lease.Requester == "" && o.Requester != "" {
+		if lease.Requester == "" && o.Requester != "" && o.State.Open() {
 			lease.Requester = o.Requester
 		}
 	}
@@ -301,6 +307,26 @@ func grantStateRank(s approval.GrantState) int {
 	default: // terminal: DENIED / REVOKED / EXPIRED
 		return 1
 	}
+}
+
+// foldBetter reports whether observation a should win over b when both describe
+// the same (class,target) in a re-list. Higher grant-state rank wins; on a tie
+// the grant matching the pinned lease wins (requester continuity), then the
+// lexicographically greater Name wins. The Name tiebreak makes the fold a total,
+// backend-order-independent order so the chosen grant (and the requester it pins)
+// is deterministic regardless of PAM's unspecified re-list order. Name is the
+// backend-assigned grant id (unique per (class,target,PR,env)), so equal Names
+// don't arise in practice; if they ever did, the fold would degrade to slice order.
+func foldBetter(a, b ObservedGrant, lease Lease) bool {
+	if ra, rb := grantStateRank(a.State), grantStateRank(b.State); ra != rb {
+		return ra > rb
+	}
+	aMatch := lease.Requester != "" && a.Requester == lease.Requester
+	bMatch := lease.Requester != "" && b.Requester == lease.Requester
+	if aMatch != bMatch {
+		return aMatch
+	}
+	return a.Name > b.Name
 }
 
 // isAllActive reports whether every target has an ACTIVE grant.

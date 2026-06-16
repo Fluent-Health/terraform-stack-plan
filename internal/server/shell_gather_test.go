@@ -43,6 +43,19 @@ func store_RawChangeSet(pr int, env string, classified bool, targets []rawTarget
 	return r
 }
 
+func TestGatherExpiredReloadsAsPending(t *testing.T) {
+	// A persisted EXPIRED target reloads as Pending, NOT Blocked: the live core
+	// keeps a never-active EXPIRED target Pending ("no misfire"), and the flat row
+	// can't distinguish that from a was-active downgrade — so Pending matches the
+	// gate that was persisted. Apply stays fail-closed while Pending regardless.
+	g := mapRawGate(store_RawChangeSet(7, "staging", true, []rawTarget{
+		{class: "iam", target: "p1", grant: "g1", state: "EXPIRED", requester: "sa3"},
+	}))
+	if _, ok := g.Gate.(reconcile.Pending); !ok {
+		t.Fatalf("want Pending for EXPIRED reload, got %T", g.Gate)
+	}
+}
+
 func TestGatherMapsBlockedPendingClean(t *testing.T) {
 	bl := mapRawGate(store_RawChangeSet(7, "staging", true, []rawTarget{
 		{class: "iam", target: "p1", grant: "g1", state: "DENIED", requester: "sa3"},
