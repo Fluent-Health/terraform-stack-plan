@@ -118,6 +118,24 @@ func TestCleanupRemovesCorruptShimByFilename(t *testing.T) {
 	}
 }
 
+func TestCleanupAllRemovesCorruptAndValid(t *testing.T) {
+	// cleanup --all (empty key) must clear the whole namespace, including a corrupt
+	// shim that Discover rejects — the operator recovery path for junk files.
+	root := t.TempDir()
+	dir := filepath.Join(root, "stacks/a")
+	writeShim(t, dir, "PR-1", []Op{{Kind: "moved", From: "x.a", To: "x.b"}}) // valid
+	if err := os.WriteFile(filepath.Join(dir, ShimFileName("PR-9")), []byte("garbage\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	n, err := Cleanup(root, "")
+	if err != nil {
+		t.Fatalf("Cleanup(all) must be parse-free, got err %v", err)
+	}
+	if n != 2 {
+		t.Fatalf("Cleanup(all) removed %d, want 2 (valid + corrupt)", n)
+	}
+}
+
 func TestCleanupReachesKeyMismatchedShim(t *testing.T) {
 	root := t.TempDir()
 	dir := filepath.Join(root, "stacks/a")
