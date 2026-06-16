@@ -89,6 +89,43 @@ classification {
 	}
 }
 
+// TestRenderClassificationFailsClosedOnCorruptXMove proves the classify pass is
+// genuinely fail-closed: a malformed xmove manifest in our reserved namespace
+// makes renderClassification return an error instead of silently dropping the
+// move (which would let a relocation classify as a real destroy+create). This is
+// the end-to-end guard for the discovery-layer fail-closed fix.
+func TestRenderClassificationFailsClosedOnCorruptXMove(t *testing.T) {
+	dir := t.TempDir()
+	const stack = "stacks/a"
+	write := func(rel, body string) {
+		p := filepath.Join(dir, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// A valid (empty) plan for the stack so gatherPlans succeeds and we reach the
+	// state-moves reconciliation step.
+	write(stack+"/tfplan.json", `{"format_version":"1.2","resource_changes":[]}`)
+	// A corrupt xmove manifest in the reserved namespace (valid key header, bad HCL).
+	write(stack+"/_tfsp_xmove.PR-1.hcl", "# tfstackplan:key=PR-1\nxmove { not valid hcl\n")
+	write(".tfstackplan.hcl", `
+classification {
+  default {
+    name = "safe"
+    icon = "✅"
+  }
+}
+`)
+	cfgPath := filepath.Join(dir, ".tfstackplan.hcl")
+
+	if _, err := renderClassification(dir, []string{stack}, cfgPath); err == nil {
+		t.Fatal("renderClassification must fail closed on a corrupt xmove manifest, got nil error")
+	}
+}
+
 // TestClassifyForGateReturnsGates runs the shared classify pass over the plan
 // fixture (whose stacks carry an IAM create on project "proj-a") and asserts it
 // returns the IAM gate target, the rendered report, and per-stack categories.
