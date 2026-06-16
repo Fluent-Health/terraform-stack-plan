@@ -663,6 +663,13 @@ the budget entirely.
   the image push failed, so the tag/release had to be recreated on the fixed
   commit — a `release: published` run replays the workflow file *as it was at the
   tagged commit*, so the fix only takes effect once the tag points at it.
+- **A grant that expires or a PR that closes *after* the apply gate-check
+  returns 200, but before the runner's `terraform apply`, is not caught.** The
+  gate-check is point-in-time and the apply runs in a separate process; the
+  server can't un-authorize an already-returned 200. Closing this needs an apply
+  lease/token the runner presents and the server re-validates at apply time
+  (deferred — touches the runner protocol). The check itself is now fail-closed
+  on anything observable server-side up to the moment it answers.
 
 ## Server foundations (in progress)
 
@@ -1125,6 +1132,12 @@ on a fresh plan, not on every tick, so a standing denial does not auto-retry).
 The grant-observation fold is deterministic on equal rank (rank → lease-requester
 match → greater grant name), and the lease is never pinned from a terminal grant.
 These three are coherent on a single `Open()` (live vs terminal) distinction.
+
+The apply-time gate check is **fail-closed on an unconfirmable reconcile**: if the
+fresh PAM re-list cannot confirm current grant state (backend unreachable), the
+check returns `503` and apply blocks, rather than falling back to the cached
+`gate_targets.state` (which could be a stale `ACTIVE`). A `200` is only returned
+after a successful fresh reconcile.
 
 ### `tfstackplan state` (Phase 6)
 
