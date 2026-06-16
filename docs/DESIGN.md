@@ -1106,6 +1106,16 @@ fixed six latent invariant gaps — ACTIVE-grant downgrade, re-plan pruning, Blo
 surfacing for DENIED/REVOKED, revoke persistence, per-ChangeSet serialization, and
 same-PR cross-env slot self-deadlock — see PR for the full reasoning.
 
+Phase 1 boundary hardening (PR for this branch) closed three further gaps. A
+re-plan now re-arms a terminally-blocked gate target: `stepFinalize` carries a
+prior grant forward only while it is still `Open()`, so a DENIED/REVOKED/EXPIRED
+target re-enters the request cycle on the next plan instead of wedging (re-arming
+on a fresh plan, not on every tick, so a standing denial does not auto-retry).
+The grant-observation fold is deterministic on equal rank (rank → lease-requester
+match → greater grant name), and the lease is never pinned from a terminal grant.
+On reload, an expired gate reconstructs as `Blocked`, consistent with the live
+core's downgrade path.
+
 ### `tfstackplan state` (Phase 6)
 
 `tfstackplan state` is the operator-driven cross-stack state-move machinery.
