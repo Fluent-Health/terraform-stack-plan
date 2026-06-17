@@ -632,12 +632,13 @@ the budget entirely.
   (gap ①) within a session; after a restart the gate reloads as `Pending` (the
   flat row can't recover the was-active bit), so it re-requests instead —
   fail-safe (apply stays gated; approval re-opens).
-- **The `gcp-pam` grant justification correlates by `environment`, which must be
-  whitespace-free.** The backend encodes the change as `PR #<n> env=<env>` and
-  parses it back to map a grant to its `(PR, environment)`; the `env` token is
-  read up to the first whitespace. Environments are slugs (`staging`/`prod`), so
-  this holds, but an environment containing a space would not round-trip
-  (correlation, reuse, and revoke would miss the grant).
+- **The `gcp-pam` grant justification correlates by `environment` (`PR #<n>
+  env=<env>`, parsed back with an `env=(\S+)` token), and a non-round-trippable
+  environment is now rejected at the grant boundary.** `RequestGrant` validates
+  `req.Environment` (non-empty, no whitespace) before any I/O, so a malformed
+  environment fails the grant request — the gate stays unsatisfied (fail-closed) —
+  rather than silently creating a grant whose correlation reuse/revoke can't
+  match. Environments remain slugs (`staging`/`prod`).
 - **The `gcp-pam` requester pool leases one SA per (PR, environment), reused
   across all of that PR's gates.** `RequestGrant` picks a pool identity with no
   open grant on the entitlement (falling back to `PR mod pool-size` when
