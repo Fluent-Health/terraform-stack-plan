@@ -202,7 +202,8 @@ func revokeAll(cs ChangeSet, targets []Target) []Action {
 // the gate variant: pins the lease from the first leased grant and requests any
 // still-ungranted targets (fixpoint), promotes to Satisfied when every target is
 // ACTIVE, downgrades a previously-active target whose grant is gone (gap ①),
-// and surfaces DENIED/EXPIRED as Blocked (gap ③). Slot collisions are resolved
+// surfaces DENIED/REVOKED as Blocked (gap ③), and re-arms a never-active EXPIRED
+// target (a lapsed request) via the request loop. Slot collisions are resolved
 // by resolveCollision in this file. No-op for non-gated states.
 func stepObserve(cs ChangeSet, obs []ObservedGrant, fullRelist bool) (ChangeSet, []Action) {
 	targets := gateTargets(cs.Gate)
