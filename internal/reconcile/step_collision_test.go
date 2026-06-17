@@ -8,7 +8,7 @@ func oneTargetPending() ChangeSet {
 	}}
 }
 
-func TestCollisionClosedForeignRevokesBlockerAndRetries(t *testing.T) {
+func TestCollisionAbandonedForeignRevokesBlockerAndRetries(t *testing.T) {
 	got, actions := Step(World{Prior: oneTargetPending()}, GrantsObserved{Grants: []ObservedGrant{
 		{Class: "iam", Target: "p1", Collision: &Collision{ByPR: 7, ByEnv: "staging", BySelf: false, ByPRAbandoned: true}},
 	}})

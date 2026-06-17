@@ -54,9 +54,10 @@ func (a *App) requestGrants(ctx context.Context, pr int, environment, repo strin
 }
 
 // tryRequestGrant calls RequestGrant and, on a SlotCollisionError, checks
-// whether the blocking PR is closed via GitHub. If closed, revokes the blocking
-// grant and retries once. If open (or the GitHub check fails), logs the blocker
-// and returns the original error so the target is recorded "blocked".
+// whether the blocking PR is abandoned (closed && !merged) via GitHub. If
+// abandoned, revokes the blocking grant and retries once. If still open, merged
+// (its apply needs the grant), or the GitHub check fails, logs the blocker and
+// returns the original error so the target is recorded "blocked".
 func (a *App) tryRequestGrant(ctx context.Context, req approval.Request, repo string) (approval.Grant, error) {
 	g, err := a.Approval.RequestGrant(ctx, req)
 	if err == nil {
@@ -302,12 +303,13 @@ func (a *App) handleGateRevoke(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-// sweepOrphanedGrants revokes grants left open on a closed/merged PR that escaped
-// the close webhook and post-apply cleanup. For each PR still holding an open
-// grant it checks the PR's GitHub state and, if closed, runs the same revoke path
-// as the webhook (revokeOrphans). Conservative on uncertainty: a PRClosed error
-// leaves the grant alone — never revoke an open PR's grant on a transient blip.
-// Best-effort and idempotent; safe to run periodically.
+// sweepOrphanedGrants revokes grants left open on an abandoned (closed-unmerged)
+// PR that escaped the close webhook. For each PR still holding an open grant it
+// checks the PR's GitHub state and, if abandoned, runs the same revoke path as
+// the webhook (revokeOrphans). A merged PR's grant is left alone — its post-merge
+// apply needs it (released by ApplySucceeded; PAM TTL backstops). Conservative on
+// uncertainty: a PRAbandoned error leaves the grant alone — never revoke on a
+// transient blip. Best-effort and idempotent; safe to run periodically.
 func (a *App) sweepOrphanedGrants(ctx context.Context) {
 	prs, err := store.OpenGrantPRs(a.db)
 	if err != nil {
