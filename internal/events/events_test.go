@@ -86,6 +86,40 @@ func TestLogChunkRoundTrip(t *testing.T) {
 	}
 }
 
+func TestCountsOmittedWhenNil(t *testing.T) {
+	b, err := json.Marshal(StackState{Path: "a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(b); got != `{"path":"a"}` {
+		t.Fatalf("nil counts must be omitted, got %s", got)
+	}
+}
+
+func TestCountsRoundTrip(t *testing.T) {
+	in := StackState{Path: "a", Counts: &Counts{Add: 6, Change: 2, Replace: 1, Move: 1}}
+	b, _ := json.Marshal(in)
+	var out StackState
+	if err := json.Unmarshal(b, &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.Counts == nil || out.Counts.Add != 6 || out.Counts.Replace != 1 || out.Counts.Move != 1 {
+		t.Fatalf("round-trip lost counts: %+v", out.Counts)
+	}
+}
+
+func TestFinalizeCountsMap(t *testing.T) {
+	f := Finalize{ID: "e1", Counts: map[string]Counts{"a": {Destroy: 2}}}
+	b, _ := json.Marshal(f)
+	var out Finalize
+	if err := json.Unmarshal(b, &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.Counts["a"].Destroy != 2 {
+		t.Fatalf("finalize counts map lost: %+v", out.Counts)
+	}
+}
+
 func contains(s, sub string) bool {
 	return len(s) >= len(sub) && (func() bool {
 		for i := 0; i+len(sub) <= len(s); i++ {
