@@ -267,7 +267,7 @@ func TestExecuteLoudErrorWhenRollbackAlsoFails(t *testing.T) {
 	xm := XMove{SourceStack: "a", Pairs: []Move{{From: "aws_s3_bucket.x", To: "aws_s3_bucket.x"}}}
 
 	deps := depsFor(src, dst)
-	deps.BackupDir = "/var/tfsp/.tfsp-state-backups" // exercise the path-naming branch
+	deps.BackupDir = t.TempDir() // writable, so backup() succeeds and we reach the push phase; exercises the path-naming branch
 	_, err := Execute(context.Background(), deps, t.TempDir(), "b", xm, false)
 	if err == nil || !strings.Contains(err.Error(), "orphaned") {
 		t.Fatalf("want a loud 'orphaned — restore from backups' error, got: %v", err)
