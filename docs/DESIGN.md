@@ -1204,6 +1204,15 @@ import/removed; SP3 adds the faithful `terraform state mv` executor.** Verbs:
   (prints "would move" / "skip"); `--execute` performs the moves. Requires
   `terraform` on `PATH`. The discover→execute→print core is the package-level
   `applyPendingMoves`, shared with the `run apply` pre-phase (below).
+- **Dest-push-failure rollback.** If a move's dest `StatePush` fails after the
+  source push already succeeded (resources removed from the source's live state
+  but not yet in the dest's), `Execute` **rolls the source back** to its
+  pre-move state — re-pushing the in-memory pre-move state with a recovery-only
+  `--force` (the forward pushes stay `Force(false)`), on a non-cancellable
+  context so an aborted request still recovers. If even the rollback push fails,
+  the error is loud and points at the `.tfsp-state-backups` dir for manual
+  restore. (Previously the moved resources were left lost from both states and
+  the backups were never restored.)
 - **`run apply` cross-state move pre-phase.** After the gate check and before
   terramate runs, `run apply` executes any pending `_tfsp_xmove.*.hcl` manifests
   (via the same `applyPendingMoves`, always `--execute`). It is **fail-closed**:
