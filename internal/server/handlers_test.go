@@ -229,6 +229,29 @@ func TestFinalizeStoresCategories(t *testing.T) {
 	}
 }
 
+func TestFinalizeBackfillsCounts(t *testing.T) {
+	db := newServerTestDB(t)
+	a := New(db, &MockGitHub{}, Config{})
+	srv := httptest.NewServer(a.Routes())
+	defer srv.Close()
+
+	_ = store.UpsertInit(db, events.Init{ID: "e1", Repo: "o/r", Environment: "staging",
+		Stacks: []events.StackState{{Path: "stacks/a"}}})
+	post(t, srv, "/api/finalize", events.Finalize{
+		ID:             "e1",
+		ReportMarkdown: "r",
+		Counts:         map[string]events.Counts{"stacks/a": {Add: 6}},
+	})
+
+	g, err := store.LoadGraph(db, "e1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(g.Stacks) != 1 || g.Stacks[0].Counts == nil || g.Stacks[0].Counts.Add != 6 {
+		t.Fatalf("counts not persisted: %+v", g.Stacks)
+	}
+}
+
 func TestFinalizeFailedMarksRunningStacksFailed(t *testing.T) {
 	db := newServerTestDB(t)
 	gh := &MockGitHub{CreateCheckRunFn: func(ctx context.Context, repo, sha, env, url string) (int64, error) { return 1, nil }}
