@@ -44,11 +44,11 @@ func mapRawGate(raw store.RawChangeSet) reconcile.ChangeSet {
 			allActive = false
 		}
 		// Only DENIED/REVOKED reload as terminal (Blocked). EXPIRED is deliberately
-		// NOT terminal here: the live core keeps a never-active EXPIRED target
-		// Pending (see step.go "no misfire"), and the flat row cannot distinguish
-		// that from a was-active downgrade — so reloading EXPIRED as Pending matches
-		// the gate that was persisted. Apply stays fail-closed while Pending either
-		// way, and the next GateTick re-derives the precise verdict.
+		// NOT terminal here: the flat row can't distinguish a never-active lapse
+		// from a was-active downgrade, so reloading EXPIRED as Pending matches the
+		// gate that was persisted. The next GateTick re-derives the precise verdict
+		// (stepObserve re-arms a never-active EXPIRED target; a was-active one
+		// downgrades to Blocked). Apply stays fail-closed while Pending either way.
 		if gs == approval.StateDenied || gs == approval.StateRevoked {
 			anyTerminal = true
 		}

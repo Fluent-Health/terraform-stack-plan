@@ -464,11 +464,11 @@ func TestStepTable(t *testing.T) {
 			wantKinds: []string{"PublishSSE", "RenderCheckRun"},
 		},
 		{
-			name:      "EXPIRED on a never-active Pending target stays Pending (no misfire)",
+			name:      "EXPIRED on a never-active Pending target is re-armed (re-requested)",
 			prior:     ChangeSet{PR: 7, Environment: "staging", Gate: Pending{Lease: Lease{Requester: "sa3"}, Targets: []Target{{Class: "iam", Target: "p1", GrantName: "g1", Grant: approval.StateAwaiting}}}},
 			signal:    GateTick{Grants: []ObservedGrant{{Class: "iam", Target: "p1", Name: "g1", State: approval.StateExpired}}},
 			wantGate:  "Pending",
-			wantKinds: []string{"PublishSSE", "RenderCheckRun"},
+			wantKinds: []string{"PublishSSE", "RenderCheckRun", "RequestGrant"},
 		},
 		{
 			name:      "GateTick absent target downgrades Satisfied (full re-list)",

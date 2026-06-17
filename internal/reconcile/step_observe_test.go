@@ -6,6 +6,27 @@ import (
 	"github.com/Fluent-Health/terraform-stack-plan/internal/approval"
 )
 
+func TestObserveExpiredPlusFreshAwaitingPrefersAwaiting(t *testing.T) {
+	// After a never-active EXPIRED target is re-armed, the next full re-list
+	// returns BOTH the stale EXPIRED grant and the fresh AWAITING one. The fold
+	// must prefer AWAITING, so the re-arm condition is false this tick — bounding
+	// the re-arm to the PAM TTL (no per-tick request storm).
+	prior := ChangeSet{PR: 7, Environment: "staging", Gate: Pending{
+		Lease:   Lease{Requester: "sa3"},
+		Targets: []Target{{Class: "iam", Target: "p1", GrantName: "g1", Grant: approval.StateExpired}},
+	}}
+	got, actions := Step(World{Prior: prior}, GateTick{Grants: []ObservedGrant{
+		{Class: "iam", Target: "p1", Name: "g1", State: approval.StateExpired},
+		{Class: "iam", Target: "p1", Name: "g2", State: approval.StateAwaiting},
+	}})
+	if _, ok := got.Gate.(Pending); !ok {
+		t.Fatalf("want Pending, got %T", got.Gate)
+	}
+	if reqs := actionsOf[RequestGrant](actions); len(reqs) != 0 {
+		t.Fatalf("fresh AWAITING must win the fold so no re-request fires, got %+v", reqs)
+	}
+}
+
 func twoTargetPending() ChangeSet {
 	return ChangeSet{PR: 7, Environment: "staging", Gate: Pending{
 		Targets: []Target{{Class: "iam", Target: "p1"}, {Class: "iam", Target: "p2"}},
@@ -229,6 +250,26 @@ func TestObserveTerminalGrantDoesNotPinLease(t *testing.T) {
 	}
 	if _, ok := got.Gate.(Blocked); !ok {
 		t.Fatalf("want Blocked{revoked}, got %T", got.Gate)
+	}
+}
+
+func TestObserveReArmsExpiredNeverActiveTarget(t *testing.T) {
+	// A never-approved request that lapsed (EXPIRED) is re-requested on a tick,
+	// pinned to the existing lease, re-opening the approval window. (A was-active
+	// expiry instead downgrades to Blocked{expired}; see the gap① table row.)
+	prior := ChangeSet{PR: 7, Environment: "staging", Gate: Pending{
+		Lease:   Lease{Requester: "sa3"},
+		Targets: []Target{{Class: "iam", Target: "p1", GrantName: "g1", Grant: approval.StateAwaiting}},
+	}}
+	got, actions := Step(World{Prior: prior}, GateTick{Grants: []ObservedGrant{
+		{Class: "iam", Target: "p1", Name: "g1", State: approval.StateExpired},
+	}})
+	if _, ok := got.Gate.(Pending); !ok {
+		t.Fatalf("want Pending, got %T", got.Gate)
+	}
+	reqs := actionsOf[RequestGrant](actions)
+	if len(reqs) != 1 || reqs[0].Target != "p1" || reqs[0].Requester != "sa3" {
+		t.Fatalf("want one RequestGrant for p1 pinned to sa3, got %+v", reqs)
 	}
 }
 
