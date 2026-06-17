@@ -68,7 +68,7 @@ func TestStepTable(t *testing.T) {
 		{
 			name:      "Bug#2: closed foreign collision revokes blocker + retries",
 			prior:     ChangeSet{PR: 8, Environment: "staging", Gate: Pending{Targets: []Target{{Class: "iam", Target: "p1"}}}},
-			signal:    GrantsObserved{Grants: []ObservedGrant{{Class: "iam", Target: "p1", Collision: &Collision{ByPR: 7, ByEnv: "staging", ByPRClosed: true}}}},
+			signal:    GrantsObserved{Grants: []ObservedGrant{{Class: "iam", Target: "p1", Collision: &Collision{ByPR: 7, ByEnv: "staging", ByPRAbandoned: true}}}},
 			wantGate:  "Pending",
 			wantKinds: []string{"PublishSSE", "RenderCheckRun", "RequestGrant", "RevokeGrant"},
 		},
@@ -347,7 +347,7 @@ func TestStepTable(t *testing.T) {
 		{
 			name:      "slot held-by-other-open: open foreign collision → Blocked{slot_foreign}",
 			prior:     ChangeSet{PR: 8, Environment: "staging", Gate: Pending{Targets: []Target{{Class: "iam", Target: "p1"}}}},
-			signal:    GrantsObserved{Grants: []ObservedGrant{{Class: "iam", Target: "p1", Collision: &Collision{ByPR: 5, ByEnv: "staging", ByPRClosed: false}}}},
+			signal:    GrantsObserved{Grants: []ObservedGrant{{Class: "iam", Target: "p1", Collision: &Collision{ByPR: 5, ByEnv: "staging", ByPRAbandoned: false}}}},
 			wantGate:  "Blocked",
 			wantKinds: []string{"PublishSSE", "RenderCheckRun"},
 		},

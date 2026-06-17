@@ -67,13 +67,13 @@ func (a *App) tryRequestGrant(ctx context.Context, req approval.Request, repo st
 		return approval.Grant{}, err
 	}
 	blocker := colErr.BlockingGrant
-	closed, cerr := a.gh.PRClosed(ctx, repo, blocker.Request.PR)
+	abandoned, cerr := a.gh.PRAbandoned(ctx, repo, blocker.Request.PR)
 	if cerr != nil {
 		log.Printf("gate: slot-collision check PR #%d: %v", blocker.Request.PR, cerr)
 		return approval.Grant{}, err
 	}
-	if !closed {
-		log.Printf("gate: slot occupied by open PR #%d env=%s on %s/%s — waiting",
+	if !abandoned {
+		log.Printf("gate: slot occupied by open/merged PR #%d env=%s on %s/%s — waiting",
 			blocker.Request.PR, blocker.Request.Environment, req.Class, req.Target)
 		return approval.Grant{}, err
 	}
@@ -81,7 +81,7 @@ func (a *App) tryRequestGrant(ctx context.Context, req approval.Request, repo st
 		log.Printf("gate: revoke blocker PR #%d: %v", blocker.Request.PR, rerr)
 		return approval.Grant{}, err
 	}
-	log.Printf("gate: auto-revoked orphaned grant from closed PR #%d, retrying", blocker.Request.PR)
+	log.Printf("gate: auto-revoked orphaned grant from abandoned PR #%d, retrying", blocker.Request.PR)
 	return a.Approval.RequestGrant(ctx, req)
 }
 
@@ -321,13 +321,13 @@ func (a *App) sweepOrphanedGrants(ctx context.Context) {
 			log.Printf("sweep: PR #%d has open grants but no execution repo — skipping", p.PR)
 			continue
 		}
-		closed, cerr := a.gh.PRClosed(ctx, p.Repo, p.PR)
+		abandoned, cerr := a.gh.PRAbandoned(ctx, p.Repo, p.PR)
 		if cerr != nil {
-			log.Printf("sweep: PRClosed(repo=%s pr=%d): %v", p.Repo, p.PR, cerr)
+			log.Printf("sweep: PRAbandoned(repo=%s pr=%d): %v", p.Repo, p.PR, cerr)
 			continue
 		}
-		if closed {
-			log.Printf("sweep: PR #%d (repo=%s) is closed but holds open grants — revoking", p.PR, p.Repo)
+		if abandoned {
+			log.Printf("sweep: PR #%d (repo=%s) is abandoned but holds open grants — revoking", p.PR, p.Repo)
 			a.revokeOrphans(ctx, p.PR)
 		}
 	}

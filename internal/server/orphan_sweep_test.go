@@ -17,7 +17,7 @@ func TestSweepSkipsPRWithoutExecutionRepo(t *testing.T) {
 	db := newServerTestDB(t)
 	called := false
 	gh := &MockGitHub{
-		PRClosedFn: func(context.Context, string, int) (bool, error) { called = true; return true, nil },
+		PRAbandonedFn: func(context.Context, string, int) (bool, error) { called = true; return true, nil },
 	}
 	a := New(db, gh, Config{ReconcilerCore: true})
 	a.Approval = approval.NewFake()
@@ -48,7 +48,7 @@ func setupActiveGate(t *testing.T, prClosed func(context.Context, string, int) (
 	gh := &MockGitHub{
 		CreateCheckRunFn: func(context.Context, string, string, string, string) (int64, error) { return 1, nil },
 		UpdateCheckRunFn: func(context.Context, string, int64, CheckRunUpdate) error { return nil },
-		PRClosedFn:       prClosed,
+		PRAbandonedFn:    prClosed,
 	}
 	a := New(db, gh, Config{UseChecks: true, ReconcilerCore: true})
 	a.Approval = fake
@@ -78,7 +78,7 @@ func gateTargetState(t *testing.T, a *App) string {
 	return ts[0].State
 }
 
-func TestSweepRevokesClosedPRGrant(t *testing.T) {
+func TestSweepRevokesAbandonedPRGrant(t *testing.T) {
 	a := setupActiveGate(t, func(context.Context, string, int) (bool, error) { return true, nil })
 	a.sweepOrphanedGrants(context.Background())
 	if st := gateTargetState(t, a); st != "REVOKED" {
@@ -99,5 +99,15 @@ func TestSweepKeepsGrantOnPRClosedError(t *testing.T) {
 	a.sweepOrphanedGrants(context.Background())
 	if st := gateTargetState(t, a); st != "ACTIVE" {
 		t.Fatalf("on PRClosed error the grant must be kept: target state = %q, want ACTIVE", st)
+	}
+}
+
+func TestSweepKeepsMergedPRGrant(t *testing.T) {
+	// A merged PR (not abandoned) with an open grant must NOT be swept — its
+	// post-merge apply needs the grant. PRAbandoned returns false for merged.
+	a := setupActiveGate(t, func(context.Context, string, int) (bool, error) { return false, nil })
+	a.sweepOrphanedGrants(context.Background())
+	if st := gateTargetState(t, a); st != "ACTIVE" {
+		t.Fatalf("merged-PR grant must be untouched: target state = %q, want ACTIVE", st)
 	}
 }

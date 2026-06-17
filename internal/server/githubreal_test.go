@@ -249,37 +249,37 @@ func TestMintTokenFailurePropagates(t *testing.T) {
 	}
 }
 
-func TestRealClientPRClosed(t *testing.T) {
-	var wantState string
-	fakeGitHub(t, func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/app/installations/67890/access_tokens" {
-			w.Write([]byte(`{"token":"ghs_test"}`))
-			return
-		}
-		if r.Method == "GET" && r.URL.Path == "/repos/o/r/pulls/7" {
-			w.Write([]byte(`{"state":"` + wantState + `"}`))
-			return
-		}
-		t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
-		w.WriteHeader(404)
-	})
-	c := newTestRealClient(t)
-
-	wantState = "closed"
-	closed, err := c.PRClosed(context.Background(), "o/r", 7)
-	if err != nil {
-		t.Fatal(err)
+func TestPRAbandoned(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want bool
+	}{
+		{"abandoned (closed, not merged)", `{"state":"closed","merged":false}`, true},
+		{"merged (closed, merged)", `{"state":"closed","merged":true}`, false},
+		{"open", `{"state":"open","merged":false}`, false},
 	}
-	if !closed {
-		t.Error("closed PR: PRClosed returned false")
-	}
-
-	wantState = "open"
-	closed, err = c.PRClosed(context.Background(), "o/r", 7)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if closed {
-		t.Error("open PR: PRClosed returned true")
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fakeGitHub(t, func(w http.ResponseWriter, r *http.Request) {
+				switch {
+				case r.Method == "POST" && r.URL.Path == "/app/installations/67890/access_tokens":
+					w.Write([]byte(`{"token":"ghs_test"}`))
+				case r.Method == "GET" && r.URL.Path == "/repos/o/r/pulls/7":
+					w.Write([]byte(tc.body))
+				default:
+					t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+					w.WriteHeader(404)
+				}
+			})
+			c := newTestRealClient(t)
+			got, err := c.PRAbandoned(context.Background(), "o/r", 7)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != tc.want {
+				t.Errorf("PRAbandoned(%s) = %v, want %v", tc.body, got, tc.want)
+			}
+		})
 	}
 }

@@ -230,7 +230,7 @@ func TestTryRequestGrantRevokesClosedBlockerAndRetries(t *testing.T) {
 	db := newServerTestDB(t)
 	fake := approval.NewFake()
 	gh := &MockGitHub{
-		PRClosedFn: func(_ context.Context, _ string, pr int) (bool, error) {
+		PRAbandonedFn: func(_ context.Context, _ string, pr int) (bool, error) {
 			return pr == 99, nil
 		},
 	}
@@ -268,7 +268,7 @@ func TestTryRequestGrantSurfacesOpenBlocker(t *testing.T) {
 	db := newServerTestDB(t)
 	fake := approval.NewFake()
 	a := New(db, &MockGitHub{
-		PRClosedFn: func(_ context.Context, _ string, _ int) (bool, error) { return false, nil },
+		PRAbandonedFn: func(_ context.Context, _ string, _ int) (bool, error) { return false, nil },
 	}, Config{})
 	a.Approval = &slotCollisionBackend{
 		inner:   fake,

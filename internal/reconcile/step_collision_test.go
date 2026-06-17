@@ -10,7 +10,7 @@ func oneTargetPending() ChangeSet {
 
 func TestCollisionClosedForeignRevokesBlockerAndRetries(t *testing.T) {
 	got, actions := Step(World{Prior: oneTargetPending()}, GrantsObserved{Grants: []ObservedGrant{
-		{Class: "iam", Target: "p1", Collision: &Collision{ByPR: 7, ByEnv: "staging", BySelf: false, ByPRClosed: true}},
+		{Class: "iam", Target: "p1", Collision: &Collision{ByPR: 7, ByEnv: "staging", BySelf: false, ByPRAbandoned: true}},
 	}})
 	revs := actionsOf[RevokeGrant](actions)
 	if len(revs) != 1 || revs[0].PR != 7 {
@@ -27,7 +27,7 @@ func TestCollisionClosedForeignRevokesBlockerAndRetries(t *testing.T) {
 
 func TestCollisionOpenForeignBlocksAndWaits(t *testing.T) {
 	got, actions := Step(World{Prior: oneTargetPending()}, GrantsObserved{Grants: []ObservedGrant{
-		{Class: "iam", Target: "p1", Collision: &Collision{ByPR: 7, ByEnv: "staging", BySelf: false, ByPRClosed: false}},
+		{Class: "iam", Target: "p1", Collision: &Collision{ByPR: 7, ByEnv: "staging", BySelf: false, ByPRAbandoned: false}},
 	}})
 	b, ok := got.Gate.(Blocked)
 	if !ok || b.By.Reason != ReasonSlotForeign || b.By.ByPR != 7 {
@@ -40,7 +40,7 @@ func TestCollisionOpenForeignBlocksAndWaits(t *testing.T) {
 
 func TestCollisionSelfBlocksWithoutSelfRevoke(t *testing.T) {
 	got, actions := Step(World{Prior: oneTargetPending()}, GrantsObserved{Grants: []ObservedGrant{
-		{Class: "iam", Target: "p1", Collision: &Collision{ByPR: 8, ByEnv: "prod", BySelf: true, ByPRClosed: false}},
+		{Class: "iam", Target: "p1", Collision: &Collision{ByPR: 8, ByEnv: "prod", BySelf: true, ByPRAbandoned: false}},
 	}})
 	b, ok := got.Gate.(Blocked)
 	if !ok || b.By.Reason != ReasonSlotSelf {

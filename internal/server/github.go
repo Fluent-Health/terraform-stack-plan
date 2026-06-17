@@ -25,9 +25,10 @@ type GitHub interface {
 	// PRHeadSHA returns the current head commit SHA of a pull request, so a
 	// verdict is posted on the live head rather than a stale execution SHA.
 	PRHeadSHA(ctx context.Context, repo string, pr int) (string, error)
-	// PRClosed reports whether a pull request is in the closed state (merged or
-	// abandoned). Returns (false, err) when the PR cannot be read.
-	PRClosed(ctx context.Context, repo string, pr int) (bool, error)
+	// PRAbandoned reports whether a pull request is closed WITHOUT having been
+	// merged (i.e. abandoned). A merged PR returns false so its post-merge apply
+	// keeps its grant. Returns (false, err) when the PR cannot be read.
+	PRAbandoned(ctx context.Context, repo string, pr int) (bool, error)
 }
 
 // MockGitHub is a test double for GitHub. Unset funcs are no-ops.
@@ -36,7 +37,7 @@ type MockGitHub struct {
 	UpdateCheckRunFn func(ctx context.Context, repo string, checkRunID int64, u CheckRunUpdate) error
 	PostStatusFn     func(ctx context.Context, repo, sha, context_, state, description, targetURL string) error
 	PRHeadSHAFn      func(ctx context.Context, repo string, pr int) (string, error)
-	PRClosedFn       func(ctx context.Context, repo string, pr int) (bool, error)
+	PRAbandonedFn    func(ctx context.Context, repo string, pr int) (bool, error)
 	// CreateCheckRunCalls counts CreateCheckRun invocations so tests can assert
 	// the check run is created exactly once (idempotency).
 	CreateCheckRunCalls int
@@ -71,9 +72,9 @@ func (m *MockGitHub) PRHeadSHA(ctx context.Context, repo string, pr int) (string
 	return "", nil
 }
 
-func (m *MockGitHub) PRClosed(ctx context.Context, repo string, pr int) (bool, error) {
-	if m.PRClosedFn != nil {
-		return m.PRClosedFn(ctx, repo, pr)
+func (m *MockGitHub) PRAbandoned(ctx context.Context, repo string, pr int) (bool, error) {
+	if m.PRAbandonedFn != nil {
+		return m.PRAbandonedFn(ctx, repo, pr)
 	}
 	return false, nil
 }
