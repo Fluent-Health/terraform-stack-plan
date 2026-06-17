@@ -52,6 +52,20 @@ func gatesFromSidecar(data []byte, gating map[string]bool) (gates []events.GateT
 	return gates, moving, nil
 }
 
+// countsFromSidecar extracts each stack's operation counts from the
+// classification sidecar, for the server's blast-radius bar and op summaries.
+func countsFromSidecar(data []byte) (map[string]events.Counts, error) {
+	var doc sidecarDoc
+	if err := json.Unmarshal(data, &doc); err != nil {
+		return nil, err
+	}
+	out := map[string]events.Counts{}
+	for path, entry := range doc.Stacks {
+		out[path] = entry.Counts
+	}
+	return out, nil
+}
+
 // categoriesFromSidecar extracts each stack's matched categories (name + icon)
 // from the classification sidecar, for the server's group-DAG badges.
 func categoriesFromSidecar(data []byte) (map[string][]events.Category, error) {
