@@ -149,6 +149,17 @@ func (a *App) handleFinalize(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Backfill per-stack operation counts (for the blast-radius bar + op summaries).
+	for path, c := range f.Counts {
+		data, _ := json.Marshal(c)
+		if _, err := a.db.Exec(
+			`UPDATE stacks SET counts = ? WHERE execution_id = ? AND stack_path = ?`,
+			string(data), f.ID, path); err != nil {
+			http.Error(w, "backfill counts", http.StatusInternalServerError)
+			return
+		}
+	}
+
 	// Record the gate targets and mark gated stacks. In reconciler-core mode the
 	// Shell handles grant requests, state recording, and stack status updates.
 	// In legacy mode the original inline logic applies.

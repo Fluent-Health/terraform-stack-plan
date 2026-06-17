@@ -55,6 +55,18 @@ func TestGatesFromSidecarEmpty(t *testing.T) {
 	}
 }
 
+func TestCountsFromSidecar(t *testing.T) {
+	data := []byte(`{"stacks":{"a":{"categories":[],"counts":{"add":6,"change":2}},` +
+		`"b":{"categories":[],"counts":{"destroy":2}}},"summary":{"categories":[]}}`)
+	got, err := countsFromSidecar(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got["a"].Add != 6 || got["a"].Change != 2 || got["b"].Destroy != 2 {
+		t.Fatalf("unexpected counts: %+v", got)
+	}
+}
+
 func TestCategoriesFromSidecar(t *testing.T) {
 	data := []byte(`{"stacks":{
 		"stacks/a":{"categories":[{"category":"iam","icon":"🔐"},{"category":"destructive","icon":"💣"}]},

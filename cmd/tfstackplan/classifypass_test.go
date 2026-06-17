@@ -6,6 +6,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+
+	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 )
 
 // TestRenderClassificationReconcilesXMove proves the gate auto-reconciles a
@@ -176,5 +178,65 @@ func TestClassifyForGateReturnsGates(t *testing.T) {
 	}
 	if len(res.Categories) == 0 {
 		t.Error("classifyForGate returned no per-stack categories")
+	}
+}
+
+// TestRenderClassificationCarriesCounts proves renderClassification populates
+// Counts from the classification sidecar. A stack with a single "create" resource
+// change must produce Counts.Add == 1 in res.Counts[stack], and the map itself
+// must be non-nil even before any changes are found.
+func TestRenderClassificationCarriesCounts(t *testing.T) {
+	dir := t.TempDir()
+	const stack = "stacks/a"
+
+	write := func(rel, body string) {
+		p := filepath.Join(dir, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// A single "create" resource change so the sidecar will record Add=1.
+	write(stack+"/tfplan.json", `{"format_version":"1.2","resource_changes":[
+	  {"address":"null_resource.x","type":"null_resource","name":"x",
+	   "change":{"actions":["create"],"before":null,"after":{}}}]}`)
+
+	cfgPath := filepath.Join(dir, ".tfstackplan.hcl")
+	write(".tfstackplan.hcl", `
+classification {
+  default {
+    name = "safe"
+    icon = "✅"
+  }
+}
+`)
+
+	res, err := renderClassification(dir, []string{stack}, cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Counts must be non-nil regardless.
+	if res.Counts == nil {
+		t.Fatal("renderClassification returned nil Counts map")
+	}
+
+	// The single create must be recorded as Add=1 for this stack.
+	got, ok := res.Counts[stack]
+	if !ok {
+		t.Fatalf("res.Counts[%q] missing; got keys: %v", stack, func() []string {
+			var ks []string
+			for k := range res.Counts {
+				ks = append(ks, k)
+			}
+			return ks
+		}())
+	}
+	want := events.Counts{Add: 1}
+	if got != want {
+		t.Errorf("res.Counts[%q] = %+v, want %+v", stack, got, want)
 	}
 }

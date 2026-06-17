@@ -13,6 +13,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/runner"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/statemove"
 )
@@ -389,6 +390,50 @@ func TestApplyHappyPathOrder(t *testing.T) {
 		if !rs.orderedBefore(pair[0], pair[1]) {
 			t.Errorf("expected %s before %s; order=%v", pair[0], pair[1], rs.order)
 		}
+	}
+}
+
+// TestApplyFinalizeCarriesCounts asserts the classify-pass Finalize carries the
+// per-stack op counts returned by classifyForGateFn. The classify-pass Finalize
+// (the one with Gates/Categories set, emitted before the gate check) must have
+// Counts["a"].Add == 3 when the stub returns that value.
+func TestApplyFinalizeCarriesCounts(t *testing.T) {
+	srv, rs := stubServer(t)
+	setApplyEnv(t, srv.URL, 400, "staging")
+	withFakeTM(t, &fakeTM{changed: []string{"stacks/a"}}, nil)
+
+	// Override classifyForGateFn (installed by withFakeTM) with one that
+	// returns a non-empty Counts map so we can assert it ends up in the Finalize.
+	origCls := classifyForGateFn
+	classifyForGateFn = func(_ context.Context, _ string, _ []string, _ string, _ bool, _ string) (
+		[]events.GateTarget, map[string][]events.Category, map[string]events.Counts, []string, string, error,
+	) {
+		return nil, map[string][]events.Category{}, map[string]events.Counts{"a": {Add: 3}}, nil, "classified", nil
+	}
+	t.Cleanup(func() { classifyForGateFn = origCls })
+
+	code := runApply([]string{"--dir", t.TempDir()})
+	if code != 0 {
+		t.Fatalf("exit=%d want 0", code)
+	}
+
+	// The classify-pass Finalize is the one with non-empty Counts (it comes
+	// before the terminal Finalize{ID, Failed:...}).
+	rs.mu.Lock()
+	defer rs.mu.Unlock()
+	var classifyFin *events.Finalize
+	for i := range rs.finalizes {
+		if len(rs.finalizes[i].Counts) > 0 {
+			f := rs.finalizes[i]
+			classifyFin = &f
+			break
+		}
+	}
+	if classifyFin == nil {
+		t.Fatal("no classify-pass Finalize with Counts found; classify-pass Finalize must carry Counts")
+	}
+	if got := classifyFin.Counts["a"].Add; got != 3 {
+		t.Errorf("classify-pass Finalize.Counts[\"a\"].Add = %d, want 3", got)
 	}
 }
 

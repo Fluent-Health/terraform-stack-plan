@@ -41,6 +41,20 @@ type Category struct {
 	Icon string `json:"icon,omitempty"`
 }
 
+// Counts is a stack's per-kind operation tally, for the blast-radius bar and the
+// op-count summaries. Mirrors internal/model.Counts but lives in the protocol
+// package so the runner and server share the wire shape without importing
+// internal/model. All fields omitempty so a zero stack marshals compactly.
+type Counts struct {
+	Add     int `json:"add,omitempty"`
+	Change  int `json:"change,omitempty"`
+	Destroy int `json:"destroy,omitempty"`
+	Replace int `json:"replace,omitempty"`
+	Move    int `json:"move,omitempty"`
+	Import  int `json:"import,omitempty"`
+	Forget  int `json:"forget,omitempty"`
+}
+
 // StackState is one node in the execution graph.
 type StackState struct {
 	Path       string     `json:"path"`
@@ -48,6 +62,7 @@ type StackState struct {
 	Status     Status     `json:"status,omitempty"`
 	Detail     string     `json:"detail,omitempty"`     // optional failure detail (last error lines)
 	Categories []Category `json:"categories,omitempty"` // matched classification categories
+	Counts     *Counts    `json:"counts,omitempty"`     // per-kind op tally (nil until finalize)
 }
 
 // Edge is a dependency: From must run before To.
@@ -122,6 +137,7 @@ type Finalize struct {
 	Moving         []string              `json:"moving,omitempty"`        // stack paths adopting resources via a cross-state move
 	Failed         bool                  `json:"failed,omitempty"`
 	Categories     map[string][]Category `json:"categories,omitempty"` // stack path → matched categories
+	Counts         map[string]Counts     `json:"counts,omitempty"`     // stack path → op counts
 }
 
 // GateCheck is the apply-time gate pre-check (fail-closed): is every required

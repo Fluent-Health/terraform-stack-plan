@@ -14,6 +14,7 @@ import (
 	"github.com/Fluent-Health/terraform-stack-plan/internal/classify"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/config"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/differ"
+	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/fit"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/links"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/model"
@@ -212,7 +213,7 @@ func run(o opts) (string, map[string]string, bool, error) {
 			}
 			st.Categories = toClasses(cats)
 			allCats = append(allCats, cats)
-			doc.Stacks[ref.Name] = stackEntry{Categories: toEntries(cats)}
+			doc.Stacks[ref.Name] = stackEntry{Categories: toEntries(cats), Counts: countsFromModel(raw.Counts)}
 		}
 
 		for _, rc := range raw.Changes {
@@ -310,6 +311,7 @@ type categoryEntry struct {
 
 type stackEntry struct {
 	Categories []categoryEntry `json:"categories"`
+	Counts     events.Counts   `json:"counts"`
 }
 
 type sidecarDoc struct {
@@ -336,6 +338,15 @@ func toEntries(cats []classify.Category) []categoryEntry {
 		out = append(out, categoryEntry{Category: c.Name, Icon: nilable(c.Icon), Attributes: c.Attributes})
 	}
 	return out
+}
+
+// countsFromModel maps the parsed per-stack model.Counts to the protocol-level
+// events.Counts written into the classification sidecar.
+func countsFromModel(c model.Counts) events.Counts {
+	return events.Counts{
+		Add: c.Add, Change: c.Change, Destroy: c.Destroy, Replace: c.Replace,
+		Move: c.Move, Import: c.Import, Forget: c.Forget,
+	}
 }
 
 // toClasses maps classify categories to render-model classes (name+icon only).

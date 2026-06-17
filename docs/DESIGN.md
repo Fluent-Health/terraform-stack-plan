@@ -295,11 +295,14 @@ tfstackplan --plans-dir out/ --output report.md \
 ```json
 {
   "stacks": {
-    "platform/nonprod": { "categories": [
-      { "category": "iam",         "icon": "🔐", "attributes": { "project": ["fh-host-nonprod"] } },
-      { "category": "destructive", "icon": "💣" }
-    ]},
-    "service-projects/app-dev": { "categories": [] }
+    "platform/nonprod": {
+      "categories": [
+        { "category": "iam",         "icon": "🔐", "attributes": { "project": ["fh-host-nonprod"] } },
+        { "category": "destructive", "icon": "💣" }
+      ],
+      "counts": { "add": 3, "change": 1, "destroy": 1 }
+    },
+    "service-projects/app-dev": { "categories": [], "counts": { "add": 2 } }
   },
   "summary": { "categories": [
     { "category": "iam",         "icon": "🔐", "attributes": { "project": ["fh-host-nonprod", "fh-svc-dev"] } },
@@ -313,6 +316,15 @@ Each stack lists its matched `categories` (`[]` when it matched nothing — the
 when the category has none. `summary.categories` lists every category present
 across the run with the per-key sorted-unique union of its attributes — lets a
 CI pipeline gate on category subjects without re-parsing the markdown.
+
+Each stack also carries `counts` — its per-kind operation tally
+(`add`/`change`/`destroy`/`replace`/`move`/`import`/`forget`, omitted when zero,
+post-state-move overlay). These are plumbed end-to-end as `events.Counts`: from
+the sidecar into the `Finalize` event, persisted on the `stacks.counts` column,
+and surfaced back via `LoadGraph` on `events.StackState.Counts`. They are
+**non-gating display data** (never feed the reconciler `Step`/gate) — the
+foundation for the live viewer's operation summaries and the upcoming
+blast-radius visualization (Phase 1 of the live-viewer redesign).
 
 **`project` is recovered for net-new GCP resources.** A freshly-created GCP
 resource often leaves `project` known-after-apply (it is computed from the

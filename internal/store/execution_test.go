@@ -195,6 +195,24 @@ func TestLatestVerifyExecutionID(t *testing.T) {
 	}
 }
 
+func TestLoadGraphSurfacesCounts(t *testing.T) {
+	db := newTestDB(t)
+	if err := UpsertInit(db, events.Init{ID: "e1", Stacks: []events.StackState{{Path: "a"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE stacks SET counts = ? WHERE execution_id = ? AND stack_path = ?`,
+		`{"add":6,"change":2}`, "e1", "a"); err != nil {
+		t.Fatal(err)
+	}
+	g, err := LoadGraph(db, "e1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g.Stacks[0].Counts == nil || g.Stacks[0].Counts.Add != 6 || g.Stacks[0].Counts.Change != 2 {
+		t.Fatalf("LoadGraph must surface counts, got %+v", g.Stacks[0].Counts)
+	}
+}
+
 func TestUpdateStackAndReportAndRev(t *testing.T) {
 	db := newTestDB(t)
 	if err := UpsertInit(db, sampleInit()); err != nil {

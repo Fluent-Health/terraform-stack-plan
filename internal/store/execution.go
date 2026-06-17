@@ -115,7 +115,7 @@ func UpdateStack(db *sql.DB, id, stack string, status events.Status, detail stri
 func LoadGraph(db *sql.DB, id string) (events.Graph, error) {
 	var g events.Graph
 	rows, err := db.Query(
-		`SELECT stack_path, COALESCE(project,''), COALESCE(status,''), COALESCE(detail,''), COALESCE(categories,'')
+		`SELECT stack_path, COALESCE(project,''), COALESCE(status,''), COALESCE(detail,''), COALESCE(categories,''), COALESCE(counts,'')
 		 FROM stacks WHERE execution_id = ? ORDER BY stack_path`, id)
 	if err != nil {
 		return g, err
@@ -123,13 +123,19 @@ func LoadGraph(db *sql.DB, id string) (events.Graph, error) {
 	defer rows.Close()
 	for rows.Next() {
 		var s events.StackState
-		var st, cats string
-		if err := rows.Scan(&s.Path, &s.Project, &st, &s.Detail, &cats); err != nil {
+		var st, cats, counts string
+		if err := rows.Scan(&s.Path, &s.Project, &st, &s.Detail, &cats, &counts); err != nil {
 			return g, err
 		}
 		s.Status = events.Status(st)
 		if cats != "" {
 			_ = json.Unmarshal([]byte(cats), &s.Categories)
+		}
+		if counts != "" {
+			var c events.Counts
+			if json.Unmarshal([]byte(counts), &c) == nil {
+				s.Counts = &c
+			}
 		}
 		g.Stacks = append(g.Stacks, s)
 	}

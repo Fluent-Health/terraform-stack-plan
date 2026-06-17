@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 )
 
 const planJSON = `{
@@ -521,5 +523,19 @@ func TestRunEmptyPlansDir(t *testing.T) {
 	}
 	if len(got.Stacks) != 0 || len(got.Summary.Categories) != 0 {
 		t.Fatalf("empty run should have no stacks and no summary categories, got: %s", data)
+	}
+}
+
+func TestStackEntryMarshalsCounts(t *testing.T) {
+	e := stackEntry{
+		Categories: []categoryEntry{},
+		Counts:     events.Counts{Add: 6, Change: 2},
+	}
+	b, err := json.Marshal(e)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), `"counts"`) || !strings.Contains(string(b), `"add":6`) {
+		t.Fatalf("stackEntry must carry counts, got %s", b)
 	}
 }

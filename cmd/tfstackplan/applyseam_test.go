@@ -182,8 +182,8 @@ func withFakeTM(t *testing.T, f *fakeTM, gates []events.GateTarget) {
 	t.Cleanup(func() { newTerramate = origTM })
 
 	origCls := classifyForGateFn
-	classifyForGateFn = func(_ context.Context, _ string, _ []string, _ string, _ bool, _ string) ([]events.GateTarget, map[string][]events.Category, []string, string, error) {
-		return gates, map[string][]events.Category{}, nil, "classified", nil
+	classifyForGateFn = func(_ context.Context, _ string, _ []string, _ string, _ bool, _ string) ([]events.GateTarget, map[string][]events.Category, map[string]events.Counts, []string, string, error) {
+		return gates, map[string][]events.Category{}, map[string]events.Counts{}, nil, "classified", nil
 	}
 	t.Cleanup(func() { classifyForGateFn = origCls })
 }
