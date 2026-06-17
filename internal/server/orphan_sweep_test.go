@@ -13,11 +13,11 @@ import (
 
 func TestSweepSkipsPRWithoutExecutionRepo(t *testing.T) {
 	// A PR with an open grant but no execution row → OpenGrantPRs yields repo "".
-	// The sweep must skip it (can't ask GitHub) without calling PRClosed or revoking.
+	// The sweep must skip it (can't ask GitHub) without calling PRAbandoned or revoking.
 	db := newServerTestDB(t)
 	called := false
 	gh := &MockGitHub{
-		PRClosedFn: func(context.Context, string, int) (bool, error) { called = true; return true, nil },
+		PRAbandonedFn: func(context.Context, string, int) (bool, error) { called = true; return true, nil },
 	}
 	a := New(db, gh, Config{ReconcilerCore: true})
 	a.Approval = approval.NewFake()
@@ -31,7 +31,7 @@ func TestSweepSkipsPRWithoutExecutionRepo(t *testing.T) {
 	a.sweepOrphanedGrants(context.Background())
 
 	if called {
-		t.Fatal("sweep must skip a PR with no execution repo without calling PRClosed")
+		t.Fatal("sweep must skip a PR with no execution repo without calling PRAbandoned")
 	}
 	if st := gateTargetState(t, a); st != "ACTIVE" {
 		t.Fatalf("grant must be untouched on empty-repo skip, got %q", st)
@@ -39,8 +39,8 @@ func TestSweepSkipsPRWithoutExecutionRepo(t *testing.T) {
 }
 
 // setupActiveGate drives PR 7 / staging to a stored ACTIVE grant via the real
-// init → finalize → approve → tick flow, with gh.PRClosed stubbed by prClosed.
-func setupActiveGate(t *testing.T, prClosed func(context.Context, string, int) (bool, error)) *App {
+// init → finalize → approve → tick flow, with gh.PRAbandoned stubbed by abandoned.
+func setupActiveGate(t *testing.T, abandoned func(context.Context, string, int) (bool, error)) *App {
 	t.Helper()
 	db := newServerTestDB(t)
 	fake := approval.NewFake()
@@ -48,7 +48,7 @@ func setupActiveGate(t *testing.T, prClosed func(context.Context, string, int) (
 	gh := &MockGitHub{
 		CreateCheckRunFn: func(context.Context, string, string, string, string) (int64, error) { return 1, nil },
 		UpdateCheckRunFn: func(context.Context, string, int64, CheckRunUpdate) error { return nil },
-		PRClosedFn:       prClosed,
+		PRAbandonedFn:    abandoned,
 	}
 	a := New(db, gh, Config{UseChecks: true, ReconcilerCore: true})
 	a.Approval = fake
@@ -78,7 +78,7 @@ func gateTargetState(t *testing.T, a *App) string {
 	return ts[0].State
 }
 
-func TestSweepRevokesClosedPRGrant(t *testing.T) {
+func TestSweepRevokesAbandonedPRGrant(t *testing.T) {
 	a := setupActiveGate(t, func(context.Context, string, int) (bool, error) { return true, nil })
 	a.sweepOrphanedGrants(context.Background())
 	if st := gateTargetState(t, a); st != "REVOKED" {
@@ -94,10 +94,20 @@ func TestSweepKeepsOpenPRGrant(t *testing.T) {
 	}
 }
 
-func TestSweepKeepsGrantOnPRClosedError(t *testing.T) {
+func TestSweepKeepsGrantOnPRAbandonedError(t *testing.T) {
 	a := setupActiveGate(t, func(context.Context, string, int) (bool, error) { return false, fmt.Errorf("github down") })
 	a.sweepOrphanedGrants(context.Background())
 	if st := gateTargetState(t, a); st != "ACTIVE" {
-		t.Fatalf("on PRClosed error the grant must be kept: target state = %q, want ACTIVE", st)
+		t.Fatalf("on PRAbandoned error the grant must be kept: target state = %q, want ACTIVE", st)
+	}
+}
+
+func TestSweepKeepsMergedPRGrant(t *testing.T) {
+	// A merged PR (not abandoned) with an open grant must NOT be swept — its
+	// post-merge apply needs the grant. PRAbandoned returns false for merged.
+	a := setupActiveGate(t, func(context.Context, string, int) (bool, error) { return false, nil })
+	a.sweepOrphanedGrants(context.Background())
+	if st := gateTargetState(t, a); st != "ACTIVE" {
+		t.Fatalf("merged-PR grant must be untouched: target state = %q, want ACTIVE", st)
 	}
 }

@@ -68,7 +68,9 @@ func TestGitHubWebhookRevokesOnPRClose(t *testing.T) {
 	}
 }
 
-func TestGitHubWebhookRevokesOnMerge(t *testing.T) {
+func TestGitHubWebhookLeavesMergedGrant(t *testing.T) {
+	// A merged PR's grant is needed by its post-merge apply — the close webhook
+	// must NOT revoke it (ApplySucceeded / PAM TTL release it).
 	db := newServerTestDB(t)
 	fake := approval.NewFake()
 	a := New(db, &MockGitHub{}, Config{GitHubWebhookSecret: "webhook-secret"})
@@ -89,10 +91,14 @@ func TestGitHubWebhookRevokesOnMerge(t *testing.T) {
 		t.Fatalf("status = %d, want 204", resp.StatusCode)
 	}
 	grants, _ := fake.ListGrants(context.Background(), "iam", "proj-a")
+	open := false
 	for _, g := range grants {
 		if g.Request.PR == 5 && g.State.Open() {
-			t.Errorf("merged PR 5 grant still open after webhook")
+			open = true
 		}
+	}
+	if !open {
+		t.Error("merged PR 5 grant must remain open (left for the apply)")
 	}
 }
 

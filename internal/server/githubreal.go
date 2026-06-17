@@ -229,8 +229,8 @@ func (c *RealClient) PRHeadSHA(ctx context.Context, repo string, pr int) (string
 	return out.Head.SHA, nil
 }
 
-// PRClosed reports whether the pull request's state is "closed".
-func (c *RealClient) PRClosed(ctx context.Context, repo string, pr int) (bool, error) {
+// PRAbandoned reports whether the PR is closed without having been merged.
+func (c *RealClient) PRAbandoned(ctx context.Context, repo string, pr int) (bool, error) {
 	owner, name, err := splitRepo(repo)
 	if err != nil {
 		return false, err
@@ -241,10 +241,11 @@ func (c *RealClient) PRClosed(ctx context.Context, repo string, pr int) (bool, e
 		return false, err
 	}
 	var out struct {
-		State string `json:"state"`
+		State  string `json:"state"`
+		Merged bool   `json:"merged"`
 	}
 	if err := json.Unmarshal(rb, &out); err != nil {
 		return false, err
 	}
-	return out.State == "closed", nil
+	return out.State == "closed" && !out.Merged, nil
 }

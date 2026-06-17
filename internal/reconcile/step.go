@@ -394,11 +394,11 @@ func resolveCollision(cs ChangeSet, targets []Target, lease Lease, o ObservedGra
 		cs.Gate = Blocked{Targets: targets, Lease: lease, By: Blocker{Reason: ReasonSlotSelf, ByPR: c.ByPR, ByEnv: c.ByEnv}}
 		return cs, []Action{RenderCheckRun{}, PublishSSE{}}
 	}
-	if !c.ByPRClosed {
+	if !c.ByPRAbandoned {
 		cs.Gate = Blocked{Targets: targets, Lease: lease, By: Blocker{Reason: ReasonSlotForeign, ByPR: c.ByPR, ByEnv: c.ByEnv}}
 		return cs, []Action{RenderCheckRun{}, PublishSSE{}}
 	}
-	// Closed foreign blocker: revoke it, retry our request, stay Pending.
+	// Abandoned foreign blocker: revoke it, retry our request, stay Pending.
 	cs.Gate = Pending{Targets: targets, Lease: lease}
 	return cs, []Action{
 		RevokeGrant{Class: o.Class, Target: o.Target, PR: c.ByPR, Environment: c.ByEnv},

@@ -54,7 +54,7 @@ func (sh *Shell) execute(ctx context.Context, cs reconcile.ChangeSet, repo strin
 }
 
 // observeError maps a RequestGrant error into an ObservedGrant: a slot collision
-// is resolved against GitHub (BySelf / ByPRClosed) so the pure core can decide;
+// is resolved against GitHub (BySelf / ByPRAbandoned) so the pure core can decide;
 // any other error leaves State "" (target stays Pending, retried next tick).
 func (sh *Shell) observeError(ctx context.Context, cs reconcile.ChangeSet, repo string, act reconcile.RequestGrant, err error) reconcile.ObservedGrant {
 	var col *approval.SlotCollisionError
@@ -64,17 +64,17 @@ func (sh *Shell) observeError(ctx context.Context, cs reconcile.ChangeSet, repo 
 	}
 	b := col.BlockingGrant.Request
 	bySelf := b.PR == cs.PR
-	closed := false
+	abandoned := false
 	if !bySelf {
-		if c, cerr := sh.app.gh.PRClosed(ctx, repo, b.PR); cerr == nil {
-			closed = c
+		if c, cerr := sh.app.gh.PRAbandoned(ctx, repo, b.PR); cerr == nil {
+			abandoned = c
 		} else {
-			log.Printf("shell: slot-collision PRClosed(%d): %v", b.PR, cerr)
+			log.Printf("shell: slot-collision PRAbandoned(%d): %v", b.PR, cerr)
 		}
 	}
 	return reconcile.ObservedGrant{
 		Class: act.Class, Target: act.Target,
-		Collision: &reconcile.Collision{ByPR: b.PR, ByEnv: b.Environment, BySelf: bySelf, ByPRClosed: closed},
+		Collision: &reconcile.Collision{ByPR: b.PR, ByEnv: b.Environment, BySelf: bySelf, ByPRAbandoned: abandoned},
 	}
 }
 

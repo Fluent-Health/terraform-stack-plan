@@ -64,8 +64,8 @@ type ObservedGrant struct {
 
 // Collision describes a slot blocker the shell already resolved against GitHub.
 type Collision struct {
-	ByPR       int
-	ByEnv      string
-	BySelf     bool // ByPR == this changeset's PR (different env)
-	ByPRClosed bool // shell looked up the blocker PR's GitHub state
+	ByPR          int
+	ByEnv         string
+	BySelf        bool // ByPR == this changeset's PR (different env)
+	ByPRAbandoned bool // shell looked up the blocker PR's GitHub state (closed && !merged)
 }

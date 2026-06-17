@@ -671,9 +671,11 @@ the budget entirely.
   on anything observable server-side up to the moment it answers.
 - **A lost `pull_request.closed` webhook no longer orphans grants forever.** The
   periodic orphan-grant sweep (`OrphanSweepLoop`) is the backstop: within ~5 min
-  it revokes grants for any closed/merged PR that escaped the webhook and the
-  post-apply revoke. (It still depends on the GitHub API being reachable to learn
-  a PR is closed; it is conservative — keeps the grant — on a GitHub error.)
+  it revokes grants for any abandoned (closed-unmerged) PR that escaped the webhook
+  and the post-apply revoke. Merged PRs are intentionally excluded — their grant
+  stays until `ApplySucceeded` releases it (PAM TTL ≤8h if the apply never runs).
+  (It still depends on the GitHub API being reachable to learn a PR is closed; it
+  is conservative — keeps the grant — on a GitHub error.)
 
 ## Server foundations (in progress)
 
@@ -838,8 +840,18 @@ no provider event required. A periodic **orphan-grant sweep** (`OrphanSweepLoop`
 ~5 min) backstops the close-webhook: it lists every PR still holding an open grant
 — including fully-ACTIVE (Satisfied) gates the 30s reconcile loop skips — checks
 each PR's GitHub state, and revokes (via the same `revokeOrphans` path) any whose
-PR is closed/merged. It is conservative on a GitHub error (keeps the grant) and
-idempotent. The apply path uses `POST /api/gate/check`
+PR is abandoned (closed-unmerged). It is conservative on a GitHub error (keeps the
+grant) and idempotent.
+
+**Orphan-grant revocation** — the close-webhook, the periodic `OrphanSweepLoop`,
+and the slot-collision auto-revoke — targets **abandoned** (closed-unmerged) PRs
+only, via `gh.PRAbandoned` (`closed && !merged`) and the webhook's
+`pull_request.merged` field. A **merged** PR's grant is left for its post-merge
+`run apply` — released by `ApplySucceeded`, with the PAM request TTL (≤8h) as the
+backstop if the apply never runs. (Previously, revoking on any close — including a
+merge — could kill a merged PR's grant out from under its pending apply.)
+
+The apply path uses `POST /api/gate/check`
 (**fail-closed**: 200 only when the PR was classified *and* every gate target is
 `ACTIVE` — a clean classified plan with zero gates passes; a never-planned PR
 fails closed) and `POST /api/gate/revoke` (best-effort post-apply cleanup). The
