@@ -150,10 +150,16 @@ func Execute(ctx context.Context, deps ExecDeps, root, destStack string, xm XMov
 	if err := dstTF.StatePush(ctx, dstFile, tfexec.Force(false)); err != nil {
 		// Half-applied: source pushed (resources removed) but dest not — the moved
 		// resources are in neither live state. Restore the source to its pre-move
-		// state so nothing is lost.
-		if rbErr := rollbackSource(ctx, srcTF, srcState, tmp); rbErr != nil {
+		// state so nothing is lost. The recovery runs on a non-cancellable context:
+		// a cancelled request (e.g. operator abort) must not skip the rollback and
+		// leave state orphaned.
+		if rbErr := rollbackSource(context.WithoutCancel(ctx), srcTF, srcState, tmp); rbErr != nil {
+			hint := fmt.Sprintf("restore from the backups under %q", deps.BackupDir)
+			if deps.BackupDir == "" {
+				hint = "backups were disabled (no BackupDir) — no automatic backup to restore from"
+			}
 			return nil, fmt.Errorf("push dest state failed (%w) and source rollback failed (%v): "+
-				"moved resources may be orphaned — restore from the backups under %q", err, rbErr, deps.BackupDir)
+				"moved resources may be orphaned — %s", err, rbErr, hint)
 		}
 		return nil, fmt.Errorf("push dest state failed, rolled the source back to its pre-move state: %w", err)
 	}

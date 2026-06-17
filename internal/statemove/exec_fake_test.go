@@ -3,6 +3,7 @@ package statemove
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -18,7 +19,7 @@ type fakeRunner struct {
 	mvs       int
 	pushes    int
 	pulls     int
-	forceUsed bool
+	pushForce []bool            // the --force flag captured per StatePush call
 	pushErr   func(n int) error // if set, StatePush returns pushErr(pushCount) (n is 1-based)
 }
 
@@ -41,8 +42,18 @@ func (f *fakeRunner) StateMv(context.Context, string, string, ...tfexec.StateMvC
 	f.mvs++
 	return nil
 }
-func (f *fakeRunner) StatePush(_ context.Context, _ string, _ ...tfexec.StatePushCmdOption) error {
+func (f *fakeRunner) StatePush(_ context.Context, _ string, opts ...tfexec.StatePushCmdOption) error {
 	f.pushes++
+	// Capture the --force flag per push (forward pushes use Force(false); the
+	// recovery rollback uses Force(true)). tfexec.Force returns the exported
+	// *ForceOption with an unexported `force` field; read it via reflect.
+	force := false
+	for _, o := range opts {
+		if fo, ok := o.(*tfexec.ForceOption); ok {
+			force = reflect.ValueOf(fo).Elem().FieldByName("force").Bool()
+		}
+	}
+	f.pushForce = append(f.pushForce, force)
 	if f.pushErr != nil {
 		return f.pushErr(f.pushes)
 	}
@@ -235,6 +246,10 @@ func TestExecuteRollsBackSourceOnDestPushFailure(t *testing.T) {
 	if dst.pushes != 1 {
 		t.Errorf("dest pushes = %d, want 1", dst.pushes)
 	}
+	// The forward source push is Force(false); the recovery rollback is Force(true).
+	if want := []bool{false, true}; !reflect.DeepEqual(src.pushForce, want) {
+		t.Errorf("source push --force = %v, want %v (forward false, rollback true)", src.pushForce, want)
+	}
 }
 
 func TestExecuteLoudErrorWhenRollbackAlsoFails(t *testing.T) {
@@ -257,5 +272,8 @@ func TestExecuteLoudErrorWhenRollbackAlsoFails(t *testing.T) {
 	}
 	if src.pushes != 2 {
 		t.Errorf("source pushes = %d, want 2 (forward + failed rollback)", src.pushes)
+	}
+	if dst.pushes != 1 {
+		t.Errorf("dest pushes = %d, want 1", dst.pushes)
 	}
 }
