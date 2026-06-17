@@ -256,7 +256,9 @@ func stepObserve(cs ChangeSet, obs []ObservedGrant, fullRelist bool) (ChangeSet,
 		}
 	}
 
-	// Denied/Expired/Revoked → Blocked terminal (gap ③).
+	// Denied/Revoked → Blocked terminal (gap ③). EXPIRED is intentionally NOT
+	// terminal here: a never-approved lapse is re-armed in the request loop below,
+	// and a was-active expiry downgrades via prevWasActive.
 	if r, blocked := firstTerminalBlock(targets); blocked {
 		cs.Gate = Blocked{Targets: targets, Lease: lease, By: Blocker{Reason: r}}
 		return cs, append(actions, RenderCheckRun{Terminal: true, Conclusion: "action_required"}, PublishSSE{})
@@ -265,7 +267,12 @@ func stepObserve(cs ChangeSet, obs []ObservedGrant, fullRelist bool) (ChangeSet,
 	// Request any target still lacking a grant (pinned to the lease).
 	requested := false
 	for _, t := range targets {
-		if t.GrantName == "" {
+		// Re-arm a target with no approved grant: it has none yet (GrantName ""), OR
+		// its request lapsed (EXPIRED) before approval and the gate was never
+		// satisfied. A was-active expiry (prevWasActive) is NOT re-armed here — it
+		// downgrades to Blocked{expired} below (gap ①). DENIED/REVOKED already
+		// returned via firstTerminalBlock, so a deliberate decision is never retried.
+		if t.GrantName == "" || (t.Grant == approval.StateExpired && !prevWasActive) {
 			actions = append(actions, RequestGrant{Class: t.Class, Target: t.Target, Requester: lease.Requester})
 			requested = true
 		}

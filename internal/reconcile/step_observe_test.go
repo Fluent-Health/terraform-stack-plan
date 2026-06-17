@@ -232,6 +232,26 @@ func TestObserveTerminalGrantDoesNotPinLease(t *testing.T) {
 	}
 }
 
+func TestObserveReArmsExpiredNeverActiveTarget(t *testing.T) {
+	// A never-approved request that lapsed (EXPIRED) is re-requested on a tick,
+	// pinned to the existing lease, re-opening the approval window. (A was-active
+	// expiry instead downgrades to Blocked{expired}; see the gap① table row.)
+	prior := ChangeSet{PR: 7, Environment: "staging", Gate: Pending{
+		Lease:   Lease{Requester: "sa3"},
+		Targets: []Target{{Class: "iam", Target: "p1", GrantName: "g1", Grant: approval.StateAwaiting}},
+	}}
+	got, actions := Step(World{Prior: prior}, GateTick{Grants: []ObservedGrant{
+		{Class: "iam", Target: "p1", Name: "g1", State: approval.StateExpired},
+	}})
+	if _, ok := got.Gate.(Pending); !ok {
+		t.Fatalf("want Pending, got %T", got.Gate)
+	}
+	reqs := actionsOf[RequestGrant](actions)
+	if len(reqs) != 1 || reqs[0].Target != "p1" || reqs[0].Requester != "sa3" {
+		t.Fatalf("want one RequestGrant for p1 pinned to sa3, got %+v", reqs)
+	}
+}
+
 func TestObserveSettledPendingRendersActionRequired(t *testing.T) {
 	// All targets have grants, none ACTIVE yet → awaiting approval = a COMPLETED
 	// check run with action_required (not in_progress).
