@@ -174,6 +174,21 @@ func TestRequestGrantUsesHintedRequester(t *testing.T) {
 	}
 }
 
+func TestRequestGrantRejectsWhitespaceEnvWithoutIO(t *testing.T) {
+	// A non-round-trippable environment is rejected before any backend call, so no
+	// grant carrying a corrupt justification is ever created.
+	b := fakePAM(t, func(w http.ResponseWriter, r *http.Request) {
+		t.Fatalf("RequestGrant must reject a bad environment before any HTTP call; got %s %s", r.Method, r.URL.Path)
+	})
+	_, err := b.RequestGrant(context.Background(), approval.Request{Class: "iam", Target: "proj-a", PR: 7, Environment: "stag ing"})
+	if err == nil {
+		t.Fatal("RequestGrant must error on a whitespace environment")
+	}
+	if !strings.Contains(err.Error(), "whitespace") {
+		t.Errorf("error should mention whitespace, got: %v", err)
+	}
+}
+
 func TestRequestGrantReturnsSlotCollisionOnForeignGrant(t *testing.T) {
 	var createCalls int
 	b := fakePAM(t, func(w http.ResponseWriter, r *http.Request) {

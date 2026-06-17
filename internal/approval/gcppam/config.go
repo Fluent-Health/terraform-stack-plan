@@ -11,6 +11,8 @@ import (
 	"fmt"
 	"regexp"
 	"strconv"
+	"strings"
+	"unicode"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/approval"
 )
@@ -125,6 +127,21 @@ func parsePRenv(j string) (pr int, environment string, ok bool) {
 		return 0, "", false
 	}
 	return n, m[2], true
+}
+
+// validEnvironment rejects an environment that cannot round-trip through the
+// grant justification ("PR #<n> env=<env>", parsed back with the env=(\S+)
+// token): it must be non-empty and contain no whitespace. Empty yields no \S+
+// match; embedded whitespace truncates the match — either way grant correlation
+// (reuse/revoke) silently misses the grant.
+func validEnvironment(env string) error {
+	if env == "" {
+		return fmt.Errorf("gcppam: environment must not be empty")
+	}
+	if strings.IndexFunc(env, unicode.IsSpace) >= 0 {
+		return fmt.Errorf("gcppam: environment %q must not contain whitespace (breaks grant correlation)", env)
+	}
+	return nil
 }
 
 // mapState maps a PAM grant state to the normalised approval.GrantState. An
