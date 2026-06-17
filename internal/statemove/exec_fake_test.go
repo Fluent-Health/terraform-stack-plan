@@ -19,6 +19,7 @@ type fakeRunner struct {
 	pushes    int
 	pulls     int
 	forceUsed bool
+	pushErr   func(n int) error // if set, StatePush returns pushErr(pushCount) (n is 1-based)
 }
 
 func (f *fakeRunner) Init(context.Context, ...tfexec.InitOption) error {
@@ -42,6 +43,9 @@ func (f *fakeRunner) StateMv(context.Context, string, string, ...tfexec.StateMvC
 }
 func (f *fakeRunner) StatePush(_ context.Context, _ string, _ ...tfexec.StatePushCmdOption) error {
 	f.pushes++
+	if f.pushErr != nil {
+		return f.pushErr(f.pushes)
+	}
 	return nil
 }
 
@@ -207,5 +211,51 @@ func TestExecuteMovesWholeModule(t *testing.T) {
 	}
 	if dst.mvs != 3 {
 		t.Errorf("want 3 state mv calls, got %d", dst.mvs)
+	}
+}
+
+func TestExecuteRollsBackSourceOnDestPushFailure(t *testing.T) {
+	// src push succeeds, dest push fails → the source must be re-pushed (rolled
+	// back to its pre-move state) so the moved resources are not lost.
+	src := &fakeRunner{stateJSON: "non-empty", show: stateWith("aws_s3_bucket.x")}
+	dst := &fakeRunner{stateJSON: "non-empty", show: stateWith(),
+		pushErr: func(int) error { return fmt.Errorf("dest push boom") }}
+	xm := XMove{SourceStack: "a", Pairs: []Move{{From: "aws_s3_bucket.x", To: "aws_s3_bucket.x"}}}
+
+	_, err := Execute(context.Background(), depsFor(src, dst), t.TempDir(), "b", xm, false)
+	if err == nil {
+		t.Fatal("want error on dest push failure")
+	}
+	if !strings.Contains(err.Error(), "rolled") {
+		t.Errorf("error should say the source was rolled back, got: %v", err)
+	}
+	if src.pushes != 2 {
+		t.Errorf("source pushes = %d, want 2 (forward + rollback)", src.pushes)
+	}
+	if dst.pushes != 1 {
+		t.Errorf("dest pushes = %d, want 1", dst.pushes)
+	}
+}
+
+func TestExecuteLoudErrorWhenRollbackAlsoFails(t *testing.T) {
+	// dest push fails AND the source rollback push also fails → loud error naming
+	// the backups for manual restore.
+	src := &fakeRunner{stateJSON: "non-empty", show: stateWith("aws_s3_bucket.x"),
+		pushErr: func(n int) error {
+			if n == 2 { // the rollback push
+				return fmt.Errorf("rollback push boom")
+			}
+			return nil
+		}}
+	dst := &fakeRunner{stateJSON: "non-empty", show: stateWith(),
+		pushErr: func(int) error { return fmt.Errorf("dest push boom") }}
+	xm := XMove{SourceStack: "a", Pairs: []Move{{From: "aws_s3_bucket.x", To: "aws_s3_bucket.x"}}}
+
+	_, err := Execute(context.Background(), depsFor(src, dst), t.TempDir(), "b", xm, false)
+	if err == nil || !strings.Contains(err.Error(), "orphaned") {
+		t.Fatalf("want a loud 'orphaned — restore from backups' error, got: %v", err)
+	}
+	if src.pushes != 2 {
+		t.Errorf("source pushes = %d, want 2 (forward + failed rollback)", src.pushes)
 	}
 }
