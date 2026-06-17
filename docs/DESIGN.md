@@ -663,12 +663,21 @@ the budget entirely.
   commit — a `release: published` run replays the workflow file *as it was at the
   tagged commit*, so the fix only takes effect once the tag points at it.
 - **A grant that expires or a PR that closes *after* the apply gate-check
-  returns 200, but before the runner's `terraform apply`, is not caught.** The
-  gate-check is point-in-time and the apply runs in a separate process; the
-  server can't un-authorize an already-returned 200. Closing this needs an apply
-  lease/token the runner presents and the server re-validates at apply time
-  (deferred — touches the runner protocol). The check itself is now fail-closed
-  on anything observable server-side up to the moment it answers.
+  returns 200 is enforced by GCP IAM, not the gate-check.** The gate-check `200`
+  grants no privilege of its own — the privilege *is* the PAM grant's IAM binding
+  on the leased SA. `run apply` mints a GCP OAuth token for that SA
+  (`iamcredentials.GenerateAccessToken`) and the apply's writes are authorized
+  **per-request by GCP IAM** against the SA's *current* bindings. So if the grant
+  lapses or is revoked after the 200, the minted token still authenticates but
+  each subsequent Terraform write is **denied by IAM** (the binding is gone) — the
+  apply fails partway, with no unauthorized writes. A server-side apply
+  lease/token would therefore be **redundant** (it would re-check the same gate
+  microseconds later and cannot out-enforce GCP); it was investigated and
+  intentionally not built. The one residual nothing server-side can close is GCP's
+  own **IAM-propagation delay** (~seconds to a few minutes) after a revocation,
+  during which an in-flight apply could still write with the not-yet-removed
+  binding. The gate-check itself remains fail-closed on anything observable
+  server-side up to the moment it answers.
 - **A lost `pull_request.closed` webhook no longer orphans grants forever.** The
   periodic orphan-grant sweep (`OrphanSweepLoop`) is the backstop: within ~5 min
   it revokes grants for any abandoned (closed-unmerged) PR that escaped the webhook
