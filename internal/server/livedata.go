@@ -36,6 +36,109 @@ func groupStacksByKey(stacks []events.StackState, depth int, re *regexp.Regexp) 
 	return groups
 }
 
+// groupByProject folds stacks by their Project (the Google project / grouping
+// target, backfilled at finalize). Stacks with no Project (pre-finalize or
+// unprojected) fall into a trailing "—" bucket. Order: projects alphabetical,
+// then the ungrouped bucket last; stack order within a group is preserved.
+func groupByProject(stacks []events.StackState) []stackGroup {
+	const ungrouped = "—"
+	byName := map[string][]events.StackState{}
+	var order []string
+	for _, s := range stacks {
+		k := s.Project
+		if k == "" {
+			k = ungrouped
+		}
+		if _, ok := byName[k]; !ok {
+			order = append(order, k)
+		}
+		byName[k] = append(byName[k], s)
+	}
+	sort.Slice(order, func(i, j int) bool {
+		if order[i] == ungrouped {
+			return false
+		}
+		if order[j] == ungrouped {
+			return true
+		}
+		return order[i] < order[j]
+	})
+	groups := make([]stackGroup, 0, len(order))
+	for _, n := range order {
+		groups = append(groups, stackGroup{Name: n, Stacks: byName[n]})
+	}
+	return groups
+}
+
+// blastSeg is one segment of the blast-radius bar: one stack, flex-sized by its
+// mutating-op total (min 1 so a 0-op stack still shows a sliver), colored by its
+// dominant op-kind, flagged Done/Failed by terminal status.
+type blastSeg struct {
+	Flex      int
+	KindClass string // op-add | op-change | op-replace | op-destroy | op-move
+	Done      bool
+	Failed    bool
+}
+
+func blastSegments(stacks []events.StackState, kind string) []blastSeg {
+	segs := make([]blastSeg, 0, len(stacks))
+	for _, s := range stacks {
+		flex, cls := 1, "op-add"
+		if s.Counts != nil {
+			if t := s.Counts.Add + s.Counts.Change + s.Counts.Destroy + s.Counts.Replace + s.Counts.Move; t > 0 {
+				flex = t
+			}
+			cls = dominantKindClass(s.Counts)
+		}
+		segs = append(segs, blastSeg{
+			Flex:      flex,
+			KindClass: cls,
+			Done:      s.Status == events.StatusSafe,
+			Failed:    s.Status == events.StatusFailed,
+		})
+	}
+	return segs
+}
+
+// dominantKindClass picks the op-kind css class for a stack's largest bucket
+// (tie order add>change>replace>destroy>move). Falls back to op-add for zero.
+func dominantKindClass(c *events.Counts) string {
+	type kc struct {
+		n   int
+		cls string
+	}
+	order := []kc{{c.Add, "op-add"}, {c.Change, "op-change"}, {c.Replace, "op-replace"}, {c.Destroy, "op-destroy"}, {c.Move, "op-move"}}
+	best := order[0]
+	for _, k := range order[1:] {
+		if k.n > best.n {
+			best = k
+		}
+	}
+	if best.n == 0 {
+		return "op-add"
+	}
+	return best.cls
+}
+
+// riskTag is a per-stack risk chip (iam / destructive).
+type riskTag struct {
+	Label string
+	CSS   string // iam | danger
+}
+
+func riskTags(s events.StackState) []riskTag {
+	var tags []riskTag
+	for _, c := range s.Categories {
+		switch c.Name {
+		case "iam":
+			tags = append(tags, riskTag{"⚿ IAM", "iam"})
+		case "destructive":
+			tags = append(tags, riskTag{"⚠ destructive", "danger"})
+		}
+	}
+	return tags
+}
+
 // verdict is the aggregate op tally across an execution's stacks, for the
 // verdict band + blast-radius bar.
 type verdict struct {

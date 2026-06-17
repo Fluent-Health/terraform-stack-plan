@@ -100,6 +100,60 @@ func TestOpSummaryString(t *testing.T) {
 	}
 }
 
+func TestGroupByProject(t *testing.T) {
+	stacks := []events.StackState{
+		{Path: "prod/a", Project: "fh-prod-host"},
+		{Path: "prod/b", Project: "fh-prod-host"},
+		{Path: "stg/c", Project: "fh-staging-host"},
+		{Path: "x/d"}, // no project → trailing ungrouped bucket
+	}
+	gs := groupByProject(stacks)
+	if len(gs) != 3 {
+		t.Fatalf("want 3 groups, got %d", len(gs))
+	}
+	if gs[0].Name != "fh-prod-host" || len(gs[0].Stacks) != 2 {
+		t.Fatalf("group0 = %+v", gs[0])
+	}
+	if gs[1].Name != "fh-staging-host" {
+		t.Fatalf("group1 = %+v", gs[1])
+	}
+	if gs[2].Name != "—" || len(gs[2].Stacks) != 1 { // ungrouped bucket LAST
+		t.Fatalf("ungrouped bucket wrong: %+v", gs[2])
+	}
+}
+
+func TestBlastSegments(t *testing.T) {
+	stacks := []events.StackState{
+		{Path: "a", Counts: &events.Counts{Add: 6}, Status: events.StatusSafe},
+		{Path: "b", Counts: &events.Counts{Destroy: 2}, Status: events.StatusPending},
+		{Path: "c", Status: events.StatusFailed}, // no counts → min flex 1
+	}
+	segs := blastSegments(stacks, "apply")
+	if len(segs) != 3 {
+		t.Fatalf("want 3 segs, got %d", len(segs))
+	}
+	if segs[0].Flex != 6 || segs[0].KindClass != "op-add" || !segs[0].Done {
+		t.Fatalf("seg0=%+v", segs[0])
+	}
+	if segs[1].Flex != 2 || segs[1].KindClass != "op-destroy" || segs[1].Done {
+		t.Fatalf("seg1=%+v", segs[1])
+	}
+	if segs[2].Flex != 1 || !segs[2].Failed {
+		t.Fatalf("seg2 (no counts) =%+v", segs[2])
+	}
+}
+
+func TestRiskTags(t *testing.T) {
+	s := events.StackState{Categories: []events.Category{{Name: "iam", Icon: "🔐"}, {Name: "destructive", Icon: "💣"}}}
+	tags := riskTags(s)
+	if len(tags) != 2 || tags[0].CSS != "iam" || tags[1].CSS != "danger" {
+		t.Fatalf("tags=%+v", tags)
+	}
+	if len(riskTags(events.StackState{})) != 0 {
+		t.Fatal("no categories → no tags")
+	}
+}
+
 func TestPhaseTimeline(t *testing.T) {
 	t.Run("plan in-progress", func(t *testing.T) {
 		steps := phaseTimeline("plan", events.PhasePlanning, false)
