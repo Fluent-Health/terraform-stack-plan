@@ -4,6 +4,7 @@ import (
 	"html/template"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
@@ -183,5 +184,70 @@ func TestLivePageStackListAndTimeline(t *testing.T) {
 		if !strings.Contains(html, want) {
 			t.Errorf("live page missing %q", want)
 		}
+	}
+}
+
+func TestBuildLiveModel(t *testing.T) {
+	now := time.Date(2026, 6, 17, 12, 5, 12, 0, time.UTC)
+	created := now.Add(-(4*time.Minute + 12*time.Second))
+	v := liveView{
+		Exec: "e1", Repo: "Fluent-Health/infra", PR: 412, SHA: "a3f1414abc",
+		Environment: "nonprod", Context: "apply/nonprod", Status: "in_progress",
+		CreatedAt: created,
+		Stacks: []events.StackState{
+			{Path: "prod/api", Project: "fh-prod-host", Status: events.StatusRunning,
+				Counts: &events.Counts{Change: 8}, Categories: []events.Category{{Name: "iam"}}},
+			{Path: "stg/db", Project: "fh-staging-host", Status: events.StatusSafe,
+				Counts: &events.Counts{Destroy: 2}, Categories: []events.Category{{Name: "destructive"}}},
+		},
+	}
+	m := buildLiveModel(v, "apply", false, now)
+
+	if m.PhaseAccent != "apply" {
+		t.Fatalf("PhaseAccent=%q", m.PhaseAccent)
+	}
+	if m.PhaseLabel != "APPLYING" {
+		t.Fatalf("PhaseLabel=%q", m.PhaseLabel)
+	}
+	if m.Elapsed != "4m 12s" {
+		t.Fatalf("Elapsed=%q", m.Elapsed)
+	}
+	if m.Verdict.Change != 8 || m.Verdict.Destroy != 2 || m.Verdict.TotalOps != 10 {
+		t.Fatalf("verdict=%+v", m.Verdict)
+	}
+	if !m.Destructive || !m.IAM {
+		t.Fatalf("flags: destructive=%v iam=%v", m.Destructive, m.IAM)
+	}
+	if len(m.Blast) != 2 {
+		t.Fatalf("blast segs=%d", len(m.Blast))
+	}
+	if len(m.Groups) != 2 || m.Groups[0].Name != "fh-prod-host" {
+		t.Fatalf("groups=%+v", m.Groups)
+	}
+	r0 := m.Groups[0].Stacks[0]
+	if r0.Path != "prod/api" || r0.State.CSS != "applying" || r0.Ops != "~8" || len(r0.Risks) != 1 {
+		t.Fatalf("row0=%+v", r0)
+	}
+	if m.ShortSHA != "a3f1414" {
+		t.Fatalf("ShortSHA=%q", m.ShortSHA)
+	}
+}
+
+func TestBuildLiveModelPlanFinished(t *testing.T) {
+	m := buildLiveModel(liveView{Context: "plan", Status: ""}, "plan", true, time.Now())
+	if m.PhaseAccent != "plan" || m.PhaseLabel != "PLANNED" {
+		t.Fatalf("plan finished: accent=%q label=%q", m.PhaseAccent, m.PhaseLabel)
+	}
+}
+
+func TestHumanizeDuration(t *testing.T) {
+	if got := humanizeDuration(4*time.Minute + 12*time.Second); got != "4m 12s" {
+		t.Fatalf("got %q", got)
+	}
+	if got := humanizeDuration(45 * time.Second); got != "45s" {
+		t.Fatalf("got %q", got)
+	}
+	if got := humanizeDuration(time.Hour + 5*time.Minute); got != "1h 5m" {
+		t.Fatalf("got %q", got)
 	}
 }

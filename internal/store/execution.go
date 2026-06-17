@@ -93,10 +93,10 @@ func GetExecution(db *sql.DB, id string) (Execution, error) {
 	err := db.QueryRow(
 		`SELECT id, repo, sha, COALESCE(pr,0), COALESCE(environment,''), check_run_id,
 		        rev, COALESCE(report_markdown,''), COALESCE(log_url,''),
-		        COALESCE(status,''), COALESCE(status_context,''), COALESCE(phase,'')
+		        COALESCE(status,''), COALESCE(status_context,''), COALESCE(phase,''), created_at
 		 FROM executions WHERE id = ?`, id).
 		Scan(&e.ID, &e.Repo, &e.SHA, &e.PR, &e.Environment, &e.CheckRunID,
-			&e.Rev, &e.ReportMarkdown, &e.LogURL, &e.Status, &e.StatusContext, &e.Phase)
+			&e.Rev, &e.ReportMarkdown, &e.LogURL, &e.Status, &e.StatusContext, &e.Phase, &e.CreatedAt)
 	if err != nil {
 		return Execution{}, err
 	}

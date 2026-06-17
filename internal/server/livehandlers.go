@@ -70,6 +70,7 @@ func (a *App) handleLive(w http.ResponseWriter, r *http.Request) {
 		Context:     e.StatusContext,
 		Status:      e.Status,
 		Phase:       events.Phase(e.Phase),
+		CreatedAt:   e.CreatedAt,
 		Stacks:      g.Stacks,
 		SVG:         string(a.dagSVG(g)),
 		Panel:       panel,

@@ -6,6 +6,7 @@ import (
 	"html"
 	"html/template"
 	"strings"
+	"time"
 
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/extension"
@@ -109,6 +110,7 @@ type liveView struct {
 	SHA, Context              string
 	Phase                     events.Phase
 	Status                    string
+	CreatedAt                 time.Time
 	Stacks                    []events.StackState
 	SVG, Panel                string
 }
@@ -165,4 +167,128 @@ func (a *App) livePage(v liveView) string {
 		Panel:      template.HTML(v.Panel),
 	})
 	return buf.String()
+}
+
+// stackRow is one stack rendered in the grouped list.
+type stackRow struct {
+	Path  string
+	State stateDisplay
+	Ops   string
+	Risks []riskTag
+}
+
+// projGroup is a Google-project group of stack rows.
+type projGroup struct {
+	Name   string
+	Stacks []stackRow
+}
+
+// liveModel is the typed payload the Briefing live template renders.
+type liveModel struct {
+	Title, Repo, Exec, SHA, ShortSHA, Context string
+	Environment                               string
+	PR                                        int
+	PhaseAccent                               string // "plan" | "apply" → phase-<accent>
+	PhaseLabel                                string // PLANNING | PLANNED | APPLYING | APPLIED | FAILED
+	Elapsed                                   string
+	Verdict                                   verdict
+	Destructive, IAM                          bool
+	Blast                                     []blastSeg
+	Groups                                    []projGroup
+	ReportHTML                                template.HTML
+	SVG, Panel                                template.HTML
+}
+
+// buildLiveModel assembles the Briefing payload from a liveView. kind is
+// "plan"/"apply"; finished marks a concluded execution; now is the reference
+// clock for elapsed (injected for testability).
+func buildLiveModel(v liveView, kind string, finished bool, now time.Time) liveModel {
+	shortSHA := v.SHA
+	if len(shortSHA) > 7 {
+		shortSHA = shortSHA[:7]
+	}
+	kindLabel := "Plan"
+	if kind == "apply" {
+		kindLabel = "Apply"
+	}
+	title := kindLabel
+	if v.Environment != "" {
+		title += " · " + v.Environment
+	}
+
+	// Phase label.
+	var label string
+	switch {
+	case kind == "apply" && finished && v.Status == "failure":
+		label = "FAILED"
+	case kind == "apply" && finished:
+		label = "APPLIED"
+	case kind == "apply":
+		label = "APPLYING"
+	case finished:
+		label = "PLANNED"
+	default:
+		label = "PLANNING"
+	}
+
+	elapsed := ""
+	if !v.CreatedAt.IsZero() {
+		elapsed = humanizeDuration(now.Sub(v.CreatedAt))
+	}
+
+	// Risk roll-up + per-row mapping.
+	var destructive, iam bool
+	groups := make([]projGroup, 0)
+	for _, g := range groupByProject(v.Stacks) {
+		rows := make([]stackRow, 0, len(g.Stacks))
+		for _, s := range g.Stacks {
+			risks := riskTags(s)
+			for _, rt := range risks {
+				switch rt.CSS {
+				case "danger":
+					destructive = true
+				case "iam":
+					iam = true
+				}
+			}
+			rows = append(rows, stackRow{
+				Path:  s.Path,
+				State: displayState(s.Status, kind),
+				Ops:   opSummary(s.Counts),
+				Risks: risks,
+			})
+		}
+		groups = append(groups, projGroup{Name: g.Name, Stacks: rows})
+	}
+
+	return liveModel{
+		Title: title, Repo: v.Repo, Exec: v.Exec, SHA: v.SHA, ShortSHA: shortSHA,
+		Context: v.Context, Environment: v.Environment, PR: v.PR,
+		PhaseAccent: kind, PhaseLabel: label, Elapsed: elapsed,
+		Verdict:     aggregateVerdict(v.Stacks),
+		Destructive: destructive, IAM: iam,
+		Blast:      blastSegments(v.Stacks, kind),
+		Groups:     groups,
+		ReportHTML: renderMarkdown(v.Report),
+		SVG:        template.HTML(v.SVG),
+		Panel:      template.HTML(v.Panel),
+	}
+}
+
+// humanizeDuration renders a short elapsed string: "Xh Ym", "Xm Ys", or "Xs".
+func humanizeDuration(d time.Duration) string {
+	if d < 0 {
+		d = 0
+	}
+	h := int(d.Hours())
+	m := int(d.Minutes()) % 60
+	s := int(d.Seconds()) % 60
+	switch {
+	case h > 0:
+		return fmt.Sprintf("%dh %dm", h, m)
+	case m > 0:
+		return fmt.Sprintf("%dm %ds", m, s)
+	default:
+		return fmt.Sprintf("%ds", s)
+	}
 }
