@@ -89,6 +89,12 @@ func TestOpSummaryString(t *testing.T) {
 	if got := opSummary(&events.Counts{Replace: 3}); got != "±3" {
 		t.Fatalf("got %q", got)
 	}
+	if got := opSummary(&events.Counts{Destroy: 2}); got != "−2" {
+		t.Fatalf("destroy: got %q", got)
+	}
+	if got := opSummary(&events.Counts{Move: 1}); got != "↔1" {
+		t.Fatalf("move: got %q", got)
+	}
 	if got := opSummary(nil); got != "" {
 		t.Fatalf("nil → %q want empty", got)
 	}
