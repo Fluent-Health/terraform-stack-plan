@@ -3,6 +3,7 @@ package server
 import (
 	"regexp"
 	"sort"
+	"strconv"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 )
@@ -33,6 +34,91 @@ func groupStacksByKey(stacks []events.StackState, depth int, re *regexp.Regexp) 
 		groups = append(groups, stackGroup{Name: n, Stacks: byName[n]})
 	}
 	return groups
+}
+
+// verdict is the aggregate op tally across an execution's stacks, for the
+// verdict band + blast-radius bar.
+type verdict struct {
+	Add, Change, Destroy, Replace, Move, Import, Forget int
+	TotalOps                                            int // Add+Change+Destroy+Replace
+}
+
+func aggregateVerdict(stacks []events.StackState) verdict {
+	var v verdict
+	for _, s := range stacks {
+		if s.Counts == nil {
+			continue
+		}
+		c := s.Counts
+		v.Add += c.Add
+		v.Change += c.Change
+		v.Destroy += c.Destroy
+		v.Replace += c.Replace
+		v.Move += c.Move
+		v.Import += c.Import
+		v.Forget += c.Forget
+	}
+	v.TotalOps = v.Add + v.Change + v.Destroy + v.Replace
+	return v
+}
+
+// stateDisplay is a per-stack status rendered for the UI: a human label + a
+// css-state slug (drives the per-state label color class state-<CSS>).
+type stateDisplay struct {
+	Label string
+	CSS   string
+}
+
+// displayState maps the protocol Status (+ plan/apply kind) to the viewer's
+// richer per-state label. Plan and apply share Status values but read
+// differently (running = "planning" vs "applying"; safe = "planned" vs "applied").
+func displayState(st events.Status, kind string) stateDisplay {
+	switch st {
+	case events.StatusPending:
+		return stateDisplay{"queued", "queued"}
+	case events.StatusRunning:
+		if kind == "apply" {
+			return stateDisplay{"applying", "applying"}
+		}
+		return stateDisplay{"planning", "planning"}
+	case events.StatusPlanned:
+		return stateDisplay{"planned", "planned"}
+	case events.StatusMoving:
+		return stateDisplay{"moving", "moving"}
+	case events.StatusGated:
+		return stateDisplay{"blocked", "blocked"}
+	case events.StatusSafe:
+		if kind == "apply" {
+			return stateDisplay{"applied", "applied"}
+		}
+		return stateDisplay{"planned", "planned"}
+	case events.StatusFailed:
+		return stateDisplay{"failed", "failed"}
+	default:
+		return stateDisplay{string(st), "queued"}
+	}
+}
+
+// opSummary renders a compact per-stack op count — the single dominant kind by
+// count (tie order add>change>replace>destroy>move). "" when nil/empty.
+func opSummary(c *events.Counts) string {
+	if c == nil {
+		return ""
+	}
+	switch {
+	case c.Add > 0:
+		return "+" + strconv.Itoa(c.Add)
+	case c.Change > 0:
+		return "~" + strconv.Itoa(c.Change)
+	case c.Replace > 0:
+		return "±" + strconv.Itoa(c.Replace)
+	case c.Destroy > 0:
+		return "−" + strconv.Itoa(c.Destroy)
+	case c.Move > 0:
+		return "↔" + strconv.Itoa(c.Move)
+	default:
+		return ""
+	}
 }
 
 // statusBadge maps a per-stack status to a DaisyUI badge class. Unknown statuses

@@ -39,6 +39,61 @@ func TestStatusBadge(t *testing.T) {
 	}
 }
 
+func TestAggregateVerdict(t *testing.T) {
+	stacks := []events.StackState{
+		{Path: "a", Counts: &events.Counts{Add: 6}},
+		{Path: "b", Counts: &events.Counts{Change: 8, Replace: 3}},
+		{Path: "c", Counts: &events.Counts{Destroy: 2, Move: 1}},
+		{Path: "d"}, // no counts → contributes nothing
+	}
+	v := aggregateVerdict(stacks)
+	if v.Add != 6 || v.Change != 8 || v.Replace != 3 || v.Destroy != 2 || v.Move != 1 {
+		t.Fatalf("bad totals: %+v", v)
+	}
+	if v.TotalOps != 19 { // Add+Change+Destroy+Replace = 6+8+2+3 = 19
+		t.Fatalf("TotalOps=%d", v.TotalOps)
+	}
+}
+
+func TestDisplayStateMapping(t *testing.T) {
+	cases := []struct {
+		st   events.Status
+		kind string
+		want string
+	}{
+		{events.StatusPending, "plan", "queued"},
+		{events.StatusRunning, "plan", "planning"},
+		{events.StatusPlanned, "plan", "planned"},
+		{events.StatusRunning, "apply", "applying"},
+		{events.StatusMoving, "apply", "moving"},
+		{events.StatusSafe, "apply", "applied"},
+		{events.StatusSafe, "plan", "planned"},
+		{events.StatusGated, "apply", "blocked"},
+		{events.StatusFailed, "apply", "failed"},
+	}
+	for _, c := range cases {
+		got := displayState(c.st, c.kind)
+		if got.CSS != c.want {
+			t.Fatalf("(%s,%s) → %q want %q", c.st, c.kind, got.CSS, c.want)
+		}
+	}
+}
+
+func TestOpSummaryString(t *testing.T) {
+	if got := opSummary(&events.Counts{Add: 6}); got != "+6" {
+		t.Fatalf("got %q", got)
+	}
+	if got := opSummary(&events.Counts{Change: 8}); got != "~8" {
+		t.Fatalf("got %q", got)
+	}
+	if got := opSummary(&events.Counts{Replace: 3}); got != "±3" {
+		t.Fatalf("got %q", got)
+	}
+	if got := opSummary(nil); got != "" {
+		t.Fatalf("nil → %q want empty", got)
+	}
+}
+
 func TestPhaseTimeline(t *testing.T) {
 	t.Run("plan in-progress", func(t *testing.T) {
 		steps := phaseTimeline("plan", events.PhasePlanning, false)
