@@ -17,6 +17,9 @@ var _ approval.Backend = (*Backend)(nil)
 // creates a new grant. PAM blocks self-approval and the server only ever holds a
 // requester identity, so it can request but never approve.
 func (b *Backend) RequestGrant(ctx context.Context, req approval.Request) (approval.Grant, error) {
+	if err := validEnvironment(req.Environment); err != nil {
+		return approval.Grant{}, err
+	}
 	ent := b.cfg.entitlementName(req.Class, req.Target)
 	if ent == "" {
 		return approval.Grant{}, fmt.Errorf("gcppam: no entitlement configured for class %q", req.Class)

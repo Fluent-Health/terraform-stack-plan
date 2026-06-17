@@ -100,6 +100,28 @@ func TestMapState(t *testing.T) {
 	}
 }
 
+func TestValidEnvironment(t *testing.T) {
+	cases := []struct {
+		env string
+		ok  bool
+	}{
+		{"staging", true},
+		{"prod", true},
+		{"fh-dev-svc", true},
+		{"", false},
+		{" ", false},
+		{"stag ing", false},
+		{"a\tb", false},
+		{"x\n", false},
+	}
+	for _, c := range cases {
+		err := validEnvironment(c.env)
+		if (err == nil) != c.ok {
+			t.Errorf("validEnvironment(%q) err=%v, want ok=%v", c.env, err, c.ok)
+		}
+	}
+}
+
 func TestEntitlementNameScope(t *testing.T) {
 	c := Config{
 		Location: "global",
