@@ -3,6 +3,7 @@ package statemove
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -18,7 +19,8 @@ type fakeRunner struct {
 	mvs       int
 	pushes    int
 	pulls     int
-	forceUsed bool
+	pushForce []bool            // the --force flag captured per StatePush call
+	pushErr   func(n int) error // if set, StatePush returns pushErr(pushCount) (n is 1-based)
 }
 
 func (f *fakeRunner) Init(context.Context, ...tfexec.InitOption) error {
@@ -40,8 +42,21 @@ func (f *fakeRunner) StateMv(context.Context, string, string, ...tfexec.StateMvC
 	f.mvs++
 	return nil
 }
-func (f *fakeRunner) StatePush(_ context.Context, _ string, _ ...tfexec.StatePushCmdOption) error {
+func (f *fakeRunner) StatePush(_ context.Context, _ string, opts ...tfexec.StatePushCmdOption) error {
 	f.pushes++
+	// Capture the --force flag per push (forward pushes use Force(false); the
+	// recovery rollback uses Force(true)). tfexec.Force returns the exported
+	// *ForceOption with an unexported `force` field; read it via reflect.
+	force := false
+	for _, o := range opts {
+		if fo, ok := o.(*tfexec.ForceOption); ok {
+			force = reflect.ValueOf(fo).Elem().FieldByName("force").Bool()
+		}
+	}
+	f.pushForce = append(f.pushForce, force)
+	if f.pushErr != nil {
+		return f.pushErr(f.pushes)
+	}
 	return nil
 }
 
@@ -207,5 +222,63 @@ func TestExecuteMovesWholeModule(t *testing.T) {
 	}
 	if dst.mvs != 3 {
 		t.Errorf("want 3 state mv calls, got %d", dst.mvs)
+	}
+}
+
+func TestExecuteRollsBackSourceOnDestPushFailure(t *testing.T) {
+	// src push succeeds, dest push fails → the source must be re-pushed (rolled
+	// back to its pre-move state) so the moved resources are not lost.
+	src := &fakeRunner{stateJSON: "non-empty", show: stateWith("aws_s3_bucket.x")}
+	dst := &fakeRunner{stateJSON: "non-empty", show: stateWith(),
+		pushErr: func(int) error { return fmt.Errorf("dest push boom") }}
+	xm := XMove{SourceStack: "a", Pairs: []Move{{From: "aws_s3_bucket.x", To: "aws_s3_bucket.x"}}}
+
+	_, err := Execute(context.Background(), depsFor(src, dst), t.TempDir(), "b", xm, false)
+	if err == nil {
+		t.Fatal("want error on dest push failure")
+	}
+	if !strings.Contains(err.Error(), "rolled") {
+		t.Errorf("error should say the source was rolled back, got: %v", err)
+	}
+	if src.pushes != 2 {
+		t.Errorf("source pushes = %d, want 2 (forward + rollback)", src.pushes)
+	}
+	if dst.pushes != 1 {
+		t.Errorf("dest pushes = %d, want 1", dst.pushes)
+	}
+	// The forward source push is Force(false); the recovery rollback is Force(true).
+	if want := []bool{false, true}; !reflect.DeepEqual(src.pushForce, want) {
+		t.Errorf("source push --force = %v, want %v (forward false, rollback true)", src.pushForce, want)
+	}
+}
+
+func TestExecuteLoudErrorWhenRollbackAlsoFails(t *testing.T) {
+	// dest push fails AND the source rollback push also fails → loud error naming
+	// the backups for manual restore.
+	src := &fakeRunner{stateJSON: "non-empty", show: stateWith("aws_s3_bucket.x"),
+		pushErr: func(n int) error {
+			if n == 2 { // the rollback push
+				return fmt.Errorf("rollback push boom")
+			}
+			return nil
+		}}
+	dst := &fakeRunner{stateJSON: "non-empty", show: stateWith(),
+		pushErr: func(int) error { return fmt.Errorf("dest push boom") }}
+	xm := XMove{SourceStack: "a", Pairs: []Move{{From: "aws_s3_bucket.x", To: "aws_s3_bucket.x"}}}
+
+	deps := depsFor(src, dst)
+	deps.BackupDir = t.TempDir() // writable, so backup() succeeds and we reach the push phase; exercises the path-naming branch
+	_, err := Execute(context.Background(), deps, t.TempDir(), "b", xm, false)
+	if err == nil || !strings.Contains(err.Error(), "orphaned") {
+		t.Fatalf("want a loud 'orphaned — restore from backups' error, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), deps.BackupDir) {
+		t.Errorf("loud error must name the backup dir %q for manual restore, got: %v", deps.BackupDir, err)
+	}
+	if src.pushes != 2 {
+		t.Errorf("source pushes = %d, want 2 (forward + failed rollback)", src.pushes)
+	}
+	if dst.pushes != 1 {
+		t.Errorf("dest pushes = %d, want 1", dst.pushes)
 	}
 }

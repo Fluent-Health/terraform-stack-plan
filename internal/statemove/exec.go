@@ -144,12 +144,40 @@ func Execute(ctx context.Context, deps ExecDeps, root, destStack string, xm XMov
 		}
 	}
 	if err := srcTF.StatePush(ctx, srcFile, tfexec.Force(false)); err != nil {
+		// Nothing pushed — the pre-move state is intact.
 		return nil, fmt.Errorf("push source state (concurrent change? never --force): %w", err)
 	}
 	if err := dstTF.StatePush(ctx, dstFile, tfexec.Force(false)); err != nil {
-		return nil, fmt.Errorf("push dest state (concurrent change? never --force): %w", err)
+		// Half-applied: source pushed (resources removed) but dest not — the moved
+		// resources are in neither live state. Restore the source to its pre-move
+		// state so nothing is lost. The recovery runs on a non-cancellable context:
+		// a cancelled request (e.g. operator abort) must not skip the rollback and
+		// leave state orphaned.
+		if rbErr := rollbackSource(context.WithoutCancel(ctx), srcTF, srcState, tmp); rbErr != nil {
+			hint := fmt.Sprintf("restore from the backups under %q", deps.BackupDir)
+			if deps.BackupDir == "" {
+				hint = "backups were disabled (no BackupDir) — no automatic backup to restore from"
+			}
+			return nil, fmt.Errorf("push dest state failed (%w) and source rollback failed (%v): "+
+				"moved resources may be orphaned — %s", err, rbErr, hint)
+		}
+		return nil, fmt.Errorf("push dest state failed, rolled the source back to its pre-move state: %w", err)
 	}
 	return actions, nil
+}
+
+// rollbackSource restores the source stack to its pre-move state after a
+// dest-push failure left the source pushed (resources removed) but the dest not.
+// It re-pushes the original pulled state with --force: the successful forward
+// source push advanced the backend serial, so the older pre-move state would be
+// rejected without it. This is a recovery push, distinct from the forward
+// "never --force" invariant (and under --lock there is no concurrent writer).
+func rollbackSource(ctx context.Context, srcTF Runner, srcState, tmp string) error {
+	rb := filepath.Join(tmp, "source-rollback.tfstate")
+	if err := os.WriteFile(rb, []byte(srcState), 0o600); err != nil {
+		return err
+	}
+	return srcTF.StatePush(ctx, rb, tfexec.Force(true))
 }
 
 // addressesOf returns the resource addresses in a pulled state. An empty/blank
