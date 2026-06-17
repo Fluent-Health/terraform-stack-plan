@@ -849,7 +849,9 @@ only, via `gh.PRAbandoned` (`closed && !merged`) and the webhook's
 `pull_request.merged` field. A **merged** PR's grant is left for its post-merge
 `run apply` — released by `ApplySucceeded`, with the PAM request TTL (≤8h) as the
 backstop if the apply never runs. (Previously, revoking on any close — including a
-merge — could kill a merged PR's grant out from under its pending apply.) The apply path uses `POST /api/gate/check`
+merge — could kill a merged PR's grant out from under its pending apply.)
+
+The apply path uses `POST /api/gate/check`
 (**fail-closed**: 200 only when the PR was classified *and* every gate target is
 `ACTIVE` — a clean classified plan with zero gates passes; a never-planned PR
 fails closed) and `POST /api/gate/revoke` (best-effort post-apply cleanup). The

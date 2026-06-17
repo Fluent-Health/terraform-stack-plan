@@ -66,7 +66,7 @@ func TestStepTable(t *testing.T) {
 			wantKinds: []string{"PublishSSE", "RevokeGrant"},
 		},
 		{
-			name:      "Bug#2: closed foreign collision revokes blocker + retries",
+			name:      "Bug#2: abandoned foreign collision revokes blocker + retries",
 			prior:     ChangeSet{PR: 8, Environment: "staging", Gate: Pending{Targets: []Target{{Class: "iam", Target: "p1"}}}},
 			signal:    GrantsObserved{Grants: []ObservedGrant{{Class: "iam", Target: "p1", Collision: &Collision{ByPR: 7, ByEnv: "staging", ByPRAbandoned: true}}}},
 			wantGate:  "Pending",
