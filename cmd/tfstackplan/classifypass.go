@@ -26,9 +26,9 @@ import (
 // gate-relevant outputs; classifyResult additionally carries the per-stack reports
 // that run plan finalizes (apply ignores them).
 var classifyForGateFn = func(ctx context.Context, dir string, stacks []string, base string, changed bool, cfgPath string) (
-	[]events.GateTarget, map[string][]events.Category, []string, string, error) {
+	[]events.GateTarget, map[string][]events.Category, map[string]events.Counts, []string, string, error) {
 	r, err := classifyForGate(ctx, dir, stacks, base, changed, cfgPath)
-	return r.Gates, r.Categories, r.Moving, r.Report, err
+	return r.Gates, r.Categories, r.Counts, r.Moving, r.Report, err
 }
 
 // classifyResult is the full output of a classify pass.
@@ -36,6 +36,7 @@ type classifyResult struct {
 	Gates        []events.GateTarget
 	Categories   map[string][]events.Category
 	Moving       []string
+	Counts       map[string]events.Counts
 	Report       string
 	StackReports map[string]string
 }
@@ -111,12 +112,14 @@ func renderClassification(dir string, stacks []string, cfgPath string) (classify
 		Gates:        []events.GateTarget{},
 		Categories:   map[string][]events.Category{},
 		Moving:       []string{},
+		Counts:       map[string]events.Counts{},
 		Report:       report,
 		StackReports: stackReports,
 	}
 	if data, e := os.ReadFile(sidecar); e == nil {
 		res.Gates, res.Moving, _ = gatesFromSidecar(data, gatingClasses(resolvedCfg, dir))
 		res.Categories, _ = categoriesFromSidecar(data)
+		res.Counts, _ = countsFromSidecar(data)
 	}
 	return res, nil
 }
