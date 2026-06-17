@@ -13,8 +13,9 @@ import (
 
 // handleGitHubWebhook receives GitHub webhook events at POST /github/webhook.
 // Disabled (404) when GitHubWebhookSecret is empty. On a pull_request.closed
-// event it revokes all open grants for the PR across every environment, handling
-// both unmerged orphans and merged-PR defense-in-depth.
+// event it revokes orphaned grants only for an abandoned (closed-unmerged) PR;
+// a merged PR's grant is left for its post-merge apply (released by
+// ApplySucceeded, PAM TTL as backstop).
 func (a *App) handleGitHubWebhook(w http.ResponseWriter, r *http.Request) {
 	if a.cfg.GitHubWebhookSecret == "" {
 		http.Error(w, "not found", http.StatusNotFound)
@@ -40,7 +41,8 @@ func (a *App) handleGitHubWebhook(w http.ResponseWriter, r *http.Request) {
 	var payload struct {
 		Action      string `json:"action"`
 		PullRequest struct {
-			Number int `json:"number"`
+			Number int  `json:"number"`
+			Merged bool `json:"merged"`
 		} `json:"pull_request"`
 	}
 	if err := json.Unmarshal(body, &payload); err != nil {
@@ -57,7 +59,14 @@ func (a *App) handleGitHubWebhook(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid PR number", http.StatusBadRequest)
 		return
 	}
-	log.Printf("webhook: PR #%d closed — revoking orphaned grants", pr)
+	if payload.PullRequest.Merged {
+		// A merged PR's grant is consumed by the post-merge apply (released by
+		// ApplySucceeded, PAM TTL as backstop) — do NOT orphan-revoke it.
+		log.Printf("webhook: PR #%d merged — leaving grant for the apply", pr)
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	log.Printf("webhook: PR #%d abandoned — revoking orphaned grants", pr)
 	a.revokeOrphans(r.Context(), pr)
 	w.WriteHeader(http.StatusNoContent)
 }
