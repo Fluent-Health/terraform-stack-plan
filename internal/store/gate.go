@@ -144,6 +144,47 @@ func SetTargetRequester(db *sql.DB, pr int, environment, requester string) error
 	return err
 }
 
+// OpenGrantPR is a PR that still holds at least one open (non-terminal) grant,
+// paired with the repo of its latest execution (for the orphan sweep's GitHub
+// closed-state check). Repo is "" when no execution row exists.
+type OpenGrantPR struct {
+	PR   int
+	Repo string
+}
+
+// OpenGrantPRs returns every PR with at least one gate target in an open state
+// (AWAITING/ACTIVATING/ACTIVE), each paired with its latest execution's repo.
+// Unlike PendingGates it INCLUDES fully-ACTIVE (Satisfied) gates — the merged-PR
+// orphan whose grants were never revoked — which is exactly what the sweep must
+// re-examine. Terminal states (DENIED/REVOKED/EXPIRED) are deliberately excluded:
+// those grants are no longer live, so the sweep has nothing to revoke for them
+// (an EXPIRED grant the reconciler may later re-arm becomes AWAITING again — open
+// — and is caught on the next sweep). A PR is one row regardless of how many
+// environments hold open grants (GROUP BY pr); revokeOrphans handles every env.
+func OpenGrantPRs(db *sql.DB) ([]OpenGrantPR, error) {
+	rows, err := db.Query(
+		`SELECT gt.pr,
+		        COALESCE((SELECT e.repo FROM executions e
+		                  WHERE e.pr = gt.pr ORDER BY e.created_at DESC, e.id DESC LIMIT 1), '')
+		 FROM gate_targets gt
+		 WHERE gt.state IN ('AWAITING','ACTIVATING','ACTIVE')
+		 GROUP BY gt.pr
+		 ORDER BY gt.pr`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []OpenGrantPR{}
+	for rows.Next() {
+		var p OpenGrantPR
+		if err := rows.Scan(&p.PR, &p.Repo); err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
 // DeleteTarget removes a single gate target row.
 func DeleteTarget(tx *sql.Tx, pr int, environment, class, target string) error {
 	_, err := tx.Exec(

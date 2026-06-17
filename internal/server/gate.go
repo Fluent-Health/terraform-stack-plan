@@ -302,6 +302,57 @@ func (a *App) handleGateRevoke(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
+// sweepOrphanedGrants revokes grants left open on a closed/merged PR that escaped
+// the close webhook and post-apply cleanup. For each PR still holding an open
+// grant it checks the PR's GitHub state and, if closed, runs the same revoke path
+// as the webhook (revokeOrphans). Conservative on uncertainty: a PRClosed error
+// leaves the grant alone — never revoke an open PR's grant on a transient blip.
+// Best-effort and idempotent; safe to run periodically.
+func (a *App) sweepOrphanedGrants(ctx context.Context) {
+	prs, err := store.OpenGrantPRs(a.db)
+	if err != nil {
+		log.Printf("sweep: list open-grant PRs: %v", err)
+		return
+	}
+	for _, p := range prs {
+		if p.Repo == "" {
+			// No execution on record → no repo to ask GitHub about. Skip (can't
+			// confirm closed); the next reconcile/finalize re-establishes the repo.
+			log.Printf("sweep: PR #%d has open grants but no execution repo — skipping", p.PR)
+			continue
+		}
+		closed, cerr := a.gh.PRClosed(ctx, p.Repo, p.PR)
+		if cerr != nil {
+			log.Printf("sweep: PRClosed(repo=%s pr=%d): %v", p.Repo, p.PR, cerr)
+			continue
+		}
+		if closed {
+			log.Printf("sweep: PR #%d (repo=%s) is closed but holds open grants — revoking", p.PR, p.Repo)
+			a.revokeOrphans(ctx, p.PR)
+		}
+	}
+}
+
+// OrphanSweepLoop periodically runs sweepOrphanedGrants until ctx is cancelled.
+// Slower cadence than ReconcileLoop: it calls the GitHub API per open-grant PR
+// and orphan cleanup is not time-critical. No-op without an approval backend or
+// GitHub client.
+func (a *App) OrphanSweepLoop(ctx context.Context, interval time.Duration) {
+	if a.Approval == nil || a.gh == nil {
+		return
+	}
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			a.sweepOrphanedGrants(ctx)
+		}
+	}
+}
+
 // ReconcileLoop periodically re-evaluates every not-yet-ACTIVE gate, so a grant
 // that goes ACTIVE after the request (the common case) converges to success even
 // with no provider event. No-op without a backend. Blocks until ctx is cancelled.
