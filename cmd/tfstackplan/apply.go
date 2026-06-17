@@ -125,12 +125,12 @@ func runApply(args []string) int {
 	//    the serve DB was wiped since the PR's plan ran. Best-effort: a classify
 	//    failure must not strand a recoverable apply — the fail-closed GateCheck
 	//    below is the real guard.
-	gates, categories, _, moving, report, cerr := classifyForGateFn(ctx, *dir, stacks, *base, *changed, *cfgPath)
+	gates, categories, counts, moving, report, cerr := classifyForGateFn(ctx, *dir, stacks, *base, *changed, *cfgPath)
 	if cerr != nil {
 		fmt.Fprintln(os.Stderr, "tfstackplan run apply: classify pass failed (continuing to gate check):", cerr)
 	} else {
 		_ = client.Finalize(ctx, events.Finalize{
-			ID: execID, ReportMarkdown: report, Gates: gates, Categories: categories, Moving: moving,
+			ID: execID, ReportMarkdown: report, Gates: gates, Categories: categories, Counts: counts, Moving: moving,
 		})
 	}
 
