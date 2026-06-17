@@ -174,18 +174,21 @@ func TestRequestGrantUsesHintedRequester(t *testing.T) {
 	}
 }
 
-func TestRequestGrantRejectsWhitespaceEnvWithoutIO(t *testing.T) {
+func TestRequestGrantRejectsBadEnvWithoutIO(t *testing.T) {
 	// A non-round-trippable environment is rejected before any backend call, so no
 	// grant carrying a corrupt justification is ever created.
 	b := fakePAM(t, func(w http.ResponseWriter, r *http.Request) {
 		t.Fatalf("RequestGrant must reject a bad environment before any HTTP call; got %s %s", r.Method, r.URL.Path)
 	})
-	_, err := b.RequestGrant(context.Background(), approval.Request{Class: "iam", Target: "proj-a", PR: 7, Environment: "stag ing"})
-	if err == nil {
-		t.Fatal("RequestGrant must error on a whitespace environment")
+	for _, env := range []string{"stag ing", ""} {
+		if _, err := b.RequestGrant(context.Background(), approval.Request{Class: "iam", Target: "proj-a", PR: 7, Environment: env}); err == nil {
+			t.Fatalf("RequestGrant must error on environment %q", env)
+		}
 	}
-	if !strings.Contains(err.Error(), "whitespace") {
-		t.Errorf("error should mention whitespace, got: %v", err)
+	// The whitespace case names the cause for the operator.
+	_, err := b.RequestGrant(context.Background(), approval.Request{Class: "iam", Target: "proj-a", PR: 7, Environment: "stag ing"})
+	if err == nil || !strings.Contains(err.Error(), "whitespace") {
+		t.Errorf("whitespace error should mention whitespace, got: %v", err)
 	}
 }
 

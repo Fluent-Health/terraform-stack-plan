@@ -132,8 +132,11 @@ func parsePRenv(j string) (pr int, environment string, ok bool) {
 // validEnvironment rejects an environment that cannot round-trip through the
 // grant justification ("PR #<n> env=<env>", parsed back with the env=(\S+)
 // token): it must be non-empty and contain no whitespace. Empty yields no \S+
-// match; embedded whitespace truncates the match — either way grant correlation
-// (reuse/revoke) silently misses the grant.
+// match; ASCII whitespace truncates the match — either way grant correlation
+// (reuse/revoke) silently misses the grant. unicode.IsSpace is intentionally a
+// superset of RE2's ASCII \s (it also rejects Unicode spaces like U+00A0): being
+// stricter than the parser is the safe direction — a real slug (staging/prod)
+// has none of these.
 func validEnvironment(env string) error {
 	if env == "" {
 		return fmt.Errorf("gcppam: environment must not be empty")
