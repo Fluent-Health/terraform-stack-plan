@@ -841,10 +841,26 @@ live progress through the stages, re-rendered on each refresh); the optional
 **approval panel**; a **stack list grouped by Google project** (`groupByProject`
 on `StackState.Project`), each row a per-state colour label + op count + risk
 badges, linking to its detail anchor; a **single selected-stack detail pane** that
-swaps via CSS `:target` (only the clicked stack shows — its rendered plan diff or a
-recent log excerpt, from the stored `stack_outputs`, with a `full log ↗` link to
-the per-stack page; empty until a row is selected); and a **demoted collapsible
-dependency graph**.
+swaps via CSS `:target` (only the clicked stack shows; empty until a row is
+selected) — DaisyUI tabs (**Result · Log · Validation**, apply-only) over the
+stack's `stack_outputs`; and a **demoted collapsible dependency graph**.
+
+**Selected-stack tabs + live log streaming (PR #84).** The separate per-stack page
+(`stack.gohtml`/`handleStackDetail`) is retired — the overview pane is the only
+detail surface. Per stack: **Result** is the native plan diff (`renderMarkdown` of
+the stored `plan` output; a shimmer skeleton while a running stack hasn't produced
+it yet), **Log** is the stack's log, and **Validation** (apply with a verify run)
+the verify log. Tabs are DaisyUI's label-wrapped radios (CSS-only switch). An
+inline JS module keys off the location hash: on select it opens **one**
+`EventSource` to `/logs/{exec}/{stack}?follow=1` for that stack (closing the prior),
+parses ANSI SGR colour/bold into `<span class="a-*">` on the softened `.term`
+surface (HTML-escaping every byte first — logs are attacker-influenceable), and
+shows a pulsing **"● live"** dot on the Log tab while the exec is running. Finished/
+Validation panes (`data-log-url` only) are fetched once. Log chunks publish to a
+separate SSE topic from the page's `changed` events, so the watched log streams
+smoothly between state transitions; a `changed` reload re-renders the truthful state
+(e.g. drops the live dot once the run finishes) and the selected stack re-streams
+via the hash. A `raw log ↗` link points at the plain-text `/logs/{exec}/{stack}`.
 
 Styling is **DaisyUI components** (`card`, `badge`, `menu`, `collapse`) on a custom
 DaisyUI **theme** (`briefing`) that maps the palette onto the semantic colour slots
@@ -859,9 +875,9 @@ un-escaped (`template.HTML`); everything else auto-escapes.
 
 The live page subscribes to `GET /live/<id>/events` (SSE; `changed` on every state
 mutation) via an inline `EventSource` and debounce-reloads after 800 ms; the 10s
-`<meta refresh>` is the `<noscript>` fallback. Client-side partial re-render (no
-full reload) and the per-stack page redesign (streaming logs + apply/validation
-tabs) are later phases.
+`<meta refresh>` is the `<noscript>` fallback (streaming logs are exempt, above).
+Client-side partial re-render (no full reload of the whole page on every change)
+is a later phase.
 
 **Approval gate** (see [PR #23](https://github.com/Fluent-Health/terraform-stack-plan/pull/23)).
 `internal/approval` defines the provider-neutral gate abstraction: a `Backend`

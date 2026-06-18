@@ -90,3 +90,42 @@
 .stack-detail:target { display: block; }
 .detail-empty { display: none; }
 .detail-wrap:not(:has(:target)) .detail-empty { display: block; }
+
+/* Streamed log surface — a comfortable dark terminal (not white-on-black), with
+   ANSI SGR colours mapped to a muted set. The streaming JS emits <span class="a-*">
+   per coloured run; all log bytes are HTML-escaped before insertion. */
+.term {
+  background: #1f2733; color: #cbd3df;
+  border-radius: 8px; padding: 10px 12px;
+  font-family: var(--font-mono); line-height: 1.55;
+  white-space: pre-wrap; overflow: auto;
+}
+.term .a-red { color: #f0897c; }
+.term .a-green { color: #5fd39a; }
+.term .a-yellow { color: #ecc56a; }
+.term .a-blue { color: #6fb2ee; }
+.term .a-magenta { color: #c79bf0; }
+.term .a-cyan { color: #5fd0d6; }
+.term .a-grey { color: #8b95a3; }
+.term .a-bold { font-weight: 600; }
+
+/* "connected live" dot on the Log tab while the exec is streaming. */
+.live-dot {
+  display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--color-success); vertical-align: middle;
+  margin-inline-start: 5px;
+  animation: tfsp-pulse 1.3s ease-in-out infinite;
+}
+@keyframes tfsp-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+
+/* Skeleton shimmer for the Result tab while the plan isn't ready yet. */
+.shimmer {
+  background: linear-gradient(90deg, #eef0f3 25%, #e1e4ea 37%, #eef0f3 63%);
+  background-size: 400% 100%;
+  animation: tfsp-shimmer 1.4s ease infinite;
+}
+@keyframes tfsp-shimmer { 0% { background-position: 100% 0; } 100% { background-position: 0 0; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .live-dot, .shimmer { animation: none; }
+}

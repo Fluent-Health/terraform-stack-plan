@@ -96,11 +96,26 @@
               <span class="font-mono text-sm font-semibold">{{ .Path }}</span>
               <span class="text-xs font-semibold sl-{{ .State.CSS }}">{{ .State.Label }}</span>
               {{ range .Risks }}<span class="badge badge-xs {{ if eq .CSS "danger" }}badge-error{{ else }}badge-warning{{ end }}">{{ .Label }}</span>{{ end }}
-              <a class="ml-auto text-xs text-primary" href="{{ .DetailURL }}">full log ↗</a>
+              <a class="ml-auto text-xs text-primary" href="{{ .DetailURL }}" target="_blank" rel="noopener">raw log ↗</a>
             </div>
-            {{ if .Detail }}<div class="tfsp-report">{{ .Detail }}</div>
-            {{ else if .LogExcerpt }}<pre class="tfsp-diff text-xs whitespace-pre-wrap max-h-[60vh] overflow-auto">{{ .LogExcerpt }}</pre>
-            {{ else }}<p class="italic text-base-content/40 text-sm">No output yet — still running.</p>{{ end }}
+            <div class="tabs tabs-lift">
+              <label class="tab"><input type="radio" name="tab-{{ .Anchor }}" checked>Result</label>
+              <div class="tab-content border-base-300 p-3">
+                {{ if .Detail }}<div class="tfsp-report">{{ .Detail }}</div>
+                {{ else if .Follow }}<div class="shimmer h-24 w-full rounded"></div><p class="italic text-base-content/40 text-xs mt-2">Planning…</p>
+                {{ else }}<p class="italic text-base-content/40 text-sm">No plan recorded for this stack.</p>{{ end }}
+              </div>
+              <label class="tab">Log{{ if .Follow }}<span class="live-dot" title="streaming live"></span>{{ end }}<input type="radio" name="tab-{{ .Anchor }}"></label>
+              <div class="tab-content border-base-300 p-3">
+                <pre class="term text-xs" style="max-height:60vh" data-stack="{{ .Path }}" data-log-url="/logs/{{ $.Exec }}/{{ .Path }}"{{ if .Follow }} data-follow-url="/logs/{{ $.Exec }}/{{ .Path }}?follow=1"{{ end }}>{{ .LogExcerpt }}</pre>
+              </div>
+              {{ if eq $.PhaseAccent "apply" }}{{ if $.VerifyExec }}
+              <label class="tab">Validation{{ if not $.Finished }}<span class="live-dot" title="streaming live"></span>{{ end }}<input type="radio" name="tab-{{ .Anchor }}"></label>
+              <div class="tab-content border-base-300 p-3">
+                <pre class="term text-xs" style="max-height:60vh" data-log-url="/logs/{{ $.VerifyExec }}/{{ .Path }}"{{ if not $.Finished }} data-follow-url="/logs/{{ $.VerifyExec }}/{{ .Path }}?follow=1"{{ end }}></pre>
+              </div>
+              {{ end }}{{ end }}
+            </div>
           </section>
           {{ end }}{{ end }}
         </div>
@@ -118,12 +133,69 @@
     </div>
   </main>
   <script>
+    // Page-level live refresh: reload on any execution STATE change (a stack
+    // starts/finishes, gate changes). Log chunks publish to a different SSE topic,
+    // so they don't trigger this — the watched log streams smoothly between
+    // transitions, and a reload re-renders the truthful state (e.g. drops the Log
+    // tab's live dot once the run finishes). The selected stack re-streams via the
+    // hash after reload.
     (function () {
       try {
         var es = new EventSource(location.pathname.replace(/\/$/, "") + "/events");
         var t;
         es.onmessage = function () { clearTimeout(t); t = setTimeout(function () { location.reload(); }, 800); };
       } catch (e) { /* no EventSource → the noscript meta-refresh covers it */ }
+    })();
+  </script>
+  <script>
+    // Selected-stack log: clicking a row sets the hash (CSS :target shows the
+    // pane); this opens ONE EventSource for that stack's log, closing the prior.
+    // ANSI SGR colours are parsed client-side into <span class="a-*">; all log
+    // bytes are HTML-escaped before insertion (logs are attacker-influenceable).
+    (function () {
+      var es = null, cur = null;
+      var MAP = {31:'a-red',32:'a-green',33:'a-yellow',34:'a-blue',35:'a-magenta',36:'a-cyan',90:'a-grey',
+                 91:'a-red',92:'a-green',93:'a-yellow',94:'a-blue',95:'a-magenta',96:'a-cyan'};
+      function esc(s){ return s.replace(/[&<>]/g, function (c){ return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c]; }); }
+      function cls(codes){ var c=[]; codes.split(';').forEach(function(n){ n=+n; if(n===1)c.push('a-bold'); else if(MAP[n])c.push(MAP[n]); }); return c.join(' '); }
+      function ansi(line){
+        var out='', open=0, re=/\x1b\[([0-9;]*)m/g, last=0, m;
+        while ((m=re.exec(line))){
+          out+=esc(line.slice(last,m.index)); last=re.lastIndex;
+          if (open){ out+='</span>'; open=0; }
+          var codes=m[1]||'0';
+          if (codes!=='0' && codes!==''){ var c=cls(codes); if(c){ out+='<span class="'+c+'">'; open=1; } }
+        }
+        out+=esc(line.slice(last)); if (open) out+='</span>';
+        return out;
+      }
+      window.__tfspAnsi = ansi;
+      function append(pre, data){ pre.insertAdjacentHTML('beforeend', ansi(data)+'\n'); pre.scrollTop = pre.scrollHeight; }
+      function close(){ if (es){ es.close(); es=null; } }
+      function stream(id){
+        close(); cur=id;
+        var pane = id && document.getElementById(id); if (!pane) return;
+        var pre = pane.querySelector('pre[data-follow-url]'); if (!pre) return;
+        pre.textContent=''; // the SSE replays the buffer from the start
+        try {
+          es = new EventSource(pre.dataset.followUrl);
+          es.onmessage = function (e){ if (cur===id) append(pre, e.data); };
+          es.onerror = function (){ /* keep the buffer already shown; EventSource auto-retries */ };
+        } catch (_) { /* no EventSource → the seeded excerpt remains */ }
+      }
+      // finished/validation panes have only data-log-url → fetch once when shown.
+      function staticFill(id){
+        var pane = id && document.getElementById(id); if (!pane) return;
+        pane.querySelectorAll('pre[data-log-url]:not([data-follow-url])').forEach(function (pre){
+          if (pre.dataset.filled) return; pre.dataset.filled='1';
+          fetch(pre.dataset.logUrl).then(function (r){ return r.ok ? r.text() : ''; }).then(function (t){
+            pre.innerHTML = t.split('\n').map(window.__tfspAnsi).join('\n');
+          }).catch(function (){});
+        });
+      }
+      function onHash(){ var h = location.hash.slice(1); stream(h); staticFill(h); }
+      window.addEventListener('hashchange', onHash);
+      if (location.hash) onHash();
     })();
   </script>
 </body>

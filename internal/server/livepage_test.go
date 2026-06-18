@@ -185,7 +185,7 @@ func TestLivePageStackListAndTimeline(t *testing.T) {
 		"menu menu-sm",
 		`<svg id="dag">`, // DAG injected
 		"collapse-arrow", // DaisyUI collapse for the demoted DAG
-		"/live/e1/stack/stacks/a",
+		"/logs/e1/stacks/a",
 	} {
 		if !strings.Contains(html, want) {
 			t.Errorf("live page missing %q", want)
@@ -219,9 +219,16 @@ func TestLivePageBriefingBand(t *testing.T) {
 		`⚠ Destructive`,
 		`⚿ IAM`, `⚠ destructive`, // per-stack risk badges
 		`menu menu-sm`,
-		`href="/live/e1/stack/prod/api"`, // whole row is the link
-		`tfsp-report`,                    // report still rendered
-		`fonts.googleapis.com`,           // Google Fonts link
+		`href="/logs/e1/prod/api"`,  // detail "raw log ↗" → raw log endpoint
+		`tfsp-report`,               // Result tab renders the plan diff
+		`tabs tabs-lift`,            // DaisyUI tabs (label-wrapped radios)
+		`<label class="tab"`,        // label-wrapped tab (hosts the live dot)
+		`Log<span class="live-dot"`, // "connected live" dot on the Log tab (running exec)
+		`class="shimmer`,            // Result shimmer for a not-yet-planned stack (stg/db)
+		`class="term`,               // softened log surface
+		`data-follow-url="/logs/e1/prod/api?follow=1"`, // running exec → live stream
+		`window.__tfspAnsi`,                            // client-side ANSI parser present
+		`fonts.googleapis.com`,                         // Google Fonts link
 	} {
 		if !strings.Contains(html, want) {
 			t.Errorf("briefing live page missing %q", want)
