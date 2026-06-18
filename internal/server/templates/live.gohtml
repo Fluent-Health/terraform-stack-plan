@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" data-theme="light">
+<html lang="en" data-theme="briefing" class="scroll-smooth">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -13,14 +13,15 @@
 </head>
 <body class="min-h-screen bg-base-200">
   <main class="mx-auto w-full max-w-4xl px-4 py-6">
-    <div class="viewer-app">
+    <div class="card bg-base-100 border border-base-300 shadow-sm">
 
-      <div class="viewer-head">
-        <div class="crumb">
+      <!-- header -->
+      <div class="p-5 border-b border-base-300">
+        <div class="flex items-center gap-2 flex-wrap font-mono text-xs text-base-content/60 mb-2">
           <span>{{ .Repo }}</span>
-          {{ if gt .PR 0 }}· <a class="pnum" href="https://github.com/{{ .Repo }}/pull/{{ .PR }}">#{{ .PR }}</a>{{ end }}
-          {{ if .ShortSHA }}· <span class="sha">{{ .ShortSHA }}</span>{{ end }}
-          <span class="spacer">
+          {{ if gt .PR 0 }}<span>·</span><a class="text-primary" href="https://github.com/{{ .Repo }}/pull/{{ .PR }}">#{{ .PR }}</a>{{ end }}
+          {{ if .ShortSHA }}<span>·</span><span class="bg-base-200 rounded px-1.5">{{ .ShortSHA }}</span>{{ end }}
+          <span class="ml-auto flex gap-3">
             {{ if gt .PR 0 }}
             <a href="https://github.com/{{ .Repo }}/pull/{{ .PR }}" target="_blank" rel="noopener">PR ↗</a>
             <a href="https://github.com/{{ .Repo }}/pull/{{ .PR }}/checks" target="_blank" rel="noopener">Checks ↗</a>
@@ -29,62 +30,89 @@
             {{ end }}
           </span>
         </div>
-        <div class="viewer-title">{{ .Title }} <span class="phase-pill phase-{{ .PhaseAccent }}">{{ .PhaseLabel }}{{ if .Elapsed }} · {{ .Elapsed }}{{ end }}</span></div>
+        <h1 class="font-display text-xl font-bold flex items-center gap-3 flex-wrap">
+          {{ .Title }}
+          <span class="badge badge-sm font-mono tracking-wide {{ if eq .PhaseAccent "apply" }}badge-primary{{ else }}badge-secondary{{ end }}">{{ .PhaseLabel }}{{ if .Elapsed }} · {{ .Elapsed }}{{ end }}</span>
+        </h1>
       </div>
 
-      <div class="verdict-band">
-        <div class="verdict-nums">
+      <!-- verdict counts + progress -->
+      <div class="p-5 bg-base-200/40 border-b border-base-300 flex flex-col gap-3">
+        <div class="flex items-center gap-5 flex-nowrap overflow-x-auto">
           {{ with .Verdict }}
-          {{ if .Add }}<div class="stat add"><span class="n">+{{ .Add }}</span><span class="l">add</span></div>{{ end }}
-          {{ if .Change }}<div class="stat chg"><span class="n">~{{ .Change }}</span><span class="l">change</span></div>{{ end }}
-          {{ if .Replace }}<div class="stat rep"><span class="n">±{{ .Replace }}</span><span class="l">replace</span></div>{{ end }}
-          {{ if .Destroy }}<div class="stat del"><span class="n">−{{ .Destroy }}</span><span class="l">destroy</span></div>{{ end }}
-          {{ if .Move }}<div class="stat mov"><span class="n">↔{{ .Move }}</span><span class="l">move</span></div>{{ end }}
+          {{ if .Add }}<div class="flex flex-col shrink-0"><span class="font-display text-2xl font-bold leading-none text-success">+{{ .Add }}</span><span class="text-[10px] uppercase tracking-wide text-base-content/50">add</span></div>{{ end }}
+          {{ if .Change }}<div class="flex flex-col shrink-0"><span class="font-display text-2xl font-bold leading-none text-warning">~{{ .Change }}</span><span class="text-[10px] uppercase tracking-wide text-base-content/50">change</span></div>{{ end }}
+          {{ if .Replace }}<div class="flex flex-col shrink-0"><span class="font-display text-2xl font-bold leading-none text-accent">±{{ .Replace }}</span><span class="text-[10px] uppercase tracking-wide text-base-content/50">replace</span></div>{{ end }}
+          {{ if .Destroy }}<div class="flex flex-col shrink-0"><span class="font-display text-2xl font-bold leading-none text-error">−{{ .Destroy }}</span><span class="text-[10px] uppercase tracking-wide text-base-content/50">destroy</span></div>{{ end }}
+          {{ if .Move }}<div class="flex flex-col shrink-0"><span class="font-display text-2xl font-bold leading-none text-info">↔{{ .Move }}</span><span class="text-[10px] uppercase tracking-wide text-base-content/50">move</span></div>{{ end }}
           {{ end }}
+          {{ if .IAMCount }}<div class="flex flex-col shrink-0"><span class="font-display text-2xl font-bold leading-none text-warning">⚿{{ .IAMCount }}</span><span class="text-[10px] uppercase tracking-wide text-base-content/50">iam</span></div>{{ end }}
+          {{ if .Destructive }}<span class="badge badge-sm badge-error shrink-0">⚠ Destructive</span>{{ end }}
         </div>
-        <div class="blast-wrap">
-          <div class="blast-label"><span>Blast radius</span><b>{{ .Verdict.TotalOps }} operations · {{ .StackCount }} stacks</b></div>
-          <div class="blast-bar">
-            {{ range .Blast }}<span class="blast-seg {{ .KindClass }}{{ if .Failed }} is-failed{{ else if not .Done }} is-pending{{ end }}" style="flex:{{ .Flex }}"></span>{{ end }}
-          </div>
-          <div class="chips">
-            {{ if .Destructive }}<span class="chip dl">⚠ Destructive</span>{{ end }}
-            {{ if .IAM }}<span class="chip iam">⚿ IAM changes</span>{{ end }}
-            <span class="chip ops">{{ .Verdict.TotalOps }} operations</span>
+        <div>
+          <div class="flex justify-between text-xs text-base-content/50 mb-1.5"><span>Progress</span><span class="font-mono text-base-content">{{ .Verdict.TotalOps }} operations · {{ .StackCount }} stacks</span></div>
+          <div class="progress-bar">
+            {{ range .Progress }}<span class="bar-seg bs-{{ .StateCSS }}" style="flex:{{ .Flex }}"></span>{{ end }}
           </div>
         </div>
       </div>
 
-      {{ if .Panel }}<div class="viewer-section">{{ .Panel }}</div>{{ end }}
+      {{ if .Panel }}<div class="p-5 border-b border-base-300">{{ .Panel }}</div>{{ end }}
 
-      <div class="viewer-section">
-        <div class="viewer-section-title">Stacks</div>
+      <!-- stacks, grouped by Google project -->
+      <div class="p-5 border-b border-base-300">
+        <h2 class="text-xs font-semibold uppercase tracking-wide text-base-content/50 mb-3">Stacks</h2>
         {{ range .Groups }}
-        <div class="proj-group">
-          <div class="proj-head"><span class="proj-name">{{ .Name }}</span><span class="proj-count">{{ len .Stacks }}</span></div>
-          {{ range .Stacks }}
-          <div class="stack-row">
-            <span class="state-label state-{{ .State.CSS }}">{{ .State.Label }}</span>
-            <span class="path"><a href="/live/{{ $.Exec }}/stack/{{ .Path }}">{{ .Path }}</a></span>
-            {{ range .Risks }}<span class="risk-tag {{ .CSS }}">{{ .Label }}</span>{{ end }}
-            <span class="op-count">{{ .Ops }}</span>
+        <div class="mb-3 last:mb-0">
+          <div class="flex items-center gap-3 px-1 mb-1">
+            <span class="font-mono text-sm font-semibold text-base-content/80">{{ .Name }}</span>
+            <span class="ml-auto font-mono text-xs text-base-content/50">{{ len .Stacks }}</span>
           </div>
-          {{ end }}
+          <ul class="menu menu-sm w-full gap-0.5 p-0">
+            {{ range .Stacks }}
+            <li>
+              <a class="flex items-center gap-3.5" href="#{{ .Anchor }}">
+                <span class="w-28 shrink-0 font-semibold sl-{{ .State.CSS }}">{{ .State.Label }}</span>
+                <span class="flex-1 font-mono text-sm">{{ .Path }}</span>
+                {{ range .Risks }}<span class="badge badge-xs {{ if eq .CSS "danger" }}badge-error{{ else }}badge-warning{{ end }}">{{ .Label }}</span>{{ end }}
+                <span class="w-12 text-right font-mono text-xs text-base-content/50">{{ .Ops }}</span>
+              </a>
+            </li>
+            {{ end }}
+          </ul>
         </div>
         {{ end }}
       </div>
 
-      <div class="viewer-section">
-        <details class="dag-accordion">
-          <summary>Dependency graph</summary>
-          <div class="dag-body">{{ .SVG }}</div>
-        </details>
+      <!-- selected-stack detail: clicking a row above swaps this ONE pane
+           (CSS :target — only the selected stack shows; first shows by default) -->
+      <div class="p-5 border-b border-base-300">
+        <h2 class="text-xs font-semibold uppercase tracking-wide text-base-content/50 mb-3">{{ if eq .PhaseAccent "apply" }}Apply detail{{ else }}Plan detail{{ end }}</h2>
+        <div class="detail-wrap">
+          <p class="detail-empty italic text-base-content/40 text-sm">Select a stack above to view its plan or log.</p>
+          {{ range .Groups }}{{ range .Stacks }}
+          <section id="{{ .Anchor }}" class="stack-detail scroll-mt-4">
+            <div class="flex items-center gap-3 mb-2">
+              <span class="font-mono text-sm font-semibold">{{ .Path }}</span>
+              <span class="text-xs font-semibold sl-{{ .State.CSS }}">{{ .State.Label }}</span>
+              {{ range .Risks }}<span class="badge badge-xs {{ if eq .CSS "danger" }}badge-error{{ else }}badge-warning{{ end }}">{{ .Label }}</span>{{ end }}
+              <a class="ml-auto text-xs text-primary" href="{{ .DetailURL }}">full log ↗</a>
+            </div>
+            {{ if .Detail }}<div class="tfsp-report">{{ .Detail }}</div>
+            {{ else if .LogExcerpt }}<pre class="tfsp-diff text-xs whitespace-pre-wrap max-h-[60vh] overflow-auto">{{ .LogExcerpt }}</pre>
+            {{ else }}<p class="italic text-base-content/40 text-sm">No output yet — still running.</p>{{ end }}
+          </section>
+          {{ end }}{{ end }}
+        </div>
       </div>
 
-      <div class="viewer-section">
-        <div class="viewer-section-title">{{ if eq .PhaseAccent "apply" }}Apply report{{ else }}Plan report{{ end }}</div>
-        {{ if .Report }}<div class="tfsp-report">{{ .ReportHTML }}</div>
-        {{ else }}<p style="color:var(--c-muted);font-style:italic">Still running — the report appears here when it completes.</p>{{ end }}
+      <!-- dependency graph (demoted, reference) -->
+      <div class="p-5">
+        <div class="collapse collapse-arrow">
+          <input type="checkbox">
+          <div class="collapse-title min-h-0 px-0 py-0 font-semibold text-sm text-base-content/70">Dependency graph</div>
+          <div class="collapse-content px-0"><div class="flex justify-center pt-3">{{ .SVG }}</div></div>
+        </div>
       </div>
 
     </div>

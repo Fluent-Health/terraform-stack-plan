@@ -828,22 +828,40 @@ is a follow-on. Regen contract: the CSS is built in
 is the source of truth — `web/build.sh` regenerates it on demand; nothing in the
 Go build or CI runs node. (PR #TBD.)
 
-The live page builds on this shell with three reviewer-oriented sections, fed by
-pure view-helpers in `internal/server/livedata.go` and a `liveView` input struct
-in `livepage.go`. A **phase timeline** (DaisyUI `steps`) shows lifecycle progress
-(`phaseTimeline` marks phases done/active/todo relative to the execution's current
-phase). A **folding stack list** (`groupStacksByKey` — groups alphabetical) renders
-each stack as a status badge (`statusBadge`, registered as a template func), its
-path, and optional failure detail. The list is grouped by the **same path key as
-the group DAG** (`groupKey` at `GroupDepth` / `groupRE`), so expanding a group in
-the list drills into the stacks that make up the corresponding DAG node. The
-dependency-graph SVG sits in a **collapsible** strip. Stack paths/statuses/details
-and phase names are auto-escaped.
+**Live viewer — "Briefing" redesign (PR #83).** The live page is an operator
+console, assembled by pure view-helpers in `internal/server/livedata.go` into a
+typed `liveModel` (`buildLiveModel` in `livepage.go`) from a `liveView` input.
+Top to bottom: a **header** (repo · #PR · short SHA, the kind+environment title,
+and a phase pill — teal `PLANNING` / blue `APPLYING` with an elapsed clock from
+`Execution.CreatedAt`); a **verdict band** — a single-line op-count row
+(`+add ~change ±replace −destroy ↔move` plus a `⚿N` IAM count and a `⚠ Destructive`
+flag) over a full-width **segmented progress bar** whose segments are one-per-stack,
+flex-sized by ops and coloured by each stack's *current state* (so the bar tracks
+live progress through the stages, re-rendered on each refresh); the optional
+**approval panel**; a **stack list grouped by Google project** (`groupByProject`
+on `StackState.Project`), each row a per-state colour label + op count + risk
+badges, linking to its detail anchor; a **single selected-stack detail pane** that
+swaps via CSS `:target` (only the clicked stack shows — its rendered plan diff or a
+recent log excerpt, from the stored `stack_outputs`, with a `full log ↗` link to
+the per-stack page; empty until a row is selected); and a **demoted collapsible
+dependency graph**.
 
-The renderer/page are deliberately minimal — the richer UI v2
-(grouped/folding list, SSE log streaming, per-stack Log/Plan/Verify tabs,
-hand-rolled diff renderer, cluster containers, pan/zoom, dark toggle) is a
-separate later phase that replaces them behind the same routes.
+Styling is **DaisyUI components** (`card`, `badge`, `menu`, `collapse`) on a custom
+DaisyUI **theme** (`briefing`) that maps the palette onto the semantic colour slots
+(primary=apply, secondary=plan, success/warning/error/accent/info=op-kinds &
+states), plus Tailwind utilities. The *only* bespoke CSS is the segmented progress
+bar + the dynamic `bs-*`/`sl-*` state colours — authored as plain CSS in
+`web/input.css` (so they survive tree-shaking; the slug is built in Go and never
+appears as a literal for the scanner) but reading their colours from the theme
+slot vars, so there's one colour source of truth. Op counts come from Phase 1
+(`events.Counts` → `stacks.counts`). SVG and approval panel are injected
+un-escaped (`template.HTML`); everything else auto-escapes.
+
+The live page subscribes to `GET /live/<id>/events` (SSE; `changed` on every state
+mutation) via an inline `EventSource` and debounce-reloads after 800 ms; the 10s
+`<meta refresh>` is the `<noscript>` fallback. Client-side partial re-render (no
+full reload) and the per-stack page redesign (streaming logs + apply/validation
+tabs) are later phases.
 
 **Approval gate** (see [PR #23](https://github.com/Fluent-Health/terraform-stack-plan/pull/23)).
 `internal/approval` defines the provider-neutral gate abstraction: a `Backend`

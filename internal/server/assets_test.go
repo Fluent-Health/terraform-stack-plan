@@ -13,15 +13,20 @@ func TestEmbeddedCSSNonEmpty(t *testing.T) {
 	}
 }
 
-// TestBriefingComponentsInCSS guards that the hand-authored Briefing design-system
-// classes survived the Tailwind build (they are plain CSS in web/input.css so they
-// are never tree-shaken, even though state-*/op-* names are built dynamically in Go
-// and so never appear as literals for the scanner). If this fails, rerun web/build.sh.
+// TestBriefingComponentsInCSS guards the built stylesheet: the one bespoke piece
+// (the segmented progress bar + dynamic state-colour classes, plain CSS in
+// web/input.css so they survive tree-shaking) AND the DaisyUI components the
+// template relies on (emitted because the template references them literally).
+// If this fails, rerun web/build.sh after editing web/input.css or the template.
 func TestBriefingComponentsInCSS(t *testing.T) {
 	css := string(appCSS)
-	for _, cls := range []string{".blast-bar", ".blast-seg", ".state-applying", ".state-moving", ".phase-apply", ".phase-plan", ".risk-tag", ".op-count"} {
+	for _, cls := range []string{
+		".progress-bar", ".bar-seg", ".bs-applying", ".sl-applying", // bespoke progress + state colours
+		".stack-detail",                         // single-pane :target swap for selected-stack detail
+		".badge", ".menu", ".card", ".collapse", // DaisyUI components reused by the template
+	} {
 		if !strings.Contains(css, cls) {
-			t.Errorf("app.css missing %q — run web/build.sh after editing web/input.css", cls)
+			t.Errorf("app.css missing %q — run web/build.sh after editing web/input.css or the template", cls)
 		}
 	}
 }

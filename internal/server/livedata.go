@@ -70,54 +70,41 @@ func groupByProject(stacks []events.StackState) []stackGroup {
 	return groups
 }
 
-// blastSeg is one segment of the blast-radius bar: one stack, flex-sized by its
-// mutating-op total (min 1 so a 0-op stack still shows a sliver), colored by its
-// dominant op-kind, flagged Done/Failed by terminal status.
-type blastSeg struct {
-	Flex      int
-	KindClass string // op-add | op-change | op-replace | op-destroy | op-move
-	Done      bool
-	Failed    bool
+// progSeg is one segment of the progress bar: one stack, flex-sized by its
+// mutating-op total (min 1 so a 0-op stack still shows a sliver), colored by the
+// stack's CURRENT run-state — so the bar tracks live progress (each segment turns
+// its state colour as the stack advances), rather than a static op-kind breakdown.
+type progSeg struct {
+	Flex     int
+	StateCSS string // queued|initializing|planning|planned|applying|moving|applied|blocked|skipped|failed
 }
 
-func blastSegments(stacks []events.StackState, kind string) []blastSeg {
-	segs := make([]blastSeg, 0, len(stacks))
+func progressSegments(stacks []events.StackState, kind string) []progSeg {
+	segs := make([]progSeg, 0, len(stacks))
 	for _, s := range stacks {
-		flex, cls := 1, "op-add"
+		flex := 1
 		if s.Counts != nil {
 			if t := s.Counts.Add + s.Counts.Change + s.Counts.Destroy + s.Counts.Replace + s.Counts.Move; t > 0 {
 				flex = t
 			}
-			cls = dominantKindClass(s.Counts)
 		}
-		segs = append(segs, blastSeg{
-			Flex:      flex,
-			KindClass: cls,
-			Done:      s.Status == events.StatusSafe,
-			Failed:    s.Status == events.StatusFailed,
-		})
+		segs = append(segs, progSeg{Flex: flex, StateCSS: displayState(s.Status, kind).CSS})
 	}
 	return segs
 }
 
-// dominantKindClass picks the op-kind css class for a stack's largest bucket
-// (tie order add>change>replace>destroy>move). Falls back to op-add for zero.
-func dominantKindClass(c *events.Counts) string {
-	type kc struct {
-		n   int
-		cls string
-	}
-	order := []kc{{c.Add, "op-add"}, {c.Change, "op-change"}, {c.Replace, "op-replace"}, {c.Destroy, "op-destroy"}, {c.Move, "op-move"}}
-	best := order[0]
-	for _, k := range order[1:] {
-		if k.n > best.n {
-			best = k
+// iamCount is the number of stacks flagged with the gating "iam" category.
+func iamCount(stacks []events.StackState) int {
+	n := 0
+	for _, s := range stacks {
+		for _, c := range s.Categories {
+			if c.Name == "iam" {
+				n++
+				break
+			}
 		}
 	}
-	if best.n == 0 {
-		return "op-add"
-	}
-	return best.cls
+	return n
 }
 
 // riskTag is a per-stack risk chip (iam / destructive).

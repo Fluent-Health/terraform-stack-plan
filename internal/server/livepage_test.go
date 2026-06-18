@@ -37,8 +37,10 @@ func TestApprovalPanelStates(t *testing.T) {
 func TestLivePageRendersShell(t *testing.T) {
 	a := New(newServerTestDB(t), &MockGitHub{}, Config{})
 	html := a.livePage(liveView{
-		Repo: "octo/repo", Environment: "staging", Report: "PLAN_REPORT_BODY",
-		SVG: `<svg id="dag"></svg>`, Panel: `<div class="panel">P</div>`,
+		Repo: "octo/repo", Environment: "staging",
+		Stacks:       []events.StackState{{Path: "s1"}},
+		StackReports: map[string]string{"s1": "PLAN_REPORT_BODY"},
+		SVG:          `<svg id="dag"></svg>`, Panel: `<div class="panel">P</div>`,
 	})
 	for _, want := range []string{
 		`/assets/app.css`,                      // links the embedded stylesheet
@@ -62,7 +64,7 @@ func TestLivePageReportRenderedAsHTML(t *testing.T) {
 	a := New(newServerTestDB(t), &MockGitHub{}, Config{})
 	// Report with a GFM table, a details block, and a fenced diff block.
 	report := "| A | B |\n|---|---|\n| 1 | 2 |\n\n<details><summary>Expand</summary>inner</details>"
-	page := a.livePage(liveView{Repo: "r", Report: report})
+	page := a.livePage(liveView{Repo: "r", Stacks: []events.StackState{{Path: "s1"}}, StackReports: map[string]string{"s1": report}})
 	// Rendered HTML must contain real tags, not escaped entities.
 	if !strings.Contains(page, "<table") {
 		t.Error("report: expected rendered <table>, got escaped or missing")
@@ -176,13 +178,13 @@ func TestLivePageStackListAndTimeline(t *testing.T) {
 	})
 	for _, want := range []string{
 		"stacks/a", "stacks/b",
-		"state-label state-blocked", // gated stack
-		"state-label state-planned", // safe stack in a plan execution
-		`<div class="proj-head">`,   // grouped-by-project header
-		"proj-a",                    // project group name
-		"Plan",                      // kind label in the title
-		`<svg id="dag">`,            // DAG injected (in the demoted accordion)
-		"dag-accordion",
+		"sl-blocked", // gated stack → blocked label colour
+		"sl-planned", // safe stack in a plan execution
+		"proj-a",     // project group name
+		"Plan",       // kind label in the title
+		"menu menu-sm",
+		`<svg id="dag">`, // DAG injected
+		"collapse-arrow", // DaisyUI collapse for the demoted DAG
 		"/live/e1/stack/stacks/a",
 	} {
 		if !strings.Contains(html, want) {
@@ -196,27 +198,30 @@ func TestLivePageBriefingBand(t *testing.T) {
 	html := a.livePage(liveView{
 		Exec: "e1", Repo: "o/r", Environment: "nonprod", Context: "apply/nonprod",
 		Status: "in_progress", CreatedAt: time.Now().Add(-90 * time.Second),
-		Report: "## hi",
 		Stacks: []events.StackState{
 			{Path: "prod/api", Project: "fh-prod-host", Status: events.StatusRunning,
 				Counts: &events.Counts{Change: 8}, Categories: []events.Category{{Name: "iam"}}},
 			{Path: "stg/db", Project: "fh-staging-host", Status: events.StatusSafe,
 				Counts: &events.Counts{Destroy: 2}, Categories: []events.Category{{Name: "destructive"}}},
 		},
+		StackReports: map[string]string{"prod/api": "## prod/api\n~ google_cloud_run_service.api"},
 	})
 	for _, want := range []string{
-		`phase-pill phase-apply`,     // apply-phase accent
-		`APPLYING`,                   // phase label
-		`class="verdict-band"`,       // verdict band present
-		`class="blast-bar"`,          // signature blast-radius bar
-		`blast-seg op-change`,        // a change-coloured segment (prod/api)
-		`blast-seg op-destroy`,       // a destroy-coloured segment (stg/db)
-		`state-label state-applying`, // running apply → applying
-		`state-label state-applied`,  // safe apply → applied
-		`risk-tag iam`, `risk-tag danger`,
-		`class="chip iam">`, `class="chip dl">`, // IAM + destructive verdict chips
-		`tfsp-report`,          // report still rendered
-		`fonts.googleapis.com`, // Google Fonts link
+		`badge-primary`,        // apply-phase pill (DaisyUI badge, primary slot)
+		`APPLYING`,             // phase label
+		`class="progress-bar"`, // live progress bar (the one bespoke piece)
+		`bar-seg bs-applying`,  // segment coloured by current state (prod/api)
+		`bar-seg bs-applied`,   // applied segment (stg/db)
+		`sl-applying`,          // running apply → applying label colour
+		`sl-applied`,           // safe apply → applied
+		`text-warning">⚿1`,     // IAM count cell (warning slot)
+		`badge-error`,          // destructive flag → error badge
+		`⚠ Destructive`,
+		`⚿ IAM`, `⚠ destructive`, // per-stack risk badges
+		`menu menu-sm`,
+		`href="/live/e1/stack/prod/api"`, // whole row is the link
+		`tfsp-report`,                    // report still rendered
+		`fonts.googleapis.com`,           // Google Fonts link
 	} {
 		if !strings.Contains(html, want) {
 			t.Errorf("briefing live page missing %q", want)
@@ -252,11 +257,14 @@ func TestBuildLiveModel(t *testing.T) {
 	if m.Verdict.Change != 8 || m.Verdict.Destroy != 2 || m.Verdict.TotalOps != 10 {
 		t.Fatalf("verdict=%+v", m.Verdict)
 	}
-	if !m.Destructive || !m.IAM {
-		t.Fatalf("flags: destructive=%v iam=%v", m.Destructive, m.IAM)
+	if !m.Destructive || m.IAMCount != 1 {
+		t.Fatalf("flags: destructive=%v iamCount=%d", m.Destructive, m.IAMCount)
 	}
-	if len(m.Blast) != 2 {
-		t.Fatalf("blast segs=%d", len(m.Blast))
+	if len(m.Progress) != 2 {
+		t.Fatalf("progress segs=%d", len(m.Progress))
+	}
+	if m.Progress[0].StateCSS != "applying" { // prod/api is Running in an apply
+		t.Fatalf("progress[0]=%+v", m.Progress[0])
 	}
 	if len(m.Groups) != 2 || m.Groups[0].Name != "fh-prod-host" {
 		t.Fatalf("groups=%+v", m.Groups)

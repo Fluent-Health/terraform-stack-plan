@@ -122,24 +122,37 @@ func TestGroupByProject(t *testing.T) {
 	}
 }
 
-func TestBlastSegments(t *testing.T) {
+func TestProgressSegments(t *testing.T) {
 	stacks := []events.StackState{
 		{Path: "a", Counts: &events.Counts{Add: 6}, Status: events.StatusSafe},
-		{Path: "b", Counts: &events.Counts{Destroy: 2}, Status: events.StatusPending},
+		{Path: "b", Counts: &events.Counts{Destroy: 2}, Status: events.StatusRunning},
 		{Path: "c", Status: events.StatusFailed}, // no counts → min flex 1
 	}
-	segs := blastSegments(stacks, "apply")
+	segs := progressSegments(stacks, "apply")
 	if len(segs) != 3 {
 		t.Fatalf("want 3 segs, got %d", len(segs))
 	}
-	if segs[0].Flex != 6 || segs[0].KindClass != "op-add" || !segs[0].Done {
+	// flex sized by ops; colour = the stack's CURRENT state (apply kind)
+	if segs[0].Flex != 6 || segs[0].StateCSS != "applied" {
 		t.Fatalf("seg0=%+v", segs[0])
 	}
-	if segs[1].Flex != 2 || segs[1].KindClass != "op-destroy" || segs[1].Done {
+	if segs[1].Flex != 2 || segs[1].StateCSS != "applying" {
 		t.Fatalf("seg1=%+v", segs[1])
 	}
-	if segs[2].Flex != 1 || !segs[2].Failed {
-		t.Fatalf("seg2 (no counts) =%+v", segs[2])
+	if segs[2].Flex != 1 || segs[2].StateCSS != "failed" {
+		t.Fatalf("seg2 (no counts)=%+v", segs[2])
+	}
+}
+
+func TestIAMCount(t *testing.T) {
+	stacks := []events.StackState{
+		{Categories: []events.Category{{Name: "iam"}}},
+		{Categories: []events.Category{{Name: "destructive"}}},
+		{Categories: []events.Category{{Name: "iam"}, {Name: "destructive"}}},
+		{},
+	}
+	if n := iamCount(stacks); n != 2 {
+		t.Fatalf("iamCount=%d want 2", n)
 	}
 }
 

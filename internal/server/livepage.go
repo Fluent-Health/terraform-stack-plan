@@ -112,6 +112,8 @@ type liveView struct {
 	Status                    string
 	CreatedAt                 time.Time
 	Stacks                    []events.StackState
+	StackReports              map[string]string // stack path → rendered plan-section markdown
+	StackLogs                 map[string]string // stack path → recent log excerpt
 	SVG, Panel                string
 }
 
@@ -127,12 +129,31 @@ func (a *App) livePage(v liveView) string {
 	return buf.String()
 }
 
-// stackRow is one stack rendered in the grouped list.
+// stackRow is one stack rendered in the grouped list AND its detail block below.
 type stackRow struct {
-	Path  string
-	State stateDisplay
-	Ops   string
-	Risks []riskTag
+	Path       string
+	Anchor     string // same-page id the row scrolls to (path slug)
+	State      stateDisplay
+	Ops        string
+	Risks      []riskTag
+	Detail     template.HTML // rendered plan-section diff (empty until planned)
+	LogExcerpt string        // recent log lines (shown when no diff yet)
+	DetailURL  string        // per-stack page (full streaming log + apply/validation)
+	HasDetail  bool          // has a diff or a log excerpt to show
+}
+
+// anchorSlug turns a stack path into a safe same-page anchor id.
+func anchorSlug(path string) string {
+	var b strings.Builder
+	b.WriteString("stack-")
+	for _, r := range path {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+		} else {
+			b.WriteByte('-')
+		}
+	}
+	return b.String()
 }
 
 // projGroup is a Google-project group of stack rows.
@@ -150,8 +171,9 @@ type liveModel struct {
 	PhaseLabel                                string // PLANNING | PLANNED | APPLYING | APPLIED | FAILED
 	Elapsed                                   string
 	Verdict                                   verdict
-	Destructive, IAM                          bool
-	Blast                                     []blastSeg
+	Destructive                               bool
+	IAMCount                                  int
+	Progress                                  []progSeg
 	Groups                                    []projGroup
 	ReportHTML                                template.HTML
 	Report                                    string // raw markdown — drives the "still running" vs report branch
@@ -197,25 +219,29 @@ func buildLiveModel(v liveView, kind string, finished bool, now time.Time) liveM
 	}
 
 	// Risk roll-up + per-row mapping.
-	var destructive, iam bool
+	var destructive bool
 	groups := make([]projGroup, 0)
 	for _, g := range groupByProject(v.Stacks) {
 		rows := make([]stackRow, 0, len(g.Stacks))
 		for _, s := range g.Stacks {
 			risks := riskTags(s)
 			for _, rt := range risks {
-				switch rt.CSS {
-				case "danger":
+				if rt.CSS == "danger" {
 					destructive = true
-				case "iam":
-					iam = true
 				}
 			}
+			reportMD := v.StackReports[s.Path]
+			logExcerpt := v.StackLogs[s.Path]
 			rows = append(rows, stackRow{
-				Path:  s.Path,
-				State: displayState(s.Status, kind),
-				Ops:   opSummary(s.Counts),
-				Risks: risks,
+				Path:       s.Path,
+				Anchor:     anchorSlug(s.Path),
+				State:      displayState(s.Status, kind),
+				Ops:        opSummary(s.Counts),
+				Risks:      risks,
+				Detail:     renderMarkdown(reportMD),
+				LogExcerpt: logExcerpt,
+				DetailURL:  "/live/" + v.Exec + "/stack/" + s.Path,
+				HasDetail:  reportMD != "" || logExcerpt != "",
 			})
 		}
 		groups = append(groups, projGroup{Name: g.Name, Stacks: rows})
@@ -226,8 +252,8 @@ func buildLiveModel(v liveView, kind string, finished bool, now time.Time) liveM
 		Context: v.Context, Environment: v.Environment, PR: v.PR,
 		PhaseAccent: kind, PhaseLabel: label, Elapsed: elapsed,
 		Verdict:     aggregateVerdict(v.Stacks),
-		Destructive: destructive, IAM: iam,
-		Blast:      blastSegments(v.Stacks, kind),
+		Destructive: destructive, IAMCount: iamCount(v.Stacks),
+		Progress:   progressSegments(v.Stacks, kind),
 		Groups:     groups,
 		ReportHTML: renderMarkdown(v.Report),
 		Report:     v.Report,
