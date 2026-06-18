@@ -4,67 +4,90 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <noscript><meta http-equiv="refresh" content="10"></noscript>
-  <title>{{ .Title }}</title>
+  <title>{{ .Title }} — {{ .Repo }}</title>
   <link rel="stylesheet" href="/assets/app.css">
   <link rel="stylesheet" href="/assets/report.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet">
 </head>
 <body class="min-h-screen bg-base-200">
-  <div class="navbar bg-base-100 border-b border-base-300">
-    <div class="mx-auto w-full max-w-5xl px-4 flex items-center gap-3 flex-wrap">
-      <span class="text-lg font-semibold">{{ .Title }}</span>
-      <span class="text-sm opacity-60">{{ .Repo }}</span>
-      {{ if gt .PR 0 }}
-      <a class="link link-hover text-sm opacity-70" href="https://github.com/{{ .Repo }}/pull/{{ .PR }}">#{{ .PR }}</a>
-      {{ end }}
-      {{ if .ShortSHA }}
-      <code class="text-xs opacity-50">{{ .ShortSHA }}</code>
-      {{ end }}
-      {{ if gt .PR 0 }}
-      <a class="link link-hover text-xs opacity-60 ml-auto" href="https://github.com/{{ .Repo }}/pull/{{ .PR }}/checks" target="_blank" rel="noopener">Checks ↗</a>
-      {{ else if .SHA }}
-      <a class="link link-hover text-xs opacity-60 ml-auto" href="https://github.com/{{ .Repo }}/commit/{{ .SHA }}" target="_blank" rel="noopener">Checks ↗</a>
-      {{ end }}
-    </div>
-  </div>
-  <main class="mx-auto w-full max-w-5xl px-4 py-6 space-y-6">
-    {{ if .Panel }}<section class="card bg-base-100 shadow-sm"><div class="card-body p-4">{{ .Panel }}</div></section>{{ end }}
-    <section class="card bg-base-100 shadow-sm"><div class="card-body p-4">
-      <ul class="steps w-full">
-        {{ range .Timeline }}
-        <li class="step {{ if eq .State "done" }}step-success{{ else if eq .State "active" }}step-primary{{ end }}">{{ .Name }}</li>
-        {{ end }}
-      </ul>
-    </div></section>
-    <section class="card bg-base-100 shadow-sm"><div class="card-body p-4">
-      <h2 class="text-sm font-semibold opacity-70 mb-2">Stacks</h2>
-      {{ range .Groups }}
-      <div class="collapse collapse-arrow border border-base-300 rounded-lg mb-2">
-        <input type="checkbox" checked>
-        <div class="collapse-title text-sm font-medium">{{ .Name }} <span class="opacity-50">({{ len .Stacks }})</span></div>
-        <div class="collapse-content">
-          <ul class="divide-y divide-base-200">
-            {{ range .Stacks }}
-            <li class="flex items-center gap-3 py-1.5">
-              <span class="badge {{ statusBadge .Status }} badge-sm">{{ .Status }}</span>
-              <a class="link link-hover" href="/live/{{ $.Exec }}/stack/{{ .Path }}"><code class="text-xs">{{ .Path }}</code></a>
-              {{ if .Detail }}<span class="text-xs opacity-60 truncate">{{ .Detail }}</span>{{ end }}
-            </li>
+  <main class="mx-auto w-full max-w-4xl px-4 py-6">
+    <div class="viewer-app">
+
+      <div class="viewer-head">
+        <div class="crumb">
+          <span>{{ .Repo }}</span>
+          {{ if gt .PR 0 }}· <a class="pnum" href="https://github.com/{{ .Repo }}/pull/{{ .PR }}">#{{ .PR }}</a>{{ end }}
+          {{ if .ShortSHA }}· <span class="sha">{{ .ShortSHA }}</span>{{ end }}
+          <span class="spacer">
+            {{ if gt .PR 0 }}
+            <a href="https://github.com/{{ .Repo }}/pull/{{ .PR }}" target="_blank" rel="noopener">PR ↗</a>
+            <a href="https://github.com/{{ .Repo }}/pull/{{ .PR }}/checks" target="_blank" rel="noopener">Checks ↗</a>
+            {{ else if .SHA }}
+            <a href="https://github.com/{{ .Repo }}/commit/{{ .SHA }}" target="_blank" rel="noopener">Checks ↗</a>
             {{ end }}
-          </ul>
+          </span>
+        </div>
+        <div class="viewer-title">{{ .Title }} <span class="phase-pill phase-{{ .PhaseAccent }}">{{ .PhaseLabel }}{{ if .Elapsed }} · {{ .Elapsed }}{{ end }}</span></div>
+      </div>
+
+      <div class="verdict-band">
+        <div class="verdict-nums">
+          {{ with .Verdict }}
+          {{ if .Add }}<div class="stat add"><span class="n">+{{ .Add }}</span><span class="l">add</span></div>{{ end }}
+          {{ if .Change }}<div class="stat chg"><span class="n">~{{ .Change }}</span><span class="l">change</span></div>{{ end }}
+          {{ if .Replace }}<div class="stat rep"><span class="n">±{{ .Replace }}</span><span class="l">replace</span></div>{{ end }}
+          {{ if .Destroy }}<div class="stat del"><span class="n">−{{ .Destroy }}</span><span class="l">destroy</span></div>{{ end }}
+          {{ if .Move }}<div class="stat mov"><span class="n">↔{{ .Move }}</span><span class="l">move</span></div>{{ end }}
+          {{ end }}
+        </div>
+        <div class="blast-wrap">
+          <div class="blast-label"><span>Blast radius</span><b>{{ .Verdict.TotalOps }} operations · {{ .StackCount }} stacks</b></div>
+          <div class="blast-bar">
+            {{ range .Blast }}<span class="blast-seg {{ .KindClass }}{{ if .Failed }} is-failed{{ else if not .Done }} is-pending{{ end }}" style="flex:{{ .Flex }}"></span>{{ end }}
+          </div>
+          <div class="chips">
+            {{ if .Destructive }}<span class="chip dl">⚠ Destructive</span>{{ end }}
+            {{ if .IAM }}<span class="chip iam">⚿ IAM changes</span>{{ end }}
+            <span class="chip ops">{{ .Verdict.TotalOps }} operations</span>
+          </div>
         </div>
       </div>
-      {{ end }}
-    </div></section>
-    <section class="card bg-base-100 shadow-sm"><div class="card-body p-4">
-      <details open>
-        <summary class="cursor-pointer text-sm font-semibold opacity-70">Dependency graph</summary>
-        <div class="mt-3 flex justify-center">{{ .SVG }}</div>
-      </details>
-    </div></section>
-    <section class="card bg-base-100 shadow-sm"><div class="card-body p-4">
-      {{ if .Report }}<div class="tfsp-report">{{ .ReportHTML }}</div>
-      {{ else }}<p class="opacity-60 italic">Plan still running — the report appears here when the plan completes.</p>{{ end }}
-    </div></section>
+
+      {{ if .Panel }}<div class="viewer-section">{{ .Panel }}</div>{{ end }}
+
+      <div class="viewer-section">
+        <div class="viewer-section-title">Stacks</div>
+        {{ range .Groups }}
+        <div class="proj-group">
+          <div class="proj-head"><span class="proj-name">{{ .Name }}</span><span class="proj-count">{{ len .Stacks }}</span></div>
+          {{ range .Stacks }}
+          <div class="stack-row">
+            <span class="state-label state-{{ .State.CSS }}">{{ .State.Label }}</span>
+            <span class="path"><a href="/live/{{ $.Exec }}/stack/{{ .Path }}">{{ .Path }}</a></span>
+            {{ range .Risks }}<span class="risk-tag {{ .CSS }}">{{ .Label }}</span>{{ end }}
+            <span class="op-count">{{ .Ops }}</span>
+          </div>
+          {{ end }}
+        </div>
+        {{ end }}
+      </div>
+
+      <div class="viewer-section">
+        <details class="dag-accordion">
+          <summary>Dependency graph</summary>
+          <div class="dag-body">{{ .SVG }}</div>
+        </details>
+      </div>
+
+      <div class="viewer-section">
+        <div class="viewer-section-title">{{ if eq .PhaseAccent "apply" }}Apply report{{ else }}Plan report{{ end }}</div>
+        {{ if .Report }}<div class="tfsp-report">{{ .ReportHTML }}</div>
+        {{ else }}<p style="color:var(--c-muted);font-style:italic">Still running — the report appears here when it completes.</p>{{ end }}
+      </div>
+
+    </div>
   </main>
   <script>
     (function () {

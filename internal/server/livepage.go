@@ -115,57 +115,15 @@ type liveView struct {
 	SVG, Panel                string
 }
 
-// livePage renders the auto-refreshing execution page via the DaisyUI template.
-// SVG and Panel are trusted server-generated HTML (injected un-escaped); Repo,
-// Title, Report, stack paths/statuses, and phase names are auto-escaped.
+// livePage renders the auto-refreshing execution page via the Briefing template.
+// SVG and Panel are trusted server-generated HTML (injected un-escaped); repo,
+// title, report, stack paths/states, and phase labels are auto-escaped.
 func (a *App) livePage(v liveView) string {
 	kind := execKind(v.Context)
 	finished := isFinished(kind, v.Report, v.Status)
-
-	// Build a human-readable kind + environment label for the title.
-	kindLabel := "Plan"
-	if kind == "apply" {
-		kindLabel = "Apply"
-	}
-	title := kindLabel
-	if v.Environment != "" {
-		title += " · " + v.Environment
-	}
-
-	depth := a.cfg.GroupDepth
-	if depth == 0 {
-		depth = 2
-	}
-	// ShortSHA is the first 7 characters of the commit SHA, for display.
-	shortSHA := v.SHA
-	if len(shortSHA) > 7 {
-		shortSHA = shortSHA[:7]
-	}
-
+	m := buildLiveModel(v, kind, finished, time.Now())
 	var buf bytes.Buffer
-	_ = a.tmpl.ExecuteTemplate(&buf, "live.gohtml", struct {
-		Title, Exec, Repo, Report string
-		PR                        int
-		SHA, ShortSHA, Context    string
-		ReportHTML                template.HTML
-		Timeline                  []phaseStep
-		Groups                    []stackGroup
-		SVG, Panel                template.HTML
-	}{
-		Title:      title,
-		Exec:       v.Exec,
-		Repo:       v.Repo,
-		Report:     v.Report,
-		PR:         v.PR,
-		SHA:        v.SHA,
-		ShortSHA:   shortSHA,
-		Context:    v.Context,
-		ReportHTML: renderMarkdown(v.Report),
-		Timeline:   phaseTimeline(kind, v.Phase, finished),
-		Groups:     groupStacksByKey(v.Stacks, depth, a.groupRE),
-		SVG:        template.HTML(v.SVG),
-		Panel:      template.HTML(v.Panel),
-	})
+	_ = a.tmpl.ExecuteTemplate(&buf, "live.gohtml", m)
 	return buf.String()
 }
 
@@ -196,6 +154,8 @@ type liveModel struct {
 	Blast                                     []blastSeg
 	Groups                                    []projGroup
 	ReportHTML                                template.HTML
+	Report                                    string // raw markdown — drives the "still running" vs report branch
+	StackCount                                int
 	SVG, Panel                                template.HTML
 }
 
@@ -270,6 +230,8 @@ func buildLiveModel(v liveView, kind string, finished bool, now time.Time) liveM
 		Blast:      blastSegments(v.Stacks, kind),
 		Groups:     groups,
 		ReportHTML: renderMarkdown(v.Report),
+		Report:     v.Report,
+		StackCount: len(v.Stacks),
 		SVG:        template.HTML(v.SVG),
 		Panel:      template.HTML(v.Panel),
 	}

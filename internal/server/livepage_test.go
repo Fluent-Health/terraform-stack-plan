@@ -176,13 +176,50 @@ func TestLivePageStackListAndTimeline(t *testing.T) {
 	})
 	for _, want := range []string{
 		"stacks/a", "stacks/b",
-		"badge-warning", "badge-success",
-		"steps", "Plan",
-		`<svg id="dag">`,
+		"state-label state-blocked", // gated stack
+		"state-label state-planned", // safe stack in a plan execution
+		`<div class="proj-head">`,   // grouped-by-project header
+		"proj-a",                    // project group name
+		"Plan",                      // kind label in the title
+		`<svg id="dag">`,            // DAG injected (in the demoted accordion)
+		"dag-accordion",
 		"/live/e1/stack/stacks/a",
 	} {
 		if !strings.Contains(html, want) {
 			t.Errorf("live page missing %q", want)
+		}
+	}
+}
+
+func TestLivePageBriefingBand(t *testing.T) {
+	a := New(newServerTestDB(t), &MockGitHub{}, Config{})
+	html := a.livePage(liveView{
+		Exec: "e1", Repo: "o/r", Environment: "nonprod", Context: "apply/nonprod",
+		Status: "in_progress", CreatedAt: time.Now().Add(-90 * time.Second),
+		Report: "## hi",
+		Stacks: []events.StackState{
+			{Path: "prod/api", Project: "fh-prod-host", Status: events.StatusRunning,
+				Counts: &events.Counts{Change: 8}, Categories: []events.Category{{Name: "iam"}}},
+			{Path: "stg/db", Project: "fh-staging-host", Status: events.StatusSafe,
+				Counts: &events.Counts{Destroy: 2}, Categories: []events.Category{{Name: "destructive"}}},
+		},
+	})
+	for _, want := range []string{
+		`phase-pill phase-apply`,     // apply-phase accent
+		`APPLYING`,                   // phase label
+		`class="verdict-band"`,       // verdict band present
+		`class="blast-bar"`,          // signature blast-radius bar
+		`blast-seg op-change`,        // a change-coloured segment (prod/api)
+		`blast-seg op-destroy`,       // a destroy-coloured segment (stg/db)
+		`state-label state-applying`, // running apply → applying
+		`state-label state-applied`,  // safe apply → applied
+		`risk-tag iam`, `risk-tag danger`,
+		`class="chip iam">`, `class="chip dl">`, // IAM + destructive verdict chips
+		`tfsp-report`,          // report still rendered
+		`fonts.googleapis.com`, // Google Fonts link
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("briefing live page missing %q", want)
 		}
 	}
 }

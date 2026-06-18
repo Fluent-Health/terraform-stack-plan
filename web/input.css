@@ -3,7 +3,192 @@
   themes: light --default, dark --prefersdark;
 }
 
-/* Tailwind v4 scans these for class names. Any class used in a template or in
-   server-generated HTML must appear literally in one of these sources. */
+/* Tailwind v4 scans these for utility class names used in templates / server
+   HTML. NOTE: the Briefing component classes below are authored as PLAIN CSS
+   (not @layer/@utility) so they are emitted verbatim and never tree-shaken —
+   essential because several class names (state-*, op-*) are built dynamically
+   in Go and so never appear as literals for the scanner to find. */
 @source "../internal/server/templates/**/*.gohtml";
 @source "../internal/server/*.go";
+
+/* ============================================================================
+   Briefing design system — the live plan/apply viewer.
+   Tokens (palette + type) as plain custom properties; the semantic component
+   classes the live template renders are authored in @layer components.
+   ============================================================================ */
+:root {
+  --c-ink: #1e2228;
+  --c-ink2: #5b6470;
+  --c-muted: #8a909a;
+  --c-line: #eef0f3;
+  --c-line2: #e3e6ea;
+  --c-panel: #f8f9fb;
+
+  /* phase accents */
+  --c-phase-plan: #0e7c7b;
+  --c-phase-apply: #3b6fd4;
+
+  /* operation kinds */
+  --c-op-add: #1a9f5b;
+  --c-op-change: #b07d14;
+  --c-op-replace: #7a47d6;
+  --c-op-destroy: #c0392b;
+  --c-op-move: #3b6fd4;
+
+  /* per-state label colors (each distinct) */
+  --c-state-queued: #9aa0aa;
+  --c-state-initializing: #4b5563;
+  --c-state-planning: #0e7c7b;
+  --c-state-planned: #475569;
+  --c-state-applying: #3b6fd4;
+  --c-state-moving: #7a47d6;
+  --c-state-applied: #1a9f5b;
+  --c-state-blocked: #b07d14;
+  --c-state-skipped: #aab0b8;
+  --c-state-failed: #c0392b;
+
+  /* tints */
+  --c-iam-tint: #fcf6e8;
+  --c-danger-tint: #fdeeec;
+
+  --font-display: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
+  --font-body: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+}
+
+/* shell */
+  .viewer-app {
+    background: #fff;
+    border: 1px solid var(--c-line2);
+    border-radius: 14px;
+    overflow: hidden;
+    box-shadow: 0 6px 24px rgb(20 25 35 / 0.08);
+    font-family: var(--font-body);
+    color: var(--c-ink);
+  }
+
+  /* header */
+  .viewer-head { padding: 18px 22px 16px; border-bottom: 1px solid var(--c-line); }
+  .crumb {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--c-muted);
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    margin-bottom: 8px;
+  }
+  .crumb a { color: var(--c-muted); text-decoration: none; }
+  .crumb a:hover { color: var(--c-ink); }
+  .crumb .pnum { color: var(--c-phase-apply); }
+  .crumb .sha { background: var(--c-panel); padding: 1px 6px; border-radius: 4px; }
+  .crumb .spacer { margin-left: auto; display: flex; gap: 14px; }
+  .viewer-title {
+    font-family: var(--font-display);
+    font-weight: 700; font-size: 20px; letter-spacing: -0.01em;
+    display: flex; align-items: center; gap: 12px;
+  }
+  .phase-pill {
+    font-family: var(--font-mono);
+    font-size: 10.5px; letter-spacing: 0.12em; font-weight: 600;
+    color: #fff; padding: 3px 10px; border-radius: 99px;
+  }
+  .phase-pill.phase-plan { background: var(--c-phase-plan); }
+  .phase-pill.phase-apply { background: var(--c-phase-apply); }
+
+  /* verdict + blast-radius band */
+  .verdict-band {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 18px 26px;
+    padding: 16px 22px; background: var(--c-panel);
+    border-bottom: 1px solid var(--c-line);
+  }
+  .verdict-nums { display: flex; gap: 18px; }
+  .stat { display: flex; flex-direction: column; }
+  .stat .n {
+    font-family: var(--font-display);
+    font-size: 22px; font-weight: 700; line-height: 1; letter-spacing: -0.02em;
+  }
+  .stat .l { font-size: 10.5px; color: var(--c-muted); text-transform: uppercase; letter-spacing: 0.06em; }
+  .stat.add .n { color: var(--c-op-add); }
+  .stat.chg .n { color: var(--c-op-change); }
+  .stat.rep .n { color: var(--c-op-replace); }
+  .stat.del .n { color: var(--c-op-destroy); }
+  .stat.mov .n { color: var(--c-op-move); }
+
+  .blast-wrap { flex: 1; min-width: 240px; }
+  .blast-label {
+    display: flex; justify-content: space-between;
+    font-size: 11px; color: var(--c-muted); margin-bottom: 7px;
+  }
+  .blast-label b { color: var(--c-ink); font-weight: 600; font-family: var(--font-mono); }
+  .blast-bar {
+    display: flex; height: 13px; border-radius: 99px; overflow: hidden;
+    background: #e3e6ea; gap: 2px;
+  }
+  .blast-seg { display: block; min-width: 2px; }
+  .blast-seg.op-add { background: var(--c-op-add); }
+  .blast-seg.op-change { background: var(--c-op-change); }
+  .blast-seg.op-replace { background: var(--c-op-replace); }
+  .blast-seg.op-destroy { background: var(--c-op-destroy); }
+  .blast-seg.op-move { background: var(--c-op-move); }
+  .blast-seg.is-pending { opacity: 0.25; }
+  .blast-seg.is-failed {
+    background: repeating-linear-gradient(45deg, var(--c-danger-tint), var(--c-danger-tint) 4px, #f6d4cf 4px, #f6d4cf 8px);
+  }
+
+  .chips { display: flex; gap: 8px; margin-top: 11px; flex-wrap: wrap; }
+  .chip { font-size: 11px; font-weight: 600; padding: 4px 10px; border-radius: 99px; }
+  .chip.dl { color: var(--c-op-destroy); background: var(--c-danger-tint); }
+  .chip.iam { color: var(--c-op-change); background: var(--c-iam-tint); }
+  .chip.ops { color: #3a4049; background: #eceef1; }
+
+  /* sections */
+  .viewer-section { padding: 16px 22px; border-top: 1px solid var(--c-line); }
+  .viewer-section-title {
+    font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em;
+    color: var(--c-muted); margin: 0 0 10px;
+  }
+
+  /* grouped stack list */
+  .proj-group + .proj-group { margin-top: 6px; }
+  .proj-head { display: flex; align-items: center; gap: 12px; padding: 8px 4px 6px; }
+  .proj-name { font-family: var(--font-mono); font-weight: 600; font-size: 12.5px; color: var(--c-ink2); }
+  .proj-count { margin-left: auto; font-family: var(--font-mono); font-size: 11px; color: var(--c-muted); }
+
+  .stack-row {
+    display: flex; align-items: center; gap: 14px;
+    padding: 9px 8px; border-radius: 9px;
+  }
+  .stack-row:hover { background: #f4f6f9; }
+  .state-label {
+    width: 108px; flex: none; display: flex; align-items: center; gap: 7px;
+    font-size: 12.5px; font-weight: 600;
+  }
+  .state-label.state-queued { color: var(--c-state-queued); }
+  .state-label.state-initializing { color: var(--c-state-initializing); }
+  .state-label.state-planning { color: var(--c-state-planning); }
+  .state-label.state-planned { color: var(--c-state-planned); }
+  .state-label.state-applying { color: var(--c-state-applying); }
+  .state-label.state-moving { color: var(--c-state-moving); }
+  .state-label.state-applied { color: var(--c-state-applied); }
+  .state-label.state-blocked { color: var(--c-state-blocked); }
+  .state-label.state-skipped { color: var(--c-state-skipped); }
+  .state-label.state-failed { color: var(--c-state-failed); }
+  .stack-row .path { font-family: var(--font-mono); font-size: 13px; flex: 1; color: var(--c-ink); }
+  .stack-row .path a { color: inherit; text-decoration: none; }
+  .stack-row .path a:hover { color: var(--c-phase-apply); }
+  .risk-tag { font-size: 10px; padding: 2px 8px; border-radius: 99px; font-weight: 600; }
+  .risk-tag.iam { background: var(--c-iam-tint); color: var(--c-op-change); }
+  .risk-tag.danger { background: var(--c-danger-tint); color: var(--c-op-destroy); }
+  .op-count { font-family: var(--font-mono); font-size: 12px; width: 46px; text-align: right; color: var(--c-muted); }
+
+  /* dependency graph — demoted to a collapsed accordion */
+  .dag-accordion > summary {
+    cursor: pointer; list-style: none;
+    font-size: 13px; font-weight: 600; color: var(--c-ink2);
+    display: flex; align-items: center; gap: 8px;
+  }
+  .dag-accordion > summary::-webkit-details-marker { display: none; }
+  .dag-accordion > summary::before { content: "▸"; color: var(--c-muted); }
+  .dag-accordion[open] > summary::before { content: "▾"; }
+  .dag-accordion[open] > summary { margin-bottom: 12px; }
+  .dag-body { display: flex; justify-content: center; }
+  .dag-body svg { max-width: 100%; height: auto; }
