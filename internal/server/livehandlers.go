@@ -69,6 +69,7 @@ func (a *App) handleLive(w http.ResponseWriter, r *http.Request) {
 			logs[s.Path] = ex
 		}
 	}
+	verifyExec, _ := store.LatestVerifyExecutionID(a.db, e.PR, e.Environment)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Write([]byte(a.livePage(liveView{
 		Exec:         e.ID,
@@ -84,6 +85,7 @@ func (a *App) handleLive(w http.ResponseWriter, r *http.Request) {
 		Stacks:       g.Stacks,
 		StackReports: reports,
 		StackLogs:    logs,
+		VerifyExec:   verifyExec,
 		SVG:          string(a.dagSVG(g)),
 		Panel:        panel,
 	})))

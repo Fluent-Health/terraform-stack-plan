@@ -96,11 +96,25 @@
               <span class="font-mono text-sm font-semibold">{{ .Path }}</span>
               <span class="text-xs font-semibold sl-{{ .State.CSS }}">{{ .State.Label }}</span>
               {{ range .Risks }}<span class="badge badge-xs {{ if eq .CSS "danger" }}badge-error{{ else }}badge-warning{{ end }}">{{ .Label }}</span>{{ end }}
-              <a class="ml-auto text-xs text-primary" href="{{ .DetailURL }}">full log ↗</a>
+              <a class="ml-auto text-xs text-primary" href="{{ .DetailURL }}" target="_blank" rel="noopener">raw log ↗</a>
             </div>
-            {{ if .Detail }}<div class="tfsp-report">{{ .Detail }}</div>
-            {{ else if .LogExcerpt }}<pre class="tfsp-diff text-xs whitespace-pre-wrap max-h-[60vh] overflow-auto">{{ .LogExcerpt }}</pre>
-            {{ else }}<p class="italic text-base-content/40 text-sm">No output yet — still running.</p>{{ end }}
+            <div class="tabs tabs-lift">
+              <input type="radio" name="tab-{{ .Anchor }}" class="tab" aria-label="Result" checked>
+              <div class="tab-content border-base-300 p-3">
+                {{ if .Detail }}<div class="tfsp-report">{{ .Detail }}</div>
+                {{ else }}<p class="italic text-base-content/40 text-sm">No plan recorded for this stack.</p>{{ end }}
+              </div>
+              <input type="radio" name="tab-{{ .Anchor }}" class="tab" aria-label="Log">
+              <div class="tab-content border-base-300 p-3">
+                <pre class="term text-xs" style="max-height:60vh" data-stack="{{ .Path }}" data-log-url="/logs/{{ $.Exec }}/{{ .Path }}"{{ if .Follow }} data-follow-url="/logs/{{ $.Exec }}/{{ .Path }}?follow=1"{{ end }}>{{ .LogExcerpt }}</pre>
+              </div>
+              {{ if eq $.PhaseAccent "apply" }}{{ if $.VerifyExec }}
+              <input type="radio" name="tab-{{ .Anchor }}" class="tab" aria-label="Validation">
+              <div class="tab-content border-base-300 p-3">
+                <pre class="term text-xs" style="max-height:60vh" data-log-url="/logs/{{ $.VerifyExec }}/{{ .Path }}"{{ if not $.Finished }} data-follow-url="/logs/{{ $.VerifyExec }}/{{ .Path }}?follow=1"{{ end }}></pre>
+              </div>
+              {{ end }}{{ end }}
+            </div>
           </section>
           {{ end }}{{ end }}
         </div>

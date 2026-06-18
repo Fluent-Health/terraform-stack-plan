@@ -90,3 +90,21 @@
 .stack-detail:target { display: block; }
 .detail-empty { display: none; }
 .detail-wrap:not(:has(:target)) .detail-empty { display: block; }
+
+/* Streamed log surface — a comfortable dark terminal (not white-on-black), with
+   ANSI SGR colours mapped to a muted set. The streaming JS emits <span class="a-*">
+   per coloured run; all log bytes are HTML-escaped before insertion. */
+.term {
+  background: #1f2733; color: #cbd3df;
+  border-radius: 8px; padding: 10px 12px;
+  font-family: var(--font-mono); line-height: 1.55;
+  white-space: pre-wrap; overflow: auto;
+}
+.term .a-red { color: #f0897c; }
+.term .a-green { color: #5fd39a; }
+.term .a-yellow { color: #ecc56a; }
+.term .a-blue { color: #6fb2ee; }
+.term .a-magenta { color: #c79bf0; }
+.term .a-cyan { color: #5fd0d6; }
+.term .a-grey { color: #8b95a3; }
+.term .a-bold { font-weight: 600; }

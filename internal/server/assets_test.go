@@ -22,8 +22,8 @@ func TestBriefingComponentsInCSS(t *testing.T) {
 	css := string(appCSS)
 	for _, cls := range []string{
 		".progress-bar", ".bar-seg", ".bs-applying", ".sl-applying", // bespoke progress + state colours
-		".stack-detail",                         // single-pane :target swap for selected-stack detail
-		".badge", ".menu", ".card", ".collapse", // DaisyUI components reused by the template
+		".stack-detail", ".term", ".a-green", // :target swap + softened streamed-log surface
+		".badge", ".menu", ".card", ".collapse", ".tabs", // DaisyUI components reused by the template
 	} {
 		if !strings.Contains(css, cls) {
 			t.Errorf("app.css missing %q — run web/build.sh after editing web/input.css or the template", cls)

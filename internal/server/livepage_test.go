@@ -219,9 +219,13 @@ func TestLivePageBriefingBand(t *testing.T) {
 		`⚠ Destructive`,
 		`⚿ IAM`, `⚠ destructive`, // per-stack risk badges
 		`menu menu-sm`,
-		`href="/logs/e1/prod/api"`, // whole row is the link
-		`tfsp-report`,              // report still rendered
-		`fonts.googleapis.com`,     // Google Fonts link
+		`href="/logs/e1/prod/api"`, // detail "raw log ↗" → raw log endpoint
+		`tfsp-report`,              // Result tab renders the plan diff
+		`tabs tabs-lift`,           // DaisyUI tabs in the detail pane
+		`aria-label="Result"`, `aria-label="Log"`,
+		`class="term`, // softened log surface
+		`data-follow-url="/logs/e1/prod/api?follow=1"`, // running exec → live stream
+		`fonts.googleapis.com`,                         // Google Fonts link
 	} {
 		if !strings.Contains(html, want) {
 			t.Errorf("briefing live page missing %q", want)

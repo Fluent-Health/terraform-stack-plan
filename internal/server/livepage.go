@@ -114,6 +114,7 @@ type liveView struct {
 	Stacks                    []events.StackState
 	StackReports              map[string]string // stack path → rendered plan-section markdown
 	StackLogs                 map[string]string // stack path → recent log excerpt
+	VerifyExec                string            // latest verify run id for this PR/env ("" if none)
 	SVG, Panel                string
 }
 
@@ -138,8 +139,9 @@ type stackRow struct {
 	Risks      []riskTag
 	Detail     template.HTML // rendered plan-section diff (empty until planned)
 	LogExcerpt string        // recent log lines (shown when no diff yet)
-	DetailURL  string        // per-stack page (full streaming log + apply/validation)
+	DetailURL  string        // raw full log (text/plain)
 	HasDetail  bool          // has a diff or a log excerpt to show
+	Follow     bool          // exec still running ⇒ stream the log via SSE follow
 }
 
 // anchorSlug turns a stack path into a safe same-page anchor id.
@@ -178,6 +180,8 @@ type liveModel struct {
 	ReportHTML                                template.HTML
 	Report                                    string // raw markdown — drives the "still running" vs report branch
 	StackCount                                int
+	Finished                                  bool   // concluded ⇒ static log fetch instead of SSE follow
+	VerifyExec                                string // verify run id (apply only) for the Validation tab
 	SVG, Panel                                template.HTML
 }
 
@@ -242,6 +246,7 @@ func buildLiveModel(v liveView, kind string, finished bool, now time.Time) liveM
 				LogExcerpt: logExcerpt,
 				DetailURL:  "/logs/" + v.Exec + "/" + s.Path,
 				HasDetail:  reportMD != "" || logExcerpt != "",
+				Follow:     !finished,
 			})
 		}
 		groups = append(groups, projGroup{Name: g.Name, Stacks: rows})
@@ -258,6 +263,8 @@ func buildLiveModel(v liveView, kind string, finished bool, now time.Time) liveM
 		ReportHTML: renderMarkdown(v.Report),
 		Report:     v.Report,
 		StackCount: len(v.Stacks),
+		Finished:   finished,
+		VerifyExec: v.VerifyExec,
 		SVG:        template.HTML(v.SVG),
 		Panel:      template.HTML(v.Panel),
 	}
