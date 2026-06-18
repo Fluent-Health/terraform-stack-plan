@@ -219,11 +219,13 @@ func TestLivePageBriefingBand(t *testing.T) {
 		`⚠ Destructive`,
 		`⚿ IAM`, `⚠ destructive`, // per-stack risk badges
 		`menu menu-sm`,
-		`href="/logs/e1/prod/api"`, // detail "raw log ↗" → raw log endpoint
-		`tfsp-report`,              // Result tab renders the plan diff
-		`tabs tabs-lift`,           // DaisyUI tabs in the detail pane
-		`aria-label="Result"`, `aria-label="Log"`,
-		`class="term`, // softened log surface
+		`href="/logs/e1/prod/api"`,  // detail "raw log ↗" → raw log endpoint
+		`tfsp-report`,               // Result tab renders the plan diff
+		`tabs tabs-lift`,            // DaisyUI tabs (label-wrapped radios)
+		`<label class="tab"`,        // label-wrapped tab (hosts the live dot)
+		`Log<span class="live-dot"`, // "connected live" dot on the Log tab (running exec)
+		`class="shimmer`,            // Result shimmer for a not-yet-planned stack (stg/db)
+		`class="term`,               // softened log surface
 		`data-follow-url="/logs/e1/prod/api?follow=1"`, // running exec → live stream
 		`__tfspStreaming`,      // streaming module sets the reload-suppress flag
 		`window.__tfspAnsi`,    // client-side ANSI parser present

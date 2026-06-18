@@ -22,7 +22,7 @@ func TestBriefingComponentsInCSS(t *testing.T) {
 	css := string(appCSS)
 	for _, cls := range []string{
 		".progress-bar", ".bar-seg", ".bs-applying", ".sl-applying", // bespoke progress + state colours
-		".stack-detail", ".term", ".a-green", // :target swap + softened streamed-log surface
+		".stack-detail", ".term", ".a-green", ".live-dot", ".shimmer", // :target swap + softened log + live/loading cues
 		".badge", ".menu", ".card", ".collapse", ".tabs", // DaisyUI components reused by the template
 	} {
 		if !strings.Contains(css, cls) {
