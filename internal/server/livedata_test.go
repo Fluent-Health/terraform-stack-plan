@@ -39,6 +39,134 @@ func TestStatusBadge(t *testing.T) {
 	}
 }
 
+func TestAggregateVerdict(t *testing.T) {
+	stacks := []events.StackState{
+		{Path: "a", Counts: &events.Counts{Add: 6}},
+		{Path: "b", Counts: &events.Counts{Change: 8, Replace: 3}},
+		{Path: "c", Counts: &events.Counts{Destroy: 2, Move: 1}},
+		{Path: "d"}, // no counts → contributes nothing
+	}
+	v := aggregateVerdict(stacks)
+	if v.Add != 6 || v.Change != 8 || v.Replace != 3 || v.Destroy != 2 || v.Move != 1 {
+		t.Fatalf("bad totals: %+v", v)
+	}
+	if v.TotalOps != 19 { // Add+Change+Destroy+Replace = 6+8+2+3 = 19
+		t.Fatalf("TotalOps=%d", v.TotalOps)
+	}
+}
+
+func TestDisplayStateMapping(t *testing.T) {
+	cases := []struct {
+		st   events.Status
+		kind string
+		want string
+	}{
+		{events.StatusPending, "plan", "queued"},
+		{events.StatusRunning, "plan", "planning"},
+		{events.StatusPlanned, "plan", "planned"},
+		{events.StatusRunning, "apply", "applying"},
+		{events.StatusMoving, "apply", "moving"},
+		{events.StatusSafe, "apply", "applied"},
+		{events.StatusSafe, "plan", "planned"},
+		{events.StatusGated, "apply", "blocked"},
+		{events.StatusFailed, "apply", "failed"},
+	}
+	for _, c := range cases {
+		got := displayState(c.st, c.kind)
+		if got.CSS != c.want {
+			t.Fatalf("(%s,%s) → %q want %q", c.st, c.kind, got.CSS, c.want)
+		}
+	}
+}
+
+func TestOpSummaryString(t *testing.T) {
+	if got := opSummary(&events.Counts{Add: 6}); got != "+6" {
+		t.Fatalf("got %q", got)
+	}
+	if got := opSummary(&events.Counts{Change: 8}); got != "~8" {
+		t.Fatalf("got %q", got)
+	}
+	if got := opSummary(&events.Counts{Replace: 3}); got != "±3" {
+		t.Fatalf("got %q", got)
+	}
+	if got := opSummary(&events.Counts{Destroy: 2}); got != "−2" {
+		t.Fatalf("destroy: got %q", got)
+	}
+	if got := opSummary(&events.Counts{Move: 1}); got != "↔1" {
+		t.Fatalf("move: got %q", got)
+	}
+	if got := opSummary(nil); got != "" {
+		t.Fatalf("nil → %q want empty", got)
+	}
+}
+
+func TestGroupByProject(t *testing.T) {
+	stacks := []events.StackState{
+		{Path: "prod/a", Project: "fh-prod-host"},
+		{Path: "prod/b", Project: "fh-prod-host"},
+		{Path: "stg/c", Project: "fh-staging-host"},
+		{Path: "x/d"}, // no project → trailing ungrouped bucket
+	}
+	gs := groupByProject(stacks)
+	if len(gs) != 3 {
+		t.Fatalf("want 3 groups, got %d", len(gs))
+	}
+	if gs[0].Name != "fh-prod-host" || len(gs[0].Stacks) != 2 {
+		t.Fatalf("group0 = %+v", gs[0])
+	}
+	if gs[1].Name != "fh-staging-host" {
+		t.Fatalf("group1 = %+v", gs[1])
+	}
+	if gs[2].Name != "—" || len(gs[2].Stacks) != 1 { // ungrouped bucket LAST
+		t.Fatalf("ungrouped bucket wrong: %+v", gs[2])
+	}
+}
+
+func TestProgressSegments(t *testing.T) {
+	stacks := []events.StackState{
+		{Path: "a", Counts: &events.Counts{Add: 6}, Status: events.StatusSafe},
+		{Path: "b", Counts: &events.Counts{Destroy: 2}, Status: events.StatusRunning},
+		{Path: "c", Status: events.StatusFailed}, // no counts → min flex 1
+	}
+	segs := progressSegments(stacks, "apply")
+	if len(segs) != 3 {
+		t.Fatalf("want 3 segs, got %d", len(segs))
+	}
+	// flex sized by ops; colour = the stack's CURRENT state (apply kind)
+	if segs[0].Flex != 6 || segs[0].StateCSS != "applied" {
+		t.Fatalf("seg0=%+v", segs[0])
+	}
+	if segs[1].Flex != 2 || segs[1].StateCSS != "applying" {
+		t.Fatalf("seg1=%+v", segs[1])
+	}
+	if segs[2].Flex != 1 || segs[2].StateCSS != "failed" {
+		t.Fatalf("seg2 (no counts)=%+v", segs[2])
+	}
+}
+
+func TestIAMCount(t *testing.T) {
+	stacks := []events.StackState{
+		{Categories: []events.Category{{Name: "iam"}}},
+		{Categories: []events.Category{{Name: "destructive"}}},
+		{Categories: []events.Category{{Name: "iam"}, {Name: "destructive"}}},
+		{},
+	}
+	if n := iamCount(stacks); n != 2 {
+		t.Fatalf("iamCount=%d want 2", n)
+	}
+}
+
+func TestRiskTags(t *testing.T) {
+	s := events.StackState{Categories: []events.Category{{Name: "iam", Icon: "🔐"}, {Name: "destructive", Icon: "💣"}}}
+	tags := riskTags(s)
+	if len(tags) != 2 || tags[0].CSS != "iam" || tags[1].CSS != "danger" {
+		t.Fatalf("tags=%+v", tags)
+	}
+	if len(riskTags(events.StackState{})) != 0 {
+		t.Fatal("no categories → no tags")
+	}
+}
+
 func TestPhaseTimeline(t *testing.T) {
 	t.Run("plan in-progress", func(t *testing.T) {
 		steps := phaseTimeline("plan", events.PhasePlanning, false)

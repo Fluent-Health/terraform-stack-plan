@@ -13,6 +13,24 @@ func TestEmbeddedCSSNonEmpty(t *testing.T) {
 	}
 }
 
+// TestBriefingComponentsInCSS guards the built stylesheet: the one bespoke piece
+// (the segmented progress bar + dynamic state-colour classes, plain CSS in
+// web/input.css so they survive tree-shaking) AND the DaisyUI components the
+// template relies on (emitted because the template references them literally).
+// If this fails, rerun web/build.sh after editing web/input.css or the template.
+func TestBriefingComponentsInCSS(t *testing.T) {
+	css := string(appCSS)
+	for _, cls := range []string{
+		".progress-bar", ".bar-seg", ".bs-applying", ".sl-applying", // bespoke progress + state colours
+		".stack-detail",                         // single-pane :target swap for selected-stack detail
+		".badge", ".menu", ".card", ".collapse", // DaisyUI components reused by the template
+	} {
+		if !strings.Contains(css, cls) {
+			t.Errorf("app.css missing %q — run web/build.sh after editing web/input.css or the template", cls)
+		}
+	}
+}
+
 func TestReportCSSServed(t *testing.T) {
 	a := New(newServerTestDB(t), &MockGitHub{}, Config{})
 	rec := httptest.NewRecorder()

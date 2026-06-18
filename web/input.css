@@ -1,9 +1,92 @@
 @import "tailwindcss";
-@plugin "daisyui" {
-  themes: light --default, dark --prefersdark;
+
+/* DaisyUI with a custom "briefing" theme: the design's palette mapped onto
+   DaisyUI's semantic colour slots, so components (badge, menu, card, collapse)
+   and the progress bar all read their colours from one place. */
+@plugin "daisyui";
+@plugin "daisyui/theme" {
+  name: "briefing";
+  default: true;
+  prefersdark: false;
+  color-scheme: light;
+
+  --color-base-100: #ffffff;
+  --color-base-200: #f8f9fb;
+  --color-base-300: #e3e6ea;
+  --color-base-content: #1e2228;
+
+  --color-primary: #3b6fd4;          /* apply phase / applying */
+  --color-primary-content: #ffffff;
+  --color-secondary: #0e7c7b;        /* plan phase / planning */
+  --color-secondary-content: #ffffff;
+  --color-accent: #7a47d6;           /* replace / moving */
+  --color-accent-content: #ffffff;
+  --color-neutral: #5b6470;          /* queued / planned / skipped */
+  --color-neutral-content: #ffffff;
+  --color-info: #2b8fd4;             /* move / info */
+  --color-info-content: #ffffff;
+  --color-success: #1a9f5b;          /* add / applied */
+  --color-success-content: #ffffff;
+  --color-warning: #b07d14;          /* change / iam / blocked */
+  --color-warning-content: #ffffff;
+  --color-error: #c0392b;            /* destroy / failed */
+  --color-error-content: #ffffff;
+
+  --radius-selector: 0.5rem;
+  --radius-field: 0.5rem;
+  --radius-box: 0.875rem;
+  --border: 1px;
 }
 
-/* Tailwind v4 scans these for class names. Any class used in a template or in
-   server-generated HTML must appear literally in one of these sources. */
+/* Type scale: characterful display + Inter body + mono for paths/data. */
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  --font-display: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
+}
+
+/* Tailwind/DaisyUI scan these for the (literal) utility + component classes used. */
 @source "../internal/server/templates/**/*.gohtml";
 @source "../internal/server/*.go";
+
+/* The ONE bespoke component: the segmented progress strip (DaisyUI has no
+   stacked/multi-colour progress). One segment per stack, flex-sized by ops,
+   coloured by the stack's CURRENT state — colours pulled from the theme slots
+   so there's a single source of truth. The matching per-state text colour for
+   the row labels lives here too (the slug is built dynamically in Go, so these
+   can't be Tailwind utilities — but they still reference the theme vars). */
+.progress-bar {
+  display: flex; height: 16px; border-radius: 9999px; overflow: hidden;
+  background: var(--color-base-300); gap: 2px;
+}
+.bar-seg { display: block; min-width: 3px; }
+.bar-seg.bs-applied { background: var(--color-success); }
+.bar-seg.bs-applying { background: var(--color-primary); }
+.bar-seg.bs-moving { background: var(--color-accent); }
+.bar-seg.bs-planning { background: var(--color-secondary); }
+.bar-seg.bs-planned,
+.bar-seg.bs-queued,
+.bar-seg.bs-initializing,
+.bar-seg.bs-skipped { background: var(--color-neutral); opacity: 0.4; }
+.bar-seg.bs-blocked { background: var(--color-warning); }
+.bar-seg.bs-failed { background: var(--color-error); }
+
+.sl-applied { color: var(--color-success); }
+.sl-applying { color: var(--color-primary); }
+.sl-moving { color: var(--color-accent); }
+.sl-planning { color: var(--color-secondary); }
+.sl-planned,
+.sl-queued,
+.sl-initializing,
+.sl-skipped { color: var(--color-neutral); }
+.sl-blocked { color: var(--color-warning); }
+.sl-failed { color: var(--color-error); }
+
+/* Selected-stack detail: a single pane swapped by the clicked row via :target.
+   Only the targeted stack shows; nothing is selected by default (the pane shows
+   a quiet prompt). Keeps the page compact and lets the visible diff/log be large
+   instead of stacking every stack's output. */
+.stack-detail { display: none; }
+.stack-detail:target { display: block; }
+.detail-empty { display: none; }
+.detail-wrap:not(:has(:target)) .detail-empty { display: block; }

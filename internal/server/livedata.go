@@ -3,6 +3,7 @@ package server
 import (
 	"regexp"
 	"sort"
+	"strconv"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 )
@@ -33,6 +34,181 @@ func groupStacksByKey(stacks []events.StackState, depth int, re *regexp.Regexp) 
 		groups = append(groups, stackGroup{Name: n, Stacks: byName[n]})
 	}
 	return groups
+}
+
+// groupByProject folds stacks by their Project (the Google project / grouping
+// target, backfilled at finalize). Stacks with no Project (pre-finalize or
+// unprojected) fall into a trailing "—" bucket. Order: projects alphabetical,
+// then the ungrouped bucket last; stack order within a group is preserved.
+func groupByProject(stacks []events.StackState) []stackGroup {
+	const ungrouped = "—"
+	byName := map[string][]events.StackState{}
+	var order []string
+	for _, s := range stacks {
+		k := s.Project
+		if k == "" {
+			k = ungrouped
+		}
+		if _, ok := byName[k]; !ok {
+			order = append(order, k)
+		}
+		byName[k] = append(byName[k], s)
+	}
+	sort.Slice(order, func(i, j int) bool {
+		if order[i] == ungrouped {
+			return false
+		}
+		if order[j] == ungrouped {
+			return true
+		}
+		return order[i] < order[j]
+	})
+	groups := make([]stackGroup, 0, len(order))
+	for _, n := range order {
+		groups = append(groups, stackGroup{Name: n, Stacks: byName[n]})
+	}
+	return groups
+}
+
+// progSeg is one segment of the progress bar: one stack, flex-sized by its
+// mutating-op total (min 1 so a 0-op stack still shows a sliver), colored by the
+// stack's CURRENT run-state — so the bar tracks live progress (each segment turns
+// its state colour as the stack advances), rather than a static op-kind breakdown.
+type progSeg struct {
+	Flex     int
+	StateCSS string // queued|initializing|planning|planned|applying|moving|applied|blocked|skipped|failed
+}
+
+func progressSegments(stacks []events.StackState, kind string) []progSeg {
+	segs := make([]progSeg, 0, len(stacks))
+	for _, s := range stacks {
+		flex := 1
+		if s.Counts != nil {
+			if t := s.Counts.Add + s.Counts.Change + s.Counts.Destroy + s.Counts.Replace + s.Counts.Move; t > 0 {
+				flex = t
+			}
+		}
+		segs = append(segs, progSeg{Flex: flex, StateCSS: displayState(s.Status, kind).CSS})
+	}
+	return segs
+}
+
+// iamCount is the number of stacks flagged with the gating "iam" category.
+func iamCount(stacks []events.StackState) int {
+	n := 0
+	for _, s := range stacks {
+		for _, c := range s.Categories {
+			if c.Name == "iam" {
+				n++
+				break
+			}
+		}
+	}
+	return n
+}
+
+// riskTag is a per-stack risk chip (iam / destructive).
+type riskTag struct {
+	Label string
+	CSS   string // iam | danger
+}
+
+func riskTags(s events.StackState) []riskTag {
+	var tags []riskTag
+	for _, c := range s.Categories {
+		switch c.Name {
+		case "iam":
+			tags = append(tags, riskTag{"⚿ IAM", "iam"})
+		case "destructive":
+			tags = append(tags, riskTag{"⚠ destructive", "danger"})
+		}
+	}
+	return tags
+}
+
+// verdict is the aggregate op tally across an execution's stacks, for the
+// verdict band + blast-radius bar.
+type verdict struct {
+	Add, Change, Destroy, Replace, Move, Import, Forget int
+	TotalOps                                            int // Add+Change+Destroy+Replace
+}
+
+func aggregateVerdict(stacks []events.StackState) verdict {
+	var v verdict
+	for _, s := range stacks {
+		if s.Counts == nil {
+			continue
+		}
+		c := s.Counts
+		v.Add += c.Add
+		v.Change += c.Change
+		v.Destroy += c.Destroy
+		v.Replace += c.Replace
+		v.Move += c.Move
+		v.Import += c.Import
+		v.Forget += c.Forget
+	}
+	v.TotalOps = v.Add + v.Change + v.Destroy + v.Replace
+	return v
+}
+
+// stateDisplay is a per-stack status rendered for the UI: a human label + a
+// css-state slug (drives the per-state label color class state-<CSS>).
+type stateDisplay struct {
+	Label string
+	CSS   string
+}
+
+// displayState maps the protocol Status (+ plan/apply kind) to the viewer's
+// richer per-state label. Plan and apply share Status values but read
+// differently (running = "planning" vs "applying"; safe = "planned" vs "applied").
+func displayState(st events.Status, kind string) stateDisplay {
+	switch st {
+	case events.StatusPending:
+		return stateDisplay{"queued", "queued"}
+	case events.StatusRunning:
+		if kind == "apply" {
+			return stateDisplay{"applying", "applying"}
+		}
+		return stateDisplay{"planning", "planning"}
+	case events.StatusPlanned:
+		return stateDisplay{"planned", "planned"}
+	case events.StatusMoving:
+		return stateDisplay{"moving", "moving"}
+	case events.StatusGated:
+		return stateDisplay{"blocked", "blocked"}
+	case events.StatusSafe:
+		if kind == "apply" {
+			return stateDisplay{"applied", "applied"}
+		}
+		return stateDisplay{"planned", "planned"}
+	case events.StatusFailed:
+		return stateDisplay{"failed", "failed"}
+	default:
+		return stateDisplay{string(st), "queued"}
+	}
+}
+
+// opSummary renders a compact per-stack op count — the single dominant kind by
+// count (tie order add>change>replace>destroy>move). "" when nil/empty.
+func opSummary(c *events.Counts) string {
+	if c == nil {
+		return ""
+	}
+	switch {
+	case c.Add > 0:
+		return "+" + strconv.Itoa(c.Add)
+	case c.Change > 0:
+		return "~" + strconv.Itoa(c.Change)
+	case c.Replace > 0:
+		return "±" + strconv.Itoa(c.Replace)
+	case c.Destroy > 0:
+		return "−" + strconv.Itoa(c.Destroy)
+	case c.Move > 0:
+		return "↔" + strconv.Itoa(c.Move)
+	default:
+		return ""
+	}
 }
 
 // statusBadge maps a per-stack status to a DaisyUI badge class. Unknown statuses

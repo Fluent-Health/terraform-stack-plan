@@ -6,6 +6,7 @@ import (
 	"html"
 	"html/template"
 	"strings"
+	"time"
 
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/extension"
@@ -109,18 +110,85 @@ type liveView struct {
 	SHA, Context              string
 	Phase                     events.Phase
 	Status                    string
+	CreatedAt                 time.Time
 	Stacks                    []events.StackState
+	StackReports              map[string]string // stack path → rendered plan-section markdown
+	StackLogs                 map[string]string // stack path → recent log excerpt
 	SVG, Panel                string
 }
 
-// livePage renders the auto-refreshing execution page via the DaisyUI template.
-// SVG and Panel are trusted server-generated HTML (injected un-escaped); Repo,
-// Title, Report, stack paths/statuses, and phase names are auto-escaped.
+// livePage renders the auto-refreshing execution page via the Briefing template.
+// SVG and Panel are trusted server-generated HTML (injected un-escaped); repo,
+// title, report, stack paths/states, and phase labels are auto-escaped.
 func (a *App) livePage(v liveView) string {
 	kind := execKind(v.Context)
 	finished := isFinished(kind, v.Report, v.Status)
+	m := buildLiveModel(v, kind, finished, time.Now())
+	var buf bytes.Buffer
+	_ = a.tmpl.ExecuteTemplate(&buf, "live.gohtml", m)
+	return buf.String()
+}
 
-	// Build a human-readable kind + environment label for the title.
+// stackRow is one stack rendered in the grouped list AND its detail block below.
+type stackRow struct {
+	Path       string
+	Anchor     string // same-page id the row scrolls to (path slug)
+	State      stateDisplay
+	Ops        string
+	Risks      []riskTag
+	Detail     template.HTML // rendered plan-section diff (empty until planned)
+	LogExcerpt string        // recent log lines (shown when no diff yet)
+	DetailURL  string        // per-stack page (full streaming log + apply/validation)
+	HasDetail  bool          // has a diff or a log excerpt to show
+}
+
+// anchorSlug turns a stack path into a safe same-page anchor id.
+func anchorSlug(path string) string {
+	var b strings.Builder
+	b.WriteString("stack-")
+	for _, r := range path {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+		} else {
+			b.WriteByte('-')
+		}
+	}
+	return b.String()
+}
+
+// projGroup is a Google-project group of stack rows.
+type projGroup struct {
+	Name   string
+	Stacks []stackRow
+}
+
+// liveModel is the typed payload the Briefing live template renders.
+type liveModel struct {
+	Title, Repo, Exec, SHA, ShortSHA, Context string
+	Environment                               string
+	PR                                        int
+	PhaseAccent                               string // "plan" | "apply" → phase-<accent>
+	PhaseLabel                                string // PLANNING | PLANNED | APPLYING | APPLIED | FAILED
+	Elapsed                                   string
+	Verdict                                   verdict
+	Destructive                               bool
+	IAMCount                                  int
+	Progress                                  []progSeg
+	Groups                                    []projGroup
+	ReportHTML                                template.HTML
+	Report                                    string // raw markdown — drives the "still running" vs report branch
+	StackCount                                int
+	SVG, Panel                                template.HTML
+}
+
+// buildLiveModel assembles the Briefing payload from a liveView. kind is
+// "plan"/"apply"; finished marks a concluded execution; now is the reference
+// clock for elapsed (injected for testability).
+func buildLiveModel(v liveView, kind string, finished bool, now time.Time) liveModel {
+	shortSHA := v.SHA
+	if len(shortSHA) > 7 {
+		shortSHA = shortSHA[:7]
+	}
 	kindLabel := "Plan"
 	if kind == "apply" {
 		kindLabel = "Apply"
@@ -130,39 +198,85 @@ func (a *App) livePage(v liveView) string {
 		title += " · " + v.Environment
 	}
 
-	depth := a.cfg.GroupDepth
-	if depth == 0 {
-		depth = 2
-	}
-	// ShortSHA is the first 7 characters of the commit SHA, for display.
-	shortSHA := v.SHA
-	if len(shortSHA) > 7 {
-		shortSHA = shortSHA[:7]
+	// Phase label.
+	var label string
+	switch {
+	case kind == "apply" && finished && v.Status == "failure":
+		label = "FAILED"
+	case kind == "apply" && finished:
+		label = "APPLIED"
+	case kind == "apply":
+		label = "APPLYING"
+	case finished:
+		label = "PLANNED"
+	default:
+		label = "PLANNING"
 	}
 
-	var buf bytes.Buffer
-	_ = a.tmpl.ExecuteTemplate(&buf, "live.gohtml", struct {
-		Title, Exec, Repo, Report string
-		PR                        int
-		SHA, ShortSHA, Context    string
-		ReportHTML                template.HTML
-		Timeline                  []phaseStep
-		Groups                    []stackGroup
-		SVG, Panel                template.HTML
-	}{
-		Title:      title,
-		Exec:       v.Exec,
-		Repo:       v.Repo,
-		Report:     v.Report,
-		PR:         v.PR,
-		SHA:        v.SHA,
-		ShortSHA:   shortSHA,
-		Context:    v.Context,
+	elapsed := ""
+	if !v.CreatedAt.IsZero() {
+		elapsed = humanizeDuration(now.Sub(v.CreatedAt))
+	}
+
+	// Risk roll-up + per-row mapping.
+	var destructive bool
+	groups := make([]projGroup, 0)
+	for _, g := range groupByProject(v.Stacks) {
+		rows := make([]stackRow, 0, len(g.Stacks))
+		for _, s := range g.Stacks {
+			risks := riskTags(s)
+			for _, rt := range risks {
+				if rt.CSS == "danger" {
+					destructive = true
+				}
+			}
+			reportMD := v.StackReports[s.Path]
+			logExcerpt := v.StackLogs[s.Path]
+			rows = append(rows, stackRow{
+				Path:       s.Path,
+				Anchor:     anchorSlug(s.Path),
+				State:      displayState(s.Status, kind),
+				Ops:        opSummary(s.Counts),
+				Risks:      risks,
+				Detail:     renderMarkdown(reportMD),
+				LogExcerpt: logExcerpt,
+				DetailURL:  "/live/" + v.Exec + "/stack/" + s.Path,
+				HasDetail:  reportMD != "" || logExcerpt != "",
+			})
+		}
+		groups = append(groups, projGroup{Name: g.Name, Stacks: rows})
+	}
+
+	return liveModel{
+		Title: title, Repo: v.Repo, Exec: v.Exec, SHA: v.SHA, ShortSHA: shortSHA,
+		Context: v.Context, Environment: v.Environment, PR: v.PR,
+		PhaseAccent: kind, PhaseLabel: label, Elapsed: elapsed,
+		Verdict:     aggregateVerdict(v.Stacks),
+		Destructive: destructive, IAMCount: iamCount(v.Stacks),
+		Progress:   progressSegments(v.Stacks, kind),
+		Groups:     groups,
 		ReportHTML: renderMarkdown(v.Report),
-		Timeline:   phaseTimeline(kind, v.Phase, finished),
-		Groups:     groupStacksByKey(v.Stacks, depth, a.groupRE),
+		Report:     v.Report,
+		StackCount: len(v.Stacks),
 		SVG:        template.HTML(v.SVG),
 		Panel:      template.HTML(v.Panel),
-	})
-	return buf.String()
+	}
+}
+
+// humanizeDuration renders a short elapsed string: "Xh Ym", "Xm Ys", or "Xs".
+func humanizeDuration(d time.Duration) string {
+	if d < 0 {
+		d = 0
+	}
+	h := int(d.Hours())
+	m := int(d.Minutes()) % 60
+	s := int(d.Seconds()) % 60
+	switch {
+	case h > 0:
+		return fmt.Sprintf("%dh %dm", h, m)
+	case m > 0:
+		return fmt.Sprintf("%dm %ds", m, s)
+	default:
+		return fmt.Sprintf("%ds", s)
+	}
 }

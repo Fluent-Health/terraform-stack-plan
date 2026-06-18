@@ -34,6 +34,14 @@ func (r *diffCodeRenderer) renderDiff(w util.BufWriter, source []byte, n *ast.Fe
 	for i := 0; i < n.Lines().Len(); i++ {
 		line := n.Lines().At(i)
 		raw := line.Value(source)
+		// goldmark includes the trailing newline in the line value. Emit it
+		// OUTSIDE the span so white-space:pre breaks between lines — otherwise the
+		// per-line inline-block spans have no break point between them and run
+		// together on one horizontally-scrolling line.
+		nl := ""
+		if len(raw) > 0 && raw[len(raw)-1] == '\n' {
+			raw, nl = raw[:len(raw)-1], "\n"
+		}
 		cls := ""
 		if len(raw) > 0 {
 			switch raw[0] {
@@ -52,6 +60,7 @@ func (r *diffCodeRenderer) renderDiff(w util.BufWriter, source []byte, n *ast.Fe
 		if cls != "" {
 			_, _ = w.WriteString("</span>")
 		}
+		_, _ = w.WriteString(nl)
 	}
 	return ast.WalkContinue, nil
 }
