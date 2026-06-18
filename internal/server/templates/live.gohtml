@@ -59,6 +59,26 @@
 
       {{ if .Panel }}<div class="p-5 border-b border-base-300">{{ .Panel }}</div>{{ end }}
 
+      {{ if .Failures }}
+      <div class="p-5 border-b border-base-300">
+        <h2 class="text-xs font-semibold uppercase tracking-wide text-error mb-3">⚠ Needs attention</h2>
+        {{ range .Failures }}
+        <div class="triage-card">
+          <div class="triage-head"><span class="text-error font-semibold">✗ {{ .Path }}</span>
+            {{ if .Class }}<span class="badge badge-sm badge-error badge-outline">{{ .Class }}</span>{{ end }}
+            <a class="ml-auto text-xs text-primary" href="#{{ .Anchor }}">view detail</a></div>
+          {{ if .Cause }}<p class="triage-cause"><b>Likely cause.</b> {{ .Cause }}</p>{{ end }}
+          {{ if .Detail }}<pre class="term text-xs" style="max-height:11rem">{{ .Detail }}</pre>{{ end }}
+          <div class="triage-grid">
+            <div><div class="triage-label">Next steps</div><ol class="triage-steps">{{ range .Steps }}<li>{{ . }}</li>{{ end }}</ol>
+              <a class="text-xs text-primary" href="{{ .LogURL }}" target="_blank" rel="noopener">full log ↗</a></div>
+            {{ if .StateImpact }}<div><div class="triage-label">State impact</div><p class="text-sm">{{ .StateImpact }}</p></div>{{ end }}
+          </div>
+        </div>
+        {{ end }}
+      </div>
+      {{ end }}
+
       <!-- stacks, grouped by Google project -->
       <div class="p-5 border-b border-base-300">
         <h2 class="text-xs font-semibold uppercase tracking-wide text-base-content/50 mb-3">Stacks</h2>
