@@ -1,9 +1,7 @@
 package server
 
 import (
-	"bytes"
 	"fmt"
-	"html/template"
 	"net/http"
 	"strings"
 	"time"
@@ -126,53 +124,4 @@ func (a *App) handleLiveEvents(w http.ResponseWriter, r *http.Request) {
 			flusher.Flush()
 		}
 	}
-}
-
-// stackView is the data the per-stack detail template renders.
-type stackView struct {
-	Exec, Repo, Environment, Stack string
-	Kind                           string // "plan" or "apply" — controls which tabs show
-	Finished                       bool   // concluded → load static log instead of SSE follow
-	Plan, LogExcerpt               string
-	PlanHTML                       template.HTML // Plan rendered via the shared markdown pipeline
-	VerifyExec                     string        // latest verify run id for this PR/env ("" if none)
-	VerifyLog                      string        // tail excerpt of the verify run's per-stack log ("" if none)
-}
-
-// stackPage renders the per-stack detail page. All fields are escaped text.
-func (a *App) stackPage(v stackView) string {
-	var buf bytes.Buffer
-	_ = a.tmpl.ExecuteTemplate(&buf, "stack.gohtml", v)
-	return buf.String()
-}
-
-// handleStackDetail serves the per-stack Log/Plan/Verify tabs. Public, behind the
-// unguessable execution id.
-func (a *App) handleStackDetail(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	stack := r.PathValue("stack")
-	e, err := store.GetExecution(a.db, id)
-	if err != nil {
-		http.Error(w, "not found", http.StatusNotFound)
-		return
-	}
-	_, plan, _, _ := store.GetStackOutput(a.db, id, stack, "plan")
-	_, logExcerpt, _, _ := store.GetStackOutput(a.db, id, stack, "log")
-	verifyExec, _ := store.LatestVerifyExecutionID(a.db, e.PR, e.Environment)
-	var verifyLog string
-	if verifyExec != "" {
-		_, verifyLog, _, _ = store.GetStackOutput(a.db, verifyExec, stack, "log")
-	}
-	kind := execKind(e.StatusContext)
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Write([]byte(a.stackPage(stackView{
-		Exec: id, Repo: e.Repo, Environment: e.Environment, Stack: stack,
-		Kind:       kind,
-		Finished:   isFinished(kind, e.ReportMarkdown, e.Status),
-		Plan:       plan,
-		PlanHTML:   renderMarkdown(plan),
-		LogExcerpt: logExcerpt,
-		VerifyExec: verifyExec,
-		VerifyLog:  verifyLog,
-	})))
 }

@@ -240,7 +240,7 @@ func buildLiveModel(v liveView, kind string, finished bool, now time.Time) liveM
 				Risks:      risks,
 				Detail:     renderMarkdown(reportMD),
 				LogExcerpt: logExcerpt,
-				DetailURL:  "/live/" + v.Exec + "/stack/" + s.Path,
+				DetailURL:  "/logs/" + v.Exec + "/" + s.Path,
 				HasDetail:  reportMD != "" || logExcerpt != "",
 			})
 		}
