@@ -133,17 +133,17 @@
     </div>
   </main>
   <script>
-    // Page-level live refresh: reload on any execution change — but NOT while a
-    // stack's log is streaming (you're watching one stack; a reload would reset
-    // the stream). window.__tfspStreaming is set by the log-streaming module.
+    // Page-level live refresh: reload on any execution STATE change (a stack
+    // starts/finishes, gate changes). Log chunks publish to a different SSE topic,
+    // so they don't trigger this — the watched log streams smoothly between
+    // transitions, and a reload re-renders the truthful state (e.g. drops the Log
+    // tab's live dot once the run finishes). The selected stack re-streams via the
+    // hash after reload.
     (function () {
       try {
         var es = new EventSource(location.pathname.replace(/\/$/, "") + "/events");
         var t;
-        es.onmessage = function () {
-          if (window.__tfspStreaming) return;
-          clearTimeout(t); t = setTimeout(function () { location.reload(); }, 800);
-        };
+        es.onmessage = function () { clearTimeout(t); t = setTimeout(function () { location.reload(); }, 800); };
       } catch (e) { /* no EventSource → the noscript meta-refresh covers it */ }
     })();
   </script>
@@ -171,17 +171,17 @@
       }
       window.__tfspAnsi = ansi;
       function append(pre, data){ pre.insertAdjacentHTML('beforeend', ansi(data)+'\n'); pre.scrollTop = pre.scrollHeight; }
-      function close(){ if (es){ es.close(); es=null; } window.__tfspStreaming=false; }
+      function close(){ if (es){ es.close(); es=null; } }
       function stream(id){
         close(); cur=id;
         var pane = id && document.getElementById(id); if (!pane) return;
         var pre = pane.querySelector('pre[data-follow-url]'); if (!pre) return;
         pre.textContent=''; // the SSE replays the buffer from the start
         try {
-          es = new EventSource(pre.dataset.followUrl); window.__tfspStreaming=true;
+          es = new EventSource(pre.dataset.followUrl);
           es.onmessage = function (e){ if (cur===id) append(pre, e.data); };
           es.onerror = function (){ /* keep the buffer already shown; EventSource auto-retries */ };
-        } catch (_) { window.__tfspStreaming=false; }
+        } catch (_) { /* no EventSource → the seeded excerpt remains */ }
       }
       // finished/validation panes have only data-log-url → fetch once when shown.
       function staticFill(id){
