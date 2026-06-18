@@ -225,7 +225,9 @@ func TestLivePageBriefingBand(t *testing.T) {
 		`aria-label="Result"`, `aria-label="Log"`,
 		`class="term`, // softened log surface
 		`data-follow-url="/logs/e1/prod/api?follow=1"`, // running exec → live stream
-		`fonts.googleapis.com`,                         // Google Fonts link
+		`__tfspStreaming`,      // streaming module sets the reload-suppress flag
+		`window.__tfspAnsi`,    // client-side ANSI parser present
+		`fonts.googleapis.com`, // Google Fonts link
 	} {
 		if !strings.Contains(html, want) {
 			t.Errorf("briefing live page missing %q", want)
