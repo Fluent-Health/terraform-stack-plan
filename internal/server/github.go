@@ -4,6 +4,7 @@ import "context"
 
 // CheckRunUpdate carries everything a PATCH to a check run needs.
 type CheckRunUpdate struct {
+	Title      string // check-run title (e.g. "Terraform plan" / "Terraform apply")
 	Summary    string // GFM progress task list (renders at the top)
 	Text       string // the rendered plan report (renders below the progress)
 	DetailsURL string // the live page for the full view

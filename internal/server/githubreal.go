@@ -121,9 +121,9 @@ func splitRepo(repo string) (owner, name string, err error) {
 // output builds the check-run output object as pure GFM: the progress task list
 // (summary) and the rendered report (text). No embedded image — GitHub tiles
 // small SVG check-run images, so the diagram lives on the live page.
-func output(summary, text string) map[string]any {
+func output(title, summary, text string) map[string]any {
 	out := map[string]any{
-		"title":   "Terraform plan",
+		"title":   title,
 		"summary": summary,
 	}
 	if text != "" {
@@ -151,7 +151,7 @@ func (c *RealClient) CreateCheckRun(ctx context.Context, repo, sha, name, detail
 		"name":     name,
 		"head_sha": sha,
 		"status":   "in_progress",
-		"output":   output("Planning…", ""),
+		"output":   output("Terraform plan", "Planning…", ""),
 	}
 	if detailsURL != "" {
 		payload["details_url"] = detailsURL
@@ -176,7 +176,7 @@ func (c *RealClient) UpdateCheckRun(ctx context.Context, repo string, checkRunID
 	if err != nil {
 		return err
 	}
-	payload := map[string]any{"output": output(u.Summary, u.Text)}
+	payload := map[string]any{"output": output(u.Title, u.Summary, u.Text)}
 	if u.DetailsURL != "" {
 		payload["details_url"] = u.DetailsURL
 	}
