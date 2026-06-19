@@ -119,13 +119,14 @@
               <a class="ml-auto text-xs text-primary" href="{{ .DetailURL }}" target="_blank" rel="noopener">raw log ↗</a>
             </div>
             <div class="tabs tabs-lift">
-              <label class="tab"><input type="radio" name="tab-{{ .Anchor }}" checked>Result</label>
+              <label class="tab"><input type="radio" name="tab-{{ .Anchor }}" {{ if not .Follow }}checked{{ end }}>Result</label>
               <div class="tab-content border-base-300 p-3">
                 {{ if .Detail }}<div class="tfsp-report">{{ .Detail }}</div>
-                {{ else if .Follow }}<div class="shimmer h-24 w-full rounded"></div><p class="italic text-base-content/40 text-xs mt-2">Planning…</p>
+                {{ else if .Follow }}<div class="shimmer h-24 w-full rounded"></div><p class="italic text-base-content/40 text-xs mt-2">{{ if eq $.PhaseAccent "apply" }}Applying…{{ else }}Planning…{{ end }}</p>
+                {{ else if .Moved }}<p class="italic text-base-content/60 text-sm">State-only move — no plan diff. See the Log tab for the moved addresses.</p>
                 {{ else }}<p class="italic text-base-content/40 text-sm">No plan recorded for this stack.</p>{{ end }}
               </div>
-              <label class="tab">Log{{ if .Follow }}<span class="live-dot" title="streaming live"></span>{{ end }}<input type="radio" name="tab-{{ .Anchor }}"></label>
+              <label class="tab">Log{{ if .Follow }}<span class="live-dot" title="streaming live"></span>{{ end }}<input type="radio" name="tab-{{ .Anchor }}" {{ if .Follow }}checked{{ end }}></label>
               <div class="tab-content border-base-300 p-3">
                 <pre class="term text-xs" style="max-height:60vh" data-stack="{{ .Path }}" data-log-url="/logs/{{ $.Exec }}/{{ .Path }}"{{ if .Follow }} data-follow-url="/logs/{{ $.Exec }}/{{ .Path }}?follow=1"{{ end }}>{{ .LogExcerpt }}</pre>
               </div>
@@ -190,7 +191,9 @@
         return out;
       }
       window.__tfspAnsi = ansi;
-      function append(pre, data){ pre.insertAdjacentHTML('beforeend', ansi(data)+'\n'); pre.scrollTop = pre.scrollHeight; }
+      function atBottom(pre){ return pre.scrollHeight - pre.scrollTop - pre.clientHeight < 24; }
+      function toBottom(pre){ pre.scrollTop = pre.scrollHeight; }
+      function append(pre, data){ var stick = atBottom(pre); pre.insertAdjacentHTML('beforeend', ansi(data)+'\n'); if (stick) toBottom(pre); }
       function close(){ if (es){ es.close(); es=null; } }
       function stream(id){
         close(); cur=id;
@@ -209,7 +212,7 @@
         pane.querySelectorAll('pre[data-log-url]:not([data-follow-url])').forEach(function (pre){
           if (pre.dataset.filled) return; pre.dataset.filled='1';
           fetch(pre.dataset.logUrl).then(function (r){ return r.ok ? r.text() : ''; }).then(function (t){
-            pre.innerHTML = t.split('\n').map(window.__tfspAnsi).join('\n');
+            pre.innerHTML = t.split('\n').map(window.__tfspAnsi).join('\n'); toBottom(pre);
           }).catch(function (){});
         });
       }
