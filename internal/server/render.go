@@ -218,6 +218,63 @@ func checkSummary(kind, environment string, phase events.Phase, stacks []events.
 	return b.String()
 }
 
+// errorTail extracts the most relevant trailing slice of a terraform log excerpt
+// for a failure summary: the last "╷ … ╵" diagnostic block; else from the last
+// line containing "Error:" to the end; else the last maxLines non-blank lines.
+// Output is capped at maxLines and trailing blanks trimmed. "" for blank input.
+func errorTail(excerpt string, maxLines int) string {
+	excerpt = strings.TrimRight(excerpt, "\n \t")
+	if strings.TrimSpace(excerpt) == "" {
+		return ""
+	}
+	lines := strings.Split(excerpt, "\n")
+
+	var picked []string
+	// 1. last ╷ … ╵ diagnostic block.
+	start := -1
+	for i := len(lines) - 1; i >= 0; i-- {
+		if strings.HasPrefix(strings.TrimSpace(lines[i]), "╷") {
+			start = i
+			break
+		}
+	}
+	switch {
+	case start >= 0:
+		end := len(lines)
+		for j := start; j < len(lines); j++ {
+			if strings.HasPrefix(strings.TrimSpace(lines[j]), "╵") {
+				end = j + 1
+				break
+			}
+		}
+		picked = lines[start:end]
+	default:
+		// 2. last "Error:" to EOF.
+		errIdx := -1
+		for i := len(lines) - 1; i >= 0; i-- {
+			if strings.Contains(lines[i], "Error:") {
+				errIdx = i
+				break
+			}
+		}
+		if errIdx >= 0 {
+			picked = lines[errIdx:]
+		} else {
+			// 3. last maxLines non-blank lines.
+			for i := len(lines) - 1; i >= 0 && len(picked) < maxLines; i-- {
+				if strings.TrimSpace(lines[i]) == "" {
+					continue
+				}
+				picked = append([]string{lines[i]}, picked...)
+			}
+		}
+	}
+	if len(picked) > maxLines {
+		picked = picked[len(picked)-maxLines:]
+	}
+	return strings.TrimRight(strings.Join(picked, "\n"), "\n")
+}
+
 // failuresSection renders a collapsible block per failed stack with the captured
 // error detail (which, for an apply, names the phase it died in — terraform init
 // vs apply) and links. logURL is the CI build log; stackLogPrefix, when non-empty

@@ -260,3 +260,41 @@ func TestGatesSection(t *testing.T) {
 		t.Error("active gate should not appear in the awaiting banner")
 	}
 }
+
+func TestErrorTail(t *testing.T) {
+	t.Run("box_block", func(t *testing.T) {
+		in := "Initializing...\nApplying...\n╷\n│ Error: creating Bucket: 403\n│\n│   on storage.tf line 8\n╵\n"
+		got := errorTail(in, 25)
+		if !strings.Contains(got, "Error: creating Bucket: 403") || !strings.Contains(got, "on storage.tf line 8") {
+			t.Errorf("box block not extracted:\n%s", got)
+		}
+		if strings.Contains(got, "Initializing...") {
+			t.Errorf("preamble should be dropped:\n%s", got)
+		}
+	})
+	t.Run("error_line_no_box", func(t *testing.T) {
+		in := "step 1 ok\nstep 2 ok\nError: terraform exited with code 1\n"
+		got := errorTail(in, 25)
+		if got != "Error: terraform exited with code 1" {
+			t.Errorf("got %q", got)
+		}
+	})
+	t.Run("fallback_last_lines", func(t *testing.T) {
+		in := "a\nb\nc\nd\n"
+		got := errorTail(in, 2)
+		if got != "c\nd" {
+			t.Errorf("fallback got %q, want \"c\\nd\"", got)
+		}
+	})
+	t.Run("empty", func(t *testing.T) {
+		if errorTail("   \n\n", 25) != "" {
+			t.Errorf("empty input must yield empty string")
+		}
+	})
+	t.Run("cap", func(t *testing.T) {
+		got := errorTail("l1\nl2\nl3\nl4\nl5\n", 3)
+		if got != "l3\nl4\nl5" {
+			t.Errorf("cap got %q", got)
+		}
+	})
+}
