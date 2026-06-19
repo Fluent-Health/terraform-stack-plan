@@ -1031,8 +1031,9 @@ plan` it adds a **fail-closed gate pre-check**: it asks the server whether the
 PR's approval gates are satisfied *before touching terramate* and refuses to
 apply otherwise (a 409, any non-2xx, or an unreachable *configured* server
 blocks; an unconfigured server is a no-op pass — nothing gates). It then
-registers the apply execution, applies the changed stacks in dependency order
-(the terramate `apply` script, no `--parallel`), and revokes the PR's grants
+registers the apply execution, applies the changed stacks via the terramate
+`apply` script (terramate honoring the dependency DAG; `--parallel N` runs
+independent stacks concurrently, default serial), and revokes the PR's grants
 afterward (best-effort, whether or not the apply succeeded). Tested end to end
 against real terramate + a stub `terraform`: gate satisfied → apply runs in DAG
 order + revoke; gate blocks → abort before any apply. The `--impersonate-requester`

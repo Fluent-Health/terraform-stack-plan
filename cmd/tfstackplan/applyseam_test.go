@@ -27,13 +27,15 @@ type fakeTM struct {
 	edges     []events.Edge
 	scriptErr error
 	scriptRan bool
+	gotOpts   runner.ScriptRunOptions
 }
 
 func (f *fakeTM) ChangedStacks(_ context.Context, _ string) ([]string, error) { return f.changed, nil }
 func (f *fakeTM) List(_ context.Context) ([]string, error)                    { return f.all, nil }
 func (f *fakeTM) RunGraph(_ context.Context) ([]events.Edge, error)           { return f.edges, nil }
-func (f *fakeTM) ScriptRun(_ context.Context, _ io.Writer, _ runner.ScriptRunOptions) error {
+func (f *fakeTM) ScriptRun(_ context.Context, _ io.Writer, o runner.ScriptRunOptions) error {
 	f.scriptRan = true
+	f.gotOpts = o
 	return f.scriptErr
 }
 
