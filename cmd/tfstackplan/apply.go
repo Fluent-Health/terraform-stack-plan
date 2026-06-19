@@ -30,7 +30,7 @@ var newTerramate = func(dir string) tmRunner { return &runner.Terramate{Dir: dir
 
 // applyMovesFn is the cross-state move pre-phase. A package var so tests can
 // simulate a move failure without a real terraform/state.
-var applyMovesFn = applyPendingMoves
+var applyMovesFn func(ctx context.Context, dir string, execute bool, locker statemove.Locker, w io.Writer, sink func(stack, line string)) error = applyPendingMoves
 
 // runApply is the CI apply driver. It is self-sufficient (re-classifies and
 // re-requests grants at apply time, so a merged PR recovers even if serve state
@@ -190,7 +190,10 @@ func runApply(args []string) int {
 		}
 		stateLocker = l
 	}
-	if err := applyMovesFn(ctx, *dir, true, stateLocker, os.Stderr); err != nil {
+	moveSink := func(stack, line string) {
+		_ = client.LogChunk(ctx, events.LogChunk{ID: execID, Stack: stack, Data: line + "\n"})
+	}
+	if err := applyMovesFn(ctx, *dir, true, stateLocker, os.Stderr, moveSink); err != nil {
 		fmt.Fprintln(os.Stderr, "tfstackplan run apply: cross-state move failed:", err)
 		_ = client.Finalize(ctx, events.Finalize{
 			ID:             execID,

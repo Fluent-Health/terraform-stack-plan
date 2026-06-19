@@ -372,7 +372,7 @@ func TestApplyStateMoveFailureFinalizes(t *testing.T) {
 	withFakeTM(t, f, nil)
 
 	orig := applyMovesFn
-	applyMovesFn = func(_ context.Context, _ string, _ bool, _ statemove.Locker, _ io.Writer) error {
+	applyMovesFn = func(_ context.Context, _ string, _ bool, _ statemove.Locker, _ io.Writer, _ func(string, string)) error {
 		return errBoom
 	}
 	t.Cleanup(func() { applyMovesFn = orig })
