@@ -171,6 +171,18 @@ func TestRunApplyImpersonatesRequester(t *testing.T) {
 	// GOOGLE_OAUTH_ACCESS_TOKEN is auto-restored after the test.
 	t.Setenv("GOOGLE_OAUTH_ACCESS_TOKEN", "")
 
+	// Stub the classify pass to succeed: this test exercises the impersonation
+	// path, not classification (the apply fixture has no `plan` script, so the
+	// real classify pass would fail — and a failed classify under
+	// --impersonate-requester is now fail-closed).
+	origCls := classifyForGateFn
+	classifyForGateFn = func(_ context.Context, _ string, _ []string, _ string, _ bool, _ string) (
+		[]events.GateTarget, map[string][]events.Category, map[string]events.Counts, []string, string, error,
+	) {
+		return nil, map[string][]events.Category{}, map[string]events.Counts{}, nil, "classified", nil
+	}
+	defer func() { classifyForGateFn = origCls }()
+
 	// Stub mintAccessToken: record the SA it was called with, return a sentinel.
 	var calledWith string
 	orig := mintAccessToken
@@ -214,6 +226,17 @@ func TestRunApplyMintFailClosedImpersonate(t *testing.T) {
 
 	// Fix I2: ensure env var hygiene via t.Setenv.
 	t.Setenv("GOOGLE_OAUTH_ACCESS_TOKEN", "")
+
+	// Stub the classify pass to succeed so the test reaches the mint step it is
+	// asserting on (the fixture has no `plan` script; a failed classify under
+	// --impersonate-requester is fail-closed and would abort before mint).
+	origCls := classifyForGateFn
+	classifyForGateFn = func(_ context.Context, _ string, _ []string, _ string, _ bool, _ string) (
+		[]events.GateTarget, map[string][]events.Category, map[string]events.Counts, []string, string, error,
+	) {
+		return nil, map[string][]events.Category{}, map[string]events.Counts{}, nil, "classified", nil
+	}
+	defer func() { classifyForGateFn = origCls }()
 
 	orig := mintAccessToken
 	mintAccessToken = func(_ context.Context, sa string) (string, error) {
@@ -468,6 +491,89 @@ func TestApplyFinalizeCarriesCounts(t *testing.T) {
 	}
 	if got := classifyFin.Counts["a"].Add; got != 3 {
 		t.Errorf("classify-pass Finalize.Counts[\"a\"].Add = %d, want 3", got)
+	}
+}
+
+// TestApplyFailsClosedOnClassifyFailureWhenImpersonating is the v0.12.0 fail-open
+// regression guard (infra PR #391 build 62ec4f11): under --impersonate-requester,
+// a failed classify pass must ABORT the apply (exit 1) rather than silently
+// proceed under the ambient build SA — which 403s on every IAM-gated resource
+// despite an ACTIVE grant, because PAM grants the role to the leased requester,
+// not the ambient SA. The grant is left intact (no revoke) so an operator retry —
+// classify flakes (e.g. an unreachable chart repo) are transient — can reuse it.
+func TestApplyFailsClosedOnClassifyFailureWhenImpersonating(t *testing.T) {
+	srv, rs := stubServer(t)
+	setApplyEnv(t, srv.URL, 391, "test")
+	f := &fakeTM{changed: []string{"stacks/gcs-migration"}}
+	withFakeTM(t, f, nil)
+
+	origCls := classifyForGateFn
+	classifyForGateFn = func(_ context.Context, _ string, _ []string, _ string, _ bool, _ string) (
+		[]events.GateTarget, map[string][]events.Category, map[string]events.Counts, []string, string, error,
+	) {
+		return nil, nil, nil, nil, "", errBoom
+	}
+	t.Cleanup(func() { classifyForGateFn = origCls })
+
+	minted := false
+	origMint := mintAccessToken
+	mintAccessToken = func(_ context.Context, _ string) (string, error) {
+		minted = true
+		return "tok", nil
+	}
+	t.Cleanup(func() { mintAccessToken = origMint })
+
+	code := runApply([]string{"--dir", t.TempDir(), "--impersonate-requester"})
+	if code != 1 {
+		t.Fatalf("exit=%d want 1 (fail closed on classify failure under impersonation)", code)
+	}
+	if f.scriptRan {
+		t.Error("apply script ran despite a failed classify pass under --impersonate-requester")
+	}
+	if minted {
+		t.Error("mintAccessToken called despite the classify failure — must abort before impersonation")
+	}
+	if rs.has("/api/gate/check") {
+		t.Error("gate checked despite classify failure under impersonation — must abort before the gate")
+	}
+	if rs.has("/api/gate/revoke") {
+		t.Error("grant revoked on a transient classify failure — must leave it intact for retry")
+	}
+	fin, ok := rs.lastFinalize()
+	if !ok || !fin.Failed {
+		t.Fatal("expected a terminal Finalize{Failed:true} on classify failure under impersonation")
+	}
+}
+
+// TestApplyContinuesOnClassifyFailureWithoutImpersonate asserts the lenient path
+// is preserved: WITHOUT --impersonate-requester, a classify failure does not
+// abort — the fail-closed gate check remains the guard, so a recoverable apply is
+// not stranded by a transient classify flake. (Empty requester here legitimately
+// means "no elevation needed"; only the impersonation intent makes a failed
+// classify unsafe.)
+func TestApplyContinuesOnClassifyFailureWithoutImpersonate(t *testing.T) {
+	srv, rs := stubServer(t)
+	setApplyEnv(t, srv.URL, 391, "test")
+	f := &fakeTM{changed: []string{"stacks/a"}}
+	withFakeTM(t, f, nil)
+
+	origCls := classifyForGateFn
+	classifyForGateFn = func(_ context.Context, _ string, _ []string, _ string, _ bool, _ string) (
+		[]events.GateTarget, map[string][]events.Category, map[string]events.Counts, []string, string, error,
+	) {
+		return nil, nil, nil, nil, "", errBoom
+	}
+	t.Cleanup(func() { classifyForGateFn = origCls })
+
+	code := runApply([]string{"--dir", t.TempDir()})
+	if code != 0 {
+		t.Fatalf("exit=%d want 0 (classify failure without impersonation continues to the gate)", code)
+	}
+	if !rs.has("/api/gate/check") {
+		t.Error("gate should still be checked after a classify failure without impersonation")
+	}
+	if !f.scriptRan {
+		t.Error("apply script should run (gate passed) despite the classify failure without impersonation")
 	}
 }
 

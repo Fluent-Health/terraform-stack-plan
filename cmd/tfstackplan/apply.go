@@ -42,6 +42,8 @@ var applyMovesFn = applyPendingMoves
 //  2. zero stacks → Init(empty) + Finalize(success) + exit 0 (never touch the gate).
 //  3. Init(apply ctx) + Phase(applying).
 //  4. classify pass → Finalize{Gates,…} (re-classify + request grants), keyed to (pr,env).
+//     Under --impersonate-requester a classify FAILURE is fail-closed (abort): we
+//     must not run an elevated-intent apply under the ambient identity (→ 403).
 //  5. GateCheck (fail-closed) → on reject, classified next-steps to stderr + exit 1.
 //  6. impersonate the leased requester SA (optional).
 //  7. cross-state move pre-phase → on failure, Finalize{Failed} + exit 1.
@@ -128,6 +130,25 @@ func runApply(args []string) int {
 	//    below is the real guard.
 	gates, categories, counts, moving, report, cerr := classifyForGateFn(ctx, *dir, stacks, *base, *changed, *cfgPath)
 	if cerr != nil {
+		// The classify pass is the precondition for trusting the gate state under
+		// elevation. A *successful* classify with an empty requester legitimately
+		// means "no gates — apply under the ambient SA"; but a *failed* classify
+		// leaves that ambiguous. Proceeding under --impersonate-requester would
+		// silently run every IAM-gated resource as the unelevated ambient build SA
+		// and 403 despite an ACTIVE grant (PAM grants the role to the leased
+		// requester, not the ambient SA) — the v0.12.0 fail-open this guards
+		// against. Fail CLOSED: abort with a terminal cause and leave the grant
+		// intact (no revoke) so a retry — classify flakes such as an unreachable
+		// chart repo are transient — can reuse it, or break-glass per docs/ci-cd.md.
+		if *impersonateRequester {
+			fmt.Fprintln(os.Stderr, "tfstackplan run apply: classify pass failed under --impersonate-requester; refusing to apply unelevated:", cerr)
+			_ = client.Finalize(ctx, events.Finalize{
+				ID:             execID,
+				Failed:         true,
+				ReportMarkdown: "Classify pass failed before an elevated apply; refusing to proceed under the ambient identity (would 403 on gated resources despite an active grant). Retry this tier's apply — classify flakes are transient — or break-glass per docs/ci-cd.md. Cause: " + cerr.Error(),
+			})
+			return 1
+		}
 		fmt.Fprintln(os.Stderr, "tfstackplan run apply: classify pass failed (continuing to gate check):", cerr)
 	} else {
 		_ = client.Finalize(ctx, events.Finalize{
