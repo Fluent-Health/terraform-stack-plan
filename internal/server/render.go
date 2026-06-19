@@ -121,6 +121,22 @@ func failuresSection(g events.Graph, logURL, stackLogPrefix string) string {
 		fmt.Fprintf(&b, "<details><summary><code>%s</code></summary>\n\n", s.Path)
 		if s.Detail != "" {
 			fmt.Fprintf(&b, "```\n%s\n```\n", s.Detail)
+			// Triage is keyed off the captured error, so only emit it when there
+			// is one — with no detail the "_see the build log_" note below is the
+			// only honest advice (the generic steps would say "read the error").
+			tr := classifyFailure(s.Detail, s.Categories)
+			if tr.Cause != "" {
+				fmt.Fprintf(&b, "\n**Likely cause.** %s\n", tr.Cause)
+			}
+			if len(tr.Steps) > 0 {
+				b.WriteString("\n**Next steps:**\n\n")
+				for i, step := range tr.Steps {
+					fmt.Fprintf(&b, "%d. %s\n", i+1, step)
+				}
+			}
+			if tr.StateImpact != "" {
+				fmt.Fprintf(&b, "\n**State impact.** %s\n", tr.StateImpact)
+			}
 		} else {
 			b.WriteString("_No error detail captured — see the build log._\n")
 		}

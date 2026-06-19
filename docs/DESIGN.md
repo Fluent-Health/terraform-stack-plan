@@ -862,6 +862,27 @@ smoothly between state transitions; a `changed` reload re-renders the truthful s
 (e.g. drops the live dot once the run finishes) and the selected stack re-streams
 via the hash. A `raw log ↗` link points at the plain-text `/logs/{exec}/{stack}`.
 
+**Failure triage — "Needs attention" (Phase 4).** A failed stack's bare error is
+turned into an actionable triage by one pure classifier, `classifyFailure(detail,
+cats) → failureTriage{Class, Cause, Steps, StateImpact, Retryable}` in
+`internal/server/triage.go`. It is a **bounded, ordered pattern set** (`failureMatchers`)
+— `state_move` (matched first, so a move failure carrying an embedded lock needle
+still reads as a move), then `quota` before `iam_denied` (both can match `error 403`,
+so the more specific `quota exceeded` wins), then `state_lock`, `already_exists`,
+`provider_auth` — first match wins; an unmatched error falls back to `Class:"error"`
+with an **empty `Cause`** (the raw error is shown, never a fabricated guess) plus
+generic recovery steps. Two renderers consume the *same* diagnosis: the **live page**
+gains a top **"⚠ Needs attention"** section (`Failures []failureCard` on `liveModel`,
+collected for every `StatusFailed` stack) of error-tinted `.triage-*` cards — class
+badge, "Likely cause", the raw error excerpt on the `.term` surface (auto-escaped,
+never `innerHTML`), a "Next steps" list, "State impact", and links to the stack's
+detail anchor + raw log; and the **`apply/<env>` check-run** `failuresSection`
+(`render.go`) mirrors cause + next steps + state impact as GitHub Markdown inside the
+existing per-stack `<details>` (suppressed when there's no captured detail — the
+"see the build log" note is then the only honest advice). Grow the matcher set with a
+row + a test case, never a heuristic DSL. The deeper "grant expired at HH:MM"
+correlation (needs grant timestamps) is intentionally out of scope.
+
 Styling is **DaisyUI components** (`card`, `badge`, `menu`, `collapse`) on a custom
 DaisyUI **theme** (`briefing`) that maps the palette onto the semantic colour slots
 (primary=apply, secondary=plan, success/warning/error/accent/info=op-kinds &

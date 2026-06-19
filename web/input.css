@@ -129,3 +129,55 @@
 @media (prefers-reduced-motion: reduce) {
   .live-dot, .shimmer { animation: none; }
 }
+
+/* Failure triage cards — shown at the top of the live page when stacks fail.
+   Uses the error colour slot from the theme for the left border accent. */
+.triage-card {
+  border-left: 3px solid var(--color-error);
+  background: color-mix(in srgb, var(--color-error) 5%, var(--color-base-100));
+  border-radius: 0.5rem;
+  padding: 0.75rem 1rem;
+  margin-bottom: 0.75rem;
+}
+.triage-card:last-child { margin-bottom: 0; }
+
+.triage-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.5rem;
+}
+
+.triage-cause {
+  font-size: 0.875rem;
+  color: var(--color-base-content);
+  margin-bottom: 0.5rem;
+}
+
+.triage-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  margin-top: 0.5rem;
+}
+@media (max-width: 600px) {
+  .triage-grid { grid-template-columns: 1fr; }
+}
+
+.triage-label {
+  font-size: 0.625rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-base-content);
+  opacity: 0.5;
+  margin-bottom: 0.25rem;
+}
+
+.triage-steps {
+  list-style: decimal;
+  padding-left: 1.25rem;
+  font-size: 0.875rem;
+  margin-bottom: 0.25rem;
+}

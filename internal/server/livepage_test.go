@@ -283,6 +283,65 @@ func TestBuildLiveModel(t *testing.T) {
 	if m.ShortSHA != "a3f1414" {
 		t.Fatalf("ShortSHA=%q", m.ShortSHA)
 	}
+	if len(m.Failures) != 0 { // no StatusFailed stacks → no triage cards
+		t.Fatalf("no failed stacks → Failures must be empty, got %+v", m.Failures)
+	}
+}
+
+func TestLivePageTriageSection(t *testing.T) {
+	a := New(newServerTestDB(t), &MockGitHub{}, Config{})
+	iamDetail := "Error: Error 403: Permission 'run.services.setIamPolicy' denied on resource 'projects/my-project/locations/us-central1/services/api' to user 'sa@my-project.iam.gserviceaccount.com'"
+	page := a.livePage(liveView{
+		Exec:        "exec-abc",
+		Repo:        "o/r",
+		Environment: "nonprod",
+		Context:     "apply/nonprod",
+		Stacks: []events.StackState{
+			{Path: "stacks/api", Status: events.StatusFailed, Detail: iamDetail},
+			{Path: "stacks/db", Status: events.StatusSafe},
+		},
+		StackReports: map[string]string{},
+		StackLogs:    map[string]string{},
+	})
+	for _, want := range []string{
+		"Needs attention",            // section heading
+		"stacks/api",                 // failed stack path
+		"Likely cause",               // cause label
+		"PAM grant",                  // IAM-specific cause text (matches the classifier)
+		"Re-request elevated access", // first next step from IAM matcher
+		"Safe to retry",              // state-impact text from IAM matcher
+		"#stack-stacks-api",          // anchor link to the stack's detail pane
+		"/logs/exec-abc/stacks/api",  // raw log URL
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("triage section missing %q", want)
+		}
+	}
+	// Only the failed stack becomes a triage card — the safe stack must not.
+	// (The safe stack still shows in the stacks list below, which is why this is
+	// asserted at the model level rather than by searching the rendered page.)
+	m := buildLiveModel(liveView{
+		Exec:    "exec-abc",
+		Context: "apply/nonprod",
+		Stacks: []events.StackState{
+			{Path: "stacks/api", Status: events.StatusFailed, Detail: iamDetail},
+			{Path: "stacks/db", Status: events.StatusSafe},
+		},
+	}, "apply", true, time.Now())
+	if len(m.Failures) != 1 || m.Failures[0].Path != "stacks/api" {
+		t.Fatalf("expected exactly the failed stack as a triage card, got %+v", m.Failures)
+	}
+
+	// A failure with no captured detail gets no card (mirrors failuresSection):
+	// nothing to triage, so "Needs attention" stays meaningful.
+	m2 := buildLiveModel(liveView{
+		Exec:    "exec-abc",
+		Context: "apply/nonprod",
+		Stacks:  []events.StackState{{Path: "stacks/api", Status: events.StatusFailed}},
+	}, "apply", true, time.Now())
+	if len(m2.Failures) != 0 {
+		t.Fatalf("failed stack with empty Detail must produce no triage card, got %+v", m2.Failures)
+	}
 }
 
 func TestBuildLiveModelPlanFinished(t *testing.T) {

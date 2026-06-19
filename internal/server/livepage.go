@@ -164,6 +164,19 @@ type projGroup struct {
 	Stacks []stackRow
 }
 
+// failureCard is one failed stack's triage information shown in the
+// Needs-attention section at the top of the live execution page.
+type failureCard struct {
+	Path        string
+	Class       string
+	Cause       string
+	Steps       []string
+	StateImpact string
+	Detail      string // raw error excerpt (shown in "What broke")
+	LogURL      string // /logs/{exec}/{stack}
+	Anchor      string // link to the stack's detail pane
+}
+
 // liveModel is the typed payload the Briefing live template renders.
 type liveModel struct {
 	Title, Repo, Exec, SHA, ShortSHA, Context string
@@ -177,6 +190,7 @@ type liveModel struct {
 	IAMCount                                  int
 	Progress                                  []progSeg
 	Groups                                    []projGroup
+	Failures                                  []failureCard // non-empty when stacks have failed
 	ReportHTML                                template.HTML
 	Report                                    string // raw markdown — drives the "still running" vs report branch
 	StackCount                                int
@@ -252,6 +266,27 @@ func buildLiveModel(v liveView, kind string, finished bool, now time.Time) liveM
 		groups = append(groups, projGroup{Name: g.Name, Stacks: rows})
 	}
 
+	// Collect failed stacks into triage cards for the Needs-attention section.
+	// Triage is keyed off the captured error, so a failure with no detail gets no
+	// card (it still shows red in the stack list) — mirroring failuresSection, and
+	// avoiding "read the error" advice when there is no error to read.
+	var failures []failureCard
+	for _, s := range v.Stacks {
+		if s.Status == events.StatusFailed && s.Detail != "" {
+			tr := classifyFailure(s.Detail, s.Categories)
+			failures = append(failures, failureCard{
+				Path:        s.Path,
+				Class:       tr.Class,
+				Cause:       tr.Cause,
+				Steps:       tr.Steps,
+				StateImpact: tr.StateImpact,
+				Detail:      s.Detail,
+				LogURL:      "/logs/" + v.Exec + "/" + s.Path,
+				Anchor:      anchorSlug(s.Path),
+			})
+		}
+	}
+
 	return liveModel{
 		Title: title, Repo: v.Repo, Exec: v.Exec, SHA: v.SHA, ShortSHA: shortSHA,
 		Context: v.Context, Environment: v.Environment, PR: v.PR,
@@ -260,6 +295,7 @@ func buildLiveModel(v liveView, kind string, finished bool, now time.Time) liveM
 		Destructive: destructive, IAMCount: iamCount(v.Stacks),
 		Progress:   progressSegments(v.Stacks, kind),
 		Groups:     groups,
+		Failures:   failures,
 		ReportHTML: renderMarkdown(v.Report),
 		Report:     v.Report,
 		StackCount: len(v.Stacks),
