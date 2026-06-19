@@ -293,7 +293,7 @@ func runStateApply(args []string) int {
 		}
 		locker = l
 	}
-	if err := applyPendingMoves(context.Background(), *dir, *execute, locker, os.Stdout); err != nil {
+	if err := applyPendingMoves(context.Background(), *dir, *execute, locker, os.Stdout, nil); err != nil {
 		fmt.Fprintln(os.Stderr, "state apply:", err)
 		return 1
 	}
@@ -310,13 +310,30 @@ func gcsLockerFromADC(ctx context.Context) (statemove.Locker, error) {
 	return newGCSLocker(token, ""), nil
 }
 
+// buildExecDeps resolves the terraform binary and builds the ExecDeps for
+// applyPendingMoves. A package var so tests can inject a fake runner without a
+// real terraform binary or GCS backend (override returns a non-nil ExecDeps and
+// a nil error to bypass the real LookPath + NewTerraform).
+var buildExecDeps = func(dir string, locker statemove.Locker) (statemove.ExecDeps, error) {
+	tfPath, err := exec.LookPath("terraform")
+	if err != nil {
+		return statemove.ExecDeps{}, fmt.Errorf("terraform not found on PATH: %w", err)
+	}
+	return statemove.ExecDeps{
+		NewTF:     func(wd string) (statemove.Runner, error) { return statemove.NewTerraform(tfPath, wd) },
+		BackupDir: filepath.Join(dir, ".tfsp-state-backups"),
+		Locker:    locker,
+	}, nil
+}
+
 // applyPendingMoves discovers and runs every pending `_tfsp_xmove.*.hcl`
 // cross-state move manifest under dir. It is shared by `state apply` and the
 // `run apply` pre-phase. With execute=false it dry-runs (prints what it would
 // do). It is fail-closed: a terraform binary is required only when moves are
 // pending, and the first Execute error aborts the whole run. A nil locker
-// means no pessimistic lock.
-func applyPendingMoves(ctx context.Context, dir string, execute bool, locker statemove.Locker, w io.Writer) error {
+// means no pessimistic lock. sink (may be nil) receives each formatted move
+// line keyed to the destination stack for per-stack log streaming.
+func applyPendingMoves(ctx context.Context, dir string, execute bool, locker statemove.Locker, w io.Writer, sink func(stack, line string)) error {
 	found, err := statemove.DiscoverXMoves(dir)
 	if err != nil {
 		return err
@@ -324,14 +341,9 @@ func applyPendingMoves(ctx context.Context, dir string, execute bool, locker sta
 	if len(found) == 0 {
 		return nil
 	}
-	tfPath, err := exec.LookPath("terraform")
+	deps, err := buildExecDeps(dir, locker)
 	if err != nil {
-		return fmt.Errorf("terraform not found on PATH (required for %d pending cross-state move(s))", len(found))
-	}
-	deps := statemove.ExecDeps{
-		NewTF:     func(wd string) (statemove.Runner, error) { return statemove.NewTerraform(tfPath, wd) },
-		BackupDir: filepath.Join(dir, ".tfsp-state-backups"),
-		Locker:    locker,
+		return fmt.Errorf("%d pending cross-state move(s): %w", len(found), err)
 	}
 	for _, fx := range found {
 		actions, err := statemove.Execute(ctx, deps, dir, fx.DestStack, fx.XMove, !execute)
@@ -345,7 +357,11 @@ func applyPendingMoves(ctx context.Context, dir string, execute bool, locker sta
 			} else if execute {
 				verb = "moved"
 			}
-			fmt.Fprintf(w, "%s\t%s → %s\t%s %s → %s\n", fx.Key, fx.XMove.SourceStack, fx.DestStack, verb, a.From, a.To)
+			line := fmt.Sprintf("%s\t%s → %s\t%s %s → %s", fx.Key, fx.XMove.SourceStack, fx.DestStack, verb, a.From, a.To)
+			fmt.Fprintln(w, line)
+			if sink != nil {
+				sink(fx.DestStack, line)
+			}
 		}
 	}
 	return nil

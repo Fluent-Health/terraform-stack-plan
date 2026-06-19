@@ -142,6 +142,7 @@ type stackRow struct {
 	DetailURL  string        // raw full log (text/plain)
 	HasDetail  bool          // has a diff or a log excerpt to show
 	Follow     bool          // exec still running ⇒ stream the log via SSE follow
+	Moved      bool          // state-only move: no plan diff, only log output
 }
 
 // anchorSlug turns a stack path into a safe same-page anchor id.
@@ -223,10 +224,16 @@ func buildLiveModel(v liveView, kind string, finished bool, now time.Time) liveM
 		label = "FAILED"
 	case kind == "apply" && finished:
 		label = "APPLIED"
-	case kind == "apply":
-		label = "APPLYING"
 	case finished:
 		label = "PLANNED"
+	case v.Phase == events.PhaseWarming:
+		label = "WARMING"
+	case v.Phase == events.PhaseInitializing:
+		label = "INITIALIZING"
+	case kind == "apply" && v.Phase == events.PhaseVerifying:
+		label = "VERIFYING"
+	case kind == "apply":
+		label = "APPLYING"
 	default:
 		label = "PLANNING"
 	}
@@ -261,6 +268,7 @@ func buildLiveModel(v liveView, kind string, finished bool, now time.Time) liveM
 				DetailURL:  "/logs/" + v.Exec + "/" + s.Path,
 				HasDetail:  reportMD != "" || logExcerpt != "",
 				Follow:     !finished,
+				Moved:      s.Status == events.StatusMoving,
 			})
 		}
 		groups = append(groups, projGroup{Name: g.Name, Stacks: rows})

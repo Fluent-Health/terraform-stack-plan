@@ -253,6 +253,8 @@ func phaseTimeline(kind string, cur events.Phase, finished bool) []phaseStep {
 	var specs []spec
 	if kind == "apply" {
 		specs = []spec{
+			{name: "Warming", phase: events.PhaseWarming},
+			{name: "Initializing", phase: events.PhaseInitializing},
 			{name: "Apply", phase: events.PhaseApplying},
 			{name: "Verify", phase: events.PhaseVerifying},
 		}

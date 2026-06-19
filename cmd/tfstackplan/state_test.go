@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -8,6 +10,8 @@ import (
 	"testing"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/statemove"
+	"github.com/hashicorp/terraform-exec/tfexec"
+	tfjson "github.com/hashicorp/terraform-json"
 )
 
 // writeStackPlan writes a tfplan.json with (address,type,action) rows into
@@ -158,6 +162,84 @@ func TestStateMoveViaMv(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(root, "stacks/b", statemove.ShimFileName("PR-5"))); err == nil {
 		t.Error("--via mv should not write a native import/removed shim")
+	}
+}
+
+// fakeStateRunner is a minimal statemove.Runner for unit tests: Init is a no-op,
+// StatePull returns a non-empty state JSON, and ShowStateFile returns a state
+// with the preconfigured addresses.
+type fakeStateRunner struct {
+	addrs []string // resource addresses present in this runner's state
+}
+
+func (f *fakeStateRunner) Init(context.Context, ...tfexec.InitOption) error { return nil }
+func (f *fakeStateRunner) StatePull(context.Context, ...tfexec.StatePullOption) (string, error) {
+	if len(f.addrs) == 0 {
+		return "", nil // empty state
+	}
+	return `{"format_version":"0.1","values":{"root_module":{}}}`, nil
+}
+func (f *fakeStateRunner) ShowStateFile(_ context.Context, _ string, _ ...tfexec.ShowOption) (*tfjson.State, error) {
+	m := &tfjson.StateModule{}
+	for _, a := range f.addrs {
+		m.Resources = append(m.Resources, &tfjson.StateResource{Address: a})
+	}
+	return &tfjson.State{Values: &tfjson.StateValues{RootModule: m}}, nil
+}
+func (f *fakeStateRunner) StateMv(context.Context, string, string, ...tfexec.StateMvCmdOption) error {
+	return nil
+}
+func (f *fakeStateRunner) StatePush(context.Context, string, ...tfexec.StatePushCmdOption) error {
+	return nil
+}
+
+// TestApplyPendingMovesLogsPerStack asserts that each dry-run move line is
+// delivered to the per-stack sink under the destination stack key. It overrides
+// buildExecDeps with a fake runner so no real terraform binary or GCS backend is
+// needed.
+func TestApplyPendingMovesLogsPerStack(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "stacks/b")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	xm := statemove.XMove{SourceStack: "stacks/a", Pairs: []statemove.Move{{From: "x.y", To: "x.y"}}}
+	if err := os.WriteFile(filepath.Join(dir, statemove.XMoveFileName("PR-1")), []byte(statemove.RenderXMove("PR-1", xm)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Override buildExecDeps with a fake that supplies a source runner holding
+	// "x.y" (so decide → DecisionMove) and an empty dest runner.
+	orig := buildExecDeps
+	buildExecDeps = func(_ string, _ statemove.Locker) (statemove.ExecDeps, error) {
+		src := &fakeStateRunner{addrs: []string{"x.y"}}
+		dst := &fakeStateRunner{}
+		return statemove.ExecDeps{
+			NewTF: func(wd string) (statemove.Runner, error) {
+				if strings.HasSuffix(filepath.ToSlash(wd), "/stacks/a") {
+					return src, nil
+				}
+				return dst, nil
+			},
+		}, nil
+	}
+	t.Cleanup(func() { buildExecDeps = orig })
+
+	var got []string
+	if err := applyPendingMoves(context.Background(), root, false, nil, io.Discard,
+		func(stack, line string) { got = append(got, stack+"|"+line) }); err != nil {
+		t.Fatalf("applyPendingMoves: %v", err)
+	}
+
+	// dry-run (execute=false): expect at least one "would move" line for stacks/b.
+	found := false
+	for _, g := range got {
+		if strings.Contains(g, "stacks/b|") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("no per-stack move log captured for stacks/b: %v", got)
 	}
 }
 

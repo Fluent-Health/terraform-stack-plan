@@ -25,22 +25,76 @@ func (a *App) backfillFailureDetail(execID string, g *events.Graph) {
 	}
 }
 
-// progressTitle builds the check-run title: "<bar> k/N · <label>" — the k/N count
-// is dropped while no stacks are registered yet (warming). It is GitHub's most
-// prominent surface while the run is in_progress.
-func progressTitle(phase events.Phase, stacks []events.StackState) string {
-	total := len(stacks)
-	doneCount := 0
+// doneStacks counts the stacks that have finished their work for progress
+// accounting, using the existing done() predicate.
+func doneStacks(stacks []events.StackState) int {
+	n := 0
 	for _, s := range stacks {
 		if done(s.Status) {
-			doneCount++
+			n++
 		}
 	}
+	return n
+}
+
+// progressTitle renders the check-run title. While running it is the live
+// progress bar ("<bar> k/N · <label>"); once terminal it is an action-count
+// summary ("Plan · +6 ~3 −2 · 12 stacks" / "Plan · no changes" / apply variant),
+// because a frozen bar reads as stuck.
+func progressTitle(phase events.Phase, stacks []events.StackState, terminal bool) string {
+	if terminal {
+		kind := "Plan"
+		if phase == events.PhaseApplying || phase == events.PhaseVerifying {
+			kind = "Apply"
+		}
+		return terminalSummary(kind, stacks)
+	}
+	total := len(stacks)
+	doneCount := doneStacks(stacks)
 	bar, label, _ := progress(phase, doneCount, total)
 	if total == 0 {
 		return bar + " · " + label
 	}
 	return fmt.Sprintf("%s %d/%d · %s", bar, doneCount, total, label)
+}
+
+// terminalSummary is the concluded-run title/headline tail: kind + tally + stack
+// count (+ a failed suffix), or "no changes". kindLabel is "Plan" or "Apply".
+func terminalSummary(kindLabel string, stacks []events.StackState) string {
+	kind := kindLabel
+	failed := 0
+	for _, s := range stacks {
+		if s.Status == events.StatusFailed {
+			failed++
+		}
+	}
+	tally := opTally(aggregateVerdict(stacks))
+	var head string
+	switch {
+	case len(stacks) == 0:
+		head = kind + " · no changes"
+	case kind == "Apply":
+		applied := 0
+		for _, s := range stacks {
+			if s.Status == events.StatusSafe {
+				applied++
+			}
+		}
+		head = fmt.Sprintf("%s · applied %d/%d", kind, applied, len(stacks))
+		if tally != "" {
+			head += " · " + tally
+		}
+	default:
+		if tally == "" {
+			head = fmt.Sprintf("%s · no changes", kind)
+		} else {
+			head = fmt.Sprintf("%s · %s · %d stacks", kind, tally, len(stacks))
+		}
+	}
+	if failed > 0 {
+		head += fmt.Sprintf(" · %d failed", failed)
+	}
+	return head
 }
 
 // ensureCheckRun creates the GitHub check run for an execution if it does not yet
@@ -94,8 +148,8 @@ func (a *App) renderAndPatch(ctx context.Context, id, base string, terminal bool
 	// action_required conclusion is self-explanatory (which gate, how to approve).
 	targets, _ := store.TargetsFor(a.db, e.PR, e.Environment)
 	upd := CheckRunUpdate{
-		Title:      progressTitle(events.Phase(e.Phase), g.Stacks),
-		Summary:    checkSummary("plan", e.Environment, events.Phase(e.Phase), g.Stacks, a.liveURL(base, id)),
+		Title:      progressTitle(events.Phase(e.Phase), g.Stacks, terminal),
+		Summary:    checkSummary("plan", e.Environment, g.Stacks, events.Phase(e.Phase), terminal, a.liveURL(base, id)),
 		Text:       gatesSection(targets) + failuresSection(g, e.LogURL, "") + e.ReportMarkdown,
 		DetailsURL: a.liveURL(base, id),
 	}
@@ -173,6 +227,14 @@ func (a *App) driveApply(ctx context.Context, e store.Execution, base string) {
 	default:
 		state, desc = "pending", fmt.Sprintf("applying… %d/%d stacks", done, total)
 	}
+	// Persist the terminal status so the viewer's isFinished() flips (clears the
+	// shimmer / live-dot / "planning" placeholder on a concluded apply). Pending
+	// stays unwritten (still in-flight). Best-effort.
+	if state == "success" || state == "failure" {
+		if err := store.SetExecutionStatus(a.db, e.ID, state); err != nil {
+			log.Printf("apply set status %s: %v", e.ID, err)
+		}
+	}
 	if a.cfg.UseChecks && e.CheckRunID.Valid && e.CheckRunID.Int64 != 0 {
 		var conclusion string
 		switch state {
@@ -181,14 +243,15 @@ func (a *App) driveApply(ctx context.Context, e store.Execution, base string) {
 		case "failure":
 			conclusion = "failure"
 		}
-		summary := checkSummary("apply", e.Environment, events.Phase(e.Phase), g.Stacks, a.liveURL(base, e.ID))
+		applyTerminal := state == "success" || state == "failure"
+		summary := checkSummary("apply", e.Environment, g.Stacks, events.Phase(e.Phase), applyTerminal, a.liveURL(base, e.ID))
 		if failed > 0 {
 			// Keep the next-steps guidance (fix-forward / re-run) visible in the
 			// summary; the failing-stack detail renders in the Text below.
 			summary += "\n\n" + desc
 		}
 		upd := CheckRunUpdate{
-			Title:      progressTitle(events.Phase(e.Phase), g.Stacks),
+			Title:      progressTitle(events.Phase(e.Phase), g.Stacks, applyTerminal),
 			Summary:    summary,
 			DetailsURL: a.liveURL(base, e.ID),
 			Conclusion: conclusion,

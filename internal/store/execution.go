@@ -171,6 +171,14 @@ func BumpRev(db *sql.DB, id string) error {
 	return err
 }
 
+// SetExecutionStatus persists the execution-level commit status (e.g. terminal
+// "success"/"failure"). This is the signal isFinished reads for an apply; the
+// apply driver writes it once the apply concludes.
+func SetExecutionStatus(db *sql.DB, id, status string) error {
+	_, err := db.Exec(`UPDATE executions SET status = ? WHERE id = ?`, status, id)
+	return err
+}
+
 // SetCheckRunID records the GitHub check-run id created for an execution.
 func SetCheckRunID(db *sql.DB, id string, checkRunID int64) error {
 	_, err := db.Exec(`UPDATE executions SET check_run_id = ? WHERE id = ?`, checkRunID, id)

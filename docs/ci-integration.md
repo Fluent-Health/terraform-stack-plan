@@ -110,6 +110,41 @@ creates the per-environment check run on the first phase event. The check-run
 title and summary headline carry a phase-weighted progress bar (▰▱ cells,
 warming → initializing → planning k/N → done), updated in real time.
 
+The same early-phase sequence applies to **apply**: emit `--phase warming` and
+`--phase initializing` before the respective pre-apply steps, then the stack
+apply progress follows. Set `TFSTACKPLAN_EXECUTION=$BUILD_ID` in the CI apply
+job so all phase + tick events share one execution id. Without this the apply
+check run will not appear until the first `run tick` fires from within a stack.
+
+## Check-run title: progress bar vs action-count summary
+
+While a run is **in-progress** the per-environment check title shows a live
+progress bar (`Plan · ▰▰▰▱▱ · 3/5 stacks`). Once the run is **terminal**
+(all stacks done, or plan/apply exited) the title switches to an action-count
+summary:
+
+- Plan: `Plan · +6 ~3 −2 · 12 stacks` or `Plan · no changes · 12 stacks`
+- Apply: `Apply · applied 12/12`
+
+The frozen-bar problem from earlier versions is gone: the bar only renders
+while the run is alive; a finished apply is marked terminal so `isFinished()`
+flips and the live viewer stops streaming.
+
+## Cross-state moves: streaming to the stack log
+
+Cross-state move output (the lines `terraform state mv` emits for each
+address) is streamed to the per-stack log via the same sink used for plan/apply
+output. The viewer log pane therefore shows move progress in real time alongside
+the stack's other output — no separate move-specific route.
+
+## Live viewer behaviour
+
+- The stack detail panel opens on the **Log tab while the stack is streaming**
+  and switches to the **Result tab once the stack is done** (terminal status).
+- The log pane **tail-follows** new output by default; scrolling up pauses
+  following (stick-unless-scrolled-up), so an operator can read without the
+  view jumping.
+
 ## Failure detail backfill
 
 When `run plan` or `run apply` fails at the orchestrator level (plan error, apply

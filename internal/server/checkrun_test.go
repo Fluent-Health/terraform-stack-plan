@@ -56,6 +56,35 @@ func TestPlanCheckRunSummaryAndTitle(t *testing.T) {
 	}
 }
 
+func TestProgressTitleTerminalShowsCounts(t *testing.T) {
+	stacks := []events.StackState{
+		{Path: "a", Status: events.StatusPlanned, Counts: &events.Counts{Add: 6}},
+		{Path: "b", Status: events.StatusPlanned, Counts: &events.Counts{Change: 3, Destroy: 2}},
+	}
+	got := progressTitle(events.PhasePlanning, stacks, true)
+	for _, want := range []string{"+6", "~3", "−2", "2 stacks"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("terminal title %q missing %q", got, want)
+		}
+	}
+	if strings.Contains(got, "▰") || strings.Contains(got, "▱") {
+		t.Errorf("terminal title must not contain the progress bar: %q", got)
+	}
+}
+
+func TestProgressTitleTerminalNoChanges(t *testing.T) {
+	if got := progressTitle(events.PhasePlanning, nil, true); !strings.Contains(got, "no changes") {
+		t.Errorf("empty terminal title = %q, want it to say 'no changes'", got)
+	}
+}
+
+func TestProgressTitleRunningStillHasBar(t *testing.T) {
+	stacks := []events.StackState{{Path: "a", Status: events.StatusRunning}}
+	if got := progressTitle(events.PhasePlanning, stacks, false); !strings.Contains(got, "▰") {
+		t.Errorf("running title %q must keep the bar", got)
+	}
+}
+
 func TestBackfillFailureDetailFromLog(t *testing.T) {
 	db := newServerTestDB(t)
 	a := New(db, &MockGitHub{}, Config{})

@@ -115,11 +115,11 @@ func TestCheckSummaryPlanFinalized(t *testing.T) {
 			Categories: []events.Category{{Name: "destructive"}}},
 		{Path: "svc/c", Status: events.StatusPlanned, Counts: &events.Counts{Change: 3}},
 	}
-	out := checkSummary("plan", "nonprod", events.PhasePlanning, stacks, "https://srv/live/e1")
+	out := checkSummary("plan", "nonprod", stacks, events.PhasePlanning, true, "https://srv/live/e1")
 	for _, want := range []string{
 		"## Plan · nonprod",
 		"+6", "~3", "−2", // op tally in the headline
-		"(3 stacks)",
+		"3 stacks",
 		"⚠️ destructive", "⚿ 1 IAM",
 		"[live viewer ↗](https://srv/live/e1)",
 		"| Stack | Ops | Risk | State |",
@@ -137,7 +137,7 @@ func TestCheckSummaryPlanDegradesWhilePlanning(t *testing.T) {
 		{Path: "svc/a", Status: events.StatusPlanned}, // counts nil
 		{Path: "svc/b", Status: events.StatusRunning},
 	}
-	out := checkSummary("plan", "nonprod", events.PhasePlanning, stacks, "https://srv/live/e1")
+	out := checkSummary("plan", "nonprod", stacks, events.PhasePlanning, false, "https://srv/live/e1")
 	if !strings.Contains(out, "planning 1/2") {
 		t.Errorf("want degraded 'planning 1/2' headline in:\n%s", out)
 	}
@@ -154,7 +154,7 @@ func TestCheckSummaryApplyApplied(t *testing.T) {
 		{Path: "svc/a", Status: events.StatusSafe, Counts: &events.Counts{Add: 6}},
 		{Path: "svc/b", Status: events.StatusSafe, Counts: &events.Counts{Destroy: 2}},
 	}
-	out := checkSummary("apply", "nonprod", events.PhaseApplying, stacks, "https://srv/live/e1")
+	out := checkSummary("apply", "nonprod", stacks, events.PhaseApplying, true, "https://srv/live/e1")
 	for _, want := range []string{"## Apply · nonprod", "applied 2/2", "+6", "−2", "applied"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in:\n%s", want, out)
@@ -167,7 +167,7 @@ func TestCheckSummaryApplyPartialFailed(t *testing.T) {
 		{Path: "svc/a", Status: events.StatusSafe, Counts: &events.Counts{Add: 6}},
 		{Path: "svc/b", Status: events.StatusFailed},
 	}
-	out := checkSummary("apply", "prod", events.PhaseApplying, stacks, "https://srv/live/e1")
+	out := checkSummary("apply", "prod", stacks, events.PhaseApplying, true, "https://srv/live/e1")
 	if !strings.Contains(out, "applied 1/2") {
 		t.Errorf("want 'applied 1/2' in:\n%s", out)
 	}
@@ -178,7 +178,7 @@ func TestCheckSummaryApplyPartialFailed(t *testing.T) {
 
 func TestCheckSummaryNoEnvNoChips(t *testing.T) {
 	stacks := []events.StackState{{Path: "svc/a", Status: events.StatusPlanned, Counts: &events.Counts{Change: 1}}}
-	out := checkSummary("plan", "", events.PhasePlanning, stacks, "https://srv/live/e1")
+	out := checkSummary("plan", "", stacks, events.PhasePlanning, true, "https://srv/live/e1")
 	if strings.Contains(out, " · ") && strings.Contains(out, "## Plan ·") {
 		t.Errorf("env empty → headline must not carry ' · <env>':\n%s", out)
 	}
@@ -192,7 +192,7 @@ func TestCheckSummaryPlanningHeadlineHasBar(t *testing.T) {
 		{Path: "svc/a", Status: events.StatusPlanned}, // no Counts → in-progress branch
 		{Path: "svc/b", Status: events.StatusRunning},
 	}
-	out := checkSummary("plan", "nonprod", events.PhasePlanning, stacks, "")
+	out := checkSummary("plan", "nonprod", stacks, events.PhasePlanning, false, "")
 	for _, want := range []string{"## Plan · nonprod —", "▰", "▱", "planning 1/2"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("planning headline missing %q in:\n%s", want, out)
@@ -201,7 +201,7 @@ func TestCheckSummaryPlanningHeadlineHasBar(t *testing.T) {
 }
 
 func TestCheckSummaryWarmingNoStacks(t *testing.T) {
-	out := checkSummary("plan", "nonprod", events.PhaseWarming, nil, "")
+	out := checkSummary("plan", "nonprod", nil, events.PhaseWarming, false, "")
 	if !strings.Contains(out, "warming cache…") {
 		t.Errorf("warming headline missing label in:\n%s", out)
 	}

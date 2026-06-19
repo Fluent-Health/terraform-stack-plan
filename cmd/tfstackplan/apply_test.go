@@ -372,7 +372,7 @@ func TestApplyStateMoveFailureFinalizes(t *testing.T) {
 	withFakeTM(t, f, nil)
 
 	orig := applyMovesFn
-	applyMovesFn = func(_ context.Context, _ string, _ bool, _ statemove.Locker, _ io.Writer) error {
+	applyMovesFn = func(_ context.Context, _ string, _ bool, _ statemove.Locker, _ io.Writer, _ func(string, string)) error {
 		return errBoom
 	}
 	t.Cleanup(func() { applyMovesFn = orig })
@@ -574,6 +574,23 @@ func TestApplyContinuesOnClassifyFailureWithoutImpersonate(t *testing.T) {
 	}
 	if !f.scriptRan {
 		t.Error("apply script should run (gate passed) despite the classify failure without impersonation")
+	}
+}
+
+// TestApplyPhaseEmittedAfterGate asserts the Phase(applying) emit fires AFTER the
+// gate check — not before classify/gate as it did before Task 4. "Applying" should
+// mean the terramate apply is actually starting, not just that classify is running.
+func TestApplyPhaseEmittedAfterGate(t *testing.T) {
+	srv, rs := stubServer(t)
+	setApplyEnv(t, srv.URL, 201, "prod")
+	withFakeTM(t, &fakeTM{changed: []string{"cluster/fh-prod"}}, nil)
+
+	code := runApply([]string{"--dir", t.TempDir()})
+	if code != 0 {
+		t.Fatalf("exit=%d want 0", code)
+	}
+	if !rs.orderedBefore("/api/gate/check", "/api/phase") {
+		t.Errorf("Phase(applying) must fire AFTER the gate check; order=%v", rs.order)
 	}
 }
 

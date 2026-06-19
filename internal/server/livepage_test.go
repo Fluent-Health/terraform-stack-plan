@@ -351,6 +351,189 @@ func TestBuildLiveModelPlanFinished(t *testing.T) {
 	}
 }
 
+// TestBuildLiveModelWarmingInitializingLabels asserts that warming and initializing
+// phases surface correctly on the live page for both plan and apply kinds (Task 4).
+// Finished executions always use their terminal label even if the stored phase is stale.
+func TestBuildLiveModelWarmingInitializingLabels(t *testing.T) {
+	cases := []struct {
+		name     string
+		view     liveView
+		kind     string
+		finished bool
+		want     string
+	}{
+		{
+			name:     "plan warming",
+			view:     liveView{Context: "", Phase: events.PhaseWarming},
+			kind:     "plan",
+			finished: false,
+			want:     "WARMING",
+		},
+		{
+			name:     "apply initializing",
+			view:     liveView{Context: "apply/prod", Phase: events.PhaseInitializing},
+			kind:     "apply",
+			finished: false,
+			want:     "INITIALIZING",
+		},
+		{
+			name:     "plan initializing",
+			view:     liveView{Context: "", Phase: events.PhaseInitializing},
+			kind:     "plan",
+			finished: false,
+			want:     "INITIALIZING",
+		},
+		{
+			name:     "finished apply with stale warming phase",
+			view:     liveView{Context: "apply/prod", Phase: events.PhaseWarming, Status: "success"},
+			kind:     "apply",
+			finished: true,
+			want:     "APPLIED",
+		},
+		{
+			name:     "finished plan with stale warming phase",
+			view:     liveView{Context: "", Phase: events.PhaseWarming, Report: "# report"},
+			kind:     "plan",
+			finished: true,
+			want:     "PLANNED",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := buildLiveModel(tc.view, tc.kind, tc.finished, time.Now())
+			if m.PhaseLabel != tc.want {
+				t.Errorf("PhaseLabel = %q, want %q", m.PhaseLabel, tc.want)
+			}
+		})
+	}
+}
+
+// TestMovedStackRow asserts that a StatusMoving stack with no report yields
+// Moved==true and HasDetail/Detail empty.
+func TestMovedStackRow(t *testing.T) {
+	m := buildLiveModel(liveView{
+		Context: "apply/nonprod",
+		Stacks: []events.StackState{
+			{Path: "stacks/mv", Status: events.StatusMoving},
+		},
+		StackReports: map[string]string{},
+		StackLogs:    map[string]string{},
+	}, "apply", false, time.Now())
+	if len(m.Groups) == 0 || len(m.Groups[0].Stacks) == 0 {
+		t.Fatal("expected at least one stack row")
+	}
+	row := m.Groups[0].Stacks[0]
+	if !row.Moved {
+		t.Errorf("StatusMoving stack: Moved=%v, want true", row.Moved)
+	}
+	if row.HasDetail {
+		t.Errorf("StatusMoving stack with no report: HasDetail=%v, want false", row.HasDetail)
+	}
+	if row.Detail != "" {
+		t.Errorf("StatusMoving stack with no report: Detail=%q, want empty", row.Detail)
+	}
+}
+
+// TestLivePageTabDefaultByLiveness asserts that for a running (Follow) stack the
+// Log radio is checked and Result is not; for a finished stack the Result radio is
+// checked. Also asserts that a StatusMoving stack shows the "State-only move" text.
+func TestLivePageTabDefaultByLiveness(t *testing.T) {
+	a := New(newServerTestDB(t), &MockGitHub{}, Config{})
+
+	// Running execution: Follow=true → Log radio should be checked, Result not.
+	runningPage := a.livePage(liveView{
+		Exec:    "e-run",
+		Repo:    "o/r",
+		Context: "apply/nonprod",
+		Status:  "in_progress",
+		Stacks: []events.StackState{
+			{Path: "stacks/a", Status: events.StatusRunning},
+		},
+		StackReports: map[string]string{},
+		StackLogs:    map[string]string{},
+	})
+	// The Log radio must have "checked"; the Result radio must not.
+	// Running exec renders: Result=`name="..." >Result` (unchecked), Log=`name="..." checked>`
+	if !strings.Contains(runningPage, `name="tab-stack-stacks-a" checked`) {
+		t.Error("running exec: Log radio should be checked (Follow=true)")
+	}
+	// The Result radio must NOT be checked: no "checked>Result" in the page.
+	if strings.Contains(runningPage, "checked>Result") {
+		t.Error("running exec: Result radio must not be checked when Follow=true")
+	}
+
+	// Finished execution: Follow=false → Result radio should be checked, Log not.
+	finishedPage := a.livePage(liveView{
+		Exec:    "e-done",
+		Repo:    "o/r",
+		Context: "plan/nonprod",
+		Status:  "",
+		Report:  "# summary", // non-empty report → finished plan
+		Stacks: []events.StackState{
+			{Path: "stacks/b", Status: events.StatusSafe},
+		},
+		StackReports: map[string]string{"stacks/b": "## stacks/b\nno changes"},
+		StackLogs:    map[string]string{},
+	})
+	// Result radio comes first and must be checked; Log radio follows and must not be.
+	if !strings.Contains(finishedPage, "checked>Result") {
+		t.Error("finished exec: Result radio should be checked (Follow=false)")
+	}
+	// Log radio in the finished case renders as: name="tab-..." >Log (no "checked" before "Log")
+	if strings.Contains(finishedPage, `checked>Log`) {
+		t.Error("finished exec: Log radio must not be checked when Follow=false")
+	}
+
+	// Move-only stack: Moved=true, finished → shows "State-only move" text.
+	movePage := a.livePage(liveView{
+		Exec:    "e-mv",
+		Repo:    "o/r",
+		Context: "apply/nonprod",
+		Status:  "success",
+		Stacks: []events.StackState{
+			{Path: "stacks/mv", Status: events.StatusMoving},
+		},
+		StackReports: map[string]string{},
+		StackLogs:    map[string]string{},
+	})
+	if !strings.Contains(movePage, "State-only move") {
+		t.Error("StatusMoving stack: expected 'State-only move' placeholder text")
+	}
+}
+
+// TestLivePageInProgressMoveShowsShimmer asserts that an in-progress execution
+// with a StatusMoving stack renders the shimmer (Follow=true winning over Moved=true
+// in the template's else-if chain), NOT the "State-only move" text.
+func TestLivePageInProgressMoveShowsShimmer(t *testing.T) {
+	a := New(newServerTestDB(t), &MockGitHub{}, Config{})
+
+	// In-progress move: Status="" (not finished) + StatusMoving stack.
+	// Template order: Detail → else if Follow → else if Moved → else.
+	// Follow=true (not finished) should win and show shimmer, not "State-only move".
+	page := a.livePage(liveView{
+		Exec:    "e-moving",
+		Repo:    "o/r",
+		Context: "apply/prod",
+		Status:  "", // empty status = not finished → Follow=true
+		Stacks: []events.StackState{
+			{Path: "stacks/mv", Status: events.StatusMoving},
+		},
+		StackReports: map[string]string{},
+		StackLogs:    map[string]string{},
+	})
+
+	// Must contain shimmer (the Follow branch rendering).
+	if !strings.Contains(page, `class="shimmer`) {
+		t.Error("in-progress move: expected shimmer placeholder (Follow=true), not found")
+	}
+
+	// Must NOT contain "State-only move" text (the Moved branch is skipped by Follow winning).
+	if strings.Contains(page, "State-only move") {
+		t.Error("in-progress move: must not show 'State-only move' text (Follow wins over Moved in template)")
+	}
+}
+
 func TestHumanizeDuration(t *testing.T) {
 	if got := humanizeDuration(4*time.Minute + 12*time.Second); got != "4m 12s" {
 		t.Fatalf("got %q", got)
