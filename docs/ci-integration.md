@@ -29,6 +29,8 @@ merge     ──▶ CI apply job ─▶ tfstackplan run apply ──┘        (
   stacks concurrently, default serial), then revokes the grants.
 - **`run tick`** — the per-stack progress reporter the terramate scripts call;
   a no-op offline, so the scripts stay portable.
+- **`run phase`** — emits a lifecycle phase event (warming, initializing, planning)
+  to the server so the check run appears early, before the plan completes.
 
 ## Environment
 
@@ -96,6 +98,27 @@ Notes:
 - A failed stack should call `tfstackplan run tick --status failed --detail "…"`
   (e.g. in an `after_failure`-style wrapper) so the live view shows it; on a
   hard terramate failure `run plan` still finalizes with `failed=true`.
+
+## Early start & progress
+
+To surface the check run before planning completes, the CI plan job emits
+`tfstackplan run phase` events before and after long-running steps. Pin a stable
+execution id (`TFSTACKPLAN_EXECUTION=$BUILD_ID` in the job env) so all events
+correlate to the same run. Emit `--phase warming` before the plugin cache warm
+and `--phase initializing` before the sequential terraform init; the server
+creates the per-environment check run on the first phase event. The check-run
+title and summary headline carry a phase-weighted progress bar (▰▱ cells,
+warming → initializing → planning k/N → done), updated in real time.
+
+## Failure detail backfill
+
+When `run plan` or `run apply` fails at the orchestrator level (plan error, apply
+aborted before completion) without an explicit error capture from the terramate
+scripts, stacks are marked failed but with no detail. The server now reads each
+stack's stored log excerpt and backfills the Failures block from the last
+terraform diagnostic block (`╷ … ╵`), falling back to the last error line or
+final N lines if no diagnostic is found. A stack with no logs still shows the
+"see the build log" note.
 
 ## Apply identity and privilege-backed deployment
 
