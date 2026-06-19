@@ -10,6 +10,39 @@ import (
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
 
+// backfillFailureDetail fills Detail for failed stacks that have none, from the
+// error tail of the stack's stored log excerpt. Mutates g in place; best-effort —
+// a stack with no stored log keeps an empty Detail and renders the fallback note.
+func (a *App) backfillFailureDetail(execID string, g *events.Graph) {
+	for i := range g.Stacks {
+		s := &g.Stacks[i]
+		if s.Status != events.StatusFailed || s.Detail != "" {
+			continue
+		}
+		if _, excerpt, ok, _ := store.GetStackOutput(a.db, execID, s.Path, "log"); ok && excerpt != "" {
+			s.Detail = errorTail(excerpt, 25)
+		}
+	}
+}
+
+// progressTitle builds the check-run title: "<bar> k/N · <label>" — the k/N count
+// is dropped while no stacks are registered yet (warming). It is GitHub's most
+// prominent surface while the run is in_progress.
+func progressTitle(phase events.Phase, stacks []events.StackState) string {
+	total := len(stacks)
+	doneCount := 0
+	for _, s := range stacks {
+		if done(s.Status) {
+			doneCount++
+		}
+	}
+	bar, label, _ := progress(phase, doneCount, total)
+	if total == 0 {
+		return bar + " · " + label
+	}
+	return fmt.Sprintf("%s %d/%d · %s", bar, doneCount, total, label)
+}
+
 // ensureCheckRun creates the GitHub check run for an execution if it does not yet
 // have one, and persists the id. Idempotent: a no-op when check_run_id is set, so
 // an early phase event and a later init can both call it safely.
@@ -56,12 +89,13 @@ func (a *App) renderAndPatch(ctx context.Context, id, base string, terminal bool
 		log.Printf("load graph %s: %v", id, err)
 		return
 	}
+	a.backfillFailureDetail(id, &g)
 	// Surface pending approval gates at the top of the check run so an
 	// action_required conclusion is self-explanatory (which gate, how to approve).
 	targets, _ := store.TargetsFor(a.db, e.PR, e.Environment)
 	upd := CheckRunUpdate{
-		Title:      "Terraform plan",
-		Summary:    checkSummary("plan", e.Environment, g.Stacks, a.liveURL(base, id)),
+		Title:      progressTitle(events.Phase(e.Phase), g.Stacks),
+		Summary:    checkSummary("plan", e.Environment, events.Phase(e.Phase), g.Stacks, a.liveURL(base, id)),
 		Text:       gatesSection(targets) + failuresSection(g, e.LogURL, "") + e.ReportMarkdown,
 		DetailsURL: a.liveURL(base, id),
 	}
@@ -109,6 +143,7 @@ func (a *App) driveApply(ctx context.Context, e store.Execution, base string) {
 		log.Printf("apply status: load graph %s: %v", e.ID, err)
 		return
 	}
+	a.backfillFailureDetail(e.ID, &g)
 	total := len(g.Stacks)
 	done, failed := 0, 0
 	for _, s := range g.Stacks {
@@ -146,14 +181,14 @@ func (a *App) driveApply(ctx context.Context, e store.Execution, base string) {
 		case "failure":
 			conclusion = "failure"
 		}
-		summary := checkSummary("apply", e.Environment, g.Stacks, a.liveURL(base, e.ID))
+		summary := checkSummary("apply", e.Environment, events.Phase(e.Phase), g.Stacks, a.liveURL(base, e.ID))
 		if failed > 0 {
 			// Keep the next-steps guidance (fix-forward / re-run) visible in the
 			// summary; the failing-stack detail renders in the Text below.
 			summary += "\n\n" + desc
 		}
 		upd := CheckRunUpdate{
-			Title:      "Terraform apply",
+			Title:      progressTitle(events.Phase(e.Phase), g.Stacks),
 			Summary:    summary,
 			DetailsURL: a.liveURL(base, e.ID),
 			Conclusion: conclusion,

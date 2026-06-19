@@ -71,6 +71,13 @@ func TestApplyDriveUpdatesCheckRun(t *testing.T) {
 		t.Fatalf("init: %d", rec.Code)
 	}
 
+	phaseBody, _ := json.Marshal(events.PhaseEvent{ID: "apply-2", Phase: events.PhaseApplying})
+	rec = httptest.NewRecorder()
+	a.Routes().ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/phase", bytes.NewReader(phaseBody)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("phase: %d", rec.Code)
+	}
+
 	updBody, _ := json.Marshal(events.Update{ID: "apply-2", Stack: "a", Status: events.StatusSafe})
 	rec = httptest.NewRecorder()
 	a.Routes().ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/update", bytes.NewReader(updBody)))
@@ -81,8 +88,8 @@ func TestApplyDriveUpdatesCheckRun(t *testing.T) {
 	if updatedID != 99 {
 		t.Fatalf("UpdateCheckRun not called with ID 99 (got %d)", updatedID)
 	}
-	if updatedTitle != "Terraform apply" {
-		t.Errorf("title = %q, want Terraform apply", updatedTitle)
+	if !strings.Contains(updatedTitle, "▰") || !strings.Contains(updatedTitle, "appl") {
+		t.Errorf("apply title missing progress bar in: %q", updatedTitle)
 	}
 	if !strings.Contains(updatedSummary, "applied 1/1") {
 		t.Fatalf("summary missing applied count: %q", updatedSummary)

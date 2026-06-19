@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
+	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
 
 // A plan check-run update carries the rich summary (blast-radius headline +
@@ -43,12 +44,41 @@ func TestPlanCheckRunSummaryAndTitle(t *testing.T) {
 		t.Fatalf("update: %d", rec.Code)
 	}
 
-	if title != "Terraform plan" {
-		t.Errorf("title = %q, want Terraform plan", title)
+	for _, want := range []string{"▰", "1/1", "planned"} {
+		if !strings.Contains(title, want) {
+			t.Errorf("title missing %q in: %q", want, title)
+		}
 	}
 	for _, want := range []string{"## Plan · nonprod", "| Stack | Ops | Risk | State |", "`svc/a`"} {
 		if !strings.Contains(summary, want) {
 			t.Errorf("summary missing %q in:\n%s", want, summary)
 		}
+	}
+}
+
+func TestBackfillFailureDetailFromLog(t *testing.T) {
+	db := newServerTestDB(t)
+	a := New(db, &MockGitHub{}, Config{})
+
+	// A failed stack with NO detail but a stored log excerpt holding an error block.
+	if err := store.UpsertStackOutput(db, "e1", "svc/x", "log", "",
+		"applying...\n╷\n│ Error: googleapi 403 setIamPolicy\n╵\n"); err != nil {
+		t.Fatal(err)
+	}
+	g := events.Graph{Stacks: []events.StackState{
+		{Path: "svc/x", Status: events.StatusFailed},                 // no Detail → backfilled
+		{Path: "svc/y", Status: events.StatusFailed, Detail: "kept"}, // has Detail → untouched
+		{Path: "svc/z", Status: events.StatusFailed},                 // no log → stays empty
+	}}
+	a.backfillFailureDetail("e1", &g)
+
+	if !strings.Contains(g.Stacks[0].Detail, "Error: googleapi 403 setIamPolicy") {
+		t.Errorf("svc/x detail not backfilled: %q", g.Stacks[0].Detail)
+	}
+	if g.Stacks[1].Detail != "kept" {
+		t.Errorf("svc/y detail clobbered: %q", g.Stacks[1].Detail)
+	}
+	if g.Stacks[2].Detail != "" {
+		t.Errorf("svc/z should stay empty: %q", g.Stacks[2].Detail)
 	}
 }

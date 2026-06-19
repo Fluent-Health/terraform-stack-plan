@@ -74,12 +74,60 @@ func opTally(v verdict) string {
 	return strings.Join(parts, " ")
 }
 
+// progressCells is the width of the unicode progress bar.
+const progressCells = 10
+
+// progress maps (phase, planned, total) to a 10-cell unicode bar, a human label,
+// and a percentage. Pre-plan phases (warming/initializing) have no sub-progress,
+// so they sit at the start of their band; planning fills the remaining 80% by the
+// completed-stack fraction; an apply context tracks planned/total directly.
+func progress(phase events.Phase, planned, total int) (bar, label string, pct int) {
+	frac := 0.0
+	switch phase {
+	case events.PhaseWarming:
+		frac, label = 0.05, "warming cache…"
+	case events.PhaseInitializing:
+		frac, label = 0.15, fmt.Sprintf("initializing %d stacks…", total)
+	case events.PhaseApplying:
+		if total > 0 {
+			frac = float64(planned) / float64(total)
+		}
+		if total > 0 && planned == total {
+			label = fmt.Sprintf("applied %d/%d", planned, total)
+		} else {
+			label = fmt.Sprintf("applying %d/%d", planned, total)
+		}
+	case events.PhaseVerifying:
+		frac, label = 1.0, "verifying…"
+	default: // planning, or an unset phase treated as planning
+		switch {
+		case total <= 0:
+			frac, label = 0.20, "planning…"
+		case planned >= total:
+			frac, label = 1.0, "planned"
+		default:
+			frac = 0.20 + 0.80*float64(planned)/float64(total)
+			label = fmt.Sprintf("planning %d/%d", planned, total)
+		}
+	}
+	if frac < 0 {
+		frac = 0
+	}
+	if frac > 1 {
+		frac = 1
+	}
+	filled := int(frac*float64(progressCells) + 0.5)
+	bar = strings.Repeat("▰", filled) + strings.Repeat("▱", progressCells-filled)
+	pct = int(frac*100 + 0.5)
+	return bar, label, pct
+}
+
 // checkSummary builds the check-run summary block for a plan or apply: a
 // blast-radius headline, verdict chips (destructive / IAM) + a live-viewer link,
 // and a per-stack table (Stack | Ops | Risk | State). kind is "plan" or "apply".
 // While planning (no stack has counts yet) the headline degrades to a
 // "planning d/t" progress count; the table still renders.
-func checkSummary(kind, environment string, stacks []events.StackState, viewerURL string) string {
+func checkSummary(kind, environment string, phase events.Phase, stacks []events.StackState, viewerURL string) string {
 	v := aggregateVerdict(stacks)
 	tally := opTally(v)
 
@@ -121,7 +169,8 @@ func checkSummary(kind, environment string, stacks []events.StackState, viewerUR
 				doneCount++
 			}
 		}
-		fmt.Fprintf(&b, " — planning %d/%d", doneCount, len(stacks))
+		bar, label, _ := progress(phase, doneCount, len(stacks))
+		fmt.Fprintf(&b, " — %s %s", bar, label)
 	default:
 		if tally != "" {
 			b.WriteString(" — " + tally)
@@ -154,17 +203,78 @@ func checkSummary(kind, environment string, stacks []events.StackState, viewerUR
 	}
 	b.WriteString("\n")
 
-	// Per-stack table.
-	b.WriteString("| Stack | Ops | Risk | State |\n|---|---|---|---|\n")
-	for _, s := range stacks {
-		var risks []string
-		for _, rt := range riskTags(s) {
-			risks = append(risks, rt.Label)
+	// Per-stack table (omitted before any stack is registered, e.g. warming).
+	if len(stacks) > 0 {
+		b.WriteString("| Stack | Ops | Risk | State |\n|---|---|---|---|\n")
+		for _, s := range stacks {
+			var risks []string
+			for _, rt := range riskTags(s) {
+				risks = append(risks, rt.Label)
+			}
+			fmt.Fprintf(&b, "| `%s` | %s | %s | %s |\n",
+				s.Path, opSummary(s.Counts), strings.Join(risks, " "), displayState(s.Status, kind).Label)
 		}
-		fmt.Fprintf(&b, "| `%s` | %s | %s | %s |\n",
-			s.Path, opSummary(s.Counts), strings.Join(risks, " "), displayState(s.Status, kind).Label)
 	}
 	return b.String()
+}
+
+// errorTail extracts the most relevant trailing slice of a terraform log excerpt
+// for a failure summary: the last "╷ … ╵" diagnostic block (rule 1, returned in full),
+// else from the last line containing "Error:" to the end (rule 2, returned in full),
+// else the last maxLines non-blank lines (rule 3 fallback, capped). Trailing blank
+// lines are trimmed. "" for blank input.
+func errorTail(excerpt string, maxLines int) string {
+	excerpt = strings.TrimRight(excerpt, "\n \t")
+	if strings.TrimSpace(excerpt) == "" {
+		return ""
+	}
+	lines := strings.Split(excerpt, "\n")
+
+	var picked []string
+	// 1. last ╷ … ╵ diagnostic block.
+	start := -1
+	for i := len(lines) - 1; i >= 0; i-- {
+		if strings.HasPrefix(strings.TrimSpace(lines[i]), "╷") {
+			start = i
+			break
+		}
+	}
+	switch {
+	case start >= 0:
+		end := len(lines)
+		for j := start; j < len(lines); j++ {
+			if strings.HasPrefix(strings.TrimSpace(lines[j]), "╵") {
+				end = j + 1
+				break
+			}
+		}
+		picked = lines[start:end]
+	default:
+		// 2. last "Error:" to EOF.
+		errIdx := -1
+		for i := len(lines) - 1; i >= 0; i-- {
+			if strings.Contains(lines[i], "Error:") {
+				errIdx = i
+				break
+			}
+		}
+		if errIdx >= 0 {
+			picked = lines[errIdx:]
+		} else {
+			// 3. last maxLines non-blank lines.
+			for i := len(lines) - 1; i >= 0 && len(picked) < maxLines; i-- {
+				if strings.TrimSpace(lines[i]) == "" {
+					continue
+				}
+				picked = append([]string{lines[i]}, picked...)
+			}
+			// Cap only applies to rule 3 fallback.
+			if len(picked) > maxLines {
+				picked = picked[len(picked)-maxLines:]
+			}
+		}
+	}
+	return strings.TrimRight(strings.Join(picked, "\n"), "\n")
 }
 
 // failuresSection renders a collapsible block per failed stack with the captured
