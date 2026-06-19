@@ -55,6 +55,7 @@ func runApply(args []string) int {
 	fs := flag.NewFlagSet("run apply", flag.ContinueOnError)
 	dir := fs.String("dir", "", "terramate project root (required)")
 	changed := fs.Bool("changed", true, "only apply changed stacks")
+	parallel := fs.Int("parallel", 0, "parallel apply jobs (0 = terramate default, serial); terramate still honors dependency order")
 	base := fs.String("base", "", "git base ref for change detection")
 	script := fs.String("script", "apply", "terramate script name to run")
 	logFile := fs.String("log-file", "tfstackplan.log", "per-stack log filename the terramate script writes in each stack dir; streamed live to the server (empty disables)")
@@ -185,8 +186,10 @@ func runApply(args []string) int {
 	if client.Enabled() && *logFile != "" {
 		stop = runner.NewLogPump(client, *dir, *logFile, execID).Start(stacks)
 	}
-	// No --parallel: terramate applies in dependency order, serially.
-	applyErr := tm.ScriptRun(ctx, os.Stderr, runner.ScriptRunOptions{Script: *script, Changed: *changed, Base: *base})
+	// --parallel N runs the apply across stacks concurrently; terramate still
+	// honors the dependency DAG, so a dependency applies before its dependents.
+	// 0 (default) = terramate default (serial dependency order).
+	applyErr := tm.ScriptRun(ctx, os.Stderr, runner.ScriptRunOptions{Script: *script, Changed: *changed, Parallel: *parallel, Base: *base})
 	if stop != nil {
 		stop()
 	}

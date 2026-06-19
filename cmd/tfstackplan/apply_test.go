@@ -393,6 +393,40 @@ func TestApplyHappyPathOrder(t *testing.T) {
 	}
 }
 
+// TestApplyPassesParallel asserts the --parallel flag is plumbed through to the
+// terramate ScriptRun (so CI can run the apply across stacks in parallel,
+// terramate still honoring dependency order). Default (flag absent) is 0 =
+// terramate default (serial), preserving prior behavior.
+func TestApplyPassesParallel(t *testing.T) {
+	srv, _ := stubServer(t)
+	setApplyEnv(t, srv.URL, 200, "prod")
+	f := &fakeTM{changed: []string{"cluster/fh-prod"}}
+	withFakeTM(t, f, nil)
+
+	if code := runApply([]string{"--dir", t.TempDir(), "--parallel", "4"}); code != 0 {
+		t.Fatalf("exit=%d want 0", code)
+	}
+	if f.gotOpts.Parallel != 4 {
+		t.Errorf("ScriptRun Parallel = %d, want 4", f.gotOpts.Parallel)
+	}
+}
+
+// TestApplyDefaultParallelIsZero asserts that, with no --parallel flag, the
+// apply runs at terramate's default (0 = serial dependency order).
+func TestApplyDefaultParallelIsZero(t *testing.T) {
+	srv, _ := stubServer(t)
+	setApplyEnv(t, srv.URL, 200, "prod")
+	f := &fakeTM{changed: []string{"cluster/fh-prod"}}
+	withFakeTM(t, f, nil)
+
+	if code := runApply([]string{"--dir", t.TempDir()}); code != 0 {
+		t.Fatalf("exit=%d want 0", code)
+	}
+	if f.gotOpts.Parallel != 0 {
+		t.Errorf("ScriptRun Parallel = %d, want 0 (default)", f.gotOpts.Parallel)
+	}
+}
+
 // TestApplyFinalizeCarriesCounts asserts the classify-pass Finalize carries the
 // per-stack op counts returned by classifyForGateFn. The classify-pass Finalize
 // (the one with Gates/Categories set, emitted before the gate check) must have

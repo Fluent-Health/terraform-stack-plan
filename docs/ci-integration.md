@@ -25,7 +25,8 @@ merge     ──▶ CI apply job ─▶ tfstackplan run apply ──┘        (
   renders + classifies in-process, and finalizes the report + approval gates.
 - **`run apply`** — runs a **fail-closed gate pre-check** (refuses to apply
   unless the server says the PR's gates are approved), then applies the changed
-  stacks in dependency order, then revokes the grants.
+  stacks (terramate honoring the dependency DAG; `--parallel N` runs independent
+  stacks concurrently, default serial), then revokes the grants.
 - **`run tick`** — the per-stack progress reporter the terramate scripts call;
   a no-op offline, so the scripts stay portable.
 
@@ -217,7 +218,7 @@ jobs:
       # exported as TFSTACKPLAN_PR so the apply gate check correlates.
       # --impersonate-requester is optional; omit it if you want advisory-only
       # enforcement (fail-closed gate pre-check, ambient CI identity for the apply).
-      - run: tfstackplan run apply --dir stacks/staging --changed --base "${{ github.sha }}^" --impersonate-requester
+      - run: tfstackplan run apply --dir stacks/staging --changed --base "${{ github.sha }}^" --parallel 8 --impersonate-requester
 ```
 
 `run plan`/`run apply` shell out to `terramate` (and `terraform` via the
