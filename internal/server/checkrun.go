@@ -43,23 +43,25 @@ func doneStacks(stacks []events.StackState) int {
 // because a frozen bar reads as stuck.
 func progressTitle(phase events.Phase, stacks []events.StackState, terminal bool) string {
 	if terminal {
-		return terminalSummary(phase, stacks)
+		kind := "Plan"
+		if phase == events.PhaseApplying || phase == events.PhaseVerifying {
+			kind = "Apply"
+		}
+		return terminalSummary(kind, stacks)
 	}
 	total := len(stacks)
-	bar, label, _ := progress(phase, doneStacks(stacks), total)
+	doneCount := doneStacks(stacks)
+	bar, label, _ := progress(phase, doneCount, total)
 	if total == 0 {
 		return bar + " · " + label
 	}
-	return fmt.Sprintf("%s %d/%d · %s", bar, doneStacks(stacks), total, label)
+	return fmt.Sprintf("%s %d/%d · %s", bar, doneCount, total, label)
 }
 
 // terminalSummary is the concluded-run title/headline tail: kind + tally + stack
-// count (+ a failed suffix), or "no changes".
-func terminalSummary(phase events.Phase, stacks []events.StackState) string {
-	kind := "Plan"
-	if phase == events.PhaseApplying || phase == events.PhaseVerifying {
-		kind = "Apply"
-	}
+// count (+ a failed suffix), or "no changes". kindLabel is "Plan" or "Apply".
+func terminalSummary(kindLabel string, stacks []events.StackState) string {
+	kind := kindLabel
 	failed := 0
 	for _, s := range stacks {
 		if s.Status == events.StatusFailed {

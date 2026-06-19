@@ -156,7 +156,8 @@ func checkSummary(kind, environment string, stacks []events.StackState, phase ev
 	case terminal:
 		// Concluded run: show action-count summary derived from terminalSummary,
 		// but just the tail (after "Plan" / "Apply") to avoid doubling the heading.
-		tail := terminalSummary(phase, stacks)
+		// Pass heading (the authoritative kind) so the prefix-strip always aligns.
+		tail := terminalSummary(heading, stacks)
 		// Strip the leading "Plan · " or "Apply · " prefix since we already wrote
 		// the heading above; terminalSummary returns "<kind> · <rest>".
 		prefix := heading + " · "

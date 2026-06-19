@@ -185,7 +185,7 @@ func TestApplyInitZeroStacksResolvesSuccess(t *testing.T) {
 	}
 }
 
-// TestApplyDrivePersiststSuccessStatus asserts that driveApply writes
+// TestApplyDrivePersistsSuccessStatus asserts that driveApply writes
 // "success" into executions.status when all stacks complete safely so the
 // viewer's isFinished() flips to true and the shimmer stops.
 func TestApplyDrivePersistsSuccessStatus(t *testing.T) {
