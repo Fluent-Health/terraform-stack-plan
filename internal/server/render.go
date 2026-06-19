@@ -87,7 +87,7 @@ func progress(phase events.Phase, planned, total int) (bar, label string, pct in
 	case events.PhaseWarming:
 		frac, label = 0.05, "warming cache…"
 	case events.PhaseInitializing:
-		frac, label = 0.05, fmt.Sprintf("initializing %d stacks…", total)
+		frac, label = 0.15, fmt.Sprintf("initializing %d stacks…", total)
 	case events.PhaseApplying:
 		if total > 0 {
 			frac = float64(planned) / float64(total)
@@ -117,9 +117,6 @@ func progress(phase events.Phase, planned, total int) (bar, label string, pct in
 		frac = 1
 	}
 	filled := int(frac*float64(progressCells) + 0.5)
-	if filled > progressCells {
-		filled = progressCells
-	}
 	bar = strings.Repeat("▰", filled) + strings.Repeat("▱", progressCells-filled)
 	pct = int(frac*100 + 0.5)
 	return bar, label, pct

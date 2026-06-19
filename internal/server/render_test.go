@@ -196,7 +196,7 @@ func TestProgress(t *testing.T) {
 		wantLabel        string
 	}{
 		{"warming", events.PhaseWarming, 0, 0, "▰▱▱▱▱▱▱▱▱▱", "warming cache…"},
-		{"initializing", events.PhaseInitializing, 0, 12, "▰▱▱▱▱▱▱▱▱▱", "initializing 12 stacks…"},
+		{"initializing", events.PhaseInitializing, 0, 12, "▰▰▱▱▱▱▱▱▱▱", "initializing 12 stacks…"},
 		{"planning_mid", events.PhasePlanning, 5, 10, "▰▰▰▰▰▰▱▱▱▱", "planning 5/10"},
 		{"planning_done", events.PhasePlanning, 10, 10, "▰▰▰▰▰▰▰▰▰▰", "planned"},
 		{"planning_zero", events.PhasePlanning, 0, 0, "▰▰▱▱▱▱▱▱▱▱", "planning…"},
