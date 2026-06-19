@@ -697,6 +697,12 @@ the budget entirely.
   stays until `ApplySucceeded` releases it (PAM TTL ≤8h if the apply never runs).
   (It still depends on the GitHub API being reachable to learn a PR is closed; it
   is conservative — keeps the grant — on a GitHub error.)
+- **GCP PAM exposes no per-grant deep link.** The approval link in the check-run
+  summary points at the project-scoped "Approve grants → Pending approval" tab
+  (`https://console.cloud.google.com/iam-admin/pam/grants/approvals?project=<target>`).
+  GCP does not expose a stable per-grant URL, so reviewers land at the tab and
+  must locate their grant by PR/env in the justification. This is a GCP surface
+  limitation; no server-side workaround exists.
 
 ## Server foundations (in progress)
 
@@ -899,6 +905,21 @@ mutation) via an inline `EventSource` and debounce-reloads after 800 ms; the 10s
 `<meta refresh>` is the `<noscript>` fallback (streaming logs are exempt, above).
 Client-side partial re-render (no full reload of the whole page on every change)
 is a later phase.
+
+**Check-run richness (Phase 5 of the live-viewer redesign).** Both the plan and
+apply check-run summaries now lead with a **blast-radius headline** (op-count
+tally: `+add ~change ±replace −destroy ↔move`), **verdict chips** (`⚠️ Destructive`
+/ `⚿ k IAM`), and a **per-stack table** (Stack | Ops | Risk | State) with a link
+to the live viewer. The renderer is a shared `checkSummary(kind, environment,
+stacks, viewerURL)` function in `internal/server/render.go`, consumed identically
+by both the plan and apply drivers; the previous `renderProgress` task-list
+summary is retired. The apply check run is now correctly titled **"Terraform
+apply"** (`CheckRunUpdate.Title` is emitted by the real client and set per
+driver); previously it was mislabelled "Terraform plan". PAM approval links in
+the check summary point at
+`https://console.cloud.google.com/iam-admin/pam/grants/approvals?project=<target>`
+— the "Approve grants → Pending approval" tab — which is the finest-grained
+stable URL GCP exposes (see Known limitations).
 
 **Approval gate** (see [PR #23](https://github.com/Fluent-Health/terraform-stack-plan/pull/23)).
 `internal/approval` defines the provider-neutral gate abstraction: a `Backend`
@@ -1156,11 +1177,13 @@ The eighth increment landed **Live UI v2 — P1 bug fixes** (see PR #63):
   `live.gohtml`'s inline `<style>` into a committed `assets/report.css` file
   served at `/assets/report.css` and linked by both `live.gohtml` and `stack.gohtml`.
   The diff palette lives there too.
-- **`apply/<env>` check run.** `handleInit`/`handlePhase` now call `ensureCheckRun`
-  for apply contexts (in addition to the existing gate-context path), creating a
-  check run named after the status context (e.g. `apply/nonprod`). `driveApply`
-  updates that check run with progress and a terminal conclusion. The existing
-  commit status is preserved alongside it.
+- **`apply/<env>` check run (initial wiring).** `handleInit`/`handlePhase` now call
+  `ensureCheckRun` for apply contexts (in addition to the existing gate-context
+  path), creating a check run named after the status context (e.g.
+  `apply/nonprod`). `driveApply` updates that check run with progress and a
+  terminal conclusion. The existing commit status is preserved alongside it.
+  (The rich blast-radius summary and correct "Terraform apply" title landed in
+  Phase 5 of the live-viewer redesign — see *Check-run richness* above.)
 
 **Phase 4: `run verify` (complete).** `tfstackplan run verify` runs the
 terramate `verify` script across changed stacks — no gate, read-only

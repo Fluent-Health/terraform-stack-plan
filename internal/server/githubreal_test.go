@@ -249,6 +249,33 @@ func TestMintTokenFailurePropagates(t *testing.T) {
 	}
 }
 
+func TestUpdateCheckRunEmitsTitle(t *testing.T) {
+	var gotOutput map[string]any
+	fakeGitHub(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/app/installations/67890/access_tokens" {
+			w.Write([]byte(`{"token":"ghs_test"}`))
+			return
+		}
+		if r.Method == "PATCH" && r.URL.Path == "/repos/o/r/check-runs/555" {
+			var raw map[string]any
+			json.NewDecoder(r.Body).Decode(&raw)
+			gotOutput, _ = raw["output"].(map[string]any)
+			w.Write([]byte(`{}`))
+			return
+		}
+		t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+	})
+	c := newTestRealClient(t)
+	if err := c.UpdateCheckRun(context.Background(), "o/r", 555, CheckRunUpdate{
+		Title: "Terraform apply", Summary: "x",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if title, _ := gotOutput["title"].(string); title != "Terraform apply" {
+		t.Fatalf("output.title = %q, want Terraform apply", title)
+	}
+}
+
 func TestPRAbandoned(t *testing.T) {
 	cases := []struct {
 		name string

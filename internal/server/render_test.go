@@ -8,26 +8,6 @@ import (
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
 
-func TestRenderProgress(t *testing.T) {
-	g := events.Graph{Stacks: []events.StackState{
-		{Path: "stacks/a", Status: events.StatusPlanned},
-		{Path: "stacks/b", Status: events.StatusRunning},
-		{Path: "stacks/c", Status: events.StatusPending},
-	}}
-	out := renderProgress(g)
-	if !strings.Contains(out, "1/3") {
-		t.Errorf("want done/total count 1/3 in:\n%s", out)
-	}
-	for _, p := range []string{"stacks/a", "stacks/b", "stacks/c"} {
-		if !strings.Contains(out, p) {
-			t.Errorf("missing %q in:\n%s", p, out)
-		}
-	}
-	if !strings.Contains(out, "[x]") || !strings.Contains(out, "[ ]") {
-		t.Errorf("want both checked and unchecked rows in:\n%s", out)
-	}
-}
-
 func TestFailuresSection(t *testing.T) {
 	none := events.Graph{Stacks: []events.StackState{{Path: "a", Status: events.StatusPlanned}}}
 	if failuresSection(none, "", "") != "" {
@@ -117,6 +97,94 @@ func TestFailuresSectionTriage(t *testing.T) {
 			}
 		}
 	})
+}
+
+func TestPAMConsoleURLPointsAtApprovalTab(t *testing.T) {
+	got := pamConsoleURL("fh-dev-svc")
+	want := "https://console.cloud.google.com/iam-admin/pam/grants/approvals?project=fh-dev-svc"
+	if got != want {
+		t.Fatalf("pamConsoleURL = %q, want %q", got, want)
+	}
+}
+
+func TestCheckSummaryPlanFinalized(t *testing.T) {
+	stacks := []events.StackState{
+		{Path: "svc/a", Status: events.StatusPlanned, Counts: &events.Counts{Add: 6},
+			Categories: []events.Category{{Name: "iam"}}},
+		{Path: "svc/b", Status: events.StatusPlanned, Counts: &events.Counts{Destroy: 2},
+			Categories: []events.Category{{Name: "destructive"}}},
+		{Path: "svc/c", Status: events.StatusPlanned, Counts: &events.Counts{Change: 3}},
+	}
+	out := checkSummary("plan", "nonprod", stacks, "https://srv/live/e1")
+	for _, want := range []string{
+		"## Plan · nonprod",
+		"+6", "~3", "−2", // op tally in the headline
+		"(3 stacks)",
+		"⚠️ destructive", "⚿ 1 IAM",
+		"[live viewer ↗](https://srv/live/e1)",
+		"| Stack | Ops | Risk | State |",
+		"`svc/a`", "`svc/b`", "`svc/c`",
+		"planned",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in:\n%s", want, out)
+		}
+	}
+}
+
+func TestCheckSummaryPlanDegradesWhilePlanning(t *testing.T) {
+	stacks := []events.StackState{
+		{Path: "svc/a", Status: events.StatusPlanned}, // counts nil
+		{Path: "svc/b", Status: events.StatusRunning},
+	}
+	out := checkSummary("plan", "nonprod", stacks, "https://srv/live/e1")
+	if !strings.Contains(out, "planning 1/2") {
+		t.Errorf("want degraded 'planning 1/2' headline in:\n%s", out)
+	}
+	if strings.Contains(out, "⚠️ destructive") {
+		t.Errorf("no destructive chip when no counts/categories:\n%s", out)
+	}
+	if !strings.Contains(out, "`svc/a`") || !strings.Contains(out, "| Stack | Ops | Risk | State |") {
+		t.Errorf("table should still render while planning:\n%s", out)
+	}
+}
+
+func TestCheckSummaryApplyApplied(t *testing.T) {
+	stacks := []events.StackState{
+		{Path: "svc/a", Status: events.StatusSafe, Counts: &events.Counts{Add: 6}},
+		{Path: "svc/b", Status: events.StatusSafe, Counts: &events.Counts{Destroy: 2}},
+	}
+	out := checkSummary("apply", "nonprod", stacks, "https://srv/live/e1")
+	for _, want := range []string{"## Apply · nonprod", "applied 2/2", "+6", "−2", "applied"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in:\n%s", want, out)
+		}
+	}
+}
+
+func TestCheckSummaryApplyPartialFailed(t *testing.T) {
+	stacks := []events.StackState{
+		{Path: "svc/a", Status: events.StatusSafe, Counts: &events.Counts{Add: 6}},
+		{Path: "svc/b", Status: events.StatusFailed},
+	}
+	out := checkSummary("apply", "prod", stacks, "https://srv/live/e1")
+	if !strings.Contains(out, "applied 1/2") {
+		t.Errorf("want 'applied 1/2' in:\n%s", out)
+	}
+	if !strings.Contains(out, "failed") {
+		t.Errorf("failed stack state must show in table:\n%s", out)
+	}
+}
+
+func TestCheckSummaryNoEnvNoChips(t *testing.T) {
+	stacks := []events.StackState{{Path: "svc/a", Status: events.StatusPlanned, Counts: &events.Counts{Change: 1}}}
+	out := checkSummary("plan", "", stacks, "https://srv/live/e1")
+	if strings.Contains(out, " · ") && strings.Contains(out, "## Plan ·") {
+		t.Errorf("env empty → headline must not carry ' · <env>':\n%s", out)
+	}
+	if strings.Contains(out, "⚠️ destructive") || strings.Contains(out, "IAM") {
+		t.Errorf("no risk chips when none present:\n%s", out)
+	}
 }
 
 func TestGatesSection(t *testing.T) {

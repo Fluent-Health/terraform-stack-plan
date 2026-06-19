@@ -46,7 +46,7 @@ func TestApplyInitCreatesApplyCheckRun(t *testing.T) {
 func TestApplyDriveUpdatesCheckRun(t *testing.T) {
 	db := newServerTestDB(t)
 	var updatedID int64
-	var updatedSummary string
+	var updatedSummary, updatedTitle string
 	gh := &MockGitHub{
 		CreateCheckRunFn: func(_ context.Context, _, _, _ string, _ string) (int64, error) {
 			return 99, nil
@@ -54,6 +54,7 @@ func TestApplyDriveUpdatesCheckRun(t *testing.T) {
 		UpdateCheckRunFn: func(_ context.Context, _ string, id int64, u CheckRunUpdate) error {
 			updatedID = id
 			updatedSummary = u.Summary
+			updatedTitle = u.Title
 			return nil
 		},
 	}
@@ -80,8 +81,11 @@ func TestApplyDriveUpdatesCheckRun(t *testing.T) {
 	if updatedID != 99 {
 		t.Fatalf("UpdateCheckRun not called with ID 99 (got %d)", updatedID)
 	}
-	if !strings.Contains(updatedSummary, "1") {
-		t.Fatalf("summary missing stack count: %q", updatedSummary)
+	if updatedTitle != "Terraform apply" {
+		t.Errorf("title = %q, want Terraform apply", updatedTitle)
+	}
+	if !strings.Contains(updatedSummary, "applied 1/1") {
+		t.Fatalf("summary missing applied count: %q", updatedSummary)
 	}
 }
 

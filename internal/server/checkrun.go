@@ -60,7 +60,8 @@ func (a *App) renderAndPatch(ctx context.Context, id, base string, terminal bool
 	// action_required conclusion is self-explanatory (which gate, how to approve).
 	targets, _ := store.TargetsFor(a.db, e.PR, e.Environment)
 	upd := CheckRunUpdate{
-		Summary:    renderProgress(g),
+		Title:      "Terraform plan",
+		Summary:    checkSummary("plan", e.Environment, g.Stacks, a.liveURL(base, id)),
 		Text:       gatesSection(targets) + failuresSection(g, e.LogURL, "") + e.ReportMarkdown,
 		DetailsURL: a.liveURL(base, id),
 	}
@@ -145,8 +146,15 @@ func (a *App) driveApply(ctx context.Context, e store.Execution, base string) {
 		case "failure":
 			conclusion = "failure"
 		}
+		summary := checkSummary("apply", e.Environment, g.Stacks, a.liveURL(base, e.ID))
+		if failed > 0 {
+			// Keep the next-steps guidance (fix-forward / re-run) visible in the
+			// summary; the failing-stack detail renders in the Text below.
+			summary += "\n\n" + desc
+		}
 		upd := CheckRunUpdate{
-			Summary:    desc,
+			Title:      "Terraform apply",
+			Summary:    summary,
 			DetailsURL: a.liveURL(base, e.ID),
 			Conclusion: conclusion,
 		}
