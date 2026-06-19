@@ -127,7 +127,7 @@ func progress(phase events.Phase, planned, total int) (bar, label string, pct in
 // and a per-stack table (Stack | Ops | Risk | State). kind is "plan" or "apply".
 // While planning (no stack has counts yet) the headline degrades to a
 // "planning d/t" progress count; the table still renders.
-func checkSummary(kind, environment string, stacks []events.StackState, viewerURL string) string {
+func checkSummary(kind, environment string, phase events.Phase, stacks []events.StackState, viewerURL string) string {
 	v := aggregateVerdict(stacks)
 	tally := opTally(v)
 
@@ -169,7 +169,8 @@ func checkSummary(kind, environment string, stacks []events.StackState, viewerUR
 				doneCount++
 			}
 		}
-		fmt.Fprintf(&b, " — planning %d/%d", doneCount, len(stacks))
+		bar, label, _ := progress(phase, doneCount, len(stacks))
+		fmt.Fprintf(&b, " — %s %s", bar, label)
 	default:
 		if tally != "" {
 			b.WriteString(" — " + tally)
@@ -202,15 +203,17 @@ func checkSummary(kind, environment string, stacks []events.StackState, viewerUR
 	}
 	b.WriteString("\n")
 
-	// Per-stack table.
-	b.WriteString("| Stack | Ops | Risk | State |\n|---|---|---|---|\n")
-	for _, s := range stacks {
-		var risks []string
-		for _, rt := range riskTags(s) {
-			risks = append(risks, rt.Label)
+	// Per-stack table (omitted before any stack is registered, e.g. warming).
+	if len(stacks) > 0 {
+		b.WriteString("| Stack | Ops | Risk | State |\n|---|---|---|---|\n")
+		for _, s := range stacks {
+			var risks []string
+			for _, rt := range riskTags(s) {
+				risks = append(risks, rt.Label)
+			}
+			fmt.Fprintf(&b, "| `%s` | %s | %s | %s |\n",
+				s.Path, opSummary(s.Counts), strings.Join(risks, " "), displayState(s.Status, kind).Label)
 		}
-		fmt.Fprintf(&b, "| `%s` | %s | %s | %s |\n",
-			s.Path, opSummary(s.Counts), strings.Join(risks, " "), displayState(s.Status, kind).Label)
 	}
 	return b.String()
 }
