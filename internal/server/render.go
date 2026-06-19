@@ -74,6 +74,57 @@ func opTally(v verdict) string {
 	return strings.Join(parts, " ")
 }
 
+// progressCells is the width of the unicode progress bar.
+const progressCells = 10
+
+// progress maps (phase, planned, total) to a 10-cell unicode bar, a human label,
+// and a percentage. Pre-plan phases (warming/initializing) have no sub-progress,
+// so they sit at the start of their band; planning fills the remaining 80% by the
+// completed-stack fraction; an apply context tracks planned/total directly.
+func progress(phase events.Phase, planned, total int) (bar, label string, pct int) {
+	frac := 0.0
+	switch phase {
+	case events.PhaseWarming:
+		frac, label = 0.05, "warming cache…"
+	case events.PhaseInitializing:
+		frac, label = 0.05, fmt.Sprintf("initializing %d stacks…", total)
+	case events.PhaseApplying:
+		if total > 0 {
+			frac = float64(planned) / float64(total)
+		}
+		if total > 0 && planned == total {
+			label = fmt.Sprintf("applied %d/%d", planned, total)
+		} else {
+			label = fmt.Sprintf("applying %d/%d", planned, total)
+		}
+	case events.PhaseVerifying:
+		frac, label = 1.0, "verifying…"
+	default: // planning, or an unset phase treated as planning
+		switch {
+		case total <= 0:
+			frac, label = 0.20, "planning…"
+		case planned >= total:
+			frac, label = 1.0, "planned"
+		default:
+			frac = 0.20 + 0.80*float64(planned)/float64(total)
+			label = fmt.Sprintf("planning %d/%d", planned, total)
+		}
+	}
+	if frac < 0 {
+		frac = 0
+	}
+	if frac > 1 {
+		frac = 1
+	}
+	filled := int(frac*float64(progressCells) + 0.5)
+	if filled > progressCells {
+		filled = progressCells
+	}
+	bar = strings.Repeat("▰", filled) + strings.Repeat("▱", progressCells-filled)
+	pct = int(frac*100 + 0.5)
+	return bar, label, pct
+}
+
 // checkSummary builds the check-run summary block for a plan or apply: a
 // blast-radius headline, verdict chips (destructive / IAM) + a live-viewer link,
 // and a per-stack table (Stack | Ops | Risk | State). kind is "plan" or "apply".
