@@ -146,8 +146,15 @@ func (a *App) driveApply(ctx context.Context, e store.Execution, base string) {
 		case "failure":
 			conclusion = "failure"
 		}
+		summary := checkSummary("apply", e.Environment, g.Stacks, a.liveURL(base, e.ID))
+		if failed > 0 {
+			// Keep the next-steps guidance (fix-forward / re-run) visible in the
+			// summary; the failing-stack detail renders in the Text below.
+			summary += "\n\n" + desc
+		}
 		upd := CheckRunUpdate{
-			Summary:    desc,
+			Title:      "Terraform apply",
+			Summary:    summary,
 			DetailsURL: a.liveURL(base, e.ID),
 			Conclusion: conclusion,
 		}
