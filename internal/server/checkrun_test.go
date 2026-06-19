@@ -66,9 +66,9 @@ func TestBackfillFailureDetailFromLog(t *testing.T) {
 		t.Fatal(err)
 	}
 	g := events.Graph{Stacks: []events.StackState{
-		{Path: "svc/x", Status: events.StatusFailed},           // no Detail → backfilled
+		{Path: "svc/x", Status: events.StatusFailed},                 // no Detail → backfilled
 		{Path: "svc/y", Status: events.StatusFailed, Detail: "kept"}, // has Detail → untouched
-		{Path: "svc/z", Status: events.StatusFailed},           // no log → stays empty
+		{Path: "svc/z", Status: events.StatusFailed},                 // no log → stays empty
 	}}
 	a.backfillFailureDetail("e1", &g)
 

@@ -212,11 +212,11 @@ func TestCheckSummaryWarmingNoStacks(t *testing.T) {
 
 func TestProgress(t *testing.T) {
 	cases := []struct {
-		name             string
-		phase            events.Phase
-		planned, total   int
-		wantBar          string
-		wantLabel        string
+		name           string
+		phase          events.Phase
+		planned, total int
+		wantBar        string
+		wantLabel      string
 	}{
 		{"warming", events.PhaseWarming, 0, 0, "▰▱▱▱▱▱▱▱▱▱", "warming cache…"},
 		{"initializing", events.PhaseInitializing, 0, 12, "▰▰▱▱▱▱▱▱▱▱", "initializing 12 stacks…"},
