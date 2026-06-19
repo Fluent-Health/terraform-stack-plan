@@ -213,6 +213,24 @@ func TestLoadGraphSurfacesCounts(t *testing.T) {
 	}
 }
 
+func TestSetExecutionStatus(t *testing.T) {
+	db := newTestDB(t) // use the package's existing test-db helper
+	if err := UpsertInit(db, events.Init{ID: "e1", Repo: "r", Context: "apply/prod",
+		Stacks: []events.StackState{{Path: "a", Status: events.StatusPending}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetExecutionStatus(db, "e1", "success"); err != nil {
+		t.Fatal(err)
+	}
+	e, err := GetExecution(db, "e1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e.Status != "success" {
+		t.Fatalf("status = %q, want success", e.Status)
+	}
+}
+
 func TestUpdateStackAndReportAndRev(t *testing.T) {
 	db := newTestDB(t)
 	if err := UpsertInit(db, sampleInit()); err != nil {

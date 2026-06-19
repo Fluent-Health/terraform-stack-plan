@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
+	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
 
 // A post-merge apply execution surfaces BOTH ways: the apply/<env> commit
@@ -177,5 +178,89 @@ func TestApplyInitZeroStacksResolvesSuccess(t *testing.T) {
 	}
 	if conclusion != "success" {
 		t.Fatalf("zero-stack apply check run conclusion = %q, want success", conclusion)
+	}
+}
+
+// TestApplyDrivePersiststSuccessStatus asserts that driveApply writes
+// "success" into executions.status when all stacks complete safely so the
+// viewer's isFinished() flips to true and the shimmer stops.
+func TestApplyDrivePersistsSuccessStatus(t *testing.T) {
+	db := newServerTestDB(t)
+	gh := &MockGitHub{
+		CreateCheckRunFn: func(_ context.Context, _, _, _ string, _ string) (int64, error) {
+			return 11, nil
+		},
+		UpdateCheckRunFn: func(_ context.Context, _ string, _ int64, _ CheckRunUpdate) error {
+			return nil
+		},
+	}
+	a := New(db, gh, Config{UseChecks: true, PublicBaseURL: "https://serve.example"})
+
+	initBody, _ := json.Marshal(events.Init{
+		ID: "apply-persist-ok", Repo: "o/r", SHA: "abc", PR: 0, Environment: "nonprod",
+		Context: "apply/nonprod",
+		Stacks:  []events.StackState{{Path: "a", Status: events.StatusPending}},
+	})
+	rec := httptest.NewRecorder()
+	a.Routes().ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/init", bytes.NewReader(initBody)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("init: %d", rec.Code)
+	}
+
+	updBody, _ := json.Marshal(events.Update{ID: "apply-persist-ok", Stack: "a", Status: events.StatusSafe})
+	rec = httptest.NewRecorder()
+	a.Routes().ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/update", bytes.NewReader(updBody)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("update: %d", rec.Code)
+	}
+
+	e, err := store.GetExecution(db, "apply-persist-ok")
+	if err != nil {
+		t.Fatalf("GetExecution: %v", err)
+	}
+	if e.Status != "success" {
+		t.Errorf("execution status = %q, want success", e.Status)
+	}
+}
+
+// TestApplyDrivePersistsFailureStatus asserts that driveApply writes
+// "failure" into executions.status when a stack fails so the viewer's
+// isFinished() flips to true and the shimmer stops.
+func TestApplyDrivePersistsFailureStatus(t *testing.T) {
+	db := newServerTestDB(t)
+	gh := &MockGitHub{
+		CreateCheckRunFn: func(_ context.Context, _, _, _ string, _ string) (int64, error) {
+			return 12, nil
+		},
+		UpdateCheckRunFn: func(_ context.Context, _ string, _ int64, _ CheckRunUpdate) error {
+			return nil
+		},
+	}
+	a := New(db, gh, Config{UseChecks: true, PublicBaseURL: "https://serve.example"})
+
+	initBody, _ := json.Marshal(events.Init{
+		ID: "apply-persist-fail", Repo: "o/r", SHA: "abc", PR: 0, Environment: "prod",
+		Context: "apply/prod",
+		Stacks:  []events.StackState{{Path: "b", Status: events.StatusPending}},
+	})
+	rec := httptest.NewRecorder()
+	a.Routes().ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/init", bytes.NewReader(initBody)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("init: %d", rec.Code)
+	}
+
+	updBody, _ := json.Marshal(events.Update{ID: "apply-persist-fail", Stack: "b", Status: events.StatusFailed, Detail: "boom"})
+	rec = httptest.NewRecorder()
+	a.Routes().ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/update", bytes.NewReader(updBody)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("update: %d", rec.Code)
+	}
+
+	e, err := store.GetExecution(db, "apply-persist-fail")
+	if err != nil {
+		t.Fatalf("GetExecution: %v", err)
+	}
+	if e.Status != "failure" {
+		t.Errorf("execution status = %q, want failure", e.Status)
 	}
 }

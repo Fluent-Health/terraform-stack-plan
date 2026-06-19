@@ -173,6 +173,14 @@ func (a *App) driveApply(ctx context.Context, e store.Execution, base string) {
 	default:
 		state, desc = "pending", fmt.Sprintf("applying… %d/%d stacks", done, total)
 	}
+	// Persist the terminal status so the viewer's isFinished() flips (clears the
+	// shimmer / live-dot / "planning" placeholder on a concluded apply). Pending
+	// stays unwritten (still in-flight). Best-effort.
+	if state == "success" || state == "failure" {
+		if err := store.SetExecutionStatus(a.db, e.ID, state); err != nil {
+			log.Printf("apply set status %s: %v", e.ID, err)
+		}
+	}
 	if a.cfg.UseChecks && e.CheckRunID.Valid && e.CheckRunID.Int64 != 0 {
 		var conclusion string
 		switch state {
