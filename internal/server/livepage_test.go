@@ -351,6 +351,64 @@ func TestBuildLiveModelPlanFinished(t *testing.T) {
 	}
 }
 
+// TestBuildLiveModelWarmingInitializingLabels asserts that warming and initializing
+// phases surface correctly on the live page for both plan and apply kinds (Task 4).
+// Finished executions always use their terminal label even if the stored phase is stale.
+func TestBuildLiveModelWarmingInitializingLabels(t *testing.T) {
+	cases := []struct {
+		name     string
+		view     liveView
+		kind     string
+		finished bool
+		want     string
+	}{
+		{
+			name:     "plan warming",
+			view:     liveView{Context: "", Phase: events.PhaseWarming},
+			kind:     "plan",
+			finished: false,
+			want:     "WARMING",
+		},
+		{
+			name:     "apply initializing",
+			view:     liveView{Context: "apply/prod", Phase: events.PhaseInitializing},
+			kind:     "apply",
+			finished: false,
+			want:     "INITIALIZING",
+		},
+		{
+			name:     "plan initializing",
+			view:     liveView{Context: "", Phase: events.PhaseInitializing},
+			kind:     "plan",
+			finished: false,
+			want:     "INITIALIZING",
+		},
+		{
+			name:     "finished apply with stale warming phase",
+			view:     liveView{Context: "apply/prod", Phase: events.PhaseWarming, Status: "success"},
+			kind:     "apply",
+			finished: true,
+			want:     "APPLIED",
+		},
+		{
+			name:     "finished plan with stale warming phase",
+			view:     liveView{Context: "", Phase: events.PhaseWarming, Report: "# report"},
+			kind:     "plan",
+			finished: true,
+			want:     "PLANNED",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := buildLiveModel(tc.view, tc.kind, tc.finished, time.Now())
+			if m.PhaseLabel != tc.want {
+				t.Errorf("PhaseLabel = %q, want %q", m.PhaseLabel, tc.want)
+			}
+		})
+	}
+}
+
 func TestHumanizeDuration(t *testing.T) {
 	if got := humanizeDuration(4*time.Minute + 12*time.Second); got != "4m 12s" {
 		t.Fatalf("got %q", got)

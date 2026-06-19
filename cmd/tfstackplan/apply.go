@@ -118,8 +118,6 @@ func runApply(args []string) int {
 		return 0
 	}
 
-	_ = client.Phase(ctx, events.PhaseEvent{ID: execID, Phase: events.PhaseApplying})
-
 	// 4. Classify pass (self-sufficient): re-run the plan classification keyed to
 	//    the same (pr, env) and submit it as a Finalize{Gates}. In reconciler-core
 	//    mode the server re-marks gate_runs (classified) and issues RequestGrant;
@@ -205,6 +203,7 @@ func runApply(args []string) int {
 	}
 
 	// 8. Apply the changed stacks in dependency order via the terramate script.
+	_ = client.Phase(ctx, events.PhaseEvent{ID: execID, Phase: events.PhaseApplying})
 	os.Setenv(runner.EnvExecution, execID)
 	var stop func()
 	if client.Enabled() && *logFile != "" {
