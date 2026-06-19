@@ -61,6 +61,64 @@ func TestFailuresSectionPerStackLogLink(t *testing.T) {
 	}
 }
 
+// TestFailuresSectionTriage asserts that classifyFailure output is embedded in the
+// failures section: IAM-denied stacks get a Likely cause + Next steps + State impact;
+// unmatched errors get Next steps + State impact but NO fabricated Likely cause.
+func TestFailuresSectionTriage(t *testing.T) {
+	t.Run("iam_denied", func(t *testing.T) {
+		g := events.Graph{Stacks: []events.StackState{
+			{Path: "stacks/prod", Status: events.StatusFailed,
+				Detail: "Error: Error 403: Permission 'run.services.setIamPolicy' denied"},
+		}}
+		out := failuresSection(g, "", "")
+		for _, want := range []string{
+			"Error 403",
+			"Likely cause",
+			"Next steps",
+			"Re-request elevated access",
+			"Safe to retry",
+		} {
+			if !strings.Contains(out, want) {
+				t.Errorf("IAM case: missing %q in:\n%s", want, out)
+			}
+		}
+	})
+
+	t.Run("unmatched_no_fabricated_cause", func(t *testing.T) {
+		g := events.Graph{Stacks: []events.StackState{
+			{Path: "stacks/dev", Status: events.StatusFailed,
+				Detail: "panic: something totally novel"},
+		}}
+		out := failuresSection(g, "", "")
+		if !strings.Contains(out, "panic: something totally novel") {
+			t.Errorf("unmatched case: raw detail missing in:\n%s", out)
+		}
+		if strings.Contains(out, "Likely cause") {
+			t.Errorf("unmatched case: fabricated 'Likely cause' must NOT appear in:\n%s", out)
+		}
+		if !strings.Contains(out, "Next steps") {
+			t.Errorf("unmatched case: generic 'Next steps' should still render in:\n%s", out)
+		}
+	})
+
+	t.Run("no_detail_suppresses_triage", func(t *testing.T) {
+		// With no captured error, triage would advise "read the error" — which
+		// contradicts the "_no detail_" note. Suppress it entirely in that case.
+		g := events.Graph{Stacks: []events.StackState{
+			{Path: "stacks/qa", Status: events.StatusFailed},
+		}}
+		out := failuresSection(g, "", "")
+		if !strings.Contains(out, "No error detail captured") {
+			t.Errorf("empty-detail case: should note no detail in:\n%s", out)
+		}
+		for _, unwanted := range []string{"Likely cause", "Next steps", "State impact"} {
+			if strings.Contains(out, unwanted) {
+				t.Errorf("empty-detail case: %q must NOT render in:\n%s", unwanted, out)
+			}
+		}
+	})
+}
+
 func TestGatesSection(t *testing.T) {
 	if gatesSection(nil) != "" {
 		t.Error("no targets → no banner")
