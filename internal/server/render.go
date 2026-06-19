@@ -42,24 +42,6 @@ func gatesSection(targets []store.GateTarget) string {
 	return b.String()
 }
 
-// statusGlyph maps a stack status to a display glyph for the progress list.
-func statusGlyph(s events.Status) string {
-	switch s {
-	case events.StatusPlanned, events.StatusSafe:
-		return "✅"
-	case events.StatusRunning:
-		return "🔄"
-	case events.StatusGated:
-		return "🔐"
-	case events.StatusMoving:
-		return "🚚"
-	case events.StatusFailed:
-		return "❌"
-	default:
-		return "⏳"
-	}
-}
-
 // done reports whether a stack has finished its work for progress accounting.
 func done(s events.Status) bool {
 	switch s {
@@ -68,34 +50,6 @@ func done(s events.Status) bool {
 	default:
 		return false
 	}
-}
-
-// renderProgress renders a minimal GFM task list of the execution's stacks with
-// a done/total count. The render/UI sub-plan replaces this with the grouped list
-// and the embedded DAG; the contract (a GFM string for the check-run summary)
-// stays the same.
-func renderProgress(g events.Graph) string {
-	total := len(g.Stacks)
-	doneCount := 0
-	for _, s := range g.Stacks {
-		if done(s.Status) {
-			doneCount++
-		}
-	}
-	var b strings.Builder
-	fmt.Fprintf(&b, "### Plan progress (%d/%d)\n\n", doneCount, total)
-	for _, s := range g.Stacks {
-		box := " "
-		if done(s.Status) {
-			box = "x"
-		}
-		status := s.Status
-		if status == "" {
-			status = events.StatusPending
-		}
-		fmt.Fprintf(&b, "- [%s] %s `%s` — %s\n", box, statusGlyph(s.Status), s.Path, status)
-	}
-	return b.String()
 }
 
 // opTally formats the non-zero mutating-op kinds of a verdict as a compact

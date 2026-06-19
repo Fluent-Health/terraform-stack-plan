@@ -60,7 +60,8 @@ func (a *App) renderAndPatch(ctx context.Context, id, base string, terminal bool
 	// action_required conclusion is self-explanatory (which gate, how to approve).
 	targets, _ := store.TargetsFor(a.db, e.PR, e.Environment)
 	upd := CheckRunUpdate{
-		Summary:    renderProgress(g),
+		Title:      "Terraform plan",
+		Summary:    checkSummary("plan", e.Environment, g.Stacks, a.liveURL(base, id)),
 		Text:       gatesSection(targets) + failuresSection(g, e.LogURL, "") + e.ReportMarkdown,
 		DetailsURL: a.liveURL(base, id),
 	}
