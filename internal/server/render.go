@@ -9,13 +9,15 @@ import (
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
 
-// pamConsoleURL deep-links to the GCP PAM grants page for a target. The iam
-// class emits the target as a GCP project (emit_attributes ["project"]), so the
-// approver lands on that project's Privileged Access Manager → Grants, where the
-// pending grant is approved. (gcp-pam is the only backend today; if more are
+// pamConsoleURL deep-links to the GCP PAM "Approve grants → Pending approval"
+// tab for a target. The iam class emits the target as a GCP project
+// (emit_attributes ["project"]), so the approver lands on that project's
+// Privileged Access Manager approvals tab, where the pending grant is approved.
+// GCP PAM exposes no per-grant deep link (only this project-scoped tab), so the
+// link stops at the project. (gcp-pam is the only backend today; if more are
 // added this should move behind the approval.Backend.)
 func pamConsoleURL(target string) string {
-	return "https://console.cloud.google.com/iam-admin/pam/grants?project=" + url.QueryEscape(target)
+	return "https://console.cloud.google.com/iam-admin/pam/grants/approvals?project=" + url.QueryEscape(target)
 }
 
 // gatesSection renders an "awaiting approval" banner for the check run when any

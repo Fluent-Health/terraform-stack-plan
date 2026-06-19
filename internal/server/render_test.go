@@ -119,6 +119,14 @@ func TestFailuresSectionTriage(t *testing.T) {
 	})
 }
 
+func TestPAMConsoleURLPointsAtApprovalTab(t *testing.T) {
+	got := pamConsoleURL("fh-dev-svc")
+	want := "https://console.cloud.google.com/iam-admin/pam/grants/approvals?project=fh-dev-svc"
+	if got != want {
+		t.Fatalf("pamConsoleURL = %q, want %q", got, want)
+	}
+}
+
 func TestGatesSection(t *testing.T) {
 	if gatesSection(nil) != "" {
 		t.Error("no targets → no banner")
