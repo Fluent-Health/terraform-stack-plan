@@ -323,4 +323,21 @@ func TestErrorTail(t *testing.T) {
 			t.Errorf("box_block_long: missing box delimiters in:\n%s", got)
 		}
 	})
+	t.Run("error_line_long", func(t *testing.T) {
+		// Rule 2 (Error: to EOF) should return full content even when longer than maxLines.
+		in := "some preamble\nError: first line\nline 2\nline 3\nline 4\nline 5\nline 6\n"
+		got := errorTail(in, 3)
+		// Should include all 6 lines from Error: to EOF, not capped.
+		if !strings.Contains(got, "Error: first line") || !strings.Contains(got, "line 6") {
+			t.Errorf("error_line_long: not all lines from Error: to EOF present in:\n%s", got)
+		}
+		if strings.Contains(got, "some preamble") {
+			t.Errorf("error_line_long: preamble should be dropped in:\n%s", got)
+		}
+		// Verify we got all 6 lines (not truncated to maxLines=3)
+		lines := strings.Split(got, "\n")
+		if len(lines) != 6 {
+			t.Errorf("error_line_long: got %d lines, want 6 (uncapped rule 2):\n%s", len(lines), got)
+		}
+	})
 }

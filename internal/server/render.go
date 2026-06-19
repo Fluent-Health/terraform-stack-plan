@@ -219,9 +219,10 @@ func checkSummary(kind, environment string, phase events.Phase, stacks []events.
 }
 
 // errorTail extracts the most relevant trailing slice of a terraform log excerpt
-// for a failure summary: the last "╷ … ╵" diagnostic block; else from the last
-// line containing "Error:" to the end; else the last maxLines non-blank lines.
-// Output is capped at maxLines and trailing blanks trimmed. "" for blank input.
+// for a failure summary: the last "╷ … ╵" diagnostic block (rule 1, returned in full),
+// else from the last line containing "Error:" to the end (rule 2, returned in full),
+// else the last maxLines non-blank lines (rule 3 fallback, capped). Trailing blank
+// lines are trimmed. "" for blank input.
 func errorTail(excerpt string, maxLines int) string {
 	excerpt = strings.TrimRight(excerpt, "\n \t")
 	if strings.TrimSpace(excerpt) == "" {
