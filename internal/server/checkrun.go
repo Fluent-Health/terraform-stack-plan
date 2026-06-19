@@ -10,6 +10,21 @@ import (
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
 
+// backfillFailureDetail fills Detail for failed stacks that have none, from the
+// error tail of the stack's stored log excerpt. Mutates g in place; best-effort —
+// a stack with no stored log keeps an empty Detail and renders the fallback note.
+func (a *App) backfillFailureDetail(execID string, g *events.Graph) {
+	for i := range g.Stacks {
+		s := &g.Stacks[i]
+		if s.Status != events.StatusFailed || s.Detail != "" {
+			continue
+		}
+		if _, excerpt, ok, _ := store.GetStackOutput(a.db, execID, s.Path, "log"); ok && excerpt != "" {
+			s.Detail = errorTail(excerpt, 25)
+		}
+	}
+}
+
 // progressTitle builds the check-run title: "<bar> k/N · <label>" — the k/N count
 // is dropped while no stacks are registered yet (warming). It is GitHub's most
 // prominent surface while the run is in_progress.
@@ -74,6 +89,7 @@ func (a *App) renderAndPatch(ctx context.Context, id, base string, terminal bool
 		log.Printf("load graph %s: %v", id, err)
 		return
 	}
+	a.backfillFailureDetail(id, &g)
 	// Surface pending approval gates at the top of the check run so an
 	// action_required conclusion is self-explanatory (which gate, how to approve).
 	targets, _ := store.TargetsFor(a.db, e.PR, e.Environment)
@@ -127,6 +143,7 @@ func (a *App) driveApply(ctx context.Context, e store.Execution, base string) {
 		log.Printf("apply status: load graph %s: %v", e.ID, err)
 		return
 	}
+	a.backfillFailureDetail(e.ID, &g)
 	total := len(g.Stacks)
 	done, failed := 0, 0
 	for _, s := range g.Stacks {
