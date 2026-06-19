@@ -126,8 +126,10 @@ func progress(phase events.Phase, planned, total int) (bar, label string, pct in
 // blast-radius headline, verdict chips (destructive / IAM) + a live-viewer link,
 // and a per-stack table (Stack | Ops | Risk | State). kind is "plan" or "apply".
 // While planning (no stack has counts yet) the headline degrades to a
-// "planning d/t" progress count; the table still renders.
-func checkSummary(kind, environment string, phase events.Phase, stacks []events.StackState, viewerURL string) string {
+// "planning d/t" progress count; the table still renders. When terminal is true
+// the headline uses the action-count summary from terminalSummary instead of the
+// progress bar.
+func checkSummary(kind, environment string, stacks []events.StackState, phase events.Phase, terminal bool, viewerURL string) string {
 	v := aggregateVerdict(stacks)
 	tally := opTally(v)
 
@@ -151,6 +153,17 @@ func checkSummary(kind, environment string, phase events.Phase, stacks []events.
 		b.WriteString(" · " + environment)
 	}
 	switch {
+	case terminal:
+		// Concluded run: show action-count summary derived from terminalSummary,
+		// but just the tail (after "Plan" / "Apply") to avoid doubling the heading.
+		tail := terminalSummary(phase, stacks)
+		// Strip the leading "Plan · " or "Apply · " prefix since we already wrote
+		// the heading above; terminalSummary returns "<kind> · <rest>".
+		prefix := heading + " · "
+		if strings.HasPrefix(tail, prefix) {
+			tail = tail[len(prefix):]
+		}
+		fmt.Fprintf(&b, " — %s", tail)
 	case kind == "apply":
 		applied := 0
 		for _, s := range stacks {
