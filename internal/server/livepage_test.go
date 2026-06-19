@@ -502,6 +502,38 @@ func TestLivePageTabDefaultByLiveness(t *testing.T) {
 	}
 }
 
+// TestLivePageInProgressMoveShowsShimmer asserts that an in-progress execution
+// with a StatusMoving stack renders the shimmer (Follow=true winning over Moved=true
+// in the template's else-if chain), NOT the "State-only move" text.
+func TestLivePageInProgressMoveShowsShimmer(t *testing.T) {
+	a := New(newServerTestDB(t), &MockGitHub{}, Config{})
+
+	// In-progress move: Status="" (not finished) + StatusMoving stack.
+	// Template order: Detail → else if Follow → else if Moved → else.
+	// Follow=true (not finished) should win and show shimmer, not "State-only move".
+	page := a.livePage(liveView{
+		Exec:    "e-moving",
+		Repo:    "o/r",
+		Context: "apply/prod",
+		Status:  "", // empty status = not finished → Follow=true
+		Stacks: []events.StackState{
+			{Path: "stacks/mv", Status: events.StatusMoving},
+		},
+		StackReports: map[string]string{},
+		StackLogs:    map[string]string{},
+	})
+
+	// Must contain shimmer (the Follow branch rendering).
+	if !strings.Contains(page, `class="shimmer`) {
+		t.Error("in-progress move: expected shimmer placeholder (Follow=true), not found")
+	}
+
+	// Must NOT contain "State-only move" text (the Moved branch is skipped by Follow winning).
+	if strings.Contains(page, "State-only move") {
+		t.Error("in-progress move: must not show 'State-only move' text (Follow wins over Moved in template)")
+	}
+}
+
 func TestHumanizeDuration(t *testing.T) {
 	if got := humanizeDuration(4*time.Minute + 12*time.Second); got != "4m 12s" {
 		t.Fatalf("got %q", got)
