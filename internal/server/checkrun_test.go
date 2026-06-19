@@ -43,8 +43,10 @@ func TestPlanCheckRunSummaryAndTitle(t *testing.T) {
 		t.Fatalf("update: %d", rec.Code)
 	}
 
-	if title != "Terraform plan" {
-		t.Errorf("title = %q, want Terraform plan", title)
+	for _, want := range []string{"▰", "1/1", "planned"} {
+		if !strings.Contains(title, want) {
+			t.Errorf("title missing %q in: %q", want, title)
+		}
 	}
 	for _, want := range []string{"## Plan · nonprod", "| Stack | Ops | Risk | State |", "`svc/a`"} {
 		if !strings.Contains(summary, want) {

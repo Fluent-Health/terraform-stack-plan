@@ -10,6 +10,24 @@ import (
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
 
+// progressTitle builds the check-run title: "<bar> k/N · <label>" — the k/N count
+// is dropped while no stacks are registered yet (warming). It is GitHub's most
+// prominent surface while the run is in_progress.
+func progressTitle(phase events.Phase, stacks []events.StackState) string {
+	total := len(stacks)
+	doneCount := 0
+	for _, s := range stacks {
+		if done(s.Status) {
+			doneCount++
+		}
+	}
+	bar, label, _ := progress(phase, doneCount, total)
+	if total == 0 {
+		return bar + " · " + label
+	}
+	return fmt.Sprintf("%s %d/%d · %s", bar, doneCount, total, label)
+}
+
 // ensureCheckRun creates the GitHub check run for an execution if it does not yet
 // have one, and persists the id. Idempotent: a no-op when check_run_id is set, so
 // an early phase event and a later init can both call it safely.
@@ -60,7 +78,7 @@ func (a *App) renderAndPatch(ctx context.Context, id, base string, terminal bool
 	// action_required conclusion is self-explanatory (which gate, how to approve).
 	targets, _ := store.TargetsFor(a.db, e.PR, e.Environment)
 	upd := CheckRunUpdate{
-		Title:      "Terraform plan",
+		Title:      progressTitle(events.Phase(e.Phase), g.Stacks),
 		Summary:    checkSummary("plan", e.Environment, events.Phase(e.Phase), g.Stacks, a.liveURL(base, id)),
 		Text:       gatesSection(targets) + failuresSection(g, e.LogURL, "") + e.ReportMarkdown,
 		DetailsURL: a.liveURL(base, id),
@@ -153,7 +171,7 @@ func (a *App) driveApply(ctx context.Context, e store.Execution, base string) {
 			summary += "\n\n" + desc
 		}
 		upd := CheckRunUpdate{
-			Title:      "Terraform apply",
+			Title:      progressTitle(events.Phase(e.Phase), g.Stacks),
 			Summary:    summary,
 			DetailsURL: a.liveURL(base, e.ID),
 			Conclusion: conclusion,
