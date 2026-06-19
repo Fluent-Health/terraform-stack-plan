@@ -267,9 +267,12 @@ func buildLiveModel(v liveView, kind string, finished bool, now time.Time) liveM
 	}
 
 	// Collect failed stacks into triage cards for the Needs-attention section.
+	// Triage is keyed off the captured error, so a failure with no detail gets no
+	// card (it still shows red in the stack list) — mirroring failuresSection, and
+	// avoiding "read the error" advice when there is no error to read.
 	var failures []failureCard
 	for _, s := range v.Stacks {
-		if s.Status == events.StatusFailed {
+		if s.Status == events.StatusFailed && s.Detail != "" {
 			tr := classifyFailure(s.Detail, s.Categories)
 			failures = append(failures, failureCard{
 				Path:        s.Path,

@@ -867,7 +867,8 @@ turned into an actionable triage by one pure classifier, `classifyFailure(detail
 cats) → failureTriage{Class, Cause, Steps, StateImpact, Retryable}` in
 `internal/server/triage.go`. It is a **bounded, ordered pattern set** (`failureMatchers`)
 — `state_move` (matched first, so a move failure carrying an embedded lock needle
-still reads as a move), `iam_denied`, `state_lock`, `quota`, `already_exists`,
+still reads as a move), then `quota` before `iam_denied` (both can match `error 403`,
+so the more specific `quota exceeded` wins), then `state_lock`, `already_exists`,
 `provider_auth` — first match wins; an unmatched error falls back to `Class:"error"`
 with an **empty `Cause`** (the raw error is shown, never a fabricated guess) plus
 generic recovery steps. Two renderers consume the *same* diagnosis: the **live page**

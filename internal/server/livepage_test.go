@@ -331,6 +331,17 @@ func TestLivePageTriageSection(t *testing.T) {
 	if len(m.Failures) != 1 || m.Failures[0].Path != "stacks/api" {
 		t.Fatalf("expected exactly the failed stack as a triage card, got %+v", m.Failures)
 	}
+
+	// A failure with no captured detail gets no card (mirrors failuresSection):
+	// nothing to triage, so "Needs attention" stays meaningful.
+	m2 := buildLiveModel(liveView{
+		Exec:    "exec-abc",
+		Context: "apply/nonprod",
+		Stacks:  []events.StackState{{Path: "stacks/api", Status: events.StatusFailed}},
+	}, "apply", true, time.Now())
+	if len(m2.Failures) != 0 {
+		t.Fatalf("failed stack with empty Detail must produce no triage card, got %+v", m2.Failures)
+	}
 }
 
 func TestBuildLiveModelPlanFinished(t *testing.T) {

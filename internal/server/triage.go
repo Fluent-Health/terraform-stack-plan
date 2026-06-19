@@ -56,7 +56,7 @@ var failureMatchers = []matcher{
 	},
 	{
 		class:   "iam_denied",
-		needles: []string{"setiampolicy", "permission ", "error 403", "permissiondenied", "does not have", "iam.serviceaccount"},
+		needles: []string{"setiampolicy", "permission ", "error 403", "permissiondenied", "does not have permission", "iam.serviceaccount"},
 		cause:   "The apply lacked an IAM permission — typically the PAM grant for this target isn't active (not yet approved, or expired mid-apply), so the leased service account can't make this write.",
 		steps:   []string{"Re-request elevated access for the target", "Approve the grant, then re-run this tier's apply", "Inspect the full log for the exact permission"},
 		impact:  "Safe to retry — denied writes don't land; re-running resumes from the unapplied changes once access is granted.",
@@ -72,7 +72,7 @@ var failureMatchers = []matcher{
 	},
 	{
 		class:   "already_exists",
-		needles: []string{"already exists", "error 409", "alreadyexists", "conflict"},
+		needles: []string{"already exists", "error 409", "alreadyexists"},
 		cause:   "A resource the plan creates already exists out-of-band (drift or a prior partial apply).",
 		steps:   []string{"Import the existing resource into state, or remove it", "Re-plan to confirm, then re-run"},
 		impact:  "Not auto-retryable — reconcile the conflict first.",

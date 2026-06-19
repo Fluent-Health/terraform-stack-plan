@@ -23,6 +23,11 @@ func TestClassifyFailure(t *testing.T) {
 		{"already exists", "Error 409: ... alreadyExists", nil, "already_exists", "already exists", false},
 		{"move failed", "cross-state move failed: dest push failed; source rolled back from .tfsp-state-backups", nil, "state_move", "state move", true},
 		{"unknown raw", "panic: something totally novel", nil, "error", "", true},
+		// Negative guards: bare English words must NOT trigger a confident wrong
+		// diagnosis. A generic config conflict is not already_exists; a generic
+		// "does not have <X>" validation error is not an IAM denial.
+		{"generic conflict not already_exists", "Error: provider configuration conflict between modules", nil, "error", "", true},
+		{"generic does-not-have not iam", "Error: version constraint does not have a match", nil, "error", "", true},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
