@@ -94,6 +94,49 @@ func TestRunUnknownSubcommand(t *testing.T) {
 	}
 }
 
+func TestRunPhasePostsEvent(t *testing.T) {
+	var mu sync.Mutex
+	var got events.PhaseEvent
+	var path string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		path = r.URL.Path
+		_ = json.Unmarshal(b, &got)
+		mu.Unlock()
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+	t.Setenv(runner.EnvServer, srv.URL)
+	t.Setenv(runner.EnvToken, "s")
+	t.Setenv(runner.EnvExecution, "build-7")
+	t.Setenv(runner.EnvEnvironment, "nonprod")
+	t.Setenv("TFSTACKPLAN_REPO", "o/r")
+	t.Setenv("TFSTACKPLAN_SHA", "abc")
+	t.Setenv("TFSTACKPLAN_PR", "9")
+
+	if code := runPhase([]string{"--phase", "warming"}); code != 0 {
+		t.Fatalf("run phase = %d, want 0", code)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if path != "/api/phase" {
+		t.Errorf("path = %s, want /api/phase", path)
+	}
+	if got.ID != "build-7" || got.Phase != events.PhaseWarming || got.Repo != "o/r" ||
+		got.SHA != "abc" || got.PR != 9 || got.Environment != "nonprod" {
+		t.Errorf("phase event = %+v", got)
+	}
+}
+
+func TestRunPhaseNoExecIsNoop(t *testing.T) {
+	t.Setenv(runner.EnvServer, "http://127.0.0.1:0") // would fail if it tried to post
+	t.Setenv(runner.EnvExecution, "")
+	if code := runPhase([]string{"--phase", "warming"}); code != 0 {
+		t.Fatalf("no-exec run phase = %d, want 0", code)
+	}
+}
+
 func TestDispatchRoutesRun(t *testing.T) {
 	t.Setenv(runner.EnvServer, "")
 	if code := dispatch([]string{"run", "tick", "--stack", "a", "--status", "running"}); code != 0 {

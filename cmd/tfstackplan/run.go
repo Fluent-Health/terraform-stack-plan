@@ -13,12 +13,14 @@ import (
 // runRun dispatches the `run` subcommand group (tick now; plan/apply later).
 func runRun(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "tfstackplan run: expected a subcommand (tick|plan|apply|verify)")
+		fmt.Fprintln(os.Stderr, "tfstackplan run: expected a subcommand (tick|phase|plan|apply|verify)")
 		return 2
 	}
 	switch args[0] {
 	case "tick":
 		return runTick(args[1:])
+	case "phase":
+		return runPhase(args[1:])
 	case "plan":
 		return runPlan(args[1:])
 	case "apply":
@@ -58,6 +60,35 @@ func runTick(args []string) int {
 		Stack:  s,
 		Status: events.Status(*status),
 		Detail: *detail,
+	})
+	return 0
+}
+
+// runPhase narrates a lifecycle phase to the server (best-effort). It reads the
+// execution context from the environment (set by the CI step) and is a no-op when
+// no execution id or server is configured, so a human's local run is unaffected.
+// It always exits 0 except on a flag-parse error — a progress tick must never fail
+// the build. Emitted before `run plan` (warming/initializing), it lets the server
+// create the per-environment check run during cache warm-up rather than only once
+// planning starts.
+func runPhase(args []string) int {
+	fs := flag.NewFlagSet("run phase", flag.ContinueOnError)
+	phase := fs.String("phase", "", "lifecycle phase (warming|initializing|planning|applying|verifying)")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	execID := os.Getenv(runner.EnvExecution)
+	if *phase == "" || execID == "" {
+		return 0
+	}
+	c := runner.ClientFromEnv()
+	_ = c.Phase(context.Background(), events.PhaseEvent{
+		ID:          execID,
+		Repo:        os.Getenv("TFSTACKPLAN_REPO"),
+		SHA:         os.Getenv("TFSTACKPLAN_SHA"),
+		PR:          atoiOr0(os.Getenv("TFSTACKPLAN_PR")),
+		Environment: os.Getenv(runner.EnvEnvironment),
+		Phase:       events.Phase(*phase),
 	})
 	return 0
 }
