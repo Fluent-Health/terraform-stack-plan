@@ -297,4 +297,30 @@ func TestErrorTail(t *testing.T) {
 			t.Errorf("cap got %q", got)
 		}
 	})
+	t.Run("open_box", func(t *testing.T) {
+		// Box with no closing ╵ should return everything from ╷ to EOF (rule 1).
+		in := "some preamble\n╷\n│ Error: something bad happened\n│ detail line\n"
+		got := errorTail(in, 25)
+		if !strings.Contains(got, "╷") || !strings.Contains(got, "Error: something bad happened") {
+			t.Errorf("open_box: missing expected content in:\n%s", got)
+		}
+		if strings.Contains(got, "some preamble") {
+			t.Errorf("open_box: preamble should be dropped in:\n%s", got)
+		}
+	})
+	t.Run("box_block_long", func(t *testing.T) {
+		// Rule 1 (box block) should return full content even when longer than maxLines.
+		in := "╷\n│ line 1\n│ line 2\n│ line 3\n│ line 4\n│ line 5\n╵\n"
+		got := errorTail(in, 3)
+		// Box has 8 lines total (╷ + 5 content + ╵), should all be present.
+		lines := strings.Split(got, "\n")
+		// Count non-empty lines (or all lines for verification)
+		if !strings.Contains(got, "│ line 1") || !strings.Contains(got, "│ line 5") {
+			t.Errorf("box_block_long: not all box lines present (got %d lines) in:\n%s", len(lines), got)
+		}
+		// Verify it includes both opening and closing box characters
+		if !strings.Contains(got, "╷") || !strings.Contains(got, "╵") {
+			t.Errorf("box_block_long: missing box delimiters in:\n%s", got)
+		}
+	})
 }

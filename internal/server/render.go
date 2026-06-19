@@ -267,10 +267,11 @@ func errorTail(excerpt string, maxLines int) string {
 				}
 				picked = append([]string{lines[i]}, picked...)
 			}
+			// Cap only applies to rule 3 fallback.
+			if len(picked) > maxLines {
+				picked = picked[len(picked)-maxLines:]
+			}
 		}
-	}
-	if len(picked) > maxLines {
-		picked = picked[len(picked)-maxLines:]
 	}
 	return strings.TrimRight(strings.Join(picked, "\n"), "\n")
 }
