@@ -371,7 +371,7 @@ func TestBuildLiveModelWarmingInitializingLabels(t *testing.T) {
 			view:     liveView{Context: "apply/prod", Phase: events.PhaseInitializing},
 			kind:     "apply",
 			finished: false,
-			want:     "INITIALIZING",
+			want:     "PREPARING",
 		},
 		{
 			name:     "plan initializing",

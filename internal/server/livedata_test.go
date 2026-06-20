@@ -2,6 +2,7 @@ package server
 
 import (
 	"testing"
+	"time"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 )
@@ -179,6 +180,28 @@ func TestRiskTags(t *testing.T) {
 	}
 	if len(riskTags(events.StackState{})) != 0 {
 		t.Fatal("no categories → no tags")
+	}
+}
+
+func TestApplyBadgePreparing(t *testing.T) {
+	mk := func(phase events.Phase, finished bool, status string) string {
+		v := liveView{Phase: phase, Status: status}
+		return buildLiveModel(v, "apply", finished, time.Now()).PhaseLabel
+	}
+	if got := mk(events.PhaseInitializing, false, ""); got != "PREPARING" {
+		t.Errorf("apply initializing badge = %q, want PREPARING", got)
+	}
+	if got := mk(events.PhasePlanning, false, ""); got != "PREPARING" {
+		t.Errorf("apply planning badge = %q, want PREPARING", got)
+	}
+	if got := mk(events.PhaseApplying, false, ""); got != "APPLYING" {
+		t.Errorf("apply applying badge = %q, want APPLYING", got)
+	}
+	if got := mk(events.PhaseVerifying, false, ""); got != "VERIFYING" {
+		t.Errorf("apply verifying badge = %q, want VERIFYING", got)
+	}
+	if got := mk(events.PhaseApplying, true, "failure"); got != "FAILED" {
+		t.Errorf("apply finished failure badge = %q, want FAILED", got)
 	}
 }
 

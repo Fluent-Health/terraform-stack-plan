@@ -224,14 +224,18 @@ func buildLiveModel(v liveView, kind string, finished bool, now time.Time) liveM
 		label = "APPLIED"
 	case finished:
 		label = "PLANNED"
+	case kind == "apply" && v.Phase == events.PhaseVerifying:
+		label = "VERIFYING"
+	case kind == "apply" && v.Phase == events.PhaseApplying:
+		label = "APPLYING"
+	case kind == "apply":
+		// Any pre-apply phase (warming/initializing/planning/unset): the apply is
+		// still re-planning, not applying.
+		label = "PREPARING"
 	case v.Phase == events.PhaseWarming:
 		label = "WARMING"
 	case v.Phase == events.PhaseInitializing:
 		label = "INITIALIZING"
-	case kind == "apply" && v.Phase == events.PhaseVerifying:
-		label = "VERIFYING"
-	case kind == "apply":
-		label = "APPLYING"
 	default:
 		label = "PLANNING"
 	}
