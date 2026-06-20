@@ -184,6 +184,10 @@ func displayState(st events.Status, kind string) stateDisplay {
 		return stateDisplay{"planned", "planned"}
 	case events.StatusFailed:
 		return stateDisplay{"failed", "failed"}
+	case events.StatusNochange:
+		return stateDisplay{"no changes", "nochange"}
+	case events.StatusAborted:
+		return stateDisplay{"aborted", "aborted"}
 	default:
 		return stateDisplay{string(st), "queued"}
 	}
@@ -223,6 +227,10 @@ func statusBadge(s events.Status) string {
 		return "badge-success"
 	case events.StatusFailed:
 		return "badge-error"
+	case events.StatusNochange:
+		return "badge-ghost"
+	case events.StatusAborted:
+		return "badge-ghost"
 	default: // pending + anything unknown
 		return "badge-ghost"
 	}

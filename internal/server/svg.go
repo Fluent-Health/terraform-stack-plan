@@ -23,6 +23,10 @@ func statusColor(s events.Status) string {
 		return "#8250df" // purple
 	case events.StatusFailed:
 		return "#cf222e" // red
+	case events.StatusNochange:
+		return "#8aab95" // faded green (applied, no changes)
+	case events.StatusAborted:
+		return "#8c959f" // light grey (run aborted, distinct from pending)
 	default:
 		return "#6e7781" // grey (pending)
 	}
