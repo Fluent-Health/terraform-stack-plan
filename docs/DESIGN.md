@@ -555,31 +555,6 @@ the budget entirely.
 
 ## Shipped since v1
 
-- **`run step`** — wraps a single terraform command with lifecycle ticks: ticks
-  `running` before, determines the terminal status after, and streams the
-  command's output live as log chunks via `/api/logs`. The terminal status is
-  `nochange` when terraform's own summary line reads `0 added, 0 changed, 0
-  destroyed`; the `--on-success <status>` flag (e.g. `--on-success safe`) sets
-  the status for any other success. A transparent offline passthrough (`run step`
-  is a no-op when `TFSTACKPLAN_SERVER` is unset), so local `terramate script run`
-  is unaffected. The motivation: terramate's parallel `script run` aborts on the
-  first failing stack and never advances to a *later* command in the same job —
-  so a closing `run tick --status safe` in a separate command is silently skipped
-  for any stack that fails before it. Putting the terminal tick inside the same
-  command (`run step --on-success safe -- terraform apply …`) removes that gap.
-  See `docs/ci-integration.md` for the canonical script form. The companion
-  migration of the infra `scripts.tm.hcl` to `run step` is a separate PR in the
-  infra repo.
-- **`nochange` and `aborted` terminal statuses** — two new `events.Status` values
-  extend the per-stack vocabulary. `nochange` means the stack applied
-  successfully with zero resource changes (terraform reported `0 added, 0
-  changed, 0 destroyed`), set by `run step` from terraform's own output.
-  `aborted` means the run failed elsewhere and this stack never reached a
-  terminal tick — set server-side by the finalize sweep on `Finalize{Failed:
-  true}` for any still-pending or still-running stack. `aborted` stacks are
-  correctly distinguished from `failed` stacks (which did run and emitted an
-  error); the apply check-run conclusion is now derived from `Finalize{Failed}`
-  rather than from counting per-stack failures.
 - **Privilege-backed apply** — `POST /api/gate/check` now returns
   `{"requester": "<sa-email>"}` (the leased PAM requester for the PR) on its 200
   success path. `tfstackplan run apply --impersonate-requester` reads that email,
@@ -605,6 +580,57 @@ the budget entirely.
   to the stack link. The plan JSON carries no source location, so the source
   tree is the input. Deep-linking to the PR diff hunk is not possible (GitHub
   limitation); links point at the block at `{sha}`.
+- **Streamed GCS log offload** — the live page offloads per-stack plan and log
+  files to GCS at finalize, streaming each file directly to GCS (`gcsObjectStore.Put`
+  with `*os.File` as the request body and Content-Length set from file stat)
+  instead of buffering the whole file in memory (`io.ReadAll` into a `[]byte`).
+  This cuts a heap spike at finalize.
+- **On-demand per-stack plan render** — the Result pane on the live page fetches
+  a single stack's plan markdown via `GET /plan/{exec}/{stack...}` when opened,
+  mirroring the Log tab's lazy fetch. The page no longer pre-renders and embeds
+  every stack's plan on load — the whole-execution report is rendered once for
+  the check-run summary, but per-stack renders are deferred until the user opens
+  the pane. This cuts Go-heap spikes during page load for large multi-stack runs.
+- **Residual heap consumers** — the SQLite DB and live per-stack log buffers
+  still live on the `256Mi` `medium=MEMORY` tmpfs (by design, as an in-flight
+  buffer for concurrent log streams). Removing them from RAM would require
+  offloading logs to persistent storage earlier in the pipeline — deferred as
+  follow-up work ("logs off RAM").
+
+
+- **Streamed GCS log offload** — the live page offloads per-stack plan and log
+  files to GCS at finalize, streaming each file directly to GCS (`gcsObjectStore.Put`
+  with `*os.File` as the request body and Content-Length set from file stat)
+  instead of buffering the whole file in memory (`io.ReadAll` into a `[]byte`).
+  This cuts a heap spike at finalize.
+- **On-demand per-stack plan render** — the Result pane on the live page fetches
+  a single stack's plan markdown via `GET /plan/{exec}/{stack...}` when opened,
+  mirroring the Log tab's lazy fetch. The page no longer pre-renders and embeds
+  every stack's plan on load — the whole-execution report is rendered once for
+  the check-run summary, but per-stack renders are deferred until the user opens
+  the pane. This cuts Go-heap spikes during page load for large multi-stack runs.
+- **Residual heap consumers** — the SQLite DB and live per-stack log buffers
+  still live on the `256Mi` `medium=MEMORY` tmpfs (by design, as an in-flight
+  buffer for concurrent log streams). Removing them from RAM would require
+  offloading logs to persistent storage earlier in the pipeline — deferred as
+  follow-up work ("logs off RAM").
+
+- **Streamed GCS log offload** — the live page offloads per-stack plan and log
+  files to GCS at finalize, streaming each file directly to GCS (`gcsObjectStore.Put`
+  with `*os.File` as the request body and Content-Length set from file stat)
+  instead of buffering the whole file in memory (`io.ReadAll` into a `[]byte`).
+  This cuts a heap spike at finalize.
+- **On-demand per-stack plan render** — the Result pane on the live page fetches
+  a single stack's plan markdown via `GET /plan/{exec}/{stack...}` when opened,
+  mirroring the Log tab's lazy fetch. The page no longer pre-renders and embeds
+  every stack's plan on load — the whole-execution report is rendered once for
+  the check-run summary, but per-stack renders are deferred until the user opens
+  the pane. This cuts Go-heap spikes during page load for large multi-stack runs.
+- **Residual heap consumers** — the SQLite DB and live per-stack log buffers
+  still live on the `256Mi` `medium=MEMORY` tmpfs (by design, as an in-flight
+  buffer for concurrent log streams). Removing them from RAM would require
+  offloading logs to persistent storage earlier in the pipeline — deferred as
+  follow-up work ("logs off RAM").
 
 ## Known limitations / gotchas
 
@@ -615,39 +641,12 @@ the budget entirely.
 - **Canonical plan filename is hardcoded `tfplan.json`** — matches Terragrunt's
   `--json-out-dir`; Terramate is scripted to emit the same. A tool that writes a
   different name needs a rename step.
-- **Per-stack log streaming for plan still requires the script to tee output to
-  `--log-file`.** The `LogPump` tails `<stack>/tfstackplan.log` (the default) in
-  each stack dir; nothing is streamed unless the stack's terramate script writes
-  that file (e.g. `terraform plan ... 2>&1 | tee tfstackplan.log`). This
-  indirection exists because terramate's parallel `script run` interleaves every
-  stack's output on one stream, which cannot be demuxed per stack. For apply
-  steps wrapped in `run step`, the pump is superseded — `run step` streams
-  terraform's output directly via `/api/logs` without a file intermediary.
-- **PTY mode is Unix-only and merges stdout+stderr.** `run step --tty` opens a
-  PTY via `github.com/creack/pty`, which is only supported on Unix. On Windows
-  (or if PTY allocation fails for any reason) it falls back gracefully to the
-  normal pipe path: logs one line, command still runs, exit code preserved.
-  stderr is merged into the single PTY stream (no separate stderr channel).
-- **ANSI colour in the viewer requires the consumer to opt in.** The viewer
-  parses ANSI SGR codes in stored logs automatically, but terraform only emits
-  colour when it detects a TTY — so `run step --tty` (and dropping `-no-color`
-  from the terraform flags) is required to get colour. Plans and CLI outputs
-  that do not use `--tty` continue to render as plain text.
-- **Viewer ANSI rendering: DOM glue is manually verified; the pure parser is
-  unit-tested.** `term.js` (the ANSI/CR parser served at `/assets/term.js`) is
-  covered by a node test (`web/term.test.cjs`). The DOM glue that connects it
-  to the log pane is verified manually. Non-SGR escape codes (e.g. OSC, 256-
-  colour sequences) are stripped or passed through unchanged; they are out of
-  scope for the viewer.
-- **Stacks not reached when a parallel apply aborts are marked `aborted`, not
-  `failed`.** On `Finalize{Failed: true}`, the server marks any still-pending or
-  still-running stack `aborted` — reflecting that these stacks were never
-  attempted rather than that they errored. A stack that did run and fail emits a
-  `failed` tick (via `run step`). The apply check-run conclusion is derived from
-  `Finalize{Failed}`, not from counting per-stack failures. A stack SIGKILLed
-  mid-apply emits no terminal tick and is correctly marked `aborted` by the
-  finalize sweep. Failed-stack check-run detail comes from the captured log (the
-  real terraform error), not a generic tick string.
+- **Per-stack log streaming requires the terramate script to tee output to the
+  configured `--log-file`.** The `LogPump` tails `<stack>/tfstackplan.log` (the
+  default) in each stack dir; nothing is streamed unless the stack's terramate
+  script writes that file (e.g. `terraform plan ... 2>&1 | tee tfstackplan.log`).
+  This indirection exists because terramate's parallel `script run` interleaves
+  every stack's output on one stream, which cannot be demuxed per stack.
 - **`default`/`safe` is a display-only fallback** — rendered for a stack that
   matched no rule, but it **never appears in the `--emit-classification-json`
   sidecar or the summary** (those carry only the matched-rule categories).
@@ -776,11 +775,7 @@ the full reasoning and alternatives weighed:
   `Graph`, and the `Init`/`PhaseEvent`/`Update`/`Finalize`/`GateCheck`/`GateRevoke`
   payloads. Vocabulary is provider-neutral — `environment` (not a fixed tier set)
   and `(class, target)` approval gates (not a single IAM/project gate) — so
-  multiple approval classes work without a later protocol change. Per-stack
-  `Status` values: `pending`, `running` (in-progress), `planned`, `safe`
-  (applied with changes), `nochange` (applied, 0 changes), `failed` (stack ran
-  and errored), `aborted` (run failed elsewhere; stack never reached a terminal
-  tick — set server-side at finalize).
+  multiple approval classes work without a later protocol change.
 - **`internal/store`** — the server's SQLite persistence (pure-Go
   `modernc.org/sqlite`, `goose` migrations embedded via `go:embed`): executions,
   their stack/edge subgraph, and per-`(class, target)` gate state, plus a
@@ -961,24 +956,6 @@ mutation) via an inline `EventSource` and debounce-reloads after 800 ms; the 10s
 `<meta refresh>` is the `<noscript>` fallback (streaming logs are exempt, above).
 Client-side partial re-render (no full reload of the whole page on every change)
 is a later phase.
-
-**Colored live logs.** `run step --tty` runs the wrapped terraform command under
-a PTY (`github.com/creack/pty`) so terraform emits ANSI colour — terraform
-suppresses colour when its stdout is a pipe, so a PTY is required. If PTY
-allocation fails (Unix-only; any OS-level error) the flag is silently ignored and
-the command runs via the normal pipe path (logs one line, exit code preserved).
-PTY mode merges stdout and stderr into a single stream. The streamed log is stored
-**raw ANSI** so the viewer can render colours without re-encoding. At the two
-surfaces that cannot render ANSI — the outcome-classification regex
-(`classifyStep`) and the failed-tick detail, and the GitHub check-run
-`errorTail` — `internal/ansi.Strip` removes SGR codes before the text is
-consumed. The viewer's ANSI/CR parser was extracted to a served, unit-tested
-`internal/server/assets/term.js` (at `/assets/term.js`); it gained carriage-return
-(`\r`) handling so terraform progress spinners (`Still creating… [10s]`) animate
-and collapse to their final frame rather than printing every update as a new line.
-A node test (`web/term.test.cjs`) covers the pure parser. Consumer wiring — adding
-`--tty` to the `run step` commands AND dropping `-no-color` from the terraform
-flags — lands in a companion PR in the infra repo.
 
 **Check-run richness (Phase 5 of the live-viewer redesign).** Both the plan and
 apply check-run summaries now lead with a **blast-radius headline** (op-count
