@@ -121,10 +121,8 @@
             <div class="tabs tabs-lift">
               <label class="tab"><input type="radio" name="tab-{{ .Anchor }}" {{ if not .Follow }}checked{{ end }}>Result</label>
               <div class="tab-content border-base-300 p-3">
-                {{ if .Detail }}<div class="tfsp-report">{{ .Detail }}</div>
-                {{ else if .Follow }}<div class="shimmer h-24 w-full rounded"></div><p class="italic text-base-content/40 text-xs mt-2">{{ if eq $.PhaseAccent "apply" }}Applying…{{ else }}Planning…{{ end }}</p>
-                {{ else if .Moved }}<p class="italic text-base-content/60 text-sm">State-only move — no plan diff. See the Log tab for the moved addresses.</p>
-                {{ else }}<p class="italic text-base-content/40 text-sm">No plan recorded for this stack.</p>{{ end }}
+                {{ if .Moved }}<p class="italic text-base-content/60 text-sm">State-only move — no plan diff. See the Log tab for the moved addresses.</p>
+                {{ else }}<div class="tfsp-report" data-plan-url="{{ .PlanURL }}"><div class="shimmer h-24 w-full rounded"></div></div>{{ end }}
               </div>
               <label class="tab">Log{{ if .Follow }}<span class="live-dot" title="streaming live"></span>{{ end }}<input type="radio" name="tab-{{ .Anchor }}" {{ if .Follow }}checked{{ end }}></label>
               <div class="tab-content border-base-300 p-3">
@@ -212,7 +210,18 @@
           }).catch(function (){});
         });
       }
-      function onHash(){ var h = location.hash.slice(1); stream(h); staticFill(h); }
+      // Result panes carry data-plan-url → fetch + inject the rendered plan once
+      // when the stack is shown (trusted server-rendered HTML).
+      function planFill(id){
+        var pane = id && document.getElementById(id); if (!pane) return;
+        pane.querySelectorAll('[data-plan-url]').forEach(function (el){
+          if (el.dataset.filled) return; el.dataset.filled='1';
+          fetch(el.dataset.planUrl).then(function (r){ return r.ok ? r.text() : ''; }).then(function (t){
+            el.innerHTML = t ? t : '<p class="italic text-base-content/40 text-sm">No plan recorded for this stack yet.</p>';
+          }).catch(function (){});
+        });
+      }
+      function onHash(){ var h = location.hash.slice(1); stream(h); staticFill(h); planFill(h); }
       window.addEventListener('hashchange', onHash);
       if (location.hash) onHash();
     })();

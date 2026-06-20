@@ -65,7 +65,7 @@ func TestImgAndLiveHandlers(t *testing.T) {
 	if resp2.StatusCode != 200 || !strings.HasPrefix(resp2.Header.Get("Content-Type"), "text/html") {
 		t.Fatalf("/live status=%d ct=%q", resp2.StatusCode, resp2.Header.Get("Content-Type"))
 	}
-	for _, want := range []string{"owner/repo", "staging", "<svg ", "proj-b", "report body"} {
+	for _, want := range []string{"owner/repo", "staging", "<svg ", "proj-b", `data-plan-url="/plan/e1/stacks/a"`} {
 		if !strings.Contains(page, want) {
 			t.Errorf("/live page missing %q", want)
 		}
