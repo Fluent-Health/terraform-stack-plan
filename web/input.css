@@ -23,6 +23,7 @@
   --color-accent-content: #ffffff;
   --color-neutral: #5b6470;          /* queued / planned / skipped */
   --color-neutral-content: #ffffff;
+  --color-plan-done: #5a5ad6;        /* planned (plan ready) / prepared / initialized */
   --color-info: #2b8fd4;             /* move / info */
   --color-info-content: #ffffff;
   --color-success: #1a9f5b;          /* add / applied */
@@ -64,10 +65,13 @@
 .bar-seg.bs-applying { background: var(--color-primary); }
 .bar-seg.bs-moving { background: var(--color-accent); }
 .bar-seg.bs-planning { background: var(--color-secondary); }
-.bar-seg.bs-planned,
+.bar-seg.bs-planned { background: var(--color-plan-done); }
 .bar-seg.bs-queued,
-.bar-seg.bs-initializing,
 .bar-seg.bs-skipped { background: var(--color-neutral); opacity: 0.4; }
+.bar-seg.bs-initializing,
+.bar-seg.bs-preparing { background: var(--color-secondary); opacity: 0.45; }
+.bar-seg.bs-initialized,
+.bar-seg.bs-prepared { background: var(--color-plan-done); opacity: 0.45; }
 .bar-seg.bs-blocked { background: var(--color-warning); }
 .bar-seg.bs-failed { background: var(--color-error); }
 .bar-seg.bs-nochange { background: var(--color-success); opacity: 0.4; }
@@ -77,10 +81,13 @@
 .sl-applying { color: var(--color-primary); }
 .sl-moving { color: var(--color-accent); }
 .sl-planning { color: var(--color-secondary); }
-.sl-planned,
+.sl-planned { color: var(--color-plan-done); }
 .sl-queued,
-.sl-initializing,
 .sl-skipped { color: var(--color-neutral); }
+.sl-initializing,
+.sl-preparing { color: var(--color-secondary); }
+.sl-initialized,
+.sl-prepared { color: var(--color-plan-done); }
 .sl-blocked { color: var(--color-warning); }
 .sl-failed { color: var(--color-error); }
 .sl-nochange { color: var(--color-success); opacity: 0.75; }
