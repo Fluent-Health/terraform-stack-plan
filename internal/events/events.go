@@ -14,13 +14,15 @@ const Version = 1
 type Status string
 
 const (
-	StatusPending Status = "pending" // intends to run
-	StatusRunning Status = "running" // running now
-	StatusPlanned Status = "planned" // plan done, no gate required
-	StatusGated   Status = "gated"   // blocked on an approval gate
-	StatusSafe    Status = "safe"    // approved / applied / clean
-	StatusMoving  Status = "moving"  // adopting resources via a cross-state move (non-gating)
-	StatusFailed  Status = "failed"
+	StatusPending  Status = "pending"  // intends to run
+	StatusRunning  Status = "running"  // running now
+	StatusPlanned  Status = "planned"  // plan done, no gate required
+	StatusGated    Status = "gated"    // blocked on an approval gate
+	StatusSafe     Status = "safe"     // approved / applied with changes / clean
+	StatusNochange Status = "nochange" // applied, terraform reported 0 changes
+	StatusMoving   Status = "moving"   // adopting resources via a cross-state move (non-gating)
+	StatusFailed   Status = "failed"   // this stack errored
+	StatusAborted  Status = "aborted"  // run failed elsewhere; this stack never reached a terminal tick
 )
 
 // Phase is the execution-wide lifecycle phase, narrated before and across the

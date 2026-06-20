@@ -242,6 +242,14 @@ func TestProgress(t *testing.T) {
 	}
 }
 
+func TestDoneIncludesNewTerminalStates(t *testing.T) {
+	for _, s := range []events.Status{events.StatusAborted, events.StatusNochange} {
+		if !done(s) {
+			t.Errorf("done(%q) = false, want true (new terminal apply state)", s)
+		}
+	}
+}
+
 func TestGatesSection(t *testing.T) {
 	if gatesSection(nil) != "" {
 		t.Error("no targets → no banner")

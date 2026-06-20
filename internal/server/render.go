@@ -45,7 +45,8 @@ func gatesSection(targets []store.GateTarget) string {
 // done reports whether a stack has finished its work for progress accounting.
 func done(s events.Status) bool {
 	switch s {
-	case events.StatusPlanned, events.StatusSafe, events.StatusMoving, events.StatusGated, events.StatusFailed:
+	case events.StatusPlanned, events.StatusSafe, events.StatusNochange,
+		events.StatusMoving, events.StatusGated, events.StatusFailed, events.StatusAborted:
 		return true
 	default:
 		return false
