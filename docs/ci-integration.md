@@ -29,6 +29,12 @@ merge     ──▶ CI apply job ─▶ tfstackplan run apply ──┘        (
   stacks concurrently, default serial), then revokes the grants.
 - **`run tick`** — the per-stack progress reporter the terramate scripts call;
   a no-op offline, so the scripts stay portable.
+- **`run step`** — wraps a single terraform command with lifecycle ticks: ticks
+  `running` before, determines the terminal status after (`safe` / `nochange` /
+  `failed`), and streams the command's output to the server as log chunks.
+  Transparent offline passthrough (a no-op tick when `TFSTACKPLAN_SERVER` is
+  unset), so local `terramate script run` is unaffected. Prefer `run step` over
+  separate `run tick` pairs for the apply command — see *Terramate scripts* below.
 - **`run phase`** — emits a lifecycle phase event (warming, initializing, planning)
   to the server so the check run appears early, before the plan completes.
 
@@ -51,10 +57,10 @@ failure — **except** the apply gate pre-check, which is deliberately fail-clos
 ## Terramate scripts
 
 The consumer defines `plan` and `apply` scripts once (root `scripts.tm.hcl`,
-inherited by every stack). They run terraform and call `run tick` — the runner
-invokes these exact scripts, so there is one execution code path. Enable scripts
-in the root config and pass the per-stack path to `run tick` via terramate's
-stack metadata:
+inherited by every stack). They run terraform and call `run tick` (plan) or
+`run step` (apply) — the runner invokes these exact scripts, so there is one
+execution code path. Enable scripts in the root config and pass the per-stack
+path via terramate's stack metadata:
 
 ```hcl
 terramate {
@@ -68,7 +74,7 @@ script "plan" {
   job {
     commands = [
       ["tfstackplan", "run", "tick", "--stack", "${terramate.stack.path.relative}", "--status", "running"],
-      ["terraform", "init", "-input=false", "-lock=false"],
+      ["tfstackplan", "run", "step", "--stack", "${terramate.stack.path.relative}", "--", "terraform", "init", "-input=false", "-lock=false"],
       ["terraform", "plan", "-input=false", "-lock=false", "-out=plan.bin"],
       # Emit the plan JSON where `run plan` gathers it: <stack>/tfplan.json.
       ["sh", "-c", "terraform show -json plan.bin > tfplan.json"],
@@ -81,10 +87,8 @@ script "apply" {
   description = "init + apply, report progress"
   job {
     commands = [
-      ["tfstackplan", "run", "tick", "--stack", "${terramate.stack.path.relative}", "--status", "running"],
-      ["terraform", "init", "-input=false"],
-      ["terraform", "apply", "-input=false", "-auto-approve", "plan.bin"],
-      ["tfstackplan", "run", "tick", "--stack", "${terramate.stack.path.relative}", "--status", "safe"],
+      ["tfstackplan", "run", "step", "--stack", "${terramate.stack.path.relative}", "--", "terraform", "init", "-input=false"],
+      ["tfstackplan", "run", "step", "--stack", "${terramate.stack.path.relative}", "--on-success", "safe", "--", "terraform", "apply", "-input=false", "-auto-approve", "plan.bin"],
     ]
   }
 }
@@ -93,11 +97,25 @@ script "apply" {
 Notes:
 - `run plan` gathers each stack's `tfplan.json` from the stack directory
   (`<stack>/tfplan.json`), so the `show -json` step writes there.
-- `run tick` is a no-op when `TFSTACKPLAN_SERVER` is unset and never fails the
-  build, so these scripts run unchanged at a laptop.
-- A failed stack should call `tfstackplan run tick --status failed --detail "…"`
-  (e.g. in an `after_failure`-style wrapper) so the live view shows it; on a
-  hard terramate failure `run plan` still finalizes with `failed=true`.
+- `run tick` and `run step` are no-ops when `TFSTACKPLAN_SERVER` is unset and
+  never fail the build, so these scripts run unchanged at a laptop.
+- **Use `run step` for the apply command** (and optionally for init). Terramate's
+  parallel `script run` aborts on the first failing stack and never advances to a
+  *later* command in the same job — so a closing `run tick --status safe` in a
+  separate command is silently never run when an earlier stack fails. Wrapping the
+  apply command in `run step --on-success safe` puts the terminal tick *inside*
+  the same command terramate runs to completion, fixing that gap. `run step` also
+  streams the command's output to the server as log chunks, superseding the old
+  `tee` + `--log-file` pump for apply.
+- `run step` auto-detects `nochange` from terraform's summary line
+  (`Apply complete! Resources: 0 added, 0 changed, 0 destroyed`) and ticks that
+  status instead of `safe`. The `--on-success safe` flag sets the terminal status
+  for any other (non-zero-change) success.
+- The `--stack` flag is taken verbatim. If your terraform root is deeper than the
+  terramate stack path, wrap with a one-line `bash -c` to strip the key prefix.
+- `run step` streams logs itself — the old `tee tfstackplan.log` convention and
+  the `--log-file` pump are superseded for `run step` stacks; init and plan steps
+  still use the pump if they are not wrapped in `run step`.
 
 ## Early start & progress
 
@@ -147,13 +165,14 @@ the stack's other output — no separate move-specific route.
 
 ## Failure detail backfill
 
-When `run plan` or `run apply` fails at the orchestrator level (plan error, apply
-aborted before completion) without an explicit error capture from the terramate
-scripts, stacks are marked failed but with no detail. The server now reads each
-stack's stored log excerpt and backfills the Failures block from the last
+When `run apply` fails, stacks that never reached a terminal tick are marked
+`aborted` (not `failed`) by the server's finalize sweep — the distinction
+reflects that these stacks were not attempted, not that they errored. Stacks
+that did run and failed emit a `failed` tick. In both cases, the server reads
+each stack's stored log excerpt and backfills the failure detail from the last
 terraform diagnostic block (`╷ … ╵`), falling back to the last error line or
-final N lines if no diagnostic is found. A stack with no logs still shows the
-"see the build log" note.
+final N lines if no diagnostic is found. A stack with no captured logs still
+shows the "see the build log" note.
 
 ## Apply identity and privilege-backed deployment
 
