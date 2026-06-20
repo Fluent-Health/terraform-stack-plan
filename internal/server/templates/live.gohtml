@@ -152,17 +152,29 @@
     </div>
   </main>
   <script>
-    // Page-level live refresh: reload on any execution STATE change (a stack
-    // starts/finishes, gate changes). Log chunks publish to a different SSE topic,
-    // so they don't trigger this — the watched log streams smoothly between
-    // transitions, and a reload re-renders the truthful state (e.g. drops the Log
-    // tab's live dot once the run finishes). The selected stack re-streams via the
-    // hash after reload.
+    // Page-level live refresh: reload on any execution STATE change. With many
+    // stacks ticking, coalesce a storm of events into one reload, and preserve the
+    // scroll position across the reload so the page does not jump.
     (function () {
+      try { history.scrollRestoration = 'manual'; } catch (e) { /* older browsers */ }
+      var key = 'tfsp-scroll:' + location.pathname;
+      // Restore after layout (and after any :target hash jump).
+      try {
+        var saved = sessionStorage.getItem(key);
+        if (saved !== null) {
+          window.addEventListener('load', function () {
+            window.scrollTo(0, parseInt(saved, 10) || 0);
+          });
+        }
+      } catch (e) { /* sessionStorage unavailable */ }
+      function reload() {
+        try { sessionStorage.setItem(key, String(window.scrollY)); } catch (e) {}
+        location.reload();
+      }
       try {
         var es = new EventSource(location.pathname.replace(/\/$/, "") + "/events");
         var t;
-        es.onmessage = function () { clearTimeout(t); t = setTimeout(function () { location.reload(); }, 800); };
+        es.onmessage = function () { clearTimeout(t); t = setTimeout(reload, 1500); };
       } catch (e) { /* no EventSource → the noscript meta-refresh covers it */ }
     })();
   </script>
