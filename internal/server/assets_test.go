@@ -72,3 +72,15 @@ func TestServeAsset(t *testing.T) {
 		t.Errorf("unknown asset status = %d, want 404", resp2.StatusCode)
 	}
 }
+
+func TestTermJSServed(t *testing.T) {
+	a := New(newServerTestDB(t), &MockGitHub{}, Config{})
+	rec := httptest.NewRecorder()
+	a.Routes().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/assets/term.js", nil))
+	if rec.Code != 200 {
+		t.Fatalf("term.js: %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "LineBuffer") {
+		t.Fatalf("term.js missing LineBuffer")
+	}
+}

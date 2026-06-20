@@ -168,38 +168,34 @@
       } catch (e) { /* no EventSource → the noscript meta-refresh covers it */ }
     })();
   </script>
+  <script src="/assets/term.js"></script>
   <script>
     // Selected-stack log: clicking a row sets the hash (CSS :target shows the
     // pane); this opens ONE EventSource for that stack's log, closing the prior.
-    // ANSI SGR colours are parsed client-side into <span class="a-*">; all log
-    // bytes are HTML-escaped before insertion (logs are attacker-influenceable).
+    // ANSI SGR colours are parsed client-side into <span class="a-*"> by term.js;
+    // all log bytes are HTML-escaped before insertion (logs are attacker-influenceable).
     (function () {
       var es = null, cur = null;
-      var MAP = {31:'a-red',32:'a-green',33:'a-yellow',34:'a-blue',35:'a-magenta',36:'a-cyan',90:'a-grey',
-                 91:'a-red',92:'a-green',93:'a-yellow',94:'a-blue',95:'a-magenta',96:'a-cyan'};
-      function esc(s){ return s.replace(/[&<>]/g, function (c){ return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c]; }); }
-      function cls(codes){ var c=[]; codes.split(';').forEach(function(n){ n=+n; if(n===1)c.push('a-bold'); else if(MAP[n])c.push(MAP[n]); }); return c.join(' '); }
-      function ansi(line){
-        var out='', open=0, re=/\x1b\[([0-9;]*)m/g, last=0, m;
-        while ((m=re.exec(line))){
-          out+=esc(line.slice(last,m.index)); last=re.lastIndex;
-          if (open){ out+='</span>'; open=0; }
-          var codes=m[1]||'0';
-          if (codes!=='0' && codes!==''){ var c=cls(codes); if(c){ out+='<span class="'+c+'">'; open=1; } }
-        }
-        out+=esc(line.slice(last)); if (open) out+='</span>';
-        return out;
-      }
-      window.__tfspAnsi = ansi;
       function atBottom(pre){ return pre.scrollHeight - pre.scrollTop - pre.clientHeight < 24; }
       function toBottom(pre){ pre.scrollTop = pre.scrollHeight; }
-      function append(pre, data){ var stick = atBottom(pre); pre.insertAdjacentHTML('beforeend', ansi(data)+'\n'); if (stick) toBottom(pre); }
+      function append(pre, data){
+        var lb = pre._lb || (pre._lb = new tfspTerm.LineBuffer());
+        var stick = atBottom(pre);
+        var r = lb.push(data);
+        if (pre._pend){ pre._pend.remove(); pre._pend = null; }
+        if (r.completed.length){ pre.insertAdjacentHTML('beforeend', r.completed.join('\n') + '\n'); }
+        if (r.pending){
+          var span = document.createElement('span'); span.innerHTML = r.pending;
+          pre.appendChild(span); pre._pend = span;
+        }
+        if (stick) toBottom(pre);
+      }
       function close(){ if (es){ es.close(); es=null; } }
       function stream(id){
         close(); cur=id;
         var pane = id && document.getElementById(id); if (!pane) return;
         var pre = pane.querySelector('pre[data-follow-url]'); if (!pre) return;
-        pre.textContent=''; // the SSE replays the buffer from the start
+        pre.textContent=''; pre._lb = null; pre._pend = null; // the SSE replays the buffer from the start
         try {
           es = new EventSource(pre.dataset.followUrl);
           es.onmessage = function (e){ if (cur===id) append(pre, e.data); };
@@ -212,7 +208,7 @@
         pane.querySelectorAll('pre[data-log-url]:not([data-follow-url])').forEach(function (pre){
           if (pre.dataset.filled) return; pre.dataset.filled='1';
           fetch(pre.dataset.logUrl).then(function (r){ return r.ok ? r.text() : ''; }).then(function (t){
-            pre.innerHTML = t.split('\n').map(window.__tfspAnsi).join('\n'); toBottom(pre);
+            pre.innerHTML = tfspTerm.renderStatic(t).join('\n'); toBottom(pre);
           }).catch(function (){});
         });
       }

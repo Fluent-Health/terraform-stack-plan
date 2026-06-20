@@ -368,4 +368,14 @@ func TestErrorTail(t *testing.T) {
 			t.Errorf("error_line_long: got %d lines, want 6 (uncapped rule 2):\n%s", len(lines), got)
 		}
 	})
+	t.Run("strips_ansi", func(t *testing.T) {
+		in := "module.x: Creating...\n\x1b[31m╷\n│ \x1b[1mError:\x1b[0m\x1b[31m googleapi: Error 403: denied\n╵\x1b[0m\n"
+		out := errorTail(in, 25)
+		if strings.Contains(out, "\x1b[") {
+			t.Errorf("errorTail leaked ANSI: %q", out)
+		}
+		if !strings.Contains(out, "Error 403") {
+			t.Errorf("errorTail dropped the error: %q", out)
+		}
+	})
 }

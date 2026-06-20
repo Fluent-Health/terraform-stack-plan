@@ -1,11 +1,56 @@
 package main
 
 import (
+	"bytes"
+	"io"
 	"os"
+	"strings"
 	"testing"
 
+	"github.com/Fluent-Health/terraform-stack-plan/internal/ansi"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 )
+
+func ptmxAvailable() bool {
+	if _, err := os.Stat("/dev/ptmx"); err != nil {
+		return false
+	}
+	return true
+}
+
+func TestRunStepTTYMakesCommandSeeATTY(t *testing.T) {
+	if !ptmxAvailable() {
+		t.Skip("no /dev/ptmx")
+	}
+	os.Unsetenv("TFSTACKPLAN_SERVER")
+	os.Unsetenv("TFSTACKPLAN_EXECUTION")
+	// Capture this process's stdout to inspect the passthrough.
+	r, w, _ := os.Pipe()
+	old := os.Stdout
+	os.Stdout = w
+	code := runStep([]string{"--stack", "s", "--tty", "--", "sh", "-c", "test -t 1 && echo ISTTY || echo PIPE"})
+	w.Close()
+	os.Stdout = old
+	var buf bytes.Buffer
+	io.Copy(&buf, r)
+	r.Close()
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0", code)
+	}
+	if !strings.Contains(buf.String(), "ISTTY") {
+		t.Errorf("under --tty the command did not see a TTY: %q", buf.String())
+	}
+}
+
+func TestRunStepTTYExitCodePropagates(t *testing.T) {
+	if !ptmxAvailable() {
+		t.Skip("no /dev/ptmx")
+	}
+	os.Unsetenv("TFSTACKPLAN_SERVER")
+	if code := runStep([]string{"--stack", "s", "--tty", "--", "sh", "-c", "exit 5"}); code != 5 {
+		t.Fatalf("exit = %d, want 5", code)
+	}
+}
 
 func TestClassifyStep(t *testing.T) {
 	const noChange = "...\nApply complete! Resources: 0 added, 0 changed, 0 destroyed.\n"
@@ -32,6 +77,17 @@ func TestClassifyStep(t *testing.T) {
 				t.Errorf("classifyStep(%d, …, %q) = %q, want %q", c.exit, c.onSuccess, got, c.want)
 			}
 		})
+	}
+}
+
+func TestClassifyStepColoredApplyComplete(t *testing.T) {
+	colored := "\x1b[0m\x1b[1m\x1b[32mApply complete! Resources: 0 added, 0 changed, 0 destroyed.\x1b[0m\n"
+	if got := classifyStep(0, ansi.Strip(colored), events.StatusSafe); got != events.StatusNochange {
+		t.Errorf("colored no-op apply classified %q, want nochange", got)
+	}
+	coloredChg := "\x1b[32mApply complete! Resources: 0 added, 20 changed, 0 destroyed.\x1b[0m\n"
+	if got := classifyStep(0, ansi.Strip(coloredChg), events.StatusSafe); got != events.StatusSafe {
+		t.Errorf("colored changed apply classified %q, want safe", got)
 	}
 }
 

@@ -109,6 +109,15 @@ Notes:
   (`Apply complete! Resources: 0 added, 0 changed, 0 destroyed`) and ticks that
   status instead of `safe`. The `--on-success safe` flag sets the terminal status
   for any other (non-zero-change) success.
+- **`--tty` enables ANSI colour in the viewer.** Terraform suppresses colour when
+  its stdout is a pipe. Add `--tty` to any `run step` command to run terraform
+  under a PTY so it emits ANSI colour; the live viewer renders it automatically
+  (including progress spinners). You must also drop `-no-color` from the terraform
+  flags — both changes together are what produces colour. Consumer wiring (adding
+  `--tty` and dropping `-no-color` from `scripts.tm.hcl`) lands in the companion
+  infra PR. If PTY allocation fails (Unix-only), `run step` falls back to the
+  normal pipe path — the command still runs and exits with the correct code; one
+  line is logged to note the fallback.
 - The `--stack` flag is taken verbatim. If your terraform root is deeper than the
   terramate stack path, wrap with a one-line `bash -c` to strip the key prefix.
 - `run step` streams logs itself — the old `tee tfstackplan.log` convention and
