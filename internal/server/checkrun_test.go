@@ -85,6 +85,26 @@ func TestProgressTitleRunningStillHasBar(t *testing.T) {
 	}
 }
 
+func TestBackfillPrefersLogErrorTail(t *testing.T) {
+	db := newServerTestDB(t)
+	a := New(db, &MockGitHub{}, Config{})
+
+	// Store the real terraform error as the stack's log excerpt.
+	const logExcerpt = "module.x: Creating...\n╷\n│ Error: googleapi: Error 403: permission denied\n╵\n"
+	if err := store.UpsertStackOutput(db, "exec-detail", "a", "log", "", logExcerpt); err != nil {
+		t.Fatal(err)
+	}
+	// The stack has a generic tick detail ("terraform apply failed") — the real
+	// error is in the captured log. After backfill the real error must win.
+	g := events.Graph{Stacks: []events.StackState{
+		{Path: "a", Status: events.StatusFailed, Detail: "terraform apply failed"},
+	}}
+	a.backfillFailureDetail("exec-detail", &g)
+	if !strings.Contains(g.Stacks[0].Detail, "Error 403") {
+		t.Errorf("Detail = %q, want the real 403 from the log, not the generic tick detail", g.Stacks[0].Detail)
+	}
+}
+
 func TestBackfillFailureDetailFromLog(t *testing.T) {
 	db := newServerTestDB(t)
 	a := New(db, &MockGitHub{}, Config{})

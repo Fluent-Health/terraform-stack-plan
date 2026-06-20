@@ -10,15 +10,21 @@ import (
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
 
-// backfillFailureDetail fills Detail for failed stacks that have none, from the
-// error tail of the stack's stored log excerpt. Mutates g in place; best-effort —
-// a stack with no stored log keeps an empty Detail and renders the fallback note.
+// backfillFailureDetail sets Detail for failed stacks from the error tail of the
+// stack's stored log excerpt. The captured log holds terraform's real error; a
+// per-stack tick detail (e.g. "terraform apply failed") is only a generic
+// placeholder. The log's error tail wins whenever a log was captured; stacks
+// with no stored log keep their existing Detail (or empty if they had none).
 func (a *App) backfillFailureDetail(execID string, g *events.Graph) {
 	for i := range g.Stacks {
 		s := &g.Stacks[i]
-		if s.Status != events.StatusFailed || s.Detail != "" {
+		if s.Status != events.StatusFailed {
 			continue
 		}
+		// The captured log holds terraform's real error; a per-stack tick detail
+		// (e.g. "terraform apply failed") is only a generic placeholder. Prefer the
+		// log's error tail whenever a log was captured; fall back to the existing
+		// detail otherwise.
 		if _, excerpt, ok, _ := store.GetStackOutput(a.db, execID, s.Path, "log"); ok && excerpt != "" {
 			s.Detail = errorTail(excerpt, 25)
 		}
