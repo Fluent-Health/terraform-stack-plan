@@ -321,3 +321,41 @@ func TestFinalizeFailedMarksNonTerminalAborted(t *testing.T) {
 		t.Errorf("execution status = %q, want failure", e.Status)
 	}
 }
+
+func TestFinalizeFailedMarksInitStatusesAborted(t *testing.T) {
+	// Stacks stuck in "initializing" or "initialized" at a failed finalize must
+	// be swept to "aborted" by the legacy path, just like pending/running.
+	db := newServerTestDB(t)
+	gh := &MockGitHub{CreateCheckRunFn: func(ctx context.Context, repo, sha, env, url string) (int64, error) { return 1, nil }}
+	a := New(db, gh, Config{UseChecks: true})
+	srv := httptest.NewServer(a.Routes())
+	defer srv.Close()
+
+	post(t, srv, "/api/init", events.Init{
+		ID: "exec-init-sweep", Repo: "o/r", SHA: "sha", PR: 10, Environment: "staging",
+		Stacks: []events.StackState{
+			{Path: "a", Status: events.StatusInitializing},
+			{Path: "b", Status: events.StatusInitialized},
+			{Path: "c", Status: events.StatusPlanned}, // already terminal — must not change
+		},
+	})
+	post(t, srv, "/api/finalize", events.Finalize{ID: "exec-init-sweep", Failed: true})
+
+	g, err := store.LoadGraph(db, "exec-init-sweep")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]events.Status{}
+	for _, s := range g.Stacks {
+		got[s.Path] = s.Status
+	}
+	if got["a"] != events.StatusAborted {
+		t.Errorf("stack a (initializing) = %q, want aborted", got["a"])
+	}
+	if got["b"] != events.StatusAborted {
+		t.Errorf("stack b (initialized) = %q, want aborted", got["b"])
+	}
+	if got["c"] != events.StatusPlanned {
+		t.Errorf("stack c (planned) = %q, want planned (unchanged)", got["c"])
+	}
+}

@@ -118,8 +118,9 @@ func (a *App) handleFinalize(w http.ResponseWriter, r *http.Request) {
 		// failed stacks — so a true orchestrator crash with zero per-stack
 		// failures still concludes failure.
 		if _, err := a.db.Exec(
-			`UPDATE stacks SET status = ? WHERE execution_id = ? AND status IN (?, ?)`,
-			string(events.StatusAborted), f.ID, string(events.StatusPending), string(events.StatusRunning)); err != nil {
+			`UPDATE stacks SET status = ? WHERE execution_id = ? AND status IN (?, ?, ?, ?)`,
+			string(events.StatusAborted), f.ID, string(events.StatusPending), string(events.StatusRunning),
+			string(events.StatusInitializing), string(events.StatusInitialized)); err != nil {
 			http.Error(w, "mark aborted", http.StatusInternalServerError)
 			return
 		}

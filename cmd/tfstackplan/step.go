@@ -222,8 +222,8 @@ func exitCodeOf(err error) int {
 	return 1
 }
 
-// knownStatus reports whether s is a recognized stack status (guards --running /
-// --on-success against typos that would render as an unknown state).
+// knownStatus reports whether s is a recognized stack status (guards --running
+// against typos that would render as an unknown state).
 func knownStatus(s string) bool {
 	switch events.Status(s) {
 	case events.StatusPending, events.StatusRunning, events.StatusInitializing,
