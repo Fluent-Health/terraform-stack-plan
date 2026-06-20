@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/Fluent-Health/terraform-stack-plan/internal/ansi"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
@@ -176,6 +177,7 @@ func checkSummary(kind string, stacks []events.StackState, viewerURL string) str
 // else the last maxLines non-blank lines (rule 3 fallback, capped). Trailing blank
 // lines are trimmed. "" for blank input.
 func errorTail(excerpt string, maxLines int) string {
+	excerpt = ansi.Strip(excerpt)
 	excerpt = strings.TrimRight(excerpt, "\n \t")
 	if strings.TrimSpace(excerpt) == "" {
 		return ""
