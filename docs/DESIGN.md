@@ -623,6 +623,22 @@ the budget entirely.
   stack's output on one stream, which cannot be demuxed per stack. For apply
   steps wrapped in `run step`, the pump is superseded — `run step` streams
   terraform's output directly via `/api/logs` without a file intermediary.
+- **PTY mode is Unix-only and merges stdout+stderr.** `run step --tty` opens a
+  PTY via `github.com/creack/pty`, which is only supported on Unix. On Windows
+  (or if PTY allocation fails for any reason) it falls back gracefully to the
+  normal pipe path: logs one line, command still runs, exit code preserved.
+  stderr is merged into the single PTY stream (no separate stderr channel).
+- **ANSI colour in the viewer requires the consumer to opt in.** The viewer
+  parses ANSI SGR codes in stored logs automatically, but terraform only emits
+  colour when it detects a TTY — so `run step --tty` (and dropping `-no-color`
+  from the terraform flags) is required to get colour. Plans and CLI outputs
+  that do not use `--tty` continue to render as plain text.
+- **Viewer ANSI rendering: DOM glue is manually verified; the pure parser is
+  unit-tested.** `term.js` (the ANSI/CR parser served at `/assets/term.js`) is
+  covered by a node test (`web/term.test.cjs`). The DOM glue that connects it
+  to the log pane is verified manually. Non-SGR escape codes (e.g. OSC, 256-
+  colour sequences) are stripped or passed through unchanged; they are out of
+  scope for the viewer.
 - **Stacks not reached when a parallel apply aborts are marked `aborted`, not
   `failed`.** On `Finalize{Failed: true}`, the server marks any still-pending or
   still-running stack `aborted` — reflecting that these stacks were never
@@ -945,6 +961,24 @@ mutation) via an inline `EventSource` and debounce-reloads after 800 ms; the 10s
 `<meta refresh>` is the `<noscript>` fallback (streaming logs are exempt, above).
 Client-side partial re-render (no full reload of the whole page on every change)
 is a later phase.
+
+**Colored live logs.** `run step --tty` runs the wrapped terraform command under
+a PTY (`github.com/creack/pty`) so terraform emits ANSI colour — terraform
+suppresses colour when its stdout is a pipe, so a PTY is required. If PTY
+allocation fails (Unix-only; any OS-level error) the flag is silently ignored and
+the command runs via the normal pipe path (logs one line, exit code preserved).
+PTY mode merges stdout and stderr into a single stream. The streamed log is stored
+**raw ANSI** so the viewer can render colours without re-encoding. At the two
+surfaces that cannot render ANSI — the outcome-classification regex
+(`classifyStep`) and the failed-tick detail, and the GitHub check-run
+`errorTail` — `internal/ansi.Strip` removes SGR codes before the text is
+consumed. The viewer's ANSI/CR parser was extracted to a served, unit-tested
+`internal/server/assets/term.js` (at `/assets/term.js`); it gained carriage-return
+(`\r`) handling so terraform progress spinners (`Still creating… [10s]`) animate
+and collapse to their final frame rather than printing every update as a new line.
+A node test (`web/term.test.cjs`) covers the pure parser. Consumer wiring — adding
+`--tty` to the `run step` commands AND dropping `-no-color` from the terraform
+flags — lands in a companion PR in the infra repo.
 
 **Check-run richness (Phase 5 of the live-viewer redesign).** Both the plan and
 apply check-run summaries now lead with a **blast-radius headline** (op-count
