@@ -112,7 +112,7 @@ func TestUpsertInitIsReRunnable(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Re-running the same Init is safe: identity intact, no duplicate edges, and
-	// stack status is reset to the payload value (pending for stacks/a).
+	// the advanced stack status is preserved (not regressed back to pending).
 	if err := UpsertInit(db, sampleInit()); err != nil {
 		t.Fatalf("re-init: %v", err)
 	}
@@ -123,8 +123,8 @@ func TestUpsertInitIsReRunnable(t *testing.T) {
 	if len(g.Stacks) != 2 || len(g.Edges) != 1 {
 		t.Fatalf("re-init graph = %d stacks, %d edges; want 2,1 (no duplicates)", len(g.Stacks), len(g.Edges))
 	}
-	if g.Stacks[0].Path != "stacks/a" || g.Stacks[0].Status != events.StatusPending {
-		t.Errorf("re-init stack a = %+v; want status reset to pending", g.Stacks[0])
+	if g.Stacks[0].Path != "stacks/a" || g.Stacks[0].Status != events.StatusFailed {
+		t.Errorf("re-init stack a = %+v; want status preserved as failed", g.Stacks[0])
 	}
 	e, err := GetExecution(db, "exec-1")
 	if err != nil {
@@ -210,6 +210,28 @@ func TestLoadGraphSurfacesCounts(t *testing.T) {
 	}
 	if g.Stacks[0].Counts == nil || g.Stacks[0].Counts.Add != 6 || g.Stacks[0].Counts.Change != 2 {
 		t.Fatalf("LoadGraph must surface counts, got %+v", g.Stacks[0].Counts)
+	}
+}
+
+func TestUpsertInitPreservesStatus(t *testing.T) {
+	db := newTestDB(t)
+	in := events.Init{ID: "e1", Stacks: []events.StackState{{Path: "a", Status: events.StatusPending}}}
+	if err := UpsertInit(db, in); err != nil {
+		t.Fatal(err)
+	}
+	if err := UpdateStack(db, "e1", "a", events.StatusPlanned, ""); err != nil {
+		t.Fatal(err)
+	}
+	// A second Init (e.g. run register then run plan) must not regress the stack.
+	if err := UpsertInit(db, in); err != nil {
+		t.Fatal(err)
+	}
+	g, err := LoadGraph(db, "e1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g.Stacks[0].Status != events.StatusPlanned {
+		t.Fatalf("status after re-Init = %q, want planned", g.Stacks[0].Status)
 	}
 }
 
