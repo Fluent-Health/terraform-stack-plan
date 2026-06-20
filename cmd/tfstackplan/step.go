@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/Fluent-Health/terraform-stack-plan/internal/ansi"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/runner"
 )
@@ -146,11 +147,11 @@ func runStep(args []string) int {
 
 	if reporting {
 		streamer.Close()
-		status := classifyStep(exitCode, captured.String(), events.Status(*onSuccess))
+		status := classifyStep(exitCode, ansi.Strip(captured.String()), events.Status(*onSuccess))
 		if status != "" {
 			detail := ""
 			if status == events.StatusFailed {
-				detail = lastLine(captured.String())
+				detail = lastLine(ansi.Strip(captured.String()))
 			}
 			_ = client.Update(ctx, events.Update{ID: execID, Stack: s, Status: status, Detail: detail})
 		}

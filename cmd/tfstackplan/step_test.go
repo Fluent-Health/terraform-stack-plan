@@ -4,6 +4,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/Fluent-Health/terraform-stack-plan/internal/ansi"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 )
 
@@ -32,6 +33,17 @@ func TestClassifyStep(t *testing.T) {
 				t.Errorf("classifyStep(%d, …, %q) = %q, want %q", c.exit, c.onSuccess, got, c.want)
 			}
 		})
+	}
+}
+
+func TestClassifyStepColoredApplyComplete(t *testing.T) {
+	colored := "\x1b[0m\x1b[1m\x1b[32mApply complete! Resources: 0 added, 0 changed, 0 destroyed.\x1b[0m\n"
+	if got := classifyStep(0, ansi.Strip(colored), events.StatusSafe); got != events.StatusNochange {
+		t.Errorf("colored no-op apply classified %q, want nochange", got)
+	}
+	coloredChg := "\x1b[32mApply complete! Resources: 0 added, 20 changed, 0 destroyed.\x1b[0m\n"
+	if got := classifyStep(0, ansi.Strip(coloredChg), events.StatusSafe); got != events.StatusSafe {
+		t.Errorf("colored changed apply classified %q, want safe", got)
 	}
 }
 
