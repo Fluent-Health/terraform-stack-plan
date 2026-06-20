@@ -57,7 +57,13 @@ func progressTitle(phase events.Phase, stacks []events.StackState, terminal bool
 	}
 	total := len(stacks)
 	doneCount := doneStacks(stacks)
-	bar, label, _ := progress(phase, doneCount, total)
+	initCount := 0
+	for _, s := range stacks {
+		if s.Status == events.StatusInitialized {
+			initCount++
+		}
+	}
+	bar, label, _ := progress(phase, doneCount, initCount, total)
 	if total == 0 {
 		return bar + " · " + label
 	}

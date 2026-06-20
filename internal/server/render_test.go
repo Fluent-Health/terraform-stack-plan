@@ -232,23 +232,23 @@ func TestCheckSummaryNoHeadline(t *testing.T) {
 
 func TestProgress(t *testing.T) {
 	cases := []struct {
-		name           string
-		phase          events.Phase
-		planned, total int
-		wantBar        string
-		wantLabel      string
+		name                        string
+		phase                       events.Phase
+		planned, initialized, total int
+		wantBar                     string
+		wantLabel                   string
 	}{
-		{"warming", events.PhaseWarming, 0, 0, "▰▱▱▱▱▱▱▱▱▱", "warming cache…"},
-		{"initializing", events.PhaseInitializing, 0, 12, "▰▰▱▱▱▱▱▱▱▱", "initializing 12 stacks…"},
-		{"planning_mid", events.PhasePlanning, 5, 10, "▰▰▰▰▰▰▱▱▱▱", "planning 5/10"},
-		{"planning_done", events.PhasePlanning, 10, 10, "▰▰▰▰▰▰▰▰▰▰", "planned"},
-		{"planning_zero", events.PhasePlanning, 0, 0, "▰▰▱▱▱▱▱▱▱▱", "planning…"},
-		{"applying_mid", events.PhaseApplying, 3, 6, "▰▰▰▰▰▱▱▱▱▱", "applying 3/6"},
-		{"applying_done", events.PhaseApplying, 6, 6, "▰▰▰▰▰▰▰▰▰▰", "applied 6/6"},
+		{"warming", events.PhaseWarming, 0, 0, 0, "▰▱▱▱▱▱▱▱▱▱", "warming cache…"},
+		{"initializing", events.PhaseInitializing, 0, 0, 12, "▰▰▱▱▱▱▱▱▱▱", "initializing 12 stacks…"},
+		{"planning_mid", events.PhasePlanning, 5, 0, 10, "▰▰▰▰▰▰▱▱▱▱", "planning 5/10"},
+		{"planning_done", events.PhasePlanning, 10, 0, 10, "▰▰▰▰▰▰▰▰▰▰", "planned"},
+		{"planning_zero", events.PhasePlanning, 0, 0, 0, "▰▰▱▱▱▱▱▱▱▱", "planning…"},
+		{"applying_mid", events.PhaseApplying, 3, 0, 6, "▰▰▰▰▰▱▱▱▱▱", "applying 3/6"},
+		{"applying_done", events.PhaseApplying, 6, 0, 6, "▰▰▰▰▰▰▰▰▰▰", "applied 6/6"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			bar, label, _ := progress(c.phase, c.planned, c.total)
+			bar, label, _ := progress(c.phase, c.planned, c.initialized, c.total)
 			if bar != c.wantBar {
 				t.Errorf("bar = %q, want %q", bar, c.wantBar)
 			}
@@ -259,6 +259,17 @@ func TestProgress(t *testing.T) {
 				t.Errorf("bar width = %d, want %d", len([]rune(bar)), progressCells)
 			}
 		})
+	}
+}
+
+func TestProgressInitialized(t *testing.T) {
+	_, label, _ := progress(events.PhaseInitializing, 0, 3, 10)
+	if label != "initialized 3/10" {
+		t.Errorf("init label with count = %q, want \"initialized 3/10\"", label)
+	}
+	_, label0, _ := progress(events.PhaseInitializing, 0, 0, 10)
+	if label0 != "initializing 10 stacks…" {
+		t.Errorf("init label no count = %q, want \"initializing 10 stacks…\"", label0)
 	}
 }
 

@@ -79,17 +79,23 @@ func opTally(v verdict) string {
 // progressCells is the width of the unicode progress bar.
 const progressCells = 10
 
-// progress maps (phase, planned, total) to a 10-cell unicode bar, a human label,
-// and a percentage. Pre-plan phases (warming/initializing) have no sub-progress,
-// so they sit at the start of their band; planning fills the remaining 80% by the
-// completed-stack fraction; an apply context tracks planned/total directly.
-func progress(phase events.Phase, planned, total int) (bar, label string, pct int) {
+// progress maps (phase, planned, initialized, total) to a 10-cell unicode bar,
+// a human label, and a percentage. Pre-plan phases (warming/initializing) have
+// no sub-progress by default; once stacks finish init the init band sub-fills
+// (5–15%) and the label reads "initialized k/N". Planning fills the remaining
+// 80% by the completed-stack fraction; an apply context tracks planned/total.
+func progress(phase events.Phase, planned, initialized, total int) (bar, label string, pct int) {
 	frac := 0.0
 	switch phase {
 	case events.PhaseWarming:
 		frac, label = 0.05, "warming cache…"
 	case events.PhaseInitializing:
-		frac, label = 0.15, fmt.Sprintf("initializing %d stacks…", total)
+		if total > 0 && initialized > 0 {
+			frac = 0.05 + 0.10*float64(initialized)/float64(total)
+			label = fmt.Sprintf("initialized %d/%d", initialized, total)
+		} else {
+			frac, label = 0.15, fmt.Sprintf("initializing %d stacks…", total)
+		}
 	case events.PhaseApplying:
 		if total > 0 {
 			frac = float64(planned) / float64(total)
