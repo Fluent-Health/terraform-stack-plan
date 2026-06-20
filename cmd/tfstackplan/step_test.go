@@ -33,6 +33,7 @@ func TestRunStepTTYMakesCommandSeeATTY(t *testing.T) {
 	os.Stdout = old
 	var buf bytes.Buffer
 	io.Copy(&buf, r)
+	r.Close()
 	if code != 0 {
 		t.Fatalf("exit = %d, want 0", code)
 	}

@@ -28,6 +28,7 @@ func (a *App) handleAsset(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write(reportCSS)
 	case "term.js":
 		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+		w.Header().Set("Cache-Control", "public, max-age=3600")
 		_, _ = w.Write(termJS)
 	default:
 		http.Error(w, "not found", http.StatusNotFound)
