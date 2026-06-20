@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -38,17 +39,35 @@ func (s *gcsObjectStore) name(key string) string {
 }
 
 func (s *gcsObjectStore) Put(ctx context.Context, key string, r io.Reader) error {
-	data, err := io.ReadAll(r)
-	if err != nil {
-		return err
-	}
 	tok, err := s.token(ctx)
 	if err != nil {
 		return err
 	}
 	u := fmt.Sprintf("%s/upload/storage/v1/b/%s/o?uploadType=media&name=%s",
 		s.baseURL, url.PathEscape(s.bucket), url.QueryEscape(s.name(key)))
-	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, u, bytes.NewReader(data))
+
+	// Stream the body. The offload path passes an *os.File, so set Content-Length
+	// from its size and hand the file to the request directly — net/http streams
+	// it without buffering the whole log into memory. Any other reader (size
+	// unknown) falls back to reading it in.
+	var body io.Reader
+	var clen int64 = -1
+	if f, ok := r.(*os.File); ok {
+		if fi, sterr := f.Stat(); sterr == nil {
+			body, clen = f, fi.Size()
+		}
+	}
+	if body == nil {
+		data, rerr := io.ReadAll(r)
+		if rerr != nil {
+			return rerr
+		}
+		body, clen = bytes.NewReader(data), int64(len(data))
+	}
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, u, body)
+	if clen >= 0 {
+		req.ContentLength = clen
+	}
 	req.Header.Set("Authorization", "Bearer "+tok)
 	req.Header.Set("Content-Type", "application/octet-stream")
 	resp, err := s.hc.Do(req)

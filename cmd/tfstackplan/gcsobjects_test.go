@@ -1,11 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"strings"
 	"testing"
 )
@@ -54,5 +56,54 @@ func TestGCSObjectStorePutGet(t *testing.T) {
 	}
 	if _, err := s.Get(context.Background(), "nope"); err == nil {
 		t.Error("Get of a missing object should error")
+	}
+}
+
+func TestGCSPutStreamsFile(t *testing.T) {
+	var got []byte
+	var gotLen int64 = -1
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotLen = r.ContentLength
+		got, _ = io.ReadAll(r.Body)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	// A real file is the offload path's reader.
+	f, err := os.CreateTemp(t.TempDir(), "log")
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := bytes.Repeat([]byte("terraform apply line\n"), 1000)
+	if _, err := f.Write(content); err != nil {
+		t.Fatal(err)
+	}
+	f.Seek(0, 0)
+
+	s := newGCSObjectStore(func(context.Context) (string, error) { return "tok", nil }, "b", "p", srv.URL)
+	if err := s.Put(context.Background(), "k", f); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, content) {
+		t.Errorf("uploaded %d bytes, want %d (round-trip mismatch)", len(got), len(content))
+	}
+	if gotLen != int64(len(content)) {
+		t.Errorf("Content-Length = %d, want %d (streamed file should set it)", gotLen, len(content))
+	}
+}
+
+func TestGCSPutFallbackNonFile(t *testing.T) {
+	var got []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got, _ = io.ReadAll(r.Body)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+	s := newGCSObjectStore(func(context.Context) (string, error) { return "tok", nil }, "b", "p", srv.URL)
+	if err := s.Put(context.Background(), "k", strings.NewReader("hello")); err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "hello" {
+		t.Errorf("fallback upload = %q, want hello", got)
 	}
 }
