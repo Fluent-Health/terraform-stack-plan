@@ -140,6 +140,7 @@ type stackRow struct {
 	LogExcerpt string // recent log lines (shown when no diff yet)
 	DetailURL  string // raw full log (text/plain)
 	Follow     bool   // exec still running ⇒ stream the log via SSE follow
+	LogDefault bool   // detail pane opens on the Log tab (not Result)
 	Moved      bool   // state-only move: no plan diff, only log output
 }
 
@@ -258,6 +259,8 @@ func buildLiveModel(v liveView, kind string, finished bool, now time.Time) liveM
 				}
 			}
 			logExcerpt := v.StackLogs[s.Path]
+			logDefault := !finished || kind == "apply" ||
+				s.Status == events.StatusFailed || s.Status == events.StatusAborted
 			rows = append(rows, stackRow{
 				Path:       s.Path,
 				Anchor:     anchorSlug(s.Path),
@@ -268,6 +271,7 @@ func buildLiveModel(v liveView, kind string, finished bool, now time.Time) liveM
 				LogExcerpt: logExcerpt,
 				DetailURL:  "/logs/" + v.Exec + "/" + s.Path,
 				Follow:     !finished,
+				LogDefault: logDefault,
 				Moved:      s.Status == events.StatusMoving,
 			})
 		}

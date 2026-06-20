@@ -119,12 +119,12 @@
               <a class="ml-auto text-xs text-primary" href="{{ .DetailURL }}" target="_blank" rel="noopener">raw log ↗</a>
             </div>
             <div class="tabs tabs-lift">
-              <label class="tab"><input type="radio" name="tab-{{ .Anchor }}" {{ if not .Follow }}checked{{ end }}>Result</label>
+              <label class="tab"><input type="radio" name="tab-{{ .Anchor }}" {{ if not .LogDefault }}checked{{ end }}>Result</label>
               <div class="tab-content border-base-300 p-3">
                 {{ if .Moved }}<p class="italic text-base-content/60 text-sm">State-only move — no plan diff. See the Log tab for the moved addresses.</p>
                 {{ else }}<div class="tfsp-report" data-plan-url="{{ .PlanURL }}"><div class="shimmer h-24 w-full rounded"></div></div>{{ end }}
               </div>
-              <label class="tab">Log{{ if .Follow }}<span class="live-dot" title="streaming live"></span>{{ end }}<input type="radio" name="tab-{{ .Anchor }}" {{ if .Follow }}checked{{ end }}></label>
+              <label class="tab">Log{{ if .Follow }}<span class="live-dot" title="streaming live"></span>{{ end }}<input type="radio" name="tab-{{ .Anchor }}" {{ if .LogDefault }}checked{{ end }}></label>
               <div class="tab-content border-base-300 p-3">
                 <pre class="term text-xs" style="max-height:60vh" data-stack="{{ .Path }}" data-log-url="/logs/{{ $.Exec }}/{{ .Path }}"{{ if .Follow }} data-follow-url="/logs/{{ $.Exec }}/{{ .Path }}?follow=1"{{ end }}>{{ .LogExcerpt }}</pre>
               </div>

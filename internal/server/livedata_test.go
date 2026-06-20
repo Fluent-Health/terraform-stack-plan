@@ -287,3 +287,23 @@ func TestProgressSegmentsOrder(t *testing.T) {
 		}
 	}
 }
+
+func TestLogDefault(t *testing.T) {
+	rows := func(kind string, finished bool, st events.Status) bool {
+		v := liveView{Stacks: []events.StackState{{Path: "x", Status: st}}}
+		m := buildLiveModel(v, kind, finished, time.Now())
+		return m.Groups[0].Stacks[0].LogDefault
+	}
+	if rows("plan", true, events.StatusSafe) {
+		t.Error("finished plan stack should default to Result (LogDefault=false)")
+	}
+	if !rows("plan", false, events.StatusRunning) {
+		t.Error("running stack should default to Log")
+	}
+	if !rows("apply", true, events.StatusSafe) {
+		t.Error("apply stack should default to Log (Result is empty)")
+	}
+	if !rows("plan", true, events.StatusFailed) {
+		t.Error("failed stack should default to Log")
+	}
+}
