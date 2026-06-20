@@ -922,7 +922,7 @@ and a phase pill — teal `PLANNING` / blue `APPLYING` with an elapsed clock fro
 (`+add ~change ±replace −destroy ↔move` plus a `⚿N` IAM count and a `⚠ Destructive`
 flag) over a full-width **segmented progress bar** whose segments are
 rank-ordered so the bar fills left→right (done → attention → active → ready →
-not-started), flex-sized by ops and coloured by each stack's *current state*
+initializing → not-started), flex-sized by ops and coloured by each stack's *current state*
 (so the bar tracks live progress through the stages, re-rendered on each
 refresh); the per-stack list keeps path/group order; the optional
 **approval panel**; a **stack list grouped by Google project** (`groupByProject`
@@ -1034,8 +1034,9 @@ by both the plan and apply drivers; the previous `renderProgress` task-list
 summary is retired. The apply check run is now correctly titled **"Terraform
 apply"** (`CheckRunUpdate.Title` is emitted by the real client and set per
 driver); previously it was mislabelled "Terraform plan". The check-run progress
-title includes an **init band** (`initialized k/N`) once `run register` has
-registered the stack set up front; prior to that the count shows `0`. PAM
+title includes an **init band** with a known denominator N once `run register`
+registers the stacks; the label reads `initializing N stacks…` until at least one
+stack completes init, at which point it becomes `initialized k/N`. PAM
 approval links in the check summary point at
 `https://console.cloud.google.com/iam-admin/pam/grants/approvals?project=<target>`
 — the "Approve grants → Pending approval" tab — which is the finest-grained
