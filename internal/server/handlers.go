@@ -110,17 +110,24 @@ func (a *App) handleFinalize(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if f.Failed {
-		// Mark every not-yet-terminal stack failed so the conclusion is failure
-		// even when the failure was orchestrator-level (no per-stack tick fired).
+		// A stack still pending/running at a failed finalize did not itself fail —
+		// terramate aborted the run (e.g. a parallel sibling 403'd) before it
+		// reached a terminal tick. Mark it `aborted`, not `failed`, so innocent /
+		// no-change stacks are not mislabeled. The run-level failure conclusion
+		// comes from the persisted execution status below, not from counting
+		// failed stacks — so a true orchestrator crash with zero per-stack
+		// failures still concludes failure.
 		if _, err := a.db.Exec(
 			`UPDATE stacks SET status = ? WHERE execution_id = ? AND status IN (?, ?)`,
-			string(events.StatusFailed), f.ID, string(events.StatusPending), string(events.StatusRunning)); err != nil {
-			http.Error(w, "mark failed", http.StatusInternalServerError)
+			string(events.StatusAborted), f.ID, string(events.StatusPending), string(events.StatusRunning)); err != nil {
+			http.Error(w, "mark aborted", http.StatusInternalServerError)
+			return
+		}
+		if err := store.SetExecutionStatus(a.db, f.ID, "failure"); err != nil {
+			http.Error(w, "set failure", http.StatusInternalServerError)
 			return
 		}
 		a.drive(r.Context(), f.ID, a.baseURL(r), true)
-		// Re-offloads stacks handleUpdate already offloaded at terminal status —
-		// intentional: the full sweep is what licenses deleting the buffer dir.
 		if g, gerr := store.LoadGraph(a.db, f.ID); gerr == nil {
 			a.finalizeLogs(r.Context(), f.ID, g.Stacks)
 		}

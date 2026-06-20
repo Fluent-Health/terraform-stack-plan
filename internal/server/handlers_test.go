@@ -252,12 +252,14 @@ func TestFinalizeBackfillsCounts(t *testing.T) {
 	}
 }
 
-func TestFinalizeFailedMarksRunningStacksFailed(t *testing.T) {
+func TestFinalizeFailedMarksRunningStacksAborted(t *testing.T) {
 	db := newServerTestDB(t)
 	gh := &MockGitHub{CreateCheckRunFn: func(ctx context.Context, repo, sha, env, url string) (int64, error) { return 1, nil }}
 	a := New(db, gh, Config{UseChecks: true})
 	srv := httptest.NewServer(a.Routes())
 	defer srv.Close()
+	// Stack "a" is running (non-terminal) — will become aborted.
+	// Stack "b" is planned (already terminal) — must not be changed.
 	post(t, srv, "/api/init", events.Init{ID: "e1", Repo: "o/r", SHA: "sha", PR: 7, Environment: "staging",
 		Stacks: []events.StackState{{Path: "a", Status: events.StatusRunning}, {Path: "b", Status: events.StatusPlanned}}})
 	post(t, srv, "/api/finalize", events.Finalize{ID: "e1", ReportMarkdown: "# report", Failed: true})
@@ -271,7 +273,51 @@ func TestFinalizeFailedMarksRunningStacksFailed(t *testing.T) {
 			bStatus = s.Status
 		}
 	}
-	if aStatus != events.StatusFailed || bStatus != events.StatusPlanned {
-		t.Fatalf("a=%q b=%q, want failed/planned", aStatus, bStatus)
+	if aStatus != events.StatusAborted || bStatus != events.StatusPlanned {
+		t.Fatalf("a=%q b=%q, want aborted/planned", aStatus, bStatus)
+	}
+}
+
+func TestFinalizeFailedMarksNonTerminalAborted(t *testing.T) {
+	db := newServerTestDB(t)
+	gh := &MockGitHub{CreateCheckRunFn: func(ctx context.Context, repo, sha, env, url string) (int64, error) { return 1, nil }}
+	a := New(db, gh, Config{UseChecks: true})
+	srv := httptest.NewServer(a.Routes())
+	defer srv.Close()
+
+	// Init with two running stacks; tick stack "a" to failed before finalize.
+	post(t, srv, "/api/init", events.Init{
+		ID: "exec-abort", Repo: "o/r", SHA: "sha", PR: 9, Environment: "staging",
+		Stacks: []events.StackState{
+			{Path: "a", Status: events.StatusRunning},
+			{Path: "b", Status: events.StatusRunning},
+		},
+	})
+	post(t, srv, "/api/update", events.Update{ID: "exec-abort", Stack: "a", Status: events.StatusFailed, Detail: "boom"})
+	post(t, srv, "/api/finalize", events.Finalize{ID: "exec-abort", Failed: true})
+
+	g, err := store.LoadGraph(db, "exec-abort")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]events.Status{}
+	for _, s := range g.Stacks {
+		got[s.Path] = s.Status
+	}
+	// Stack "a" failed on its own — must stay failed.
+	if got["a"] != events.StatusFailed {
+		t.Errorf("stack a = %q, want failed", got["a"])
+	}
+	// Stack "b" was still running when the run failed — must be aborted, not failed.
+	if got["b"] != events.StatusAborted {
+		t.Errorf("stack b = %q, want aborted (never finished, did not itself fail)", got["b"])
+	}
+	// Execution status must be persisted as "failure" independent of per-stack counts.
+	e, err := store.GetExecution(db, "exec-abort")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e.Status != "failure" {
+		t.Errorf("execution status = %q, want failure", e.Status)
 	}
 }
