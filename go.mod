@@ -3,6 +3,7 @@ module github.com/Fluent-Health/terraform-stack-plan
 go 1.25.8
 
 require (
+	github.com/creack/pty v1.1.24
 	github.com/hashicorp/hcl/v2 v2.24.0
 	github.com/hashicorp/terraform-exec v0.25.1
 	github.com/hashicorp/terraform-json v0.27.2

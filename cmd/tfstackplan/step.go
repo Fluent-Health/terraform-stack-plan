@@ -14,6 +14,7 @@ import (
 	"github.com/Fluent-Health/terraform-stack-plan/internal/ansi"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/runner"
+	"github.com/creack/pty"
 )
 
 // applyCompleteRE matches terraform's apply summary line (with -no-color).
@@ -93,6 +94,7 @@ func runStep(args []string) int {
 	fs := flag.NewFlagSet("run step", flag.ContinueOnError)
 	stack := fs.String("stack", "", "stack path (defaults to $"+runner.EnvStack+")")
 	onSuccess := fs.String("on-success", "", "status to report on a zero exit (e.g. safe, planned); empty = intermediate, report nothing on success")
+	useTTY := fs.Bool("tty", false, "run the command under a PTY so it emits ANSI colour (graceful fallback to a pipe if unavailable)")
 	// Parse only the flags before "--"; everything after is the wrapped command.
 	sep := -1
 	for i, a := range args {
@@ -134,15 +136,31 @@ func runStep(args []string) int {
 	}
 
 	cmd := exec.CommandContext(ctx, cmdArgs[0], cmdArgs[1:]...)
-	cmd.Stdin = os.Stdin
-	// Capture combined output for outcome classification (apply summary line).
-	// Use freshly-composed slices to avoid backing-array aliasing between stdout
-	// and stderr MultiWriters.
-	var captured capWriter
-	cmd.Stdout = io.MultiWriter(append(append([]io.Writer{}, stdoutWriters...), &captured)...)
-	cmd.Stderr = io.MultiWriter(append(append([]io.Writer{}, stderrWriters...), &captured)...)
 
-	runErr := cmd.Run()
+	var captured capWriter
+	// Writers for the PTY path (one merged stream): passthrough + (stream) + capture.
+	ptyWriters := append(append([]io.Writer{}, stdoutWriters...), &captured)
+
+	var runErr error
+	if *useTTY {
+		// Under PTY, do not pre-set cmd.Stdin — pty.Start wires the slave to all
+		// three stdio fds. Pre-setting it to a non-TTY reader (e.g. a test pipe)
+		// prevents pty.Start from making the slave the controlling terminal.
+		if ptmx, err := pty.Start(cmd); err == nil {
+			// Copy the merged PTY output until the child closes it. Linux returns
+			// EIO on read after child exit; treat any copy error as end-of-output.
+			_, _ = io.Copy(io.MultiWriter(ptyWriters...), ptmx)
+			_ = ptmx.Close()
+			runErr = cmd.Wait()
+		} else {
+			fmt.Fprintln(os.Stderr, "tfstackplan run step: PTY unavailable, falling back to pipe (no colour):", err)
+			cmd.Stdin = os.Stdin
+			runErr = runPiped(cmd, stdoutWriters, stderrWriters, &captured)
+		}
+	} else {
+		cmd.Stdin = os.Stdin
+		runErr = runPiped(cmd, stdoutWriters, stderrWriters, &captured)
+	}
 	exitCode := exitCodeOf(runErr)
 
 	if reporting {
@@ -173,6 +191,14 @@ func (c *capWriter) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 func (c *capWriter) String() string { return string(c.b) }
+
+// runPiped runs cmd with separate stdout/stderr pipes fanned to the given
+// writers plus the capture writer — the original (non-PTY) execution path.
+func runPiped(cmd *exec.Cmd, stdoutWriters, stderrWriters []io.Writer, captured *capWriter) error {
+	cmd.Stdout = io.MultiWriter(append(append([]io.Writer{}, stdoutWriters...), captured)...)
+	cmd.Stderr = io.MultiWriter(append(append([]io.Writer{}, stderrWriters...), captured)...)
+	return cmd.Run()
+}
 
 // exitCodeOf extracts a process exit code from exec.Run's error (0 on success,
 // the command's code on ExitError, 1 on any other failure to run).
