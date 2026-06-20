@@ -68,10 +68,18 @@ func progressTitle(phase events.Phase, stacks []events.StackState, terminal bool
 // count (+ a failed suffix), or "no changes". kindLabel is "Plan" or "Apply".
 func terminalSummary(kindLabel string, stacks []events.StackState) string {
 	kind := kindLabel
-	failed := 0
+	var failed, aborted, nochange, applied int
 	for _, s := range stacks {
-		if s.Status == events.StatusFailed {
+		switch s.Status {
+		case events.StatusFailed:
 			failed++
+		case events.StatusAborted:
+			aborted++
+		case events.StatusNochange:
+			nochange++
+			applied++
+		case events.StatusSafe:
+			applied++
 		}
 	}
 	tally := opTally(aggregateVerdict(stacks))
@@ -80,12 +88,6 @@ func terminalSummary(kindLabel string, stacks []events.StackState) string {
 	case len(stacks) == 0:
 		head = kind + " · no changes"
 	case kind == "Apply":
-		applied := 0
-		for _, s := range stacks {
-			if s.Status == events.StatusSafe {
-				applied++
-			}
-		}
 		head = fmt.Sprintf("%s · applied %d/%d", kind, applied, len(stacks))
 		if tally != "" {
 			head += " · " + tally
@@ -97,8 +99,14 @@ func terminalSummary(kindLabel string, stacks []events.StackState) string {
 			head = fmt.Sprintf("%s · %s · %d stacks", kind, tally, len(stacks))
 		}
 	}
+	if nochange > 0 && kind == "Apply" {
+		head += fmt.Sprintf(" · %d no-change", nochange)
+	}
 	if failed > 0 {
 		head += fmt.Sprintf(" · %d failed", failed)
+	}
+	if aborted > 0 {
+		head += fmt.Sprintf(" · %d aborted", aborted)
 	}
 	return head
 }

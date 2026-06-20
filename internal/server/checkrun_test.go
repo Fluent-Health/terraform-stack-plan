@@ -131,3 +131,18 @@ func TestBackfillFailureDetailFromLog(t *testing.T) {
 		t.Errorf("svc/z should stay empty: %q", g.Stacks[2].Detail)
 	}
 }
+
+func TestTerminalSummaryApplyTallies(t *testing.T) {
+	stacks := []events.StackState{
+		{Path: "a", Status: events.StatusSafe, Counts: &events.Counts{Change: 20}},
+		{Path: "b", Status: events.StatusNochange},
+		{Path: "c", Status: events.StatusFailed},
+		{Path: "d", Status: events.StatusAborted},
+	}
+	got := terminalSummary("Apply", stacks)
+	for _, want := range []string{"applied 2/4", "1 no-change", "1 failed", "1 aborted"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("terminalSummary = %q, missing %q", got, want)
+		}
+	}
+}
