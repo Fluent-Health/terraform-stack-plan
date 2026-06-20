@@ -123,76 +123,13 @@ func progress(phase events.Phase, planned, total int) (bar, label string, pct in
 	return bar, label, pct
 }
 
-// checkSummary builds the check-run summary block for a plan or apply: a
-// blast-radius headline, verdict chips (destructive / IAM) + a live-viewer link,
-// and a per-stack table (Stack | Ops | Risk | State). kind is "plan" or "apply".
-// While planning (no stack has counts yet) the headline degrades to a
-// "planning d/t" progress count; the table still renders. When terminal is true
-// the headline uses the action-count summary from terminalSummary instead of the
-// progress bar.
-func checkSummary(kind, environment string, stacks []events.StackState, phase events.Phase, terminal bool, viewerURL string) string {
-	v := aggregateVerdict(stacks)
-	tally := opTally(v)
-
-	hasCounts := false
-	for _, s := range stacks {
-		if s.Counts != nil {
-			hasCounts = true
-			break
-		}
-	}
-
+// checkSummary builds the check-run summary body for a plan or apply: verdict
+// chips (destructive / IAM) + a live-viewer link, then a per-stack table
+// (Stack | Ops | Risk | State). kind is "plan" or "apply". The GitHub check-run
+// title already carries the status line (e.g. "Apply · applied 2/8 · …"), so the
+// summary deliberately does NOT repeat it as a headline.
+func checkSummary(kind string, stacks []events.StackState, viewerURL string) string {
 	var b strings.Builder
-
-	// Headline.
-	heading := "Plan"
-	if kind == "apply" {
-		heading = "Apply"
-	}
-	b.WriteString("## " + heading)
-	if environment != "" {
-		b.WriteString(" · " + environment)
-	}
-	switch {
-	case terminal:
-		// Concluded run: show action-count summary derived from terminalSummary,
-		// but just the tail (after "Plan" / "Apply") to avoid doubling the heading.
-		// Pass heading (the authoritative kind) so the prefix-strip always aligns.
-		tail := terminalSummary(heading, stacks)
-		// Strip the leading "Plan · " or "Apply · " prefix since we already wrote
-		// the heading above; terminalSummary returns "<kind> · <rest>".
-		prefix := heading + " · "
-		if strings.HasPrefix(tail, prefix) {
-			tail = tail[len(prefix):]
-		}
-		fmt.Fprintf(&b, " — %s", tail)
-	case kind == "apply":
-		applied := 0
-		for _, s := range stacks {
-			if s.Status == events.StatusSafe {
-				applied++
-			}
-		}
-		fmt.Fprintf(&b, " — applied %d/%d", applied, len(stacks))
-		if tally != "" {
-			b.WriteString(" · " + tally)
-		}
-	case !hasCounts:
-		doneCount := 0
-		for _, s := range stacks {
-			if done(s.Status) {
-				doneCount++
-			}
-		}
-		bar, label, _ := progress(phase, doneCount, len(stacks))
-		fmt.Fprintf(&b, " — %s %s", bar, label)
-	default:
-		if tally != "" {
-			b.WriteString(" — " + tally)
-		}
-		fmt.Fprintf(&b, "  (%d stacks)", len(stacks))
-	}
-	b.WriteString("\n")
 
 	// Verdict chips + viewer link.
 	var chips []string

@@ -97,8 +97,13 @@ func TestApplyDriveUpdatesCheckRun(t *testing.T) {
 	if !strings.Contains(updatedTitle, "applied") {
 		t.Errorf("terminal apply title missing 'applied' count in: %q", updatedTitle)
 	}
-	if !strings.Contains(updatedSummary, "applied 1/1") {
-		t.Fatalf("summary missing applied count: %q", updatedSummary)
+	// The applied count is now in the check-run title (not the summary);
+	// the summary omits the headline to avoid duplication.
+	if strings.HasPrefix(updatedSummary, "## ") {
+		t.Errorf("summary must not start with a ## headline; got:\n%s", updatedSummary)
+	}
+	if !strings.Contains(updatedTitle, "applied") {
+		t.Errorf("title missing applied count in: %q", updatedTitle)
 	}
 }
 

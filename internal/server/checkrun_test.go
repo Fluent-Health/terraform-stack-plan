@@ -49,7 +49,11 @@ func TestPlanCheckRunSummaryAndTitle(t *testing.T) {
 			t.Errorf("title missing %q in: %q", want, title)
 		}
 	}
-	for _, want := range []string{"## Plan · nonprod", "| Stack | Ops | Risk | State |", "`svc/a`"} {
+	// No headline — check-run title carries the status line.
+	if strings.HasPrefix(summary, "## ") {
+		t.Errorf("summary must not start with a ## headline; got:\n%s", summary)
+	}
+	for _, want := range []string{"| Stack | Ops | Risk | State |", "`svc/a`"} {
 		if !strings.Contains(summary, want) {
 			t.Errorf("summary missing %q in:\n%s", want, summary)
 		}
