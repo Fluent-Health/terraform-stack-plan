@@ -115,7 +115,7 @@ func TestCheckSummaryPlanFinalized(t *testing.T) {
 			Categories: []events.Category{{Name: "destructive"}}},
 		{Path: "svc/c", Status: events.StatusPlanned, Counts: &events.Counts{Change: 3}},
 	}
-	out := checkSummary("plan", stacks, "https://srv/live/e1")
+	out := checkSummary("plan", stacks, "https://srv/live/e1", events.PhasePlanning)
 	// No headline — the check-run title carries the status line.
 	if strings.HasPrefix(out, "## ") {
 		t.Errorf("summary must not start with a ## headline; got:\n%s", out)
@@ -138,7 +138,7 @@ func TestCheckSummaryPlanDegradesWhilePlanning(t *testing.T) {
 		{Path: "svc/a", Status: events.StatusPlanned}, // counts nil
 		{Path: "svc/b", Status: events.StatusRunning},
 	}
-	out := checkSummary("plan", stacks, "https://srv/live/e1")
+	out := checkSummary("plan", stacks, "https://srv/live/e1", events.PhasePlanning)
 	if strings.HasPrefix(out, "## ") {
 		t.Errorf("summary must not start with a ## headline; got:\n%s", out)
 	}
@@ -155,7 +155,7 @@ func TestCheckSummaryApplyApplied(t *testing.T) {
 		{Path: "svc/a", Status: events.StatusSafe, Counts: &events.Counts{Add: 6}},
 		{Path: "svc/b", Status: events.StatusSafe, Counts: &events.Counts{Destroy: 2}},
 	}
-	out := checkSummary("apply", stacks, "https://srv/live/e1")
+	out := checkSummary("apply", stacks, "https://srv/live/e1", events.PhaseApplying)
 	if strings.HasPrefix(out, "## ") {
 		t.Errorf("summary must not start with a ## headline; got:\n%s", out)
 	}
@@ -171,7 +171,7 @@ func TestCheckSummaryApplyPartialFailed(t *testing.T) {
 		{Path: "svc/a", Status: events.StatusSafe, Counts: &events.Counts{Add: 6}},
 		{Path: "svc/b", Status: events.StatusFailed},
 	}
-	out := checkSummary("apply", stacks, "https://srv/live/e1")
+	out := checkSummary("apply", stacks, "https://srv/live/e1", events.PhaseApplying)
 	if strings.HasPrefix(out, "## ") {
 		t.Errorf("summary must not start with a ## headline; got:\n%s", out)
 	}
@@ -185,7 +185,7 @@ func TestCheckSummaryApplyPartialFailed(t *testing.T) {
 
 func TestCheckSummaryNoEnvNoChips(t *testing.T) {
 	stacks := []events.StackState{{Path: "svc/a", Status: events.StatusPlanned, Counts: &events.Counts{Change: 1}}}
-	out := checkSummary("plan", stacks, "https://srv/live/e1")
+	out := checkSummary("plan", stacks, "https://srv/live/e1", events.PhasePlanning)
 	if strings.HasPrefix(out, "## ") {
 		t.Errorf("summary must not start with a ## headline; got:\n%s", out)
 	}
@@ -199,7 +199,7 @@ func TestCheckSummaryPlanningHeadlineHasBar(t *testing.T) {
 		{Path: "svc/a", Status: events.StatusPlanned}, // no Counts → in-progress branch
 		{Path: "svc/b", Status: events.StatusRunning},
 	}
-	out := checkSummary("plan", stacks, "")
+	out := checkSummary("plan", stacks, "", events.PhasePlanning)
 	if strings.HasPrefix(out, "## ") {
 		t.Errorf("summary must not start with a ## headline; got:\n%s", out)
 	}
@@ -210,7 +210,7 @@ func TestCheckSummaryPlanningHeadlineHasBar(t *testing.T) {
 }
 
 func TestCheckSummaryWarmingNoStacks(t *testing.T) {
-	out := checkSummary("plan", nil, "")
+	out := checkSummary("plan", nil, "", events.PhasePlanning)
 	if strings.HasPrefix(out, "## ") {
 		t.Errorf("summary must not start with a ## headline; got:\n%s", out)
 	}
@@ -221,7 +221,7 @@ func TestCheckSummaryWarmingNoStacks(t *testing.T) {
 
 func TestCheckSummaryNoHeadline(t *testing.T) {
 	stacks := []events.StackState{{Path: "a", Status: events.StatusFailed, Counts: &events.Counts{Change: 2}}}
-	out := checkSummary("apply", stacks, "http://viewer")
+	out := checkSummary("apply", stacks, "http://viewer", events.PhaseApplying)
 	if strings.HasPrefix(out, "## ") || strings.Contains(out, "## Apply") {
 		t.Errorf("summary should not repeat the title headline; got:\n%s", out)
 	}

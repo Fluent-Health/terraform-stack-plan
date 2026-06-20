@@ -79,7 +79,7 @@ type progSeg struct {
 	StateCSS string // queued|initializing|planning|planned|applying|moving|applied|blocked|skipped|failed
 }
 
-func progressSegments(stacks []events.StackState, kind string) []progSeg {
+func progressSegments(stacks []events.StackState, kind string, phase events.Phase) []progSeg {
 	segs := make([]progSeg, 0, len(stacks))
 	for _, s := range stacks {
 		flex := 1
@@ -88,7 +88,7 @@ func progressSegments(stacks []events.StackState, kind string) []progSeg {
 				flex = t
 			}
 		}
-		segs = append(segs, progSeg{Flex: flex, StateCSS: displayState(s.Status, kind).CSS})
+		segs = append(segs, progSeg{Flex: flex, StateCSS: displayState(s.Status, kind, phase).CSS})
 	}
 	return segs
 }
@@ -159,19 +159,42 @@ type stateDisplay struct {
 	CSS   string
 }
 
-// displayState maps the protocol Status (+ plan/apply kind) to the viewer's
-// richer per-state label. Plan and apply share Status values but read
-// differently (running = "planning" vs "applying"; safe = "planned" vs "applied").
-func displayState(st events.Status, kind string) stateDisplay {
+// applyStarted reports whether the execution has entered the real apply (or
+// post-apply verify) — i.e. past the pre-apply re-plan/classify pass. Before
+// that, an apply page's per-stack "running"/"planned" ticks come from re-planning,
+// not applying, so they read as "preparing"/"prepared".
+func applyStarted(p events.Phase) bool {
+	return p == events.PhaseApplying || p == events.PhaseVerifying
+}
+
+// displayState maps the protocol Status (+ plan/apply kind + execution phase) to
+// the viewer's richer per-state label. Plan and apply share Status values but read
+// differently; an apply also reads differently before vs after the real apply
+// begins (the pre-apply re-plan pass is "preparing"/"prepared", not "applying").
+func displayState(st events.Status, kind string, phase events.Phase) stateDisplay {
+	applying := kind == "apply" && applyStarted(phase)
 	switch st {
 	case events.StatusPending:
 		return stateDisplay{"queued", "queued"}
+	case events.StatusInitializing:
+		return stateDisplay{"initializing", "initializing"}
+	case events.StatusInitialized:
+		return stateDisplay{"initialized", "initialized"}
 	case events.StatusRunning:
 		if kind == "apply" {
-			return stateDisplay{"applying", "applying"}
+			if applying {
+				return stateDisplay{"applying", "applying"}
+			}
+			return stateDisplay{"preparing", "preparing"}
 		}
 		return stateDisplay{"planning", "planning"}
 	case events.StatusPlanned:
+		if kind == "apply" {
+			if applying {
+				return stateDisplay{"queued", "queued"}
+			}
+			return stateDisplay{"prepared", "prepared"}
+		}
 		return stateDisplay{"planned", "planned"}
 	case events.StatusMoving:
 		return stateDisplay{"moving", "moving"}

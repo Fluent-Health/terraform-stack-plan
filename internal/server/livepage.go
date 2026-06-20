@@ -257,7 +257,7 @@ func buildLiveModel(v liveView, kind string, finished bool, now time.Time) liveM
 			rows = append(rows, stackRow{
 				Path:       s.Path,
 				Anchor:     anchorSlug(s.Path),
-				State:      displayState(s.Status, kind),
+				State:      displayState(s.Status, kind, v.Phase),
 				Ops:        opSummary(s.Counts),
 				Risks:      risks,
 				PlanURL:    "/plan/" + v.Exec + "/" + s.Path,
@@ -297,7 +297,7 @@ func buildLiveModel(v liveView, kind string, finished bool, now time.Time) liveM
 		PhaseAccent: kind, PhaseLabel: label, Elapsed: elapsed,
 		Verdict:     aggregateVerdict(v.Stacks),
 		Destructive: destructive, IAMCount: iamCount(v.Stacks),
-		Progress:   progressSegments(v.Stacks, kind),
+		Progress:   progressSegments(v.Stacks, kind, v.Phase),
 		Groups:     groups,
 		Failures:   failures,
 		ReportHTML: renderMarkdown(v.Report),

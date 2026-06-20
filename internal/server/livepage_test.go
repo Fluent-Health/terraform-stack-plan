@@ -196,7 +196,7 @@ func TestLivePageBriefingBand(t *testing.T) {
 	a := New(newServerTestDB(t), &MockGitHub{}, Config{})
 	html := a.livePage(liveView{
 		Exec: "e1", Repo: "o/r", Environment: "nonprod", Context: "apply/nonprod",
-		Status: "in_progress", CreatedAt: time.Now().Add(-90 * time.Second),
+		Status: "in_progress", Phase: events.PhaseApplying, CreatedAt: time.Now().Add(-90 * time.Second),
 		Stacks: []events.StackState{
 			{Path: "prod/api", Project: "fh-prod-host", Status: events.StatusRunning,
 				Counts: &events.Counts{Change: 8}, Categories: []events.Category{{Name: "iam"}}},
@@ -240,7 +240,7 @@ func TestBuildLiveModel(t *testing.T) {
 	v := liveView{
 		Exec: "e1", Repo: "Fluent-Health/infra", PR: 412, SHA: "a3f1414abc",
 		Environment: "nonprod", Context: "apply/nonprod", Status: "in_progress",
-		CreatedAt: created,
+		Phase: events.PhaseApplying, CreatedAt: created,
 		Stacks: []events.StackState{
 			{Path: "prod/api", Project: "fh-prod-host", Status: events.StatusRunning,
 				Counts: &events.Counts{Change: 8}, Categories: []events.Category{{Name: "iam"}}},

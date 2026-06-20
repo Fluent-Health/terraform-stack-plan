@@ -163,7 +163,7 @@ func (a *App) renderAndPatch(ctx context.Context, id, base string, terminal bool
 	targets, _ := store.TargetsFor(a.db, e.PR, e.Environment)
 	upd := CheckRunUpdate{
 		Title:      progressTitle(events.Phase(e.Phase), g.Stacks, terminal),
-		Summary:    checkSummary("plan", g.Stacks, a.liveURL(base, id)),
+		Summary:    checkSummary("plan", g.Stacks, a.liveURL(base, id), events.Phase(e.Phase)),
 		Text:       gatesSection(targets) + failuresSection(g, e.LogURL, "") + e.ReportMarkdown,
 		DetailsURL: a.liveURL(base, id),
 	}
@@ -260,7 +260,7 @@ func (a *App) driveApply(ctx context.Context, e store.Execution, base string) {
 			conclusion = "failure"
 		}
 		applyTerminal := state == "success" || state == "failure"
-		summary := checkSummary("apply", g.Stacks, a.liveURL(base, e.ID))
+		summary := checkSummary("apply", g.Stacks, a.liveURL(base, e.ID), events.Phase(e.Phase))
 		if failed > 0 {
 			// Keep the next-steps guidance (fix-forward / re-run) visible in the
 			// summary; the failing-stack detail renders in the Text below.

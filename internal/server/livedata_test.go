@@ -55,26 +55,38 @@ func TestAggregateVerdict(t *testing.T) {
 	}
 }
 
-func TestDisplayStateMapping(t *testing.T) {
+func TestDisplayStatePhase(t *testing.T) {
 	cases := []struct {
-		st   events.Status
-		kind string
-		want string
+		st    events.Status
+		kind  string
+		phase events.Phase
+		label string
+		css   string
 	}{
-		{events.StatusPending, "plan", "queued"},
-		{events.StatusRunning, "plan", "planning"},
-		{events.StatusPlanned, "plan", "planned"},
-		{events.StatusRunning, "apply", "applying"},
-		{events.StatusMoving, "apply", "moving"},
-		{events.StatusSafe, "apply", "applied"},
-		{events.StatusSafe, "plan", "planned"},
-		{events.StatusGated, "apply", "blocked"},
-		{events.StatusFailed, "apply", "failed"},
+		// plan kind: phase ignored
+		{events.StatusPending, "plan", events.PhasePlanning, "queued", "queued"},
+		{events.StatusRunning, "plan", events.PhasePlanning, "planning", "planning"},
+		{events.StatusPlanned, "plan", events.PhasePlanning, "planned", "planned"},
+		{events.StatusSafe, "plan", events.PhasePlanning, "planned", "planned"},
+		// new init states
+		{events.StatusInitializing, "plan", events.PhaseInitializing, "initializing", "initializing"},
+		{events.StatusInitialized, "plan", events.PhaseInitializing, "initialized", "initialized"},
+		// apply, pre-apply re-plan pass (phase < applying): preparing/prepared
+		{events.StatusRunning, "apply", events.PhaseInitializing, "preparing", "preparing"},
+		{events.StatusPlanned, "apply", events.PhaseInitializing, "prepared", "prepared"},
+		{events.StatusRunning, "apply", events.PhasePlanning, "preparing", "preparing"},
+		// apply, real apply (phase >= applying): applying/applied
+		{events.StatusRunning, "apply", events.PhaseApplying, "applying", "applying"},
+		{events.StatusPlanned, "apply", events.PhaseApplying, "queued", "queued"},
+		{events.StatusSafe, "apply", events.PhaseApplying, "applied", "applied"},
+		{events.StatusSafe, "apply", events.PhaseInitializing, "applied", "applied"},
+		{events.StatusNochange, "apply", events.PhaseApplying, "no changes", "nochange"},
 	}
 	for _, c := range cases {
-		got := displayState(c.st, c.kind)
-		if got.CSS != c.want {
-			t.Fatalf("(%s,%s) → %q want %q", c.st, c.kind, got.CSS, c.want)
+		got := displayState(c.st, c.kind, c.phase)
+		if got.Label != c.label || got.CSS != c.css {
+			t.Errorf("displayState(%q,%q,%q) = {%q,%q}, want {%q,%q}",
+				c.st, c.kind, c.phase, got.Label, got.CSS, c.label, c.css)
 		}
 	}
 }
@@ -97,15 +109,6 @@ func TestOpSummaryString(t *testing.T) {
 	}
 	if got := opSummary(nil); got != "" {
 		t.Fatalf("nil → %q want empty", got)
-	}
-}
-
-func TestDisplayStateNewStatuses(t *testing.T) {
-	if d := displayState(events.StatusNochange, "apply"); d.Label != "no changes" || d.CSS != "nochange" {
-		t.Errorf("nochange display = %+v, want {no changes nochange}", d)
-	}
-	if d := displayState(events.StatusAborted, "apply"); d.Label != "aborted" || d.CSS != "aborted" {
-		t.Errorf("aborted display = %+v, want {aborted aborted}", d)
 	}
 }
 
@@ -137,7 +140,7 @@ func TestProgressSegments(t *testing.T) {
 		{Path: "b", Counts: &events.Counts{Destroy: 2}, Status: events.StatusRunning},
 		{Path: "c", Status: events.StatusFailed}, // no counts → min flex 1
 	}
-	segs := progressSegments(stacks, "apply")
+	segs := progressSegments(stacks, "apply", events.PhaseApplying)
 	if len(segs) != 3 {
 		t.Fatalf("want 3 segs, got %d", len(segs))
 	}

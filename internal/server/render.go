@@ -129,7 +129,7 @@ func progress(phase events.Phase, planned, total int) (bar, label string, pct in
 // (Stack | Ops | Risk | State). kind is "plan" or "apply". The GitHub check-run
 // title already carries the status line (e.g. "Apply · applied 2/8 · …"), so the
 // summary deliberately does NOT repeat it as a headline.
-func checkSummary(kind string, stacks []events.StackState, viewerURL string) string {
+func checkSummary(kind string, stacks []events.StackState, viewerURL string, phase events.Phase) string {
 	var b strings.Builder
 
 	// Verdict chips + viewer link.
@@ -165,7 +165,7 @@ func checkSummary(kind string, stacks []events.StackState, viewerURL string) str
 				risks = append(risks, rt.Label)
 			}
 			fmt.Fprintf(&b, "| `%s` | %s | %s | %s |\n",
-				s.Path, opSummary(s.Counts), strings.Join(risks, " "), displayState(s.Status, kind).Label)
+				s.Path, opSummary(s.Counts), strings.Join(risks, " "), displayState(s.Status, kind, phase).Label)
 		}
 	}
 	return b.String()
