@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -36,9 +37,8 @@ func tfstackplanBinary(t *testing.T) string {
 		cmd := exec.Command("go", "build", "-o", out, "github.com/Fluent-Health/terraform-stack-plan/cmd/tfstackplan")
 		cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
 		if b, err := cmd.CombinedOutput(); err != nil {
-			builtBinErr = err
+			builtBinErr = fmt.Errorf("%w\n%s", err, b)
 			_ = os.RemoveAll(tmp)
-			_ = b
 			return
 		}
 		builtBinPath = out
