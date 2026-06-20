@@ -227,7 +227,7 @@ func TestLivePageBriefingBand(t *testing.T) {
 		`class="shimmer`,            // Result shimmer for a not-yet-planned stack (stg/db)
 		`class="term`,               // softened log surface
 		`data-follow-url="/logs/e1/prod/api?follow=1"`, // running exec → live stream
-		`window.__tfspAnsi`,                            // client-side ANSI parser present
+		`/assets/term.js`,                              // client-side ANSI+LineBuffer loaded from term.js
 		`fonts.googleapis.com`,                         // Google Fonts link
 	} {
 		if !strings.Contains(html, want) {
