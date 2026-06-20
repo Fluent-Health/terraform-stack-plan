@@ -199,22 +199,24 @@ func (a *App) driveApply(ctx context.Context, e store.Execution, base string) {
 	}
 	a.backfillFailureDetail(e.ID, &g)
 	total := len(g.Stacks)
-	done, failed := 0, 0
+	applied, failed := 0, 0
 	for _, s := range g.Stacks {
 		switch s.Status {
-		case events.StatusSafe:
-			done++
+		case events.StatusSafe, events.StatusNochange:
+			applied++
 		case events.StatusFailed:
 			failed++
 		}
 	}
+	runFailed := failed > 0 || e.Status == "failure"
 	var state, desc string
 	switch {
-	case failed > 0:
-		// STACK_INIT_FAILED / STACK_APPLY_FAILED: a stack died during the apply.
-		// The phase (init vs apply) is carried structurally in each failing
-		// stack's Detail and rendered (with a per-stack log deep-link) below.
-		desc = fmt.Sprintf("apply failed — %d/%d applied, %d failed; see the failing stack below — fix-forward or re-run this tier's apply", done, total, failed)
+	case runFailed:
+		// STACK_INIT_FAILED / STACK_APPLY_FAILED or execution-level failure flag:
+		// a stack died during the apply, or the runner reported failure before
+		// per-stack ticks completed. The phase (init vs apply) is carried
+		// structurally in each failing stack's Detail and rendered below.
+		desc = fmt.Sprintf("apply failed — %d/%d applied, %d failed; see the failing stack below — fix-forward or re-run this tier's apply", applied, total, failed)
 		state = "failure"
 	case total == 0:
 		// NOTHING_TO_APPLY: no changed stacks — a no-op apply (e.g. a docs/CI-only
@@ -222,10 +224,10 @@ func (a *App) driveApply(ctx context.Context, e store.Execution, base string) {
 		// Nothing will emit a stack-completion event to flip this to terminal, so
 		// resolve it to success here rather than leaving it pending forever.
 		state, desc = "success", "no stacks to apply"
-	case done == total:
-		state, desc = "success", fmt.Sprintf("applied %d/%d stacks", done, total)
+	case applied == total:
+		state, desc = "success", fmt.Sprintf("applied %d/%d stacks", applied, total)
 	default:
-		state, desc = "pending", fmt.Sprintf("applying… %d/%d stacks", done, total)
+		state, desc = "pending", fmt.Sprintf("applying… %d/%d stacks", applied, total)
 	}
 	// Persist the terminal status so the viewer's isFinished() flips (clears the
 	// shimmer / live-dot / "planning" placeholder on a concluded apply). Pending

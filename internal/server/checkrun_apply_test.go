@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -266,5 +267,72 @@ func TestApplyDrivePersistsFailureStatus(t *testing.T) {
 	}
 	if e.Status != "failure" {
 		t.Errorf("execution status = %q, want failure", e.Status)
+	}
+}
+
+// TestDriveApplyVerdict checks three verdict scenarios:
+//   - all stacks applied/nochange (both count as applied) → success conclusion
+//   - failure flag set on execution + all stacks aborted → failure conclusion
+//   - one stack failed → failure conclusion
+//
+// Harness mirrors checkrun_apply_test.go: newServerTestDB + MockGitHub +
+// store.UpsertInit with terminal stack statuses + store.SetCheckRunID + driveApply.
+func TestDriveApplyVerdict(t *testing.T) {
+	cases := []struct {
+		name      string
+		execState string
+		stacks    []events.Status
+		wantConc  string
+	}{
+		{"all applied/nochange", "", []events.Status{events.StatusSafe, events.StatusNochange}, "success"},
+		{"failure flag, none failed-per-stack", "failure", []events.Status{events.StatusAborted, events.StatusAborted}, "failure"},
+		{"one failed", "", []events.Status{events.StatusFailed, events.StatusSafe}, "failure"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			db := newServerTestDB(t)
+			var gotConclusion string
+			gh := &MockGitHub{
+				CreateCheckRunFn: func(_ context.Context, _, _, _ string, _ string) (int64, error) {
+					return 77, nil
+				},
+				UpdateCheckRunFn: func(_ context.Context, _ string, _ int64, u CheckRunUpdate) error {
+					gotConclusion = u.Conclusion
+					return nil
+				},
+			}
+			a := New(db, gh, Config{UseChecks: true, PublicBaseURL: "https://serve.example"})
+
+			id := "verdict-" + c.name
+			ss := make([]events.StackState, len(c.stacks))
+			for i, st := range c.stacks {
+				ss[i] = events.StackState{Path: fmt.Sprintf("s%d", i), Status: st}
+			}
+			if err := store.UpsertInit(db, events.Init{
+				ID:          id,
+				Repo:        "o/r",
+				Context:     "apply/nonprod",
+				Environment: "nonprod",
+				Stacks:      ss,
+			}); err != nil {
+				t.Fatalf("UpsertInit: %v", err)
+			}
+			if err := store.SetCheckRunID(db, id, 77); err != nil {
+				t.Fatalf("SetCheckRunID: %v", err)
+			}
+			if c.execState != "" {
+				if err := store.SetExecutionStatus(db, id, c.execState); err != nil {
+					t.Fatalf("SetExecutionStatus: %v", err)
+				}
+			}
+			e, err := store.GetExecution(db, id)
+			if err != nil {
+				t.Fatalf("GetExecution: %v", err)
+			}
+			a.driveApply(context.Background(), e, "http://x")
+			if gotConclusion != c.wantConc {
+				t.Errorf("conclusion = %q, want %q", gotConclusion, c.wantConc)
+			}
+		})
 	}
 }
