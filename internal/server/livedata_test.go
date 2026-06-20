@@ -148,15 +148,16 @@ func TestProgressSegments(t *testing.T) {
 	if len(segs) != 3 {
 		t.Fatalf("want 3 segs, got %d", len(segs))
 	}
-	// flex sized by ops; colour = the stack's CURRENT state (apply kind)
+	// Rank-sorted: applied(0) < failed(1) < applying(2).
+	// Flex sized by ops; colour = the stack's CURRENT state (apply kind).
 	if segs[0].Flex != 6 || segs[0].StateCSS != "applied" {
 		t.Fatalf("seg0=%+v", segs[0])
 	}
-	if segs[1].Flex != 2 || segs[1].StateCSS != "applying" {
+	if segs[1].Flex != 1 || segs[1].StateCSS != "failed" {
 		t.Fatalf("seg1=%+v", segs[1])
 	}
-	if segs[2].Flex != 1 || segs[2].StateCSS != "failed" {
-		t.Fatalf("seg2 (no counts)=%+v", segs[2])
+	if segs[2].Flex != 2 || segs[2].StateCSS != "applying" {
+		t.Fatalf("seg2=%+v", segs[2])
 	}
 }
 
@@ -264,4 +265,25 @@ func TestPhaseTimeline(t *testing.T) {
 			}
 		}
 	})
+}
+
+func TestProgressSegmentsOrder(t *testing.T) {
+	stacks := []events.StackState{
+		{Path: "a", Status: events.StatusPending},      // queued  → rank 5
+		{Path: "b", Status: events.StatusSafe},         // planned → rank 0
+		{Path: "c", Status: events.StatusRunning},      // planning→ rank 2
+		{Path: "d", Status: events.StatusFailed},       // failed  → rank 1
+		{Path: "e", Status: events.StatusInitializing}, // rank 4
+	}
+	segs := progressSegments(stacks, "plan", events.PhasePlanning)
+	got := make([]string, len(segs))
+	for i, s := range segs {
+		got[i] = s.StateCSS
+	}
+	want := []string{"planned", "failed", "planning", "initializing", "queued"}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("segment order = %v, want %v", got, want)
+		}
+	}
 }

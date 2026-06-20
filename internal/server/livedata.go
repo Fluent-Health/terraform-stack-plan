@@ -74,23 +74,60 @@ func groupByProject(stacks []events.StackState) []stackGroup {
 // mutating-op total (min 1 so a 0-op stack still shows a sliver), colored by the
 // stack's CURRENT run-state — so the bar tracks live progress (each segment turns
 // its state colour as the stack advances), rather than a static op-kind breakdown.
+// Segments are rank-ordered (done-good → attention → active → ready → initializing →
+// not-started) so the bar fills left→right as stacks complete.
 type progSeg struct {
 	Flex     int
 	StateCSS string // queued|initializing|planning|planned|applying|moving|applied|blocked|skipped|failed
 }
 
 func progressSegments(stacks []events.StackState, kind string, phase events.Phase) []progSeg {
-	segs := make([]progSeg, 0, len(stacks))
-	for _, s := range stacks {
+	type ranked struct {
+		seg  progSeg
+		rank int
+		idx  int
+	}
+	rs := make([]ranked, 0, len(stacks))
+	for i, s := range stacks {
 		flex := 1
 		if s.Counts != nil {
 			if t := s.Counts.Add + s.Counts.Change + s.Counts.Destroy + s.Counts.Replace + s.Counts.Move; t > 0 {
 				flex = t
 			}
 		}
-		segs = append(segs, progSeg{Flex: flex, StateCSS: displayState(s.Status, kind, phase).CSS})
+		css := displayState(s.Status, kind, phase).CSS
+		rs = append(rs, ranked{progSeg{Flex: flex, StateCSS: css}, segRank(css), i})
+	}
+	sort.SliceStable(rs, func(a, b int) bool {
+		if rs[a].rank != rs[b].rank {
+			return rs[a].rank < rs[b].rank
+		}
+		return rs[a].idx < rs[b].idx
+	})
+	segs := make([]progSeg, 0, len(rs))
+	for _, r := range rs {
+		segs = append(segs, r.seg)
 	}
 	return segs
+}
+
+// segRank orders progress-bar segments left→right: done-good first, then
+// done-attention, active, ready (pre-work done), initializing, then not-started.
+func segRank(css string) int {
+	switch css {
+	case "applied", "planned", "nochange":
+		return 0
+	case "failed", "blocked", "aborted":
+		return 1
+	case "applying", "planning", "moving", "preparing":
+		return 2
+	case "initialized", "prepared":
+		return 3
+	case "initializing":
+		return 4
+	default: // queued, skipped, unknown
+		return 5
+	}
 }
 
 // iamCount is the number of stacks flagged with the gating "iam" category.

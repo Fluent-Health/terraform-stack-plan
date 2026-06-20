@@ -268,8 +268,12 @@ func TestBuildLiveModel(t *testing.T) {
 	if len(m.Progress) != 2 {
 		t.Fatalf("progress segs=%d", len(m.Progress))
 	}
-	if m.Progress[0].StateCSS != "applying" { // prod/api is Running in an apply
+	// Rank-sorted: applied(rank 0) before applying(rank 2).
+	if m.Progress[0].StateCSS != "applied" { // stg/db is Safe → applied comes first
 		t.Fatalf("progress[0]=%+v", m.Progress[0])
+	}
+	if m.Progress[1].StateCSS != "applying" { // prod/api is Running → applying second
+		t.Fatalf("progress[1]=%+v", m.Progress[1])
 	}
 	if len(m.Groups) != 2 || m.Groups[0].Name != "fh-prod-host" {
 		t.Fatalf("groups=%+v", m.Groups)
