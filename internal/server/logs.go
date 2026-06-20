@@ -208,6 +208,20 @@ func (a *App) handleLogServe(w http.ResponseWriter, r *http.Request) {
 	http.Error(w, "not found", http.StatusNotFound)
 }
 
+// handlePlanServe renders one stack's stored plan section to HTML on demand
+// (public, like handleLogServe). The live page fetches this when a stack's
+// Result pane is opened, so the page load no longer renders every stack's plan.
+// 200 with an empty body when no plan is stored — the viewer shows its own
+// "no plan" state. The plan markdown is trusted (render-core output).
+func (a *App) handlePlanServe(w http.ResponseWriter, r *http.Request) {
+	exec := r.PathValue("exec")
+	stack := r.PathValue("stack")
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if _, md, ok, _ := store.GetStackOutput(a.db, exec, stack, "plan"); ok && md != "" {
+		_, _ = io.WriteString(w, string(renderMarkdown(md)))
+	}
+}
+
 // streamLog upgrades to Server-Sent Events: subscribe first (so nothing is
 // missed between replay and live), replay the current buffer (streamed, from the
 // Last-Event-ID byte offset if resuming), then stream live chunks until the
