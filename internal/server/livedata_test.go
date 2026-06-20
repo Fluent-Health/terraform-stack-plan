@@ -77,6 +77,9 @@ func TestDisplayStatePhase(t *testing.T) {
 		{events.StatusRunning, "apply", events.PhasePlanning, "preparing", "preparing"},
 		// apply, real apply (phase >= applying): applying/applied
 		{events.StatusRunning, "apply", events.PhaseApplying, "applying", "applying"},
+		{events.StatusMoving, "apply", events.PhaseApplying, "moving", "moving"},
+		{events.StatusGated, "apply", events.PhaseApplying, "blocked", "blocked"},
+		{events.StatusAborted, "apply", events.PhaseApplying, "aborted", "aborted"},
 		{events.StatusPlanned, "apply", events.PhaseApplying, "queued", "queued"},
 		{events.StatusSafe, "apply", events.PhaseApplying, "applied", "applied"},
 		{events.StatusSafe, "apply", events.PhaseInitializing, "applied", "applied"},
