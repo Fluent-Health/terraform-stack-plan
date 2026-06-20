@@ -13,7 +13,7 @@ import (
 // runRun dispatches the `run` subcommand group (tick now; plan/apply later).
 func runRun(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "tfstackplan run: expected a subcommand (tick|phase|plan|apply|verify)")
+		fmt.Fprintln(os.Stderr, "tfstackplan run: expected a subcommand (tick|phase|step|plan|apply|verify)")
 		return 2
 	}
 	switch args[0] {
@@ -21,6 +21,8 @@ func runRun(args []string) int {
 		return runTick(args[1:])
 	case "phase":
 		return runPhase(args[1:])
+	case "step":
+		return runStep(args[1:])
 	case "plan":
 		return runPlan(args[1:])
 	case "apply":

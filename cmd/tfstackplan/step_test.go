@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"testing"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
@@ -51,6 +52,24 @@ func TestLogStreamer(t *testing.T) {
 	}
 	if len(got) != 1 || got[0] != "hello " {
 		t.Fatalf("after close got %v, want [\"hello \"]", got)
+	}
+}
+
+func TestRunStepPassthroughExitCode(t *testing.T) {
+	// No server configured ⇒ pure passthrough; exit code must propagate.
+	os.Unsetenv("TFSTACKPLAN_SERVER")
+	os.Unsetenv("TFSTACKPLAN_EXECUTION")
+	if code := runStep([]string{"--stack", "s", "--", "sh", "-c", "exit 7"}); code != 7 {
+		t.Fatalf("runStep exit = %d, want 7", code)
+	}
+	if code := runStep([]string{"--stack", "s", "--", "sh", "-c", "exit 0"}); code != 0 {
+		t.Fatalf("runStep exit = %d, want 0", code)
+	}
+}
+
+func TestRunStepRequiresSeparator(t *testing.T) {
+	if code := runStep([]string{"--stack", "s"}); code != 2 {
+		t.Fatalf("runStep with no command = %d, want 2", code)
 	}
 }
 
