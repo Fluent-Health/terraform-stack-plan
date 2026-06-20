@@ -115,11 +115,12 @@ func TestCheckSummaryPlanFinalized(t *testing.T) {
 			Categories: []events.Category{{Name: "destructive"}}},
 		{Path: "svc/c", Status: events.StatusPlanned, Counts: &events.Counts{Change: 3}},
 	}
-	out := checkSummary("plan", "nonprod", stacks, events.PhasePlanning, true, "https://srv/live/e1")
+	out := checkSummary("plan", stacks, "https://srv/live/e1")
+	// No headline — the check-run title carries the status line.
+	if strings.HasPrefix(out, "## ") {
+		t.Errorf("summary must not start with a ## headline; got:\n%s", out)
+	}
 	for _, want := range []string{
-		"## Plan · nonprod",
-		"+6", "~3", "−2", // op tally in the headline
-		"3 stacks",
 		"⚠️ destructive", "⚿ 1 IAM",
 		"[live viewer ↗](https://srv/live/e1)",
 		"| Stack | Ops | Risk | State |",
@@ -137,9 +138,9 @@ func TestCheckSummaryPlanDegradesWhilePlanning(t *testing.T) {
 		{Path: "svc/a", Status: events.StatusPlanned}, // counts nil
 		{Path: "svc/b", Status: events.StatusRunning},
 	}
-	out := checkSummary("plan", "nonprod", stacks, events.PhasePlanning, false, "https://srv/live/e1")
-	if !strings.Contains(out, "planning 1/2") {
-		t.Errorf("want degraded 'planning 1/2' headline in:\n%s", out)
+	out := checkSummary("plan", stacks, "https://srv/live/e1")
+	if strings.HasPrefix(out, "## ") {
+		t.Errorf("summary must not start with a ## headline; got:\n%s", out)
 	}
 	if strings.Contains(out, "⚠️ destructive") {
 		t.Errorf("no destructive chip when no counts/categories:\n%s", out)
@@ -154,8 +155,11 @@ func TestCheckSummaryApplyApplied(t *testing.T) {
 		{Path: "svc/a", Status: events.StatusSafe, Counts: &events.Counts{Add: 6}},
 		{Path: "svc/b", Status: events.StatusSafe, Counts: &events.Counts{Destroy: 2}},
 	}
-	out := checkSummary("apply", "nonprod", stacks, events.PhaseApplying, true, "https://srv/live/e1")
-	for _, want := range []string{"## Apply · nonprod", "applied 2/2", "+6", "−2", "applied"} {
+	out := checkSummary("apply", stacks, "https://srv/live/e1")
+	if strings.HasPrefix(out, "## ") {
+		t.Errorf("summary must not start with a ## headline; got:\n%s", out)
+	}
+	for _, want := range []string{"+6", "−2", "applied", "| Stack | Ops | Risk | State |"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in:\n%s", want, out)
 		}
@@ -167,20 +171,23 @@ func TestCheckSummaryApplyPartialFailed(t *testing.T) {
 		{Path: "svc/a", Status: events.StatusSafe, Counts: &events.Counts{Add: 6}},
 		{Path: "svc/b", Status: events.StatusFailed},
 	}
-	out := checkSummary("apply", "prod", stacks, events.PhaseApplying, true, "https://srv/live/e1")
-	if !strings.Contains(out, "applied 1/2") {
-		t.Errorf("want 'applied 1/2' in:\n%s", out)
+	out := checkSummary("apply", stacks, "https://srv/live/e1")
+	if strings.HasPrefix(out, "## ") {
+		t.Errorf("summary must not start with a ## headline; got:\n%s", out)
 	}
 	if !strings.Contains(out, "failed") {
 		t.Errorf("failed stack state must show in table:\n%s", out)
+	}
+	if !strings.Contains(out, "| Stack | Ops | Risk | State |") {
+		t.Errorf("per-stack table missing:\n%s", out)
 	}
 }
 
 func TestCheckSummaryNoEnvNoChips(t *testing.T) {
 	stacks := []events.StackState{{Path: "svc/a", Status: events.StatusPlanned, Counts: &events.Counts{Change: 1}}}
-	out := checkSummary("plan", "", stacks, events.PhasePlanning, true, "https://srv/live/e1")
-	if strings.Contains(out, " · ") && strings.Contains(out, "## Plan ·") {
-		t.Errorf("env empty → headline must not carry ' · <env>':\n%s", out)
+	out := checkSummary("plan", stacks, "https://srv/live/e1")
+	if strings.HasPrefix(out, "## ") {
+		t.Errorf("summary must not start with a ## headline; got:\n%s", out)
 	}
 	if strings.Contains(out, "⚠️ destructive") || strings.Contains(out, "IAM") {
 		t.Errorf("no risk chips when none present:\n%s", out)
@@ -192,21 +199,34 @@ func TestCheckSummaryPlanningHeadlineHasBar(t *testing.T) {
 		{Path: "svc/a", Status: events.StatusPlanned}, // no Counts → in-progress branch
 		{Path: "svc/b", Status: events.StatusRunning},
 	}
-	out := checkSummary("plan", "nonprod", stacks, events.PhasePlanning, false, "")
-	for _, want := range []string{"## Plan · nonprod —", "▰", "▱", "planning 1/2"} {
-		if !strings.Contains(out, want) {
-			t.Errorf("planning headline missing %q in:\n%s", want, out)
-		}
+	out := checkSummary("plan", stacks, "")
+	if strings.HasPrefix(out, "## ") {
+		t.Errorf("summary must not start with a ## headline; got:\n%s", out)
+	}
+	// Table must still render even mid-planning.
+	if !strings.Contains(out, "| Stack | Ops | Risk | State |") {
+		t.Errorf("per-stack table missing mid-planning:\n%s", out)
 	}
 }
 
 func TestCheckSummaryWarmingNoStacks(t *testing.T) {
-	out := checkSummary("plan", "nonprod", nil, events.PhaseWarming, false, "")
-	if !strings.Contains(out, "warming cache…") {
-		t.Errorf("warming headline missing label in:\n%s", out)
+	out := checkSummary("plan", nil, "")
+	if strings.HasPrefix(out, "## ") {
+		t.Errorf("summary must not start with a ## headline; got:\n%s", out)
 	}
 	if strings.Contains(out, "| Stack | Ops | Risk | State |") {
 		t.Errorf("empty graph must not render the per-stack table in:\n%s", out)
+	}
+}
+
+func TestCheckSummaryNoHeadline(t *testing.T) {
+	stacks := []events.StackState{{Path: "a", Status: events.StatusFailed, Counts: &events.Counts{Change: 2}}}
+	out := checkSummary("apply", stacks, "http://viewer")
+	if strings.HasPrefix(out, "## ") || strings.Contains(out, "## Apply") {
+		t.Errorf("summary should not repeat the title headline; got:\n%s", out)
+	}
+	if !strings.Contains(out, "| Stack | Ops | Risk | State |") {
+		t.Errorf("summary missing per-stack table:\n%s", out)
 	}
 }
 
@@ -239,6 +259,14 @@ func TestProgress(t *testing.T) {
 				t.Errorf("bar width = %d, want %d", len([]rune(bar)), progressCells)
 			}
 		})
+	}
+}
+
+func TestDoneIncludesNewTerminalStates(t *testing.T) {
+	for _, s := range []events.Status{events.StatusAborted, events.StatusNochange} {
+		if !done(s) {
+			t.Errorf("done(%q) = false, want true (new terminal apply state)", s)
+		}
 	}
 }
 

@@ -555,6 +555,31 @@ the budget entirely.
 
 ## Shipped since v1
 
+- **`run step`** — wraps a single terraform command with lifecycle ticks: ticks
+  `running` before, determines the terminal status after, and streams the
+  command's output live as log chunks via `/api/logs`. The terminal status is
+  `nochange` when terraform's own summary line reads `0 added, 0 changed, 0
+  destroyed`; the `--on-success <status>` flag (e.g. `--on-success safe`) sets
+  the status for any other success. A transparent offline passthrough (`run step`
+  is a no-op when `TFSTACKPLAN_SERVER` is unset), so local `terramate script run`
+  is unaffected. The motivation: terramate's parallel `script run` aborts on the
+  first failing stack and never advances to a *later* command in the same job —
+  so a closing `run tick --status safe` in a separate command is silently skipped
+  for any stack that fails before it. Putting the terminal tick inside the same
+  command (`run step --on-success safe -- terraform apply …`) removes that gap.
+  See `docs/ci-integration.md` for the canonical script form. The companion
+  migration of the infra `scripts.tm.hcl` to `run step` is a separate PR in the
+  infra repo.
+- **`nochange` and `aborted` terminal statuses** — two new `events.Status` values
+  extend the per-stack vocabulary. `nochange` means the stack applied
+  successfully with zero resource changes (terraform reported `0 added, 0
+  changed, 0 destroyed`), set by `run step` from terraform's own output.
+  `aborted` means the run failed elsewhere and this stack never reached a
+  terminal tick — set server-side by the finalize sweep on `Finalize{Failed:
+  true}` for any still-pending or still-running stack. `aborted` stacks are
+  correctly distinguished from `failed` stacks (which did run and emitted an
+  error); the apply check-run conclusion is now derived from `Finalize{Failed}`
+  rather than from counting per-stack failures.
 - **Privilege-backed apply** — `POST /api/gate/check` now returns
   `{"requester": "<sa-email>"}` (the leased PAM requester for the PR) on its 200
   success path. `tfstackplan run apply --impersonate-requester` reads that email,
@@ -590,12 +615,23 @@ the budget entirely.
 - **Canonical plan filename is hardcoded `tfplan.json`** — matches Terragrunt's
   `--json-out-dir`; Terramate is scripted to emit the same. A tool that writes a
   different name needs a rename step.
-- **Per-stack log streaming requires the terramate script to tee output to the
-  configured `--log-file`.** The `LogPump` tails `<stack>/tfstackplan.log` (the
-  default) in each stack dir; nothing is streamed unless the stack's terramate
-  script writes that file (e.g. `terraform plan ... 2>&1 | tee tfstackplan.log`).
-  This indirection exists because terramate's parallel `script run` interleaves
-  every stack's output on one stream, which cannot be demuxed per stack.
+- **Per-stack log streaming for plan still requires the script to tee output to
+  `--log-file`.** The `LogPump` tails `<stack>/tfstackplan.log` (the default) in
+  each stack dir; nothing is streamed unless the stack's terramate script writes
+  that file (e.g. `terraform plan ... 2>&1 | tee tfstackplan.log`). This
+  indirection exists because terramate's parallel `script run` interleaves every
+  stack's output on one stream, which cannot be demuxed per stack. For apply
+  steps wrapped in `run step`, the pump is superseded — `run step` streams
+  terraform's output directly via `/api/logs` without a file intermediary.
+- **Stacks not reached when a parallel apply aborts are marked `aborted`, not
+  `failed`.** On `Finalize{Failed: true}`, the server marks any still-pending or
+  still-running stack `aborted` — reflecting that these stacks were never
+  attempted rather than that they errored. A stack that did run and fail emits a
+  `failed` tick (via `run step`). The apply check-run conclusion is derived from
+  `Finalize{Failed}`, not from counting per-stack failures. A stack SIGKILLed
+  mid-apply emits no terminal tick and is correctly marked `aborted` by the
+  finalize sweep. Failed-stack check-run detail comes from the captured log (the
+  real terraform error), not a generic tick string.
 - **`default`/`safe` is a display-only fallback** — rendered for a stack that
   matched no rule, but it **never appears in the `--emit-classification-json`
   sidecar or the summary** (those carry only the matched-rule categories).
@@ -724,7 +760,11 @@ the full reasoning and alternatives weighed:
   `Graph`, and the `Init`/`PhaseEvent`/`Update`/`Finalize`/`GateCheck`/`GateRevoke`
   payloads. Vocabulary is provider-neutral — `environment` (not a fixed tier set)
   and `(class, target)` approval gates (not a single IAM/project gate) — so
-  multiple approval classes work without a later protocol change.
+  multiple approval classes work without a later protocol change. Per-stack
+  `Status` values: `pending`, `running` (in-progress), `planned`, `safe`
+  (applied with changes), `nochange` (applied, 0 changes), `failed` (stack ran
+  and errored), `aborted` (run failed elsewhere; stack never reached a terminal
+  tick — set server-side at finalize).
 - **`internal/store`** — the server's SQLite persistence (pure-Go
   `modernc.org/sqlite`, `goose` migrations embedded via `go:embed`): executions,
   their stack/edge subgraph, and per-`(class, target)` gate state, plus a

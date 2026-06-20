@@ -100,6 +100,15 @@ func TestOpSummaryString(t *testing.T) {
 	}
 }
 
+func TestDisplayStateNewStatuses(t *testing.T) {
+	if d := displayState(events.StatusNochange, "apply"); d.Label != "no changes" || d.CSS != "nochange" {
+		t.Errorf("nochange display = %+v, want {no changes nochange}", d)
+	}
+	if d := displayState(events.StatusAborted, "apply"); d.Label != "aborted" || d.CSS != "aborted" {
+		t.Errorf("aborted display = %+v, want {aborted aborted}", d)
+	}
+}
+
 func TestGroupByProject(t *testing.T) {
 	stacks := []events.StackState{
 		{Path: "prod/a", Project: "fh-prod-host"},

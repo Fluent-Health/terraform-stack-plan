@@ -49,7 +49,11 @@ func TestPlanCheckRunSummaryAndTitle(t *testing.T) {
 			t.Errorf("title missing %q in: %q", want, title)
 		}
 	}
-	for _, want := range []string{"## Plan · nonprod", "| Stack | Ops | Risk | State |", "`svc/a`"} {
+	// No headline — check-run title carries the status line.
+	if strings.HasPrefix(summary, "## ") {
+		t.Errorf("summary must not start with a ## headline; got:\n%s", summary)
+	}
+	for _, want := range []string{"| Stack | Ops | Risk | State |", "`svc/a`"} {
 		if !strings.Contains(summary, want) {
 			t.Errorf("summary missing %q in:\n%s", want, summary)
 		}
@@ -85,6 +89,26 @@ func TestProgressTitleRunningStillHasBar(t *testing.T) {
 	}
 }
 
+func TestBackfillPrefersLogErrorTail(t *testing.T) {
+	db := newServerTestDB(t)
+	a := New(db, &MockGitHub{}, Config{})
+
+	// Store the real terraform error as the stack's log excerpt.
+	const logExcerpt = "module.x: Creating...\n╷\n│ Error: googleapi: Error 403: permission denied\n╵\n"
+	if err := store.UpsertStackOutput(db, "exec-detail", "a", "log", "", logExcerpt); err != nil {
+		t.Fatal(err)
+	}
+	// The stack has a generic tick detail ("terraform apply failed") — the real
+	// error is in the captured log. After backfill the real error must win.
+	g := events.Graph{Stacks: []events.StackState{
+		{Path: "a", Status: events.StatusFailed, Detail: "terraform apply failed"},
+	}}
+	a.backfillFailureDetail("exec-detail", &g)
+	if !strings.Contains(g.Stacks[0].Detail, "Error 403") {
+		t.Errorf("Detail = %q, want the real 403 from the log, not the generic tick detail", g.Stacks[0].Detail)
+	}
+}
+
 func TestBackfillFailureDetailFromLog(t *testing.T) {
 	db := newServerTestDB(t)
 	a := New(db, &MockGitHub{}, Config{})
@@ -109,5 +133,20 @@ func TestBackfillFailureDetailFromLog(t *testing.T) {
 	}
 	if g.Stacks[2].Detail != "" {
 		t.Errorf("svc/z should stay empty: %q", g.Stacks[2].Detail)
+	}
+}
+
+func TestTerminalSummaryApplyTallies(t *testing.T) {
+	stacks := []events.StackState{
+		{Path: "a", Status: events.StatusSafe, Counts: &events.Counts{Change: 20}},
+		{Path: "b", Status: events.StatusNochange},
+		{Path: "c", Status: events.StatusFailed},
+		{Path: "d", Status: events.StatusAborted},
+	}
+	got := terminalSummary("Apply", stacks)
+	for _, want := range []string{"applied 2/4", "1 no-change", "1 failed", "1 aborted"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("terminalSummary = %q, missing %q", got, want)
+		}
 	}
 }

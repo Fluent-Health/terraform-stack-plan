@@ -10,15 +10,21 @@ import (
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
 
-// backfillFailureDetail fills Detail for failed stacks that have none, from the
-// error tail of the stack's stored log excerpt. Mutates g in place; best-effort —
-// a stack with no stored log keeps an empty Detail and renders the fallback note.
+// backfillFailureDetail sets Detail for failed stacks from the error tail of the
+// stack's stored log excerpt. The captured log holds terraform's real error; a
+// per-stack tick detail (e.g. "terraform apply failed") is only a generic
+// placeholder. The log's error tail wins whenever a log was captured; stacks
+// with no stored log keep their existing Detail (or empty if they had none).
 func (a *App) backfillFailureDetail(execID string, g *events.Graph) {
 	for i := range g.Stacks {
 		s := &g.Stacks[i]
-		if s.Status != events.StatusFailed || s.Detail != "" {
+		if s.Status != events.StatusFailed {
 			continue
 		}
+		// The captured log holds terraform's real error; a per-stack tick detail
+		// (e.g. "terraform apply failed") is only a generic placeholder. Prefer the
+		// log's error tail whenever a log was captured; fall back to the existing
+		// detail otherwise.
 		if _, excerpt, ok, _ := store.GetStackOutput(a.db, execID, s.Path, "log"); ok && excerpt != "" {
 			s.Detail = errorTail(excerpt, 25)
 		}
@@ -62,10 +68,18 @@ func progressTitle(phase events.Phase, stacks []events.StackState, terminal bool
 // count (+ a failed suffix), or "no changes". kindLabel is "Plan" or "Apply".
 func terminalSummary(kindLabel string, stacks []events.StackState) string {
 	kind := kindLabel
-	failed := 0
+	var failed, aborted, nochange, applied int
 	for _, s := range stacks {
-		if s.Status == events.StatusFailed {
+		switch s.Status {
+		case events.StatusFailed:
 			failed++
+		case events.StatusAborted:
+			aborted++
+		case events.StatusNochange:
+			nochange++
+			applied++
+		case events.StatusSafe:
+			applied++
 		}
 	}
 	tally := opTally(aggregateVerdict(stacks))
@@ -74,12 +88,6 @@ func terminalSummary(kindLabel string, stacks []events.StackState) string {
 	case len(stacks) == 0:
 		head = kind + " · no changes"
 	case kind == "Apply":
-		applied := 0
-		for _, s := range stacks {
-			if s.Status == events.StatusSafe {
-				applied++
-			}
-		}
 		head = fmt.Sprintf("%s · applied %d/%d", kind, applied, len(stacks))
 		if tally != "" {
 			head += " · " + tally
@@ -91,8 +99,14 @@ func terminalSummary(kindLabel string, stacks []events.StackState) string {
 			head = fmt.Sprintf("%s · %s · %d stacks", kind, tally, len(stacks))
 		}
 	}
+	if nochange > 0 && kind == "Apply" {
+		head += fmt.Sprintf(" · %d no-change", nochange)
+	}
 	if failed > 0 {
 		head += fmt.Sprintf(" · %d failed", failed)
+	}
+	if aborted > 0 {
+		head += fmt.Sprintf(" · %d aborted", aborted)
 	}
 	return head
 }
@@ -149,7 +163,7 @@ func (a *App) renderAndPatch(ctx context.Context, id, base string, terminal bool
 	targets, _ := store.TargetsFor(a.db, e.PR, e.Environment)
 	upd := CheckRunUpdate{
 		Title:      progressTitle(events.Phase(e.Phase), g.Stacks, terminal),
-		Summary:    checkSummary("plan", e.Environment, g.Stacks, events.Phase(e.Phase), terminal, a.liveURL(base, id)),
+		Summary:    checkSummary("plan", g.Stacks, a.liveURL(base, id)),
 		Text:       gatesSection(targets) + failuresSection(g, e.LogURL, "") + e.ReportMarkdown,
 		DetailsURL: a.liveURL(base, id),
 	}
@@ -199,22 +213,24 @@ func (a *App) driveApply(ctx context.Context, e store.Execution, base string) {
 	}
 	a.backfillFailureDetail(e.ID, &g)
 	total := len(g.Stacks)
-	done, failed := 0, 0
+	applied, failed := 0, 0
 	for _, s := range g.Stacks {
 		switch s.Status {
-		case events.StatusSafe:
-			done++
+		case events.StatusSafe, events.StatusNochange:
+			applied++
 		case events.StatusFailed:
 			failed++
 		}
 	}
+	runFailed := failed > 0 || e.Status == "failure"
 	var state, desc string
 	switch {
-	case failed > 0:
-		// STACK_INIT_FAILED / STACK_APPLY_FAILED: a stack died during the apply.
-		// The phase (init vs apply) is carried structurally in each failing
-		// stack's Detail and rendered (with a per-stack log deep-link) below.
-		desc = fmt.Sprintf("apply failed — %d/%d applied, %d failed; see the failing stack below — fix-forward or re-run this tier's apply", done, total, failed)
+	case runFailed:
+		// STACK_INIT_FAILED / STACK_APPLY_FAILED or execution-level failure flag:
+		// a stack died during the apply, or the runner reported failure before
+		// per-stack ticks completed. The phase (init vs apply) is carried
+		// structurally in each failing stack's Detail and rendered below.
+		desc = fmt.Sprintf("apply failed — %d/%d applied, %d failed; see the failing stack below — fix-forward or re-run this tier's apply", applied, total, failed)
 		state = "failure"
 	case total == 0:
 		// NOTHING_TO_APPLY: no changed stacks — a no-op apply (e.g. a docs/CI-only
@@ -222,10 +238,10 @@ func (a *App) driveApply(ctx context.Context, e store.Execution, base string) {
 		// Nothing will emit a stack-completion event to flip this to terminal, so
 		// resolve it to success here rather than leaving it pending forever.
 		state, desc = "success", "no stacks to apply"
-	case done == total:
-		state, desc = "success", fmt.Sprintf("applied %d/%d stacks", done, total)
+	case applied == total:
+		state, desc = "success", fmt.Sprintf("applied %d/%d stacks", applied, total)
 	default:
-		state, desc = "pending", fmt.Sprintf("applying… %d/%d stacks", done, total)
+		state, desc = "pending", fmt.Sprintf("applying… %d/%d stacks", applied, total)
 	}
 	// Persist the terminal status so the viewer's isFinished() flips (clears the
 	// shimmer / live-dot / "planning" placeholder on a concluded apply). Pending
@@ -244,7 +260,7 @@ func (a *App) driveApply(ctx context.Context, e store.Execution, base string) {
 			conclusion = "failure"
 		}
 		applyTerminal := state == "success" || state == "failure"
-		summary := checkSummary("apply", e.Environment, g.Stacks, events.Phase(e.Phase), applyTerminal, a.liveURL(base, e.ID))
+		summary := checkSummary("apply", g.Stacks, a.liveURL(base, e.ID))
 		if failed > 0 {
 			// Keep the next-steps guidance (fix-forward / re-run) visible in the
 			// summary; the failing-stack detail renders in the Text below.

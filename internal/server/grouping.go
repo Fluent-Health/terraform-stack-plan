@@ -37,6 +37,8 @@ func groupKey(path string, depth int, re *regexp.Regexp) string {
 func statusRank(s events.Status) int {
 	switch s {
 	case events.StatusFailed:
+		return 6
+	case events.StatusAborted:
 		return 5
 	case events.StatusGated:
 		return 4
@@ -44,7 +46,7 @@ func statusRank(s events.Status) int {
 		return 3
 	case events.StatusRunning:
 		return 2
-	case events.StatusPlanned, events.StatusSafe:
+	case events.StatusPlanned, events.StatusSafe, events.StatusNochange:
 		return 1
 	default:
 		return 0
