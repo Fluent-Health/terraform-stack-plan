@@ -378,3 +378,37 @@ func TestCleanLogBuffersSweepsOldDirs(t *testing.T) {
 		t.Fatalf("fresh dir swept: %v", err)
 	}
 }
+
+func TestHandlePlanServe(t *testing.T) {
+	a := New(newServerTestDB(t), &MockGitHub{}, Config{})
+	id := "exec-plan"
+	if err := store.UpsertInit(a.db, events.Init{ID: id, Repo: "o/r", Context: "plan/nonprod", Environment: "nonprod",
+		Stacks: []events.StackState{{Path: "svc/a", Status: events.StatusPlanned}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpsertStackOutput(a.db, id, "svc/a", "plan", "", "## changes\n\n- `+ create` thing\n"); err != nil {
+		t.Fatal(err)
+	}
+
+	rec := httptest.NewRecorder()
+	a.Routes().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/plan/"+id+"/svc/a", nil))
+	if rec.Code != 200 {
+		t.Fatalf("plan serve: %d", rec.Code)
+	}
+	if ct := rec.Header().Get("Content-Type"); !strings.Contains(ct, "text/html") {
+		t.Errorf("content-type = %q, want text/html", ct)
+	}
+	if !strings.Contains(rec.Body.String(), "create") {
+		t.Errorf("rendered plan missing content: %q", rec.Body.String())
+	}
+
+	// No plan stored → 200 with empty body (the viewer shows its own empty state).
+	rec2 := httptest.NewRecorder()
+	a.Routes().ServeHTTP(rec2, httptest.NewRequest(http.MethodGet, "/plan/"+id+"/svc/none", nil))
+	if rec2.Code != 200 {
+		t.Fatalf("missing plan: %d, want 200 empty", rec2.Code)
+	}
+	if strings.TrimSpace(rec2.Body.String()) != "" {
+		t.Errorf("missing plan should be empty, got %q", rec2.Body.String())
+	}
+}

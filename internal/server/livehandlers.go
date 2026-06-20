@@ -57,14 +57,10 @@ func (a *App) handleLive(w http.ResponseWriter, r *http.Request) {
 	if targets, terr := store.TargetsFor(a.db, e.PR, e.Environment); terr == nil {
 		panel = approvalPanel(targets)
 	}
-	// Per-stack detail: the rendered plan diff (when planned) and a recent log
-	// excerpt, so a row click scrolls to that stack's diff/log on the same page.
-	reports := map[string]string{}
+	// Per-stack log excerpt, so a row click scrolls to that stack's log on the
+	// same page. Plan diffs are fetched lazily via /plan/{exec}/{stack}.
 	logs := map[string]string{}
 	for _, s := range g.Stacks {
-		if _, md, ok, _ := store.GetStackOutput(a.db, e.ID, s.Path, "plan"); ok && md != "" {
-			reports[s.Path] = md
-		}
 		if _, ex, ok, _ := store.GetStackOutput(a.db, e.ID, s.Path, "log"); ok && ex != "" {
 			logs[s.Path] = ex
 		}
@@ -72,22 +68,21 @@ func (a *App) handleLive(w http.ResponseWriter, r *http.Request) {
 	verifyExec, _ := store.LatestVerifyExecutionID(a.db, e.PR, e.Environment)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Write([]byte(a.livePage(liveView{
-		Exec:         e.ID,
-		Repo:         e.Repo,
-		Environment:  e.Environment,
-		Report:       report,
-		PR:           e.PR,
-		SHA:          e.SHA,
-		Context:      e.StatusContext,
-		Status:       e.Status,
-		Phase:        events.Phase(e.Phase),
-		CreatedAt:    e.CreatedAt,
-		Stacks:       g.Stacks,
-		StackReports: reports,
-		StackLogs:    logs,
-		VerifyExec:   verifyExec,
-		SVG:          string(a.dagSVG(g)),
-		Panel:        panel,
+		Exec:        e.ID,
+		Repo:        e.Repo,
+		Environment: e.Environment,
+		Report:      report,
+		PR:          e.PR,
+		SHA:         e.SHA,
+		Context:     e.StatusContext,
+		Status:      e.Status,
+		Phase:       events.Phase(e.Phase),
+		CreatedAt:   e.CreatedAt,
+		Stacks:      g.Stacks,
+		StackLogs:   logs,
+		VerifyExec:  verifyExec,
+		SVG:         string(a.dagSVG(g)),
+		Panel:       panel,
 	})))
 }
 

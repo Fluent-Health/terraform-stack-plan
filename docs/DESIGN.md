@@ -980,6 +980,21 @@ A node test (`web/term.test.cjs`) covers the pure parser. Consumer wiring — ad
 `--tty` to the `run step` commands AND dropping `-no-color` from the terraform
 flags — lands in a companion PR in the infra repo.
 
+**serve memory footprint — heap-spike reduction.** `tfstackplan serve` was
+OOM-killed until its limit was raised to 2GB; its RAM scales with terraform
+log/plan volume, not "just JSON". Two Go-heap spikes were cut. (1) The GCS log
+offload now **streams** the file to GCS — `gcsObjectStore.Put` sets
+`Content-Length` from the `*os.File` and passes it as the request body — instead
+of `io.ReadAll`-ing a whole stack log into memory at finalize. (2) The live page
+renders per-stack plan markdown **on demand**: a new public
+`GET /plan/{exec}/{stack...}` endpoint renders one stack's plan to HTML, and the
+Result pane fetches it when opened (mirroring the Log tab's lazy fetch), so a page
+load no longer renders/embeds every stack's plan section (the whole-execution
+report is still rendered once). Residual, by deployment design: the SQLite DB and
+the live per-stack log buffers still live on the 256Mi `medium=MEMORY` (RAM) tmpfs
+volume — moving logs off RAM entirely (a bounded in-memory ring + incremental GCS
+upload) is deferred. The 2GB→1GB walk-back is a separate infra decision.
+
 **Check-run richness (Phase 5 of the live-viewer redesign).** Both the plan and
 apply check-run summaries now lead with a **blast-radius headline** (op-count
 tally: `+add ~change ±replace −destroy ↔move`), **verdict chips** (`⚠️ Destructive`

@@ -112,7 +112,6 @@ type liveView struct {
 	Status                    string
 	CreatedAt                 time.Time
 	Stacks                    []events.StackState
-	StackReports              map[string]string // stack path → rendered plan-section markdown
 	StackLogs                 map[string]string // stack path → recent log excerpt
 	VerifyExec                string            // latest verify run id for this PR/env ("" if none)
 	SVG, Panel                string
@@ -137,12 +136,11 @@ type stackRow struct {
 	State      stateDisplay
 	Ops        string
 	Risks      []riskTag
-	Detail     template.HTML // rendered plan-section diff (empty until planned)
-	LogExcerpt string        // recent log lines (shown when no diff yet)
-	DetailURL  string        // raw full log (text/plain)
-	HasDetail  bool          // has a diff or a log excerpt to show
-	Follow     bool          // exec still running ⇒ stream the log via SSE follow
-	Moved      bool          // state-only move: no plan diff, only log output
+	PlanURL    string // /plan/{exec}/{path} — Result pane fetches this on open
+	LogExcerpt string // recent log lines (shown when no diff yet)
+	DetailURL  string // raw full log (text/plain)
+	Follow     bool   // exec still running ⇒ stream the log via SSE follow
+	Moved      bool   // state-only move: no plan diff, only log output
 }
 
 // anchorSlug turns a stack path into a safe same-page anchor id.
@@ -255,7 +253,6 @@ func buildLiveModel(v liveView, kind string, finished bool, now time.Time) liveM
 					destructive = true
 				}
 			}
-			reportMD := v.StackReports[s.Path]
 			logExcerpt := v.StackLogs[s.Path]
 			rows = append(rows, stackRow{
 				Path:       s.Path,
@@ -263,10 +260,9 @@ func buildLiveModel(v liveView, kind string, finished bool, now time.Time) liveM
 				State:      displayState(s.Status, kind),
 				Ops:        opSummary(s.Counts),
 				Risks:      risks,
-				Detail:     renderMarkdown(reportMD),
+				PlanURL:    "/plan/" + v.Exec + "/" + s.Path,
 				LogExcerpt: logExcerpt,
 				DetailURL:  "/logs/" + v.Exec + "/" + s.Path,
-				HasDetail:  reportMD != "" || logExcerpt != "",
 				Follow:     !finished,
 				Moved:      s.Status == events.StatusMoving,
 			})

@@ -2,6 +2,8 @@ package server
 
 import (
 	"html/template"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -38,9 +40,8 @@ func TestLivePageRendersShell(t *testing.T) {
 	a := New(newServerTestDB(t), &MockGitHub{}, Config{})
 	html := a.livePage(liveView{
 		Repo: "octo/repo", Environment: "staging",
-		Stacks:       []events.StackState{{Path: "s1"}},
-		StackReports: map[string]string{"s1": "PLAN_REPORT_BODY"},
-		SVG:          `<svg id="dag"></svg>`, Panel: `<div class="panel">P</div>`,
+		Stacks: []events.StackState{{Path: "s1"}},
+		SVG:    `<svg id="dag"></svg>`, Panel: `<div class="panel">P</div>`,
 	})
 	for _, want := range []string{
 		`/assets/app.css`,                      // links the embedded stylesheet
@@ -49,7 +50,7 @@ func TestLivePageRendersShell(t *testing.T) {
 		`staging`,                              // environment shown
 		`<svg id="dag">`,                       // trusted SVG injected un-escaped
 		`class="panel"`,                        // trusted panel injected un-escaped
-		`PLAN_REPORT_BODY`,                     // report body rendered (goldmark wraps in <p>)
+		`data-plan-url=`,                       // Result pane carries lazy-fetch URL
 		`new EventSource`,                      // SSE subscription
 		`/events`,                              // SSE endpoint path suffix
 		`<noscript><meta http-equiv="refresh"`, // meta-refresh is noscript fallback
@@ -62,22 +63,20 @@ func TestLivePageRendersShell(t *testing.T) {
 
 func TestLivePageReportRenderedAsHTML(t *testing.T) {
 	a := New(newServerTestDB(t), &MockGitHub{}, Config{})
-	// Report with a GFM table, a details block, and a fenced diff block.
-	report := "| A | B |\n|---|---|\n| 1 | 2 |\n\n<details><summary>Expand</summary>inner</details>"
-	page := a.livePage(liveView{Repo: "r", Stacks: []events.StackState{{Path: "s1"}}, StackReports: map[string]string{"s1": report}})
-	// Rendered HTML must contain real tags, not escaped entities.
-	if !strings.Contains(page, "<table") {
-		t.Error("report: expected rendered <table>, got escaped or missing")
-	}
-	if strings.Contains(page, "&lt;table") {
-		t.Error("report: table tag must not be HTML-escaped")
-	}
-	if !strings.Contains(page, "<details") {
-		t.Error("report: expected <details> passthrough, not escaped")
-	}
+	// Per-stack plan diffs are now lazy-fetched via /plan/{exec}/{stack}.
+	// The live page should carry tfsp-report containers with data-plan-url.
+	page := a.livePage(liveView{
+		Exec: "exec1", Repo: "r",
+		Stacks: []events.StackState{{Path: "svc/a"}},
+	})
+	// The Result pane emits a lazy-fetch container (not inline diff HTML).
 	if !strings.Contains(page, "tfsp-report") {
-		t.Error("report: expected .tfsp-report wrapper div")
+		t.Error("report: expected .tfsp-report lazy container div")
 	}
+	if !strings.Contains(page, `data-plan-url="/plan/exec1/svc/a"`) {
+		t.Error("report: expected data-plan-url on the lazy container")
+	}
+	// renderMarkdown is covered by TestRenderMarkdown; goldmark output verified there.
 }
 
 func TestLivePageHeaderLinks(t *testing.T) {
@@ -204,7 +203,6 @@ func TestLivePageBriefingBand(t *testing.T) {
 			{Path: "stg/db", Project: "fh-staging-host", Status: events.StatusSafe,
 				Counts: &events.Counts{Destroy: 2}, Categories: []events.Category{{Name: "destructive"}}},
 		},
-		StackReports: map[string]string{"prod/api": "## prod/api\n~ google_cloud_run_service.api"},
 	})
 	for _, want := range []string{
 		`badge-primary`,        // apply-phase pill (DaisyUI badge, primary slot)
@@ -300,8 +298,7 @@ func TestLivePageTriageSection(t *testing.T) {
 			{Path: "stacks/api", Status: events.StatusFailed, Detail: iamDetail},
 			{Path: "stacks/db", Status: events.StatusSafe},
 		},
-		StackReports: map[string]string{},
-		StackLogs:    map[string]string{},
+		StackLogs: map[string]string{},
 	})
 	for _, want := range []string{
 		"Needs attention",            // section heading
@@ -417,8 +414,7 @@ func TestMovedStackRow(t *testing.T) {
 		Stacks: []events.StackState{
 			{Path: "stacks/mv", Status: events.StatusMoving},
 		},
-		StackReports: map[string]string{},
-		StackLogs:    map[string]string{},
+		StackLogs: map[string]string{},
 	}, "apply", false, time.Now())
 	if len(m.Groups) == 0 || len(m.Groups[0].Stacks) == 0 {
 		t.Fatal("expected at least one stack row")
@@ -427,11 +423,9 @@ func TestMovedStackRow(t *testing.T) {
 	if !row.Moved {
 		t.Errorf("StatusMoving stack: Moved=%v, want true", row.Moved)
 	}
-	if row.HasDetail {
-		t.Errorf("StatusMoving stack with no report: HasDetail=%v, want false", row.HasDetail)
-	}
-	if row.Detail != "" {
-		t.Errorf("StatusMoving stack with no report: Detail=%q, want empty", row.Detail)
+	// PlanURL is always set (lazy fetch); Moved flag governs what the template shows.
+	if row.PlanURL == "" {
+		t.Errorf("StatusMoving stack: PlanURL must be set even for moves")
 	}
 }
 
@@ -450,8 +444,7 @@ func TestLivePageTabDefaultByLiveness(t *testing.T) {
 		Stacks: []events.StackState{
 			{Path: "stacks/a", Status: events.StatusRunning},
 		},
-		StackReports: map[string]string{},
-		StackLogs:    map[string]string{},
+		StackLogs: map[string]string{},
 	})
 	// The Log radio must have "checked"; the Result radio must not.
 	// Running exec renders: Result=`name="..." >Result` (unchecked), Log=`name="..." checked>`
@@ -473,8 +466,7 @@ func TestLivePageTabDefaultByLiveness(t *testing.T) {
 		Stacks: []events.StackState{
 			{Path: "stacks/b", Status: events.StatusSafe},
 		},
-		StackReports: map[string]string{"stacks/b": "## stacks/b\nno changes"},
-		StackLogs:    map[string]string{},
+		StackLogs: map[string]string{},
 	})
 	// Result radio comes first and must be checked; Log radio follows and must not be.
 	if !strings.Contains(finishedPage, "checked>Result") {
@@ -494,24 +486,23 @@ func TestLivePageTabDefaultByLiveness(t *testing.T) {
 		Stacks: []events.StackState{
 			{Path: "stacks/mv", Status: events.StatusMoving},
 		},
-		StackReports: map[string]string{},
-		StackLogs:    map[string]string{},
+		StackLogs: map[string]string{},
 	})
 	if !strings.Contains(movePage, "State-only move") {
 		t.Error("StatusMoving stack: expected 'State-only move' placeholder text")
 	}
 }
 
-// TestLivePageInProgressMoveShowsShimmer asserts that an in-progress execution
-// with a StatusMoving stack renders the shimmer (Follow=true winning over Moved=true
-// in the template's else-if chain), NOT the "State-only move" text.
-func TestLivePageInProgressMoveShowsShimmer(t *testing.T) {
+// TestLivePageMovedResultPane asserts that a StatusMoving stack always shows the
+// "State-only move" text in the Result pane regardless of liveness, and that a
+// non-moved stack always gets the lazy-fetch tfsp-report container with shimmer.
+func TestLivePageMovedResultPane(t *testing.T) {
 	a := New(newServerTestDB(t), &MockGitHub{}, Config{})
 
-	// In-progress move: Status="" (not finished) + StatusMoving stack.
-	// Template order: Detail → else if Follow → else if Moved → else.
-	// Follow=true (not finished) should win and show shimmer, not "State-only move".
-	page := a.livePage(liveView{
+	// In-progress move: StatusMoving + not finished.
+	// New template order: if Moved → "State-only move"; else → tfsp-report+shimmer.
+	// Moved=true wins unconditionally in the Result pane.
+	inProgressPage := a.livePage(liveView{
 		Exec:    "e-moving",
 		Repo:    "o/r",
 		Context: "apply/prod",
@@ -519,18 +510,30 @@ func TestLivePageInProgressMoveShowsShimmer(t *testing.T) {
 		Stacks: []events.StackState{
 			{Path: "stacks/mv", Status: events.StatusMoving},
 		},
-		StackReports: map[string]string{},
-		StackLogs:    map[string]string{},
+		StackLogs: map[string]string{},
 	})
 
-	// Must contain shimmer (the Follow branch rendering).
-	if !strings.Contains(page, `class="shimmer`) {
-		t.Error("in-progress move: expected shimmer placeholder (Follow=true), not found")
+	// Moved stack always shows "State-only move", never the shimmer in the Result pane.
+	if !strings.Contains(inProgressPage, "State-only move") {
+		t.Error("in-progress move: must show 'State-only move' text (Moved wins in new template)")
 	}
 
-	// Must NOT contain "State-only move" text (the Moved branch is skipped by Follow winning).
-	if strings.Contains(page, "State-only move") {
-		t.Error("in-progress move: must not show 'State-only move' text (Follow wins over Moved in template)")
+	// A non-moved stack in a running exec gets the lazy-fetch container with shimmer.
+	runningPage := a.livePage(liveView{
+		Exec:    "e-running",
+		Repo:    "o/r",
+		Context: "apply/prod",
+		Status:  "",
+		Stacks: []events.StackState{
+			{Path: "stacks/api", Status: events.StatusRunning},
+		},
+		StackLogs: map[string]string{},
+	})
+	if !strings.Contains(runningPage, `class="shimmer`) {
+		t.Error("non-moved running stack: expected shimmer inside tfsp-report container")
+	}
+	if !strings.Contains(runningPage, `data-plan-url=`) {
+		t.Error("non-moved running stack: expected data-plan-url on the lazy container")
 	}
 }
 
@@ -543,5 +546,26 @@ func TestHumanizeDuration(t *testing.T) {
 	}
 	if got := humanizeDuration(time.Hour + 5*time.Minute); got != "1h 5m" {
 		t.Fatalf("got %q", got)
+	}
+}
+
+func TestLivePageDoesNotEmbedPlanMarkdown(t *testing.T) {
+	a := New(newServerTestDB(t), &MockGitHub{}, Config{})
+	id := "exec-lazy"
+	if err := store.UpsertInit(a.db, events.Init{ID: id, Repo: "o/r", Context: "plan/nonprod", Environment: "nonprod",
+		Stacks: []events.StackState{{Path: "svc/a", Status: events.StatusPlanned}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpsertStackOutput(a.db, id, "svc/a", "plan", "", "UNIQUEPLANMARKER diff body"); err != nil {
+		t.Fatal(err)
+	}
+	rec := httptest.NewRecorder()
+	a.Routes().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/live/"+id, nil))
+	body := rec.Body.String()
+	if strings.Contains(body, "UNIQUEPLANMARKER") {
+		t.Errorf("live page still embeds plan markdown; should be lazy-fetched")
+	}
+	if !strings.Contains(body, `data-plan-url="/plan/`+id+`/svc/a"`) {
+		t.Errorf("Result pane missing data-plan-url")
 	}
 }
