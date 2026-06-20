@@ -70,6 +70,8 @@
 .bar-seg.bs-skipped { background: var(--color-neutral); opacity: 0.4; }
 .bar-seg.bs-blocked { background: var(--color-warning); }
 .bar-seg.bs-failed { background: var(--color-error); }
+.bar-seg.bs-nochange { background: var(--color-success); opacity: 0.4; }
+.bar-seg.bs-aborted { background: var(--color-neutral); opacity: 0.55; }
 
 .sl-applied { color: var(--color-success); }
 .sl-applying { color: var(--color-primary); }
@@ -81,6 +83,8 @@
 .sl-skipped { color: var(--color-neutral); }
 .sl-blocked { color: var(--color-warning); }
 .sl-failed { color: var(--color-error); }
+.sl-nochange { color: var(--color-success); opacity: 0.75; }
+.sl-aborted { color: var(--color-neutral); }
 
 /* Selected-stack detail: a single pane swapped by the clicked row via :target.
    Only the targeted stack shows; nothing is selected by default (the pane shows
