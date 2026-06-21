@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -65,7 +66,7 @@ func TestProgressTitleTerminalShowsCounts(t *testing.T) {
 		{Path: "a", Status: events.StatusPlanned, Counts: &events.Counts{Add: 6}},
 		{Path: "b", Status: events.StatusPlanned, Counts: &events.Counts{Change: 3, Destroy: 2}},
 	}
-	got := progressTitle(events.PhasePlanning, stacks, true)
+	got := progressTitle(events.PhasePlanning, stacks, true, "plan")
 	for _, want := range []string{"+6", "~3", "−2", "2 stacks"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("terminal title %q missing %q", got, want)
@@ -77,15 +78,69 @@ func TestProgressTitleTerminalShowsCounts(t *testing.T) {
 }
 
 func TestProgressTitleTerminalNoChanges(t *testing.T) {
-	if got := progressTitle(events.PhasePlanning, nil, true); !strings.Contains(got, "no changes") {
+	if got := progressTitle(events.PhasePlanning, nil, true, "plan"); !strings.Contains(got, "no changes") {
 		t.Errorf("empty terminal title = %q, want it to say 'no changes'", got)
 	}
 }
 
 func TestProgressTitleRunningStillHasBar(t *testing.T) {
 	stacks := []events.StackState{{Path: "a", Status: events.StatusRunning}}
-	if got := progressTitle(events.PhasePlanning, stacks, false); !strings.Contains(got, "▰") {
+	if got := progressTitle(events.PhasePlanning, stacks, false, "plan"); !strings.Contains(got, "▰") {
 		t.Errorf("running title %q must keep the bar", got)
+	}
+}
+
+func TestProgressTitlePreparing(t *testing.T) {
+	// apply, non-terminal, PhaseInitializing, 3 of 8 stacks re-planned → "preparing"
+	stacks := make([]events.StackState, 8)
+	for i := range stacks {
+		stacks[i] = events.StackState{Path: fmt.Sprintf("svc/%d", i), Status: events.StatusPending}
+	}
+	// Mark 3 as StatusPlanned (done re-planning)
+	stacks[0].Status = events.StatusPlanned
+	stacks[1].Status = events.StatusPlanned
+	stacks[2].Status = events.StatusPlanned
+
+	got := progressTitle(events.PhaseInitializing, stacks, false, "apply")
+	if !strings.Contains(got, "3/8") {
+		t.Errorf("preparing title %q missing 3/8", got)
+	}
+	if !strings.Contains(got, "preparing") {
+		t.Errorf("preparing title %q missing 'preparing'", got)
+	}
+	if strings.Contains(got, "initializing") {
+		t.Errorf("preparing title %q must not say 'initializing'", got)
+	}
+
+	// apply, non-terminal, PhasePlanning, 0 done → "preparing"
+	all8pending := make([]events.StackState, 8)
+	for i := range all8pending {
+		all8pending[i] = events.StackState{Path: fmt.Sprintf("svc/%d", i), Status: events.StatusPending}
+	}
+	got2 := progressTitle(events.PhasePlanning, all8pending, false, "apply")
+	if !strings.Contains(got2, "preparing") {
+		t.Errorf("planning-phase apply title %q missing 'preparing'", got2)
+	}
+	if !strings.Contains(got2, "0/8") {
+		t.Errorf("planning-phase apply title %q missing '0/8'", got2)
+	}
+
+	// apply, non-terminal, PhaseApplying → "applying" (prep branch must NOT fire)
+	got3 := progressTitle(events.PhaseApplying, stacks, false, "apply")
+	if !strings.Contains(got3, "applying") {
+		t.Errorf("applying-phase title %q missing 'applying'", got3)
+	}
+	if strings.Contains(got3, "preparing") {
+		t.Errorf("applying-phase title %q must not say 'preparing'", got3)
+	}
+
+	// plan, non-terminal, PhaseInitializing → still "initializing" (unchanged)
+	got4 := progressTitle(events.PhaseInitializing, all8pending, false, "plan")
+	if !strings.Contains(got4, "initializing") {
+		t.Errorf("plan initializing title %q missing 'initializing'", got4)
+	}
+	if strings.Contains(got4, "preparing") {
+		t.Errorf("plan initializing title %q must not say 'preparing'", got4)
 	}
 }
 

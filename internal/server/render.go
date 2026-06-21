@@ -118,6 +118,12 @@ func progress(phase events.Phase, planned, initialized, total int) (bar, label s
 			label = fmt.Sprintf("planning %d/%d", planned, total)
 		}
 	}
+	bar, pct = progressBar(frac)
+	return bar, label, pct
+}
+
+// progressBar renders the unicode fill bar + integer percentage for a 0..1 fraction.
+func progressBar(frac float64) (bar string, pct int) {
 	if frac < 0 {
 		frac = 0
 	}
@@ -125,9 +131,7 @@ func progress(phase events.Phase, planned, initialized, total int) (bar, label s
 		frac = 1
 	}
 	filled := int(frac*float64(progressCells) + 0.5)
-	bar = strings.Repeat("▰", filled) + strings.Repeat("▱", progressCells-filled)
-	pct = int(frac*100 + 0.5)
-	return bar, label, pct
+	return strings.Repeat("▰", filled) + strings.Repeat("▱", progressCells-filled), int(frac*100 + 0.5)
 }
 
 // checkSummary builds the check-run summary body for a plan or apply: verdict
