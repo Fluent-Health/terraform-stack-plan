@@ -76,8 +76,15 @@ func AssociateClaimExecution(db *sql.DB, env string, pr int, execID string) erro
 // distinct environments that lost a claim (so the caller can re-evaluate their
 // held checks).
 func SweepExpiredClaims(db *sql.DB, now time.Time) ([]string, error) {
-	rows, err := db.Query(
-		`SELECT DISTINCT environment FROM apply_claims WHERE expires_at <= ?`, now.UTC())
+	tx, err := db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	utcNow := now.UTC()
+	rows, err := tx.Query(
+		`SELECT DISTINCT environment FROM apply_claims WHERE expires_at <= ?`, utcNow)
 	if err != nil {
 		return nil, err
 	}
@@ -94,7 +101,10 @@ func SweepExpiredClaims(db *sql.DB, now time.Time) ([]string, error) {
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	if _, err := db.Exec(`DELETE FROM apply_claims WHERE expires_at <= ?`, now.UTC()); err != nil {
+	if _, err := tx.Exec(`DELETE FROM apply_claims WHERE expires_at <= ?`, utcNow); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
 	return envs, nil
