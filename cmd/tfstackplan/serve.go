@@ -217,6 +217,7 @@ func runServe(args []string) int {
 
 	go app.ReconcileLoop(ctx, 30*time.Second)
 	go app.OrphanSweepLoop(ctx, 5*time.Minute)
+	go app.ClaimsSweepLoop(ctx, time.Minute)
 	go app.CleanLogBuffers(24 * time.Hour)
 
 	fmt.Fprintf(os.Stderr, "tfstackplan serve: listening on %s\n", *addr)

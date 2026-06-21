@@ -232,6 +232,39 @@ func (a *App) postApplyLockUnverifiable(ctx context.Context, repo, env, sha stri
 	_ = a.postApplyLock(ctx, repo, env, sha, pr, nil, kind, applyLockVerdict{State: "unverifiable", Reason: reason})
 }
 
+// sweepClaimsOnce releases all expired claims and re-evaluates held checks for
+// each affected environment (the auto-heal tick).
+func (a *App) sweepClaimsOnce(ctx context.Context) {
+	if !a.cfg.ApplyLock {
+		return
+	}
+	envs, err := store.SweepExpiredClaims(a.db, time.Now())
+	if err != nil {
+		return
+	}
+	for _, env := range envs {
+		a.reevaluateHeld(ctx, env)
+	}
+}
+
+// ClaimsSweepLoop periodically releases expired claims and re-evaluates held
+// checks (mirrors OrphanSweepLoop). Self-disables when apply_lock is off.
+func (a *App) ClaimsSweepLoop(ctx context.Context, interval time.Duration) {
+	if !a.cfg.ApplyLock {
+		return
+	}
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			a.sweepClaimsOnce(ctx)
+		}
+	}
+}
+
 // applyLockLease is the heartbeat lease window for a claim.
 func (a *App) applyLockLease() time.Duration { return 30 * time.Minute }
 

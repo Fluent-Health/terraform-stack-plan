@@ -180,3 +180,17 @@ func TestApplyFinalizeReleasesClaims(t *testing.T) {
 		t.Fatalf("finalize did not release: %v", c)
 	}
 }
+
+func TestSweepClaimsOnceReleasesAndReevaluates(t *testing.T) {
+	a, gh := newApplyLockTestApp(t)
+	// A held merge-group check waiting on stack "a" claimed by PR 5 with an expired lease.
+	seedPlan(t, a.db, 7, "prod", "o/r", "mgsha", []string{"a"})
+	_ = store.ClaimStacks(a.db, "prod", 5, "e5", []string{"a"}, time.Now().Add(-time.Minute)) // expired
+	_ = store.UpsertApplyLockCheck(a.db, store.ApplyLockCheck{
+		Environment: "prod", HeadSHA: "mgsha", CheckRunID: 1, PR: 7,
+		Repo: "o/r", Stacks: []string{"a"}, State: "held", Kind: "merge_group"})
+	a.sweepClaimsOnce(ctx())
+	if gh.lastUpdate.Conclusion != "success" {
+		t.Fatalf("sweep did not clear the held check: %q", gh.lastUpdate.Conclusion)
+	}
+}
