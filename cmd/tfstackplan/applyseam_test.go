@@ -28,6 +28,10 @@ type fakeTM struct {
 	scriptErr error
 	scriptRan bool
 	gotOpts   runner.ScriptRunOptions
+	// classifyParallel records the --parallel value the classify pass seam
+	// received (captured by withFakeTM), so a test can assert run apply threads
+	// --parallel into its pre-apply re-plan, not just the apply step.
+	classifyParallel int
 }
 
 func (f *fakeTM) ChangedStacks(_ context.Context, _ string) ([]string, error) { return f.changed, nil }
@@ -184,7 +188,8 @@ func withFakeTM(t *testing.T, f *fakeTM, gates []events.GateTarget) {
 	t.Cleanup(func() { newTerramate = origTM })
 
 	origCls := classifyForGateFn
-	classifyForGateFn = func(_ context.Context, _ string, _ []string, _ string, _ bool, _ string) ([]events.GateTarget, map[string][]events.Category, map[string]events.Counts, []string, string, error) {
+	classifyForGateFn = func(_ context.Context, _ string, _ []string, _ string, _ bool, _ string, parallel int) ([]events.GateTarget, map[string][]events.Category, map[string]events.Counts, []string, string, error) {
+		f.classifyParallel = parallel
 		return gates, map[string][]events.Category{}, map[string]events.Counts{}, nil, "classified", nil
 	}
 	t.Cleanup(func() { classifyForGateFn = origCls })
