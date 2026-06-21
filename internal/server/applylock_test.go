@@ -80,6 +80,31 @@ func (r *recordingGitHub) MergeGroupPRs(_ context.Context, _, _ string) ([]int, 
 	return r.mergeGroupPRs, nil
 }
 
+func TestClaimsEndpoints(t *testing.T) {
+	a, _ := newApplyLockTestApp(t)
+	_ = store.ClaimStacks(a.db, "prod", 7, "", []string{"a", "b"}, time.Now().Add(time.Hour))
+	// release via the App method the handler calls:
+	a.adminReleaseClaims(ctx(), "prod", 7, "a") // single stack
+	got, _ := store.ListClaims(a.db, "prod")
+	if len(got) != 1 || got[0].StackPath != "b" {
+		t.Fatalf("after single-stack release: %+v", got)
+	}
+	// release the remaining stack (pr-level)
+	a.adminReleaseClaims(ctx(), "prod", 7, "")
+	got2, _ := store.ListClaims(a.db, "prod")
+	if len(got2) != 0 {
+		t.Fatalf("after pr-level release: %+v", got2)
+	}
+	// disabled app: adminReleaseClaims is a no-op
+	a2 := New(newServerTestDB(t), &recordingGitHub{}, Config{ApplyLock: false})
+	_ = store.ClaimStacks(a2.db, "prod", 7, "", []string{"x"}, time.Now().Add(time.Hour))
+	a2.adminReleaseClaims(ctx(), "prod", 7, "x")
+	got3, _ := store.ListClaims(a2.db, "prod")
+	if len(got3) != 1 {
+		t.Fatalf("disabled: claim should be untouched, got %+v", got3)
+	}
+}
+
 func TestPostApplyLock(t *testing.T) {
 	a, gh := newApplyLockTestApp(t)
 	// held verdict => check created, left in_progress (no conclusion), record persisted held.

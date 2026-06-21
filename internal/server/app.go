@@ -130,6 +130,8 @@ func (a *App) Routes() http.Handler {
 	mux.Handle("POST /api/gate/check", a.auth(http.HandlerFunc(a.handleGateCheck)))
 	mux.Handle("POST /api/gate/revoke", a.auth(http.HandlerFunc(a.handleGateRevoke)))
 	mux.Handle("POST /api/logs", a.auth(http.HandlerFunc(a.handleLogs)))
+	mux.Handle("POST /api/claims/list", a.auth(http.HandlerFunc(a.handleClaimsList)))
+	mux.Handle("POST /api/claims/release", a.auth(http.HandlerFunc(a.handleClaimsRelease)))
 	return mux
 }
 

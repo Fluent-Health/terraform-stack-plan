@@ -41,6 +41,59 @@ func TestClaimsLifecycle(t *testing.T) {
 	}
 }
 
+func TestListClaims(t *testing.T) {
+	db := newTestDB(t)
+	now := time.Now()
+	exp := now.Add(30 * time.Minute)
+
+	_ = ClaimStacks(db, "prod", 7, "e1", []string{"b", "a"}, exp) // insert out of order
+	got, err := ListClaims(db, "prod")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("ListClaims len = %d, want 2", len(got))
+	}
+	// ordered by stack_path
+	if got[0].StackPath != "a" || got[1].StackPath != "b" {
+		t.Fatalf("ListClaims order = %v %v, want a,b", got[0].StackPath, got[1].StackPath)
+	}
+	if got[0].OwnerPR != 7 || got[0].Environment != "prod" {
+		t.Fatalf("ListClaims[0] = %+v", got[0])
+	}
+	// Returns all claims regardless of expiry
+	_ = ClaimStacks(db, "prod", 9, "e2", []string{"c"}, now.Add(-time.Minute))
+	got2, _ := ListClaims(db, "prod")
+	if len(got2) != 3 {
+		t.Fatalf("ListClaims with expired: len = %d, want 3", len(got2))
+	}
+	// Other env is not returned
+	_ = ClaimStacks(db, "stage", 5, "e3", []string{"x"}, exp)
+	got3, _ := ListClaims(db, "prod")
+	if len(got3) != 3 {
+		t.Fatalf("ListClaims cross-env contamination: len = %d", len(got3))
+	}
+}
+
+func TestReleaseClaimStack(t *testing.T) {
+	db := newTestDB(t)
+	now := time.Now()
+	exp := now.Add(30 * time.Minute)
+	_ = ClaimStacks(db, "prod", 7, "e1", []string{"a", "b"}, exp)
+
+	if err := ReleaseClaimStack(db, "prod", 7, "a"); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := ListClaims(db, "prod")
+	if len(got) != 1 || got[0].StackPath != "b" {
+		t.Fatalf("after ReleaseClaimStack: %+v", got)
+	}
+	// Releasing a non-existent stack is a no-op
+	if err := ReleaseClaimStack(db, "prod", 7, "nonexistent"); err != nil {
+		t.Fatalf("release nonexistent: %v", err)
+	}
+}
+
 func TestSweepExpiredClaims(t *testing.T) {
 	db := newTestDB(t)
 	now := time.Now()

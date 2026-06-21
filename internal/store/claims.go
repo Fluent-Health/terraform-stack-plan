@@ -110,6 +110,43 @@ func SweepExpiredClaims(db *sql.DB, now time.Time) ([]string, error) {
 	return envs, nil
 }
 
+// Claim is one row from the apply_claims table, returned by ListClaims.
+type Claim struct {
+	Environment string
+	StackPath   string
+	OwnerPR     int
+	ExpiresAt   time.Time
+}
+
+// ListClaims returns all claims for env (any expiry) ordered by stack_path.
+func ListClaims(db *sql.DB, env string) ([]Claim, error) {
+	rows, err := db.Query(
+		`SELECT environment, stack_path, owner_pr, expires_at FROM apply_claims
+		 WHERE environment = ? ORDER BY stack_path`,
+		env)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Claim
+	for rows.Next() {
+		var c Claim
+		if err := rows.Scan(&c.Environment, &c.StackPath, &c.OwnerPR, &c.ExpiresAt); err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+// ReleaseClaimStack deletes the claim for a single stack owned by pr in env.
+func ReleaseClaimStack(db *sql.DB, env string, pr int, stack string) error {
+	_, err := db.Exec(
+		`DELETE FROM apply_claims WHERE environment = ? AND owner_pr = ? AND stack_path = ?`,
+		env, pr, stack)
+	return err
+}
+
 func nullStr(s string) any {
 	if s == "" {
 		return nil

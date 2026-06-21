@@ -9,6 +9,54 @@ import (
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
 
+// handleClaimsList returns all apply-lock claims for an environment.
+// POST body: {"environment":"<env>"}
+// Response: JSON array of store.Claim (200); 404 when ApplyLock is off.
+func (a *App) handleClaimsList(w http.ResponseWriter, r *http.Request) {
+	if !a.cfg.ApplyLock {
+		http.NotFound(w, r)
+		return
+	}
+	var req struct {
+		Environment string `json:"environment"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		badRequest(w, err)
+		return
+	}
+	claims, err := store.ListClaims(a.db, req.Environment)
+	if err != nil {
+		http.Error(w, "list claims", http.StatusInternalServerError)
+		return
+	}
+	// Return an empty JSON array (never null) when there are no claims.
+	out := make([]store.Claim, 0, len(claims))
+	out = append(out, claims...)
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(out)
+}
+
+// handleClaimsRelease admin-releases one stack's claim or all of a PR's claims.
+// POST body: {"environment":"<env>","pr":<n>,"stack":"<optional>"}
+// Response: 200; 404 when ApplyLock is off.
+func (a *App) handleClaimsRelease(w http.ResponseWriter, r *http.Request) {
+	if !a.cfg.ApplyLock {
+		http.NotFound(w, r)
+		return
+	}
+	var req struct {
+		Environment string `json:"environment"`
+		PR          int    `json:"pr"`
+		Stack       string `json:"stack"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		badRequest(w, err)
+		return
+	}
+	a.adminReleaseClaims(r.Context(), req.Environment, req.PR, req.Stack)
+	w.WriteHeader(http.StatusOK)
+}
+
 func (a *App) handleInit(w http.ResponseWriter, r *http.Request) {
 	var in events.Init
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {

@@ -6,6 +6,8 @@
 // shapes.
 package events
 
+import "time"
+
 // Version is the protocol version. Bump on any breaking change to the payloads
 // below; runner and server are expected to share the same module version.
 const Version = 1
@@ -156,4 +158,13 @@ type GateCheck struct {
 type GateRevoke struct {
 	PR          int    `json:"pr"`
 	Environment string `json:"environment"`
+}
+
+// Claim is one apply-lock claim row, mirroring store.Claim over the wire for
+// the /api/claims/list endpoint.
+type Claim struct {
+	Environment string    `json:"environment"`
+	StackPath   string    `json:"stack_path"`
+	OwnerPR     int       `json:"owner_pr"`
+	ExpiresAt   time.Time `json:"expires_at"`
 }

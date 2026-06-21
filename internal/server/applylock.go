@@ -268,6 +268,21 @@ func (a *App) ClaimsSweepLoop(ctx context.Context, interval time.Duration) {
 // applyLockLease is the heartbeat lease window for a claim.
 func (a *App) applyLockLease() time.Duration { return 30 * time.Minute }
 
+// adminReleaseClaims is the manual un-wedge path: an admin releases one stack's
+// claim (stack != "") or all of a PR's claims in env (stack == ""), then
+// re-evaluates held checks. No-op when ApplyLock is off.
+func (a *App) adminReleaseClaims(ctx context.Context, env string, pr int, stack string) {
+	if !a.cfg.ApplyLock {
+		return
+	}
+	if stack != "" {
+		_ = store.ReleaseClaimStack(a.db, env, pr, stack)
+	} else {
+		_ = store.ReleaseClaimsByPREnv(a.db, env, pr)
+	}
+	a.reevaluateHeld(ctx, env)
+}
+
 // releaseApplyClaims drops a PR's claims in an env and re-evaluates held checks
 // (each held-check record carries its own repo).
 func (a *App) releaseApplyClaims(ctx context.Context, env string, pr int) {
