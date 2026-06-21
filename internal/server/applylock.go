@@ -283,6 +283,27 @@ func (a *App) adminReleaseClaims(ctx context.Context, env string, pr int, stack 
 	a.reevaluateHeld(ctx, env)
 }
 
+// postPlanApplyLock posts apply-lock/<env> for a PR right after its plan
+// finalizes, when the PR's changed stacks are known. The auto-merge (pr_head)
+// front-end's pull_request handler fires on PR open — before the plan registers
+// the stacks — so without this the check would only appear on a later push.
+// Posting here makes it appear reliably alongside plan/<env>, on the same SHA.
+func (a *App) postPlanApplyLock(ctx context.Context, e store.Execution) {
+	if !a.cfg.ApplyLock {
+		return
+	}
+	g, err := store.LoadGraph(a.db, e.ID)
+	if err != nil {
+		return
+	}
+	stacks := make([]string, 0, len(g.Stacks))
+	for _, s := range g.Stacks {
+		stacks = append(stacks, s.Path)
+	}
+	v := a.evalApplyLock(e.Environment, e.PR, stacks, time.Now())
+	_ = a.postApplyLock(ctx, e.Repo, e.Environment, e.SHA, e.PR, stacks, "pr_head", v)
+}
+
 // releaseApplyClaims drops a PR's claims in an env and re-evaluates held checks
 // (each held-check record carries its own repo).
 func (a *App) releaseApplyClaims(ctx context.Context, env string, pr int) {

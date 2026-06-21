@@ -1527,12 +1527,16 @@ ruleset chooses which to enforce:
   This is race-free: the merge-queue serializes PRs into the queue one at a
   time, so two PRs with overlapping stacks cannot both receive `success`
   simultaneously.
-- **`pull_request`** — evaluated on every `pull_request` head-push, with the
-  check posted on the PR's head SHA. The claim is written at the `push`
-  event that delivers the merge commit (i.e. on actual merge, not at greenlight).
-  This is simpler to deploy (no merge queue needed) but has a residual race:
-  two PRs with overlapping stacks that receive `clear` within the same window
-  can both merge before either claim is recorded.
+- **`pull_request`** — the check is posted on the PR's head SHA. Because the
+  `pull_request` webhook (open/sync) fires *before* the plan registers the PR's
+  changed stacks, the check is **also (re-)posted when the plan finalizes**
+  (`handleFinalize` → `postPlanApplyLock`, on the same SHA as `plan/<env>`) — so
+  on a freshly-opened PR it appears reliably alongside `plan/<env>` rather than
+  only after a later push. The claim is written at the `push` event that delivers
+  the merge commit (i.e. on actual merge, not at greenlight). Simpler to deploy
+  (no merge queue needed) but has a residual race: two PRs with overlapping
+  stacks that receive `clear` within the same window can both merge before either
+  claim is recorded.
 
 **Claim lifecycle and auto-heal.** Claims are associated to the apply execution
 at `Init` time and kept alive by a **heartbeat lease** — each apply tick from
