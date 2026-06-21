@@ -320,7 +320,7 @@ func TestExamples(t *testing.T) {
 
 	for _, sc := range scenarios {
 		t.Run(sc.file, func(t *testing.T) {
-			out, _, fits, err := run(opts{
+			out, _, _, fits, err := run(opts{
 				plansDir: stacks,
 				title:    "Terraform plan — nonprod",
 				marker:   "tfstackplan:nonprod",
@@ -368,7 +368,7 @@ func TestStateOpsExample(t *testing.T) {
 	}
 	stacks := stateOpsStacks(t, dir)
 
-	out, _, fits, err := run(opts{
+	out, _, _, fits, err := run(opts{
 		plansDir: stacks,
 		title:    "Terraform plan — state ops & structured diffs",
 		marker:   "tfstackplan:state-ops",
@@ -433,7 +433,7 @@ func TestLongAddressExample(t *testing.T) {
 	}
 	stacks := longAddressStacks(t, dir)
 
-	out, _, fits, err := run(opts{
+	out, _, _, fits, err := run(opts{
 		plansDir: stacks,
 		title:    "Terraform plan — long names & for-each",
 		marker:   "tfstackplan:long-names",

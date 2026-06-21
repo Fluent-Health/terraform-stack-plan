@@ -29,7 +29,8 @@ type Execution struct {
 // UpsertInit records an execution and its changed subgraph from an Init event.
 // Re-init with the same id is upsert-safe. The phase column is intentionally
 // left untouched: the lifecycle phase is owned by UpsertPhase, which may run
-// before Init.
+// before Init. Stack status is set only on first insert; a repeat Init (e.g.
+// run register followed by run plan) never regresses an already-advanced stack.
 func UpsertInit(db *sql.DB, in events.Init) error {
 	tx, err := db.Begin()
 	if err != nil {
@@ -53,7 +54,7 @@ func UpsertInit(db *sql.DB, in events.Init) error {
 		if _, err := tx.Exec(
 			`INSERT INTO stacks (execution_id, stack_path, project, status) VALUES (?,?,?,?)
 			 ON CONFLICT(execution_id, stack_path) DO UPDATE SET
-			   project=excluded.project, status=excluded.status`,
+			   project=excluded.project`,
 			in.ID, s.Path, s.Project, string(status)); err != nil {
 			return fmt.Errorf("insert stack %q: %w", s.Path, err)
 		}

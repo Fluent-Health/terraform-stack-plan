@@ -151,3 +151,10 @@ func TestLogStreamerThresholdFlush(t *testing.T) {
 		t.Fatalf("streamed %d bytes, want 5000", total)
 	}
 }
+
+func TestRunStepRunningFlagValidation(t *testing.T) {
+	// Unknown --running status is a flag misuse → exit 2.
+	if code := runStep([]string{"--stack", "a", "--running", "bogus", "--", "true"}); code != 2 {
+		t.Fatalf("run step --running bogus = %d, want 2", code)
+	}
+}

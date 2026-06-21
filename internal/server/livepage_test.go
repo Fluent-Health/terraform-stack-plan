@@ -196,7 +196,7 @@ func TestLivePageBriefingBand(t *testing.T) {
 	a := New(newServerTestDB(t), &MockGitHub{}, Config{})
 	html := a.livePage(liveView{
 		Exec: "e1", Repo: "o/r", Environment: "nonprod", Context: "apply/nonprod",
-		Status: "in_progress", CreatedAt: time.Now().Add(-90 * time.Second),
+		Status: "in_progress", Phase: events.PhaseApplying, CreatedAt: time.Now().Add(-90 * time.Second),
 		Stacks: []events.StackState{
 			{Path: "prod/api", Project: "fh-prod-host", Status: events.StatusRunning,
 				Counts: &events.Counts{Change: 8}, Categories: []events.Category{{Name: "iam"}}},
@@ -240,7 +240,7 @@ func TestBuildLiveModel(t *testing.T) {
 	v := liveView{
 		Exec: "e1", Repo: "Fluent-Health/infra", PR: 412, SHA: "a3f1414abc",
 		Environment: "nonprod", Context: "apply/nonprod", Status: "in_progress",
-		CreatedAt: created,
+		Phase: events.PhaseApplying, CreatedAt: created,
 		Stacks: []events.StackState{
 			{Path: "prod/api", Project: "fh-prod-host", Status: events.StatusRunning,
 				Counts: &events.Counts{Change: 8}, Categories: []events.Category{{Name: "iam"}}},
@@ -268,8 +268,12 @@ func TestBuildLiveModel(t *testing.T) {
 	if len(m.Progress) != 2 {
 		t.Fatalf("progress segs=%d", len(m.Progress))
 	}
-	if m.Progress[0].StateCSS != "applying" { // prod/api is Running in an apply
+	// Rank-sorted: applied(rank 0) before applying(rank 2).
+	if m.Progress[0].StateCSS != "applied" { // stg/db is Safe → applied comes first
 		t.Fatalf("progress[0]=%+v", m.Progress[0])
+	}
+	if m.Progress[1].StateCSS != "applying" { // prod/api is Running → applying second
+		t.Fatalf("progress[1]=%+v", m.Progress[1])
 	}
 	if len(m.Groups) != 2 || m.Groups[0].Name != "fh-prod-host" {
 		t.Fatalf("groups=%+v", m.Groups)
@@ -371,7 +375,7 @@ func TestBuildLiveModelWarmingInitializingLabels(t *testing.T) {
 			view:     liveView{Context: "apply/prod", Phase: events.PhaseInitializing},
 			kind:     "apply",
 			finished: false,
-			want:     "INITIALIZING",
+			want:     "PREPARING",
 		},
 		{
 			name:     "plan initializing",

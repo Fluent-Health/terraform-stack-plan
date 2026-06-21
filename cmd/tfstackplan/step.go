@@ -94,6 +94,7 @@ func runStep(args []string) int {
 	fs := flag.NewFlagSet("run step", flag.ContinueOnError)
 	stack := fs.String("stack", "", "stack path (defaults to $"+runner.EnvStack+")")
 	onSuccess := fs.String("on-success", "", "status to report on a zero exit (e.g. safe, planned); empty = intermediate, report nothing on success")
+	running := fs.String("running", "", "status to report on start (default: running)")
 	useTTY := fs.Bool("tty", false, "run the command under a PTY so it emits ANSI colour (graceful fallback to a pipe if unavailable)")
 	// Parse only the flags before "--"; everything after is the wrapped command.
 	sep := -1
@@ -109,6 +110,14 @@ func runStep(args []string) int {
 	}
 	if err := fs.Parse(args[:sep]); err != nil {
 		return 2
+	}
+	startStatus := events.StatusRunning
+	if *running != "" {
+		if !knownStatus(*running) {
+			fmt.Fprintln(os.Stderr, "tfstackplan run step: unknown --running status:", *running)
+			return 2
+		}
+		startStatus = events.Status(*running)
 	}
 	cmdArgs := args[sep+1:]
 
@@ -127,7 +136,7 @@ func runStep(args []string) int {
 	stderrWriters := []io.Writer{os.Stderr}
 	if reporting {
 		client = runner.ClientFromEnv()
-		_ = client.Update(ctx, events.Update{ID: execID, Stack: s, Status: events.StatusRunning})
+		_ = client.Update(ctx, events.Update{ID: execID, Stack: s, Status: startStatus})
 		streamer = newLogStreamer(func(chunk string) {
 			_ = client.LogChunk(ctx, events.LogChunk{ID: execID, Stack: s, Data: chunk})
 		})
@@ -211,6 +220,19 @@ func exitCodeOf(err error) int {
 		return ee.ExitCode()
 	}
 	return 1
+}
+
+// knownStatus reports whether s is a recognized stack status (guards --running
+// against typos that would render as an unknown state).
+func knownStatus(s string) bool {
+	switch events.Status(s) {
+	case events.StatusPending, events.StatusRunning, events.StatusInitializing,
+		events.StatusInitialized, events.StatusPlanned, events.StatusGated,
+		events.StatusSafe, events.StatusNochange, events.StatusMoving,
+		events.StatusFailed, events.StatusAborted:
+		return true
+	}
+	return false
 }
 
 // lastLine returns the last non-empty line of s (a thin failure-detail fallback;

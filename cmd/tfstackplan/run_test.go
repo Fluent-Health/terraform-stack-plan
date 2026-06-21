@@ -137,6 +137,14 @@ func TestRunPhaseNoExecIsNoop(t *testing.T) {
 	}
 }
 
+func TestRunRegisterOfflineNoop(t *testing.T) {
+	t.Setenv("TFSTACKPLAN_SERVER", "")
+	t.Setenv("TFSTACKPLAN_EXECUTION", "")
+	if code := runRegister(nil); code != 0 {
+		t.Fatalf("offline run register = %d, want 0", code)
+	}
+}
+
 func TestDispatchRoutesRun(t *testing.T) {
 	t.Setenv(runner.EnvServer, "")
 	if code := dispatch([]string{"run", "tick", "--stack", "a", "--status", "running"}); code != 0 {
