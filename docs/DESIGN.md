@@ -1036,7 +1036,17 @@ apply"** (`CheckRunUpdate.Title` is emitted by the real client and set per
 driver); previously it was mislabelled "Terraform plan". The check-run progress
 title includes an **init band** with a known denominator N once `run register`
 registers the stacks; the label reads `initializing N stacks…` until at least one
-stack completes init, at which point it becomes `initialized k/N`. PAM
+stack completes init, at which point it becomes `initialized k/N`. For an apply,
+the title reads `preparing k/N` during the pre-apply re-plan pass (which runs
+under a pre-apply phase before `PhaseApplying`), flipping to `applying k/N` once
+the real apply begins; `progressTitle` takes a `kind` arg and the bar rendering
+is factored into `progressBar`. The rendered report shown in the check-run
+**details** (and the live-viewer report section) uses `render.RenderNoTable` —
+header + per-stack change trees, **omitting** the leading summary table, since the
+live per-stack table already covers the overview; the full report (with the
+summary table) is still emitted to stdout / the `render` CLI for PR-comment
+output (`run()` returns both variants; `classifyResult.ReportNoTable`; the apply
+path gets the no-table report through the `classifyForGateFn` seam). PAM
 approval links in the check summary point at
 `https://console.cloud.google.com/iam-admin/pam/grants/approvals?project=<target>`
 — the "Approve grants → Pending approval" tab — which is the finest-grained
