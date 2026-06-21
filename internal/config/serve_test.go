@@ -107,6 +107,33 @@ serve {
 	}
 }
 
+func TestServeApplyLockFlag(t *testing.T) {
+	// off by default
+	cfg, err := Load(writeCfg(t, `
+serve {
+  db_path    = "x"
+}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Serve.ApplyLock {
+		t.Error("apply_lock should default false")
+	}
+	cfg, err = Load(writeCfg(t, `
+serve {
+  db_path    = "x"
+  apply_lock = true
+}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Serve.ApplyLock {
+		t.Error("apply_lock = true not parsed")
+	}
+}
+
 func TestLoadServeGroupBlock(t *testing.T) {
 	cfg, err := Load(writeCfg(t, `
 serve {
