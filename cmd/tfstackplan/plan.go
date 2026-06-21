@@ -90,7 +90,7 @@ func runPlan(args []string) int {
 	fmt.Print(res.Report)
 
 	_ = client.Finalize(ctx, events.Finalize{
-		ID: execID, ReportMarkdown: res.Report, StackReports: res.StackReports, Gates: res.Gates, Moving: res.Moving, Failed: scriptErr != nil,
+		ID: execID, ReportMarkdown: res.ReportNoTable, StackReports: res.StackReports, Gates: res.Gates, Moving: res.Moving, Failed: scriptErr != nil,
 		Categories: res.Categories, Counts: res.Counts,
 	})
 

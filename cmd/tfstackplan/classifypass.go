@@ -28,17 +28,18 @@ import (
 var classifyForGateFn = func(ctx context.Context, dir string, stacks []string, base string, changed bool, cfgPath string) (
 	[]events.GateTarget, map[string][]events.Category, map[string]events.Counts, []string, string, error) {
 	r, err := classifyForGate(ctx, dir, stacks, base, changed, cfgPath)
-	return r.Gates, r.Categories, r.Counts, r.Moving, r.Report, err
+	return r.Gates, r.Categories, r.Counts, r.Moving, r.ReportNoTable, err
 }
 
 // classifyResult is the full output of a classify pass.
 type classifyResult struct {
-	Gates        []events.GateTarget
-	Categories   map[string][]events.Category
-	Moving       []string
-	Counts       map[string]events.Counts
-	Report       string
-	StackReports map[string]string
+	Gates         []events.GateTarget
+	Categories    map[string][]events.Category
+	Moving        []string
+	Counts        map[string]events.Counts
+	Report        string
+	ReportNoTable string
+	StackReports  map[string]string
 }
 
 // classifyForGate runs the terramate plan script over the given stacks (so each
@@ -103,18 +104,19 @@ func renderClassification(dir string, stacks []string, cfgPath string) (classify
 		o.stateMoves = movesPath
 	}
 
-	report, stackReports, _, rerr := run(o)
+	report, reportNoTable, stackReports, _, rerr := run(o)
 	if rerr != nil {
 		return classifyResult{}, rerr
 	}
 
 	res := classifyResult{
-		Gates:        []events.GateTarget{},
-		Categories:   map[string][]events.Category{},
-		Moving:       []string{},
-		Counts:       map[string]events.Counts{},
-		Report:       report,
-		StackReports: stackReports,
+		Gates:         []events.GateTarget{},
+		Categories:    map[string][]events.Category{},
+		Moving:        []string{},
+		Counts:        map[string]events.Counts{},
+		Report:        report,
+		ReportNoTable: reportNoTable,
+		StackReports:  stackReports,
 	}
 	if data, e := os.ReadFile(sidecar); e == nil {
 		res.Gates, res.Moving, _ = gatesFromSidecar(data, gatingClasses(resolvedCfg, dir))
