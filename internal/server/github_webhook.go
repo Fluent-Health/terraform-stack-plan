@@ -33,7 +33,27 @@ func (a *App) handleGitHubWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if r.Header.Get("X-GitHub-Event") != "pull_request" {
+	switch r.Header.Get("X-GitHub-Event") {
+	case "merge_group":
+		var mg struct {
+			Action     string `json:"action"`
+			MergeGroup struct {
+				HeadSHA string `json:"head_sha"`
+			} `json:"merge_group"`
+			Repository struct {
+				FullName string `json:"full_name"`
+			} `json:"repository"`
+		}
+		if err := json.Unmarshal(body, &mg); err != nil {
+			http.Error(w, "invalid payload", http.StatusBadRequest)
+			return
+		}
+		a.handleMergeGroup(r.Context(), mg.Repository.FullName, mg.MergeGroup.HeadSHA, mg.Action)
+		w.WriteHeader(http.StatusNoContent)
+		return
+	case "pull_request":
+		// existing handling continues below
+	default:
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}

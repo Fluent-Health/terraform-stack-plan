@@ -238,6 +238,26 @@ func LatestExecutionID(db *sql.DB, pr int, environment string) (string, bool) {
 	return id, true
 }
 
+// EnvironmentsForPR returns the distinct environments that have at least one
+// execution for the given PR. Order is unspecified.
+func EnvironmentsForPR(db *sql.DB, pr int) ([]string, error) {
+	rows, err := db.Query(
+		`SELECT DISTINCT environment FROM executions WHERE pr = ? AND environment != ''`, pr)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var e string
+		if err := rows.Scan(&e); err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
 // LatestVerifyExecutionID returns the most recent verify-context execution id for
 // (pr, environment) — i.e. a run whose status_context begins with "verify". ok is
 // false when none exists.

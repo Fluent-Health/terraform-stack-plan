@@ -2,8 +2,11 @@ package server
 
 import (
 	"context"
+	"database/sql"
 	"testing"
+	"time"
 
+	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
 
@@ -17,9 +20,31 @@ func newApplyLockTestApp(t *testing.T) (*App, *recordingGitHub) {
 	return a, gh
 }
 
-// recordingGitHub is a test double that records the last UpdateCheckRun call.
+// seedPlan upserts an execution with the given stacks so prChangedStacks
+// (and EnvironmentsForPR) finds a plan for (pr, env).
+func seedPlan(t *testing.T, db *sql.DB, pr int, env, repo, headSHA string, stacks []string) {
+	t.Helper()
+	ss := make([]events.StackState, len(stacks))
+	for i, s := range stacks {
+		ss[i] = events.StackState{Path: s}
+	}
+	if err := store.UpsertInit(db, events.Init{
+		ID:          headSHA + "-" + env,
+		Repo:        repo,
+		SHA:         headSHA,
+		PR:          pr,
+		Environment: env,
+		Stacks:      ss,
+	}); err != nil {
+		t.Fatalf("seedPlan: %v", err)
+	}
+}
+
+// recordingGitHub is a test double that records the last UpdateCheckRun call
+// and exposes a configurable list of PRs for MergeGroupPRs.
 type recordingGitHub struct {
-	lastUpdate CheckRunUpdate
+	lastUpdate    CheckRunUpdate
+	mergeGroupPRs []int
 }
 
 func (r *recordingGitHub) CreateCheckRun(_ context.Context, _, _, _ string, _ string) (int64, error) {
@@ -41,6 +66,10 @@ func (r *recordingGitHub) PRHeadSHA(_ context.Context, _ string, _ int) (string,
 
 func (r *recordingGitHub) PRAbandoned(_ context.Context, _ string, _ int) (bool, error) {
 	return false, nil
+}
+
+func (r *recordingGitHub) MergeGroupPRs(_ context.Context, _, _ string) ([]int, error) {
+	return r.mergeGroupPRs, nil
 }
 
 func TestPostApplyLock(t *testing.T) {
@@ -78,5 +107,27 @@ func TestOverlap(t *testing.T) {
 	// Disjoint => no overlap.
 	if g := overlap(claimed, []string{"d", "e"}, 7); len(g) != 0 {
 		t.Fatalf("disjoint blocked: %v", g)
+	}
+}
+
+func TestMergeGroupHeldThenClaim(t *testing.T) {
+	a, gh := newApplyLockTestApp(t)
+	gh.mergeGroupPRs = []int{7}
+	seedPlan(t, a.db, 7, "prod", "o/r", "headPR", []string{"a", "b"}) // helper: Init w/ stacks
+	// Another PR holds stack "a" => held.
+	_ = store.ClaimStacks(a.db, "prod", 5, "e5", []string{"a"}, time.Now().Add(time.Hour))
+	a.handleMergeGroup(ctx(), "o/r", "mgsha", "checks_requested")
+	if gh.lastUpdate.Conclusion != "" {
+		t.Fatalf("overlap merge group should be held, got conclusion %q", gh.lastUpdate.Conclusion)
+	}
+	// Now the conflicting claim is released => a fresh checks_requested clears + claims.
+	_ = store.ReleaseClaimsByPREnv(a.db, "prod", 5)
+	gh.lastUpdate = CheckRunUpdate{}
+	a.handleMergeGroup(ctx(), "o/r", "mgsha", "checks_requested")
+	if gh.lastUpdate.Conclusion != "success" {
+		t.Fatalf("disjoint merge group conclusion = %q, want success", gh.lastUpdate.Conclusion)
+	}
+	if c, _ := store.ClaimedStacks(a.db, "prod", time.Now()); c["a"] != 7 || c["b"] != 7 {
+		t.Fatalf("greenlight did not claim: %v", c)
 	}
 }

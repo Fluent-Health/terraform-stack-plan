@@ -250,6 +250,31 @@ func (c *RealClient) PRAbandoned(ctx context.Context, repo string, pr int) (bool
 	return out.State == "closed" && !out.Merged, nil
 }
 
+// MergeGroupPRs returns the PR numbers whose commits compose the merge group at
+// headSHA, via the commit→PRs association API.
+func (c *RealClient) MergeGroupPRs(ctx context.Context, repo, headSHA string) ([]int, error) {
+	owner, name, err := splitRepo(repo)
+	if err != nil {
+		return nil, err
+	}
+	body, err := c.do(ctx, http.MethodGet,
+		fmt.Sprintf("%s/repos/%s/%s/commits/%s/pulls", apiBase, owner, name, headSHA), nil)
+	if err != nil {
+		return nil, err
+	}
+	var pulls []struct {
+		Number int `json:"number"`
+	}
+	if err := json.Unmarshal(body, &pulls); err != nil {
+		return nil, err
+	}
+	out := make([]int, 0, len(pulls))
+	for _, p := range pulls {
+		out = append(out, p.Number)
+	}
+	return out, nil
+}
+
 // applyLockName is the per-environment apply-lock check name (the merge gate
 // that branch protection / the merge queue require): "apply-lock/<env>".
 func applyLockName(environment string) string {
