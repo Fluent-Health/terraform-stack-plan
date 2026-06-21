@@ -1501,6 +1501,87 @@ apply as) a real destroy+create. The filename is the authoritative key; `state
 cleanup` matches by filename and does not parse, so a corrupt or key-mismatched
 file is always removable.
 
+### Apply serialization — merge-lock (off by default)
+
+`tfstackplan serve` can prevent overlapping tier-applies from colliding on
+per-stack Terraform state locks. The subsystem is off by default and engaged
+per tier by the `apply_lock` serve-config flag.
+
+**Mechanism.** A per-environment *claimed-stack set* (`apply_claims` table)
+records which PR currently holds each stack. When serve evaluates whether a
+PR is safe to merge, it computes the *overlap* between the PR's plan-time
+changed stacks and the currently-claimed set. An empty intersection → `clear`;
+any overlap → `held`. If the PR's plan stacks cannot be determined (no finalized
+plan, or the store is unreadable) the verdict is `unverifiable` — the subsystem
+**fails closed**. Serve posts a required GitHub check named `apply-lock/<env>`:
+
+- `clear` → check conclusion `success`.
+- `held` or `unverifiable` → check conclusion `pending` (blocking the merge).
+
+**Two webhook front-ends** over the same overlap predicate; infra's governance
+ruleset chooses which to enforce:
+
+- **`merge_group`** (GitHub merge queue) — evaluated on the `merge_group.checks_requested`
+  event. The PR is already isolated in a merge-queue branch, so the claim is
+  written atomically at the moment serve posts the `success` check (greenlight).
+  This is race-free: the merge-queue serializes PRs into the queue one at a
+  time, so two PRs with overlapping stacks cannot both receive `success`
+  simultaneously.
+- **`pull_request`** — evaluated on every `pull_request` head-push, with the
+  check posted on the PR's head SHA. The claim is written at the `push`
+  event that delivers the merge commit (i.e. on actual merge, not at greenlight).
+  This is simpler to deploy (no merge queue needed) but has a residual race:
+  two PRs with overlapping stacks that receive `clear` within the same window
+  can both merge before either claim is recorded.
+
+**Claim lifecycle and auto-heal.** Claims are associated to the apply execution
+at `Init` time and kept alive by a **heartbeat lease** — each apply tick from
+`run step` renews the claim's expiry. On apply finalize (success or failure),
+the claim is released from the HTTP handler (mode-agnostic; works whether or
+not `reconciler_core` is on). A `ClaimsSweepLoop` (periodic background task)
+releases claims whose lease has expired — a signal that the apply process died
+without calling finalize — and re-evaluates all `pending` `apply-lock/<env>`
+checks for the same environment, so a stuck check self-heals once the dead
+apply's TTL lapses.
+
+**Admin un-wedge.** `tfstackplan claims list [--env ENV]` shows active claims
+(PR, stacks, expiry); `tfstackplan claims release <pr> [--env ENV]` forcibly
+releases a stuck claim. A GitHub repository admin can also post a `success`
+bypass directly via the GitHub Checks API, skipping the predicate entirely.
+
+**Known limitations / gotchas (apply serialization):**
+
+- **Race-freedom depends on infra's chosen enforcement.** The `merge_group`
+  front-end is race-free (the merge queue serializes PRs and the claim is
+  recorded at greenlight). The `pull_request`+auto-merge front-end has a
+  residual race: two PRs with overlapping stacks can both see `clear` and
+  auto-merge before either claim is recorded. Use the merge queue
+  (`merge_group`) when strict serialization is required.
+- **Merge-queue head-of-line blocking.** A long-running apply holds its claim
+  for the full apply duration. A second PR with any overlapping stack queues
+  behind it and cannot enter the merge queue (its `apply-lock/<env>` check stays
+  `pending`). The effective throughput is one apply per overlapping-stack-group
+  at a time.
+- **`merge_group` → PR resolution assumes group size 1.** Serve resolves the
+  merge-group's head SHA back to a PR by matching the group's branch name
+  (`refs/heads/gh-readonly-queue/<base>/pr-<n>-...`). This assumption holds
+  for a solo-entry merge queue (the default) but breaks if multiple PRs are
+  batched into one merge-queue entry.
+- **The lease window must exceed the apply heartbeat gap.** If the claim's TTL
+  is shorter than the interval between `run step` ticks, the `ClaimsSweepLoop`
+  can mistakenly release a live apply's claim and unblock a racing PR. The
+  configured TTL should be at least 2× the longest expected tick gap.
+- **The overlap predicate uses plan-time stacks.** The claimed set is populated
+  from the stacks recorded at plan `Finalize`. If the base branch moved (e.g.
+  another PR merged a new stack) between the plan and the apply, the predicate
+  may use a stale stack set. When strict required checks are enabled, the merge
+  queue forces a re-plan in that case, refreshing the set.
+- **Release lives in the HTTP handlers, not a reconcile action.** `ApplySucceeded`/
+  `ApplyFailed` signals do not call through `reconcile.Step` — the release is
+  issued directly from the finalize handler. This is intentional: it keeps the
+  release mode-agnostic (correct whether or not `reconciler_core` is on) and the
+  lease is the crash backstop.
+
 ### Delivery: binary + Cloud Run container
 
 The `serve` face is intended to run as a Cloud Run-class service, so a release
