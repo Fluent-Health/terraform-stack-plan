@@ -32,6 +32,9 @@ func (a *App) handleInit(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if isApplyContext(in.Context) && a.cfg.ApplyLock {
+		_ = store.AssociateClaimExecution(a.db, in.Environment, in.PR, in.ID)
+	}
 	a.drive(r.Context(), in.ID, base, false)
 	w.WriteHeader(http.StatusOK)
 }
@@ -64,6 +67,9 @@ func (a *App) handlePhase(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if isApplyContext(e.StatusContext) && a.cfg.ApplyLock {
+		a.renewApplyClaims(e.Environment, e.PR)
+	}
 	a.drive(r.Context(), p.ID, base, false)
 	w.WriteHeader(http.StatusOK)
 }
@@ -80,6 +86,11 @@ func (a *App) handleUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	if a.Objects != nil && done(u.Status) {
 		_ = a.offloadLog(r.Context(), u.ID, u.Stack)
+	}
+	if a.cfg.ApplyLock {
+		if ue, err := store.GetExecution(a.db, u.ID); err == nil && isApplyContext(ue.StatusContext) {
+			a.renewApplyClaims(ue.Environment, ue.PR)
+		}
 	}
 	a.drive(r.Context(), u.ID, a.baseURL(r), false)
 	w.WriteHeader(http.StatusOK)
@@ -131,6 +142,9 @@ func (a *App) handleFinalize(w http.ResponseWriter, r *http.Request) {
 		a.drive(r.Context(), f.ID, a.baseURL(r), true)
 		if g, gerr := store.LoadGraph(a.db, f.ID); gerr == nil {
 			a.finalizeLogs(r.Context(), f.ID, g.Stacks)
+		}
+		if isApplyContext(e.StatusContext) && a.cfg.ApplyLock {
+			a.releaseApplyClaims(r.Context(), e.Environment, e.PR)
 		}
 		w.WriteHeader(http.StatusOK)
 		return
@@ -226,6 +240,9 @@ func (a *App) handleFinalize(w http.ResponseWriter, r *http.Request) {
 	}
 	if g, gerr := store.LoadGraph(a.db, f.ID); gerr == nil {
 		a.finalizeLogs(r.Context(), f.ID, g.Stacks)
+	}
+	if isApplyContext(e.StatusContext) && a.cfg.ApplyLock {
+		a.releaseApplyClaims(r.Context(), e.Environment, e.PR)
 	}
 	w.WriteHeader(http.StatusOK)
 }

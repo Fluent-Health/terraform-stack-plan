@@ -171,3 +171,12 @@ func TestPRApplyLockEvaluateAndClaim(t *testing.T) {
 		t.Fatalf("merged did not claim: %v", c)
 	}
 }
+
+func TestApplyFinalizeReleasesClaims(t *testing.T) {
+	a, _ := newApplyLockTestApp(t)
+	_ = store.ClaimStacks(a.db, "prod", 7, "", []string{"a"}, time.Now().Add(time.Hour))
+	a.releaseApplyClaims(ctx(), "prod", 7)
+	if c, _ := store.ClaimedStacks(a.db, "prod", time.Now()); len(c) != 0 {
+		t.Fatalf("finalize did not release: %v", c)
+	}
+}

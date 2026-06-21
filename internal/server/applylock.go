@@ -235,6 +235,24 @@ func (a *App) postApplyLockUnverifiable(ctx context.Context, repo, env, sha stri
 // applyLockLease is the heartbeat lease window for a claim.
 func (a *App) applyLockLease() time.Duration { return 30 * time.Minute }
 
+// releaseApplyClaims drops a PR's claims in an env and re-evaluates held checks
+// (each held-check record carries its own repo).
+func (a *App) releaseApplyClaims(ctx context.Context, env string, pr int) {
+	if !a.cfg.ApplyLock {
+		return
+	}
+	_ = store.ReleaseClaimsByPREnv(a.db, env, pr)
+	a.reevaluateHeld(ctx, env)
+}
+
+// renewApplyClaims extends a PR's lease in an env (apply heartbeat).
+func (a *App) renewApplyClaims(env string, pr int) {
+	if !a.cfg.ApplyLock {
+		return
+	}
+	_ = store.RenewClaims(a.db, env, pr, time.Now().Add(a.applyLockLease()))
+}
+
 // reevaluateHeld re-posts every held apply-lock check in env whose blocking
 // stacks are now clear (called after any claim release). Each held-check record
 // carries its own repo, so this needs no repo arg and works from a sweep too.
