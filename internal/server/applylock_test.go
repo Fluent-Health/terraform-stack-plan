@@ -219,3 +219,30 @@ func TestSweepClaimsOnceReleasesAndReevaluates(t *testing.T) {
 		t.Fatalf("sweep did not clear the held check: %q", gh.lastUpdate.Conclusion)
 	}
 }
+
+// TestPostPlanApplyLockOnFinalize covers the fix for the auto-merge front-end:
+// the apply-lock/<env> check must be posted when the plan FINALIZES (stacks now
+// known), since the pull_request webhook fires before the plan registers them.
+func TestPostPlanApplyLockOnFinalize(t *testing.T) {
+	a, gh := newApplyLockTestApp(t)
+	seedPlan(t, a.db, 7, "prod", "o/r", "sha7", []string{"a", "b"})
+	e, err := store.GetExecution(a.db, "sha7-prod")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Disjoint ⇒ apply-lock/prod posted as success on the plan's SHA + recorded.
+	a.postPlanApplyLock(ctx(), e)
+	if gh.lastUpdate.Conclusion != "success" {
+		t.Fatalf("plan-finalize apply-lock conclusion = %q, want success", gh.lastUpdate.Conclusion)
+	}
+	if rec, ok, _ := store.GetApplyLockCheck(a.db, "prod", "sha7"); !ok || rec.PR != 7 {
+		t.Fatalf("applylock_checks not persisted on sha7: %+v ok=%v", rec, ok)
+	}
+	// Overlap with another PR's in-flight apply ⇒ held (empty conclusion).
+	_ = store.ClaimStacks(a.db, "prod", 9, "e9", []string{"a"}, time.Now().Add(time.Hour))
+	gh.lastUpdate = CheckRunUpdate{}
+	a.postPlanApplyLock(ctx(), e)
+	if gh.lastUpdate.Conclusion != "" {
+		t.Fatalf("overlapping plan-finalize should be held (empty conclusion), got %q", gh.lastUpdate.Conclusion)
+	}
+}

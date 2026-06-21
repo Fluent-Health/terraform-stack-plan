@@ -298,8 +298,16 @@ func (a *App) handleFinalize(w http.ResponseWriter, r *http.Request) {
 	if g, gerr := store.LoadGraph(a.db, f.ID); gerr == nil {
 		a.finalizeLogs(r.Context(), f.ID, g.Stacks)
 	}
-	if isApplyContext(e.StatusContext) && a.cfg.ApplyLock {
-		a.releaseApplyClaims(r.Context(), e.Environment, e.PR)
+	if a.cfg.ApplyLock {
+		if isApplyContext(e.StatusContext) {
+			a.releaseApplyClaims(r.Context(), e.Environment, e.PR)
+		} else if e.PR > 0 {
+			// Plan finalize: the PR's changed stacks are now registered, so post
+			// apply-lock/<env> here. The pull_request webhook fires on PR open —
+			// before the plan registers the stacks — so this is what makes the
+			// check appear (alongside plan/<env>), enabling the auto-merge gate.
+			a.postPlanApplyLock(r.Context(), e)
+		}
 	}
 	w.WriteHeader(http.StatusOK)
 }
