@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"testing"
 	"time"
 
@@ -40,11 +41,13 @@ func seedPlan(t *testing.T, db *sql.DB, pr int, env, repo, headSHA string, stack
 	}
 }
 
-// recordingGitHub is a test double that records the last UpdateCheckRun call
+// recordingGitHub is a test double that records UpdateCheckRun calls
 // and exposes a configurable list of PRs for MergeGroupPRs.
 type recordingGitHub struct {
-	lastUpdate    CheckRunUpdate
-	mergeGroupPRs []int
+	lastUpdate       CheckRunUpdate
+	updateCount      int
+	mergeGroupPRs    []int
+	mergeGroupPRsErr error
 }
 
 func (r *recordingGitHub) CreateCheckRun(_ context.Context, _, _, _ string, _ string) (int64, error) {
@@ -53,6 +56,7 @@ func (r *recordingGitHub) CreateCheckRun(_ context.Context, _, _, _ string, _ st
 
 func (r *recordingGitHub) UpdateCheckRun(_ context.Context, _ string, _ int64, u CheckRunUpdate) error {
 	r.lastUpdate = u
+	r.updateCount++
 	return nil
 }
 
@@ -69,6 +73,9 @@ func (r *recordingGitHub) PRAbandoned(_ context.Context, _ string, _ int) (bool,
 }
 
 func (r *recordingGitHub) MergeGroupPRs(_ context.Context, _, _ string) ([]int, error) {
+	if r.mergeGroupPRsErr != nil {
+		return nil, r.mergeGroupPRsErr
+	}
 	return r.mergeGroupPRs, nil
 }
 
@@ -116,18 +123,34 @@ func TestMergeGroupHeldThenClaim(t *testing.T) {
 	seedPlan(t, a.db, 7, "prod", "o/r", "headPR", []string{"a", "b"}) // helper: Init w/ stacks
 	// Another PR holds stack "a" => held.
 	_ = store.ClaimStacks(a.db, "prod", 5, "e5", []string{"a"}, time.Now().Add(time.Hour))
-	a.handleMergeGroup(ctx(), "o/r", "mgsha", "checks_requested")
+	if err := a.handleMergeGroup(ctx(), "o/r", "mgsha", "checks_requested"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if gh.lastUpdate.Conclusion != "" {
 		t.Fatalf("overlap merge group should be held, got conclusion %q", gh.lastUpdate.Conclusion)
 	}
 	// Now the conflicting claim is released => a fresh checks_requested clears + claims.
 	_ = store.ReleaseClaimsByPREnv(a.db, "prod", 5)
 	gh.lastUpdate = CheckRunUpdate{}
-	a.handleMergeGroup(ctx(), "o/r", "mgsha", "checks_requested")
+	if err := a.handleMergeGroup(ctx(), "o/r", "mgsha", "checks_requested"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if gh.lastUpdate.Conclusion != "success" {
 		t.Fatalf("disjoint merge group conclusion = %q, want success", gh.lastUpdate.Conclusion)
 	}
 	if c, _ := store.ClaimedStacks(a.db, "prod", time.Now()); c["a"] != 7 || c["b"] != 7 {
 		t.Fatalf("greenlight did not claim: %v", c)
+	}
+}
+
+func TestMergeGroupPRResolutionError(t *testing.T) {
+	a, gh := newApplyLockTestApp(t)
+	gh.mergeGroupPRsErr = fmt.Errorf("github unavailable")
+	err := a.handleMergeGroup(ctx(), "o/r", "mgsha", "checks_requested")
+	if err == nil {
+		t.Fatal("expected non-nil error when MergeGroupPRs fails, got nil")
+	}
+	if gh.updateCount != 0 {
+		t.Fatalf("expected no check posted, got %d UpdateCheckRun call(s)", gh.updateCount)
 	}
 }

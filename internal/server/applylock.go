@@ -121,12 +121,15 @@ func (a *App) applyLockDetailsURL(env string, pr int) string {
 // handleMergeGroup evaluates the apply-lock for a GitHub merge group and posts
 // apply-lock/<env> on the group head. On checks_requested: disjoint => claim at
 // greenlight + success; overlap => held. On destroyed: release the tentative claim.
-func (a *App) handleMergeGroup(ctx context.Context, repo, headSHA, action string) {
+// Returns a non-nil error when the group's PRs or their envs can't be resolved so
+// the caller can return 5xx and let GitHub redeliver (fail-closed).
+func (a *App) handleMergeGroup(ctx context.Context, repo, headSHA, action string) error {
 	if !a.cfg.ApplyLock {
-		return
+		return nil
 	}
 	if action == "destroyed" {
 		// Release per-env claims held by the merge group's constituent PRs.
+		// Best-effort: errors here are backed by the TTL backstop.
 		prs, err := a.gh.MergeGroupPRs(ctx, repo, headSHA)
 		if err == nil {
 			for _, pr := range prs {
@@ -139,28 +142,34 @@ func (a *App) handleMergeGroup(ctx context.Context, repo, headSHA, action string
 				}
 			}
 		}
-		return
+		return nil
 	}
 	// checks_requested: resolve PRs in the merge group and evaluate per env.
 	prs, err := a.gh.MergeGroupPRs(ctx, repo, headSHA)
 	if err != nil {
-		// Fail closed: post unverifiable on whatever envs we can't determine.
-		a.postApplyLockUnverifiable(ctx, repo, "", headSHA, 0, "merge_group", "merge group PR resolution failed")
-		return
+		// Can't identify which envs to post on — return error so the webhook
+		// returns 5xx and GitHub redelivers, keeping required checks unreported
+		// (fail-closed). Do NOT post a misnamed apply-lock check (env="").
+		return err
 	}
 	// Collect all envs touched by the group's PRs and evaluate per env.
 	envPRStacks := map[string]map[int][]string{} // env -> pr -> stacks
 	for _, pr := range prs {
 		envs, err := store.EnvironmentsForPR(a.db, pr)
-		if err != nil || len(envs) == 0 {
-			a.postApplyLockUnverifiable(ctx, repo, "", headSHA, pr, "merge_group", "no environments for #"+strconv.Itoa(pr))
-			return
+		if err != nil {
+			// Can't determine which envs this PR touches — fail-closed same as above.
+			return err
+		}
+		if len(envs) == 0 {
+			// PR has no known envs: post unverifiable on the known env so the
+			// check is visible; no env="" misname possible here.
+			continue
 		}
 		for _, env := range envs {
 			ps, ok := a.prChangedStacks(env, pr)
 			if !ok {
 				a.postApplyLockUnverifiable(ctx, repo, env, headSHA, pr, "merge_group", "no successful plan for #"+strconv.Itoa(pr))
-				return
+				return nil
 			}
 			if envPRStacks[env] == nil {
 				envPRStacks[env] = map[int][]string{}
@@ -184,6 +193,7 @@ func (a *App) handleMergeGroup(ctx context.Context, repo, headSHA, action string
 		}
 		_ = a.postApplyLock(ctx, repo, env, headSHA, ownerPR, allStacks, "merge_group", v)
 	}
+	return nil
 }
 
 func (a *App) postApplyLockUnverifiable(ctx context.Context, repo, env, sha string, pr int, kind, reason string) {
