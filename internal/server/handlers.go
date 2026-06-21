@@ -11,7 +11,7 @@ import (
 
 // handleClaimsList returns all apply-lock claims for an environment.
 // POST body: {"environment":"<env>"}
-// Response: JSON array of store.Claim (200); 404 when ApplyLock is off.
+// Response: JSON array of events.Claim (snake_case fields) (200); 404 when ApplyLock is off.
 func (a *App) handleClaimsList(w http.ResponseWriter, r *http.Request) {
 	if !a.cfg.ApplyLock {
 		http.NotFound(w, r)
@@ -29,9 +29,18 @@ func (a *App) handleClaimsList(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "list claims", http.StatusInternalServerError)
 		return
 	}
+	// Convert to events.Claim so the wire uses snake_case json tags, matching
+	// what the runner client (ClaimsList) decodes into []events.Claim.
 	// Return an empty JSON array (never null) when there are no claims.
-	out := make([]store.Claim, 0, len(claims))
-	out = append(out, claims...)
+	out := make([]events.Claim, 0, len(claims))
+	for _, c := range claims {
+		out = append(out, events.Claim{
+			Environment: c.Environment,
+			StackPath:   c.StackPath,
+			OwnerPR:     c.OwnerPR,
+			ExpiresAt:   c.ExpiresAt,
+		})
+	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(out)
 }

@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
@@ -319,6 +321,52 @@ func TestFinalizeFailedMarksNonTerminalAborted(t *testing.T) {
 	}
 	if e.Status != "failure" {
 		t.Errorf("execution status = %q, want failure", e.Status)
+	}
+}
+
+// TestClaimsListWireShape verifies that /api/claims/list encodes claims using
+// snake_case json tags (events.Claim), so the runner client's []events.Claim
+// decode yields non-zero fields. This is the regression test for the
+// store.Claim (no tags → PascalCase) vs events.Claim (snake_case) mismatch.
+func TestClaimsListWireShape(t *testing.T) {
+	db := newServerTestDB(t)
+	a := New(db, &MockGitHub{}, Config{ApplyLock: true})
+	srv := httptest.NewServer(a.Routes())
+	defer srv.Close()
+
+	// Seed a claim for env "prod", PR 42.
+	expires := time.Now().Add(time.Hour).UTC().Truncate(time.Second)
+	if err := store.ClaimStacks(db, "prod", 42, "", []string{"stacks/core"}, expires); err != nil {
+		t.Fatal(err)
+	}
+
+	// POST /api/claims/list and capture the raw body.
+	body, _ := json.Marshal(map[string]string{"environment": "prod"})
+	resp, err := http.Post(srv.URL+"/api/claims/list", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+
+	raw, _ := io.ReadAll(resp.Body)
+
+	// Decode into []events.Claim — the type the runner client uses.
+	var claims []events.Claim
+	if err := json.Unmarshal(raw, &claims); err != nil {
+		t.Fatalf("decode into []events.Claim: %v (body: %s)", err, raw)
+	}
+	if len(claims) != 1 {
+		t.Fatalf("got %d claims, want 1 (body: %s)", len(claims), raw)
+	}
+	c := claims[0]
+	if c.Environment == "" || c.StackPath == "" || c.OwnerPR == 0 {
+		t.Errorf("decoded claim has zero fields — wire uses PascalCase, not snake_case: %+v (body: %s)", c, raw)
+	}
+	if c.Environment != "prod" || c.StackPath != "stacks/core" || c.OwnerPR != 42 {
+		t.Errorf("claim fields = %+v, want prod/stacks/core/42", c)
 	}
 }
 
