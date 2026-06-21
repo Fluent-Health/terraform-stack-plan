@@ -63,6 +63,25 @@ func TestFinalizePrunesDroppedTargets(t *testing.T) {
 	}
 }
 
+func TestFinalizeFailedSweepsInitStatuses(t *testing.T) {
+	// A stack stuck in "initializing" or "initialized" at a failed finalize must
+	// be swept to "failed", just like pending/running.
+	for _, initStatus := range []events.Status{events.StatusInitializing, events.StatusInitialized} {
+		initStatus := initStatus
+		t.Run(string(initStatus), func(t *testing.T) {
+			prior := ChangeSet{PR: 7, Environment: "staging", Gate: NotClassified{},
+				Exec: Execution{Stacks: []Stack{{Path: "s1", RunStatus: initStatus}}}}
+			got, actions := Step(World{Prior: prior}, RunnerFinalize{Failed: true})
+			if got.Exec.Stacks[0].RunStatus != events.StatusFailed {
+				t.Fatalf("want failed stack, got %q", got.Exec.Stacks[0].RunStatus)
+			}
+			if !hasRender(actions, "failure") {
+				t.Fatalf("want failure render, got %v", actions)
+			}
+		})
+	}
+}
+
 func TestFinalizeReArmsTerminalButKeepsLiveGrant(t *testing.T) {
 	// Mixed prior: p1 ACTIVE (live), p2 REVOKED (terminal). A re-plan listing both
 	// must re-request ONLY p2 — the live ACTIVE grant on p1 is carried forward and

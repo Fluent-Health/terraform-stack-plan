@@ -2,6 +2,7 @@ package server
 
 import (
 	"testing"
+	"time"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 )
@@ -55,26 +56,41 @@ func TestAggregateVerdict(t *testing.T) {
 	}
 }
 
-func TestDisplayStateMapping(t *testing.T) {
+func TestDisplayStatePhase(t *testing.T) {
 	cases := []struct {
-		st   events.Status
-		kind string
-		want string
+		st    events.Status
+		kind  string
+		phase events.Phase
+		label string
+		css   string
 	}{
-		{events.StatusPending, "plan", "queued"},
-		{events.StatusRunning, "plan", "planning"},
-		{events.StatusPlanned, "plan", "planned"},
-		{events.StatusRunning, "apply", "applying"},
-		{events.StatusMoving, "apply", "moving"},
-		{events.StatusSafe, "apply", "applied"},
-		{events.StatusSafe, "plan", "planned"},
-		{events.StatusGated, "apply", "blocked"},
-		{events.StatusFailed, "apply", "failed"},
+		// plan kind: phase ignored
+		{events.StatusPending, "plan", events.PhasePlanning, "queued", "queued"},
+		{events.StatusRunning, "plan", events.PhasePlanning, "planning", "planning"},
+		{events.StatusPlanned, "plan", events.PhasePlanning, "planned", "planned"},
+		{events.StatusSafe, "plan", events.PhasePlanning, "planned", "planned"},
+		// new init states
+		{events.StatusInitializing, "plan", events.PhaseInitializing, "initializing", "initializing"},
+		{events.StatusInitialized, "plan", events.PhaseInitializing, "initialized", "initialized"},
+		// apply, pre-apply re-plan pass (phase < applying): preparing/prepared
+		{events.StatusRunning, "apply", events.PhaseInitializing, "preparing", "preparing"},
+		{events.StatusPlanned, "apply", events.PhaseInitializing, "prepared", "prepared"},
+		{events.StatusRunning, "apply", events.PhasePlanning, "preparing", "preparing"},
+		// apply, real apply (phase >= applying): applying/applied
+		{events.StatusRunning, "apply", events.PhaseApplying, "applying", "applying"},
+		{events.StatusMoving, "apply", events.PhaseApplying, "moving", "moving"},
+		{events.StatusGated, "apply", events.PhaseApplying, "blocked", "blocked"},
+		{events.StatusAborted, "apply", events.PhaseApplying, "aborted", "aborted"},
+		{events.StatusPlanned, "apply", events.PhaseApplying, "queued", "queued"},
+		{events.StatusSafe, "apply", events.PhaseApplying, "applied", "applied"},
+		{events.StatusSafe, "apply", events.PhaseInitializing, "applied", "applied"},
+		{events.StatusNochange, "apply", events.PhaseApplying, "no changes", "nochange"},
 	}
 	for _, c := range cases {
-		got := displayState(c.st, c.kind)
-		if got.CSS != c.want {
-			t.Fatalf("(%s,%s) → %q want %q", c.st, c.kind, got.CSS, c.want)
+		got := displayState(c.st, c.kind, c.phase)
+		if got.Label != c.label || got.CSS != c.css {
+			t.Errorf("displayState(%q,%q,%q) = {%q,%q}, want {%q,%q}",
+				c.st, c.kind, c.phase, got.Label, got.CSS, c.label, c.css)
 		}
 	}
 }
@@ -97,15 +113,6 @@ func TestOpSummaryString(t *testing.T) {
 	}
 	if got := opSummary(nil); got != "" {
 		t.Fatalf("nil → %q want empty", got)
-	}
-}
-
-func TestDisplayStateNewStatuses(t *testing.T) {
-	if d := displayState(events.StatusNochange, "apply"); d.Label != "no changes" || d.CSS != "nochange" {
-		t.Errorf("nochange display = %+v, want {no changes nochange}", d)
-	}
-	if d := displayState(events.StatusAborted, "apply"); d.Label != "aborted" || d.CSS != "aborted" {
-		t.Errorf("aborted display = %+v, want {aborted aborted}", d)
 	}
 }
 
@@ -137,19 +144,20 @@ func TestProgressSegments(t *testing.T) {
 		{Path: "b", Counts: &events.Counts{Destroy: 2}, Status: events.StatusRunning},
 		{Path: "c", Status: events.StatusFailed}, // no counts → min flex 1
 	}
-	segs := progressSegments(stacks, "apply")
+	segs := progressSegments(stacks, "apply", events.PhaseApplying)
 	if len(segs) != 3 {
 		t.Fatalf("want 3 segs, got %d", len(segs))
 	}
-	// flex sized by ops; colour = the stack's CURRENT state (apply kind)
+	// Rank-sorted: applied(0) < failed(1) < applying(2).
+	// Flex sized by ops; colour = the stack's CURRENT state (apply kind).
 	if segs[0].Flex != 6 || segs[0].StateCSS != "applied" {
 		t.Fatalf("seg0=%+v", segs[0])
 	}
-	if segs[1].Flex != 2 || segs[1].StateCSS != "applying" {
+	if segs[1].Flex != 1 || segs[1].StateCSS != "failed" {
 		t.Fatalf("seg1=%+v", segs[1])
 	}
-	if segs[2].Flex != 1 || segs[2].StateCSS != "failed" {
-		t.Fatalf("seg2 (no counts)=%+v", segs[2])
+	if segs[2].Flex != 2 || segs[2].StateCSS != "applying" {
+		t.Fatalf("seg2=%+v", segs[2])
 	}
 }
 
@@ -173,6 +181,28 @@ func TestRiskTags(t *testing.T) {
 	}
 	if len(riskTags(events.StackState{})) != 0 {
 		t.Fatal("no categories → no tags")
+	}
+}
+
+func TestApplyBadgePreparing(t *testing.T) {
+	mk := func(phase events.Phase, finished bool, status string) string {
+		v := liveView{Phase: phase, Status: status}
+		return buildLiveModel(v, "apply", finished, time.Now()).PhaseLabel
+	}
+	if got := mk(events.PhaseInitializing, false, ""); got != "PREPARING" {
+		t.Errorf("apply initializing badge = %q, want PREPARING", got)
+	}
+	if got := mk(events.PhasePlanning, false, ""); got != "PREPARING" {
+		t.Errorf("apply planning badge = %q, want PREPARING", got)
+	}
+	if got := mk(events.PhaseApplying, false, ""); got != "APPLYING" {
+		t.Errorf("apply applying badge = %q, want APPLYING", got)
+	}
+	if got := mk(events.PhaseVerifying, false, ""); got != "VERIFYING" {
+		t.Errorf("apply verifying badge = %q, want VERIFYING", got)
+	}
+	if got := mk(events.PhaseApplying, true, "failure"); got != "FAILED" {
+		t.Errorf("apply finished failure badge = %q, want FAILED", got)
 	}
 }
 
@@ -235,4 +265,45 @@ func TestPhaseTimeline(t *testing.T) {
 			}
 		}
 	})
+}
+
+func TestProgressSegmentsOrder(t *testing.T) {
+	stacks := []events.StackState{
+		{Path: "a", Status: events.StatusPending},      // queued  → rank 5
+		{Path: "b", Status: events.StatusSafe},         // planned → rank 0
+		{Path: "c", Status: events.StatusRunning},      // planning→ rank 2
+		{Path: "d", Status: events.StatusFailed},       // failed  → rank 1
+		{Path: "e", Status: events.StatusInitializing}, // rank 4
+	}
+	segs := progressSegments(stacks, "plan", events.PhasePlanning)
+	got := make([]string, len(segs))
+	for i, s := range segs {
+		got[i] = s.StateCSS
+	}
+	want := []string{"planned", "failed", "planning", "initializing", "queued"}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("segment order = %v, want %v", got, want)
+		}
+	}
+}
+
+func TestLogDefault(t *testing.T) {
+	rows := func(kind string, finished bool, st events.Status) bool {
+		v := liveView{Stacks: []events.StackState{{Path: "x", Status: st}}}
+		m := buildLiveModel(v, kind, finished, time.Now())
+		return m.Groups[0].Stacks[0].LogDefault
+	}
+	if rows("plan", true, events.StatusSafe) {
+		t.Error("finished plan stack should default to Result (LogDefault=false)")
+	}
+	if !rows("plan", false, events.StatusRunning) {
+		t.Error("running stack should default to Log")
+	}
+	if !rows("apply", true, events.StatusSafe) {
+		t.Error("apply stack should default to Log (Result is empty)")
+	}
+	if !rows("plan", true, events.StatusFailed) {
+		t.Error("failed stack should default to Log")
+	}
 }

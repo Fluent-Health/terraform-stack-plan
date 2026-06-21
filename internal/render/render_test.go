@@ -369,6 +369,29 @@ func TestPerStack(t *testing.T) {
 	}
 }
 
+func TestRenderNoTable(t *testing.T) {
+	r := sampleReport()
+	full := Render(r)
+	noTable := RenderNoTable(r)
+
+	// Render must include the table header (Stack column).
+	if !strings.Contains(full, "| Stack |") {
+		t.Fatalf("Render must include the summary table:\n%s", full)
+	}
+	// RenderNoTable must NOT include the table.
+	if strings.Contains(noTable, "| Stack |") {
+		t.Fatalf("RenderNoTable must not include the summary table:\n%s", noTable)
+	}
+	// RenderNoTable must include the header (### ...).
+	if !strings.Contains(noTable, "### ") {
+		t.Fatalf("RenderNoTable must include the header (###):\n%s", noTable)
+	}
+	// RenderNoTable must include the per-stack details section.
+	if !strings.Contains(noTable, "<details") {
+		t.Fatalf("RenderNoTable must include per-stack change trees:\n%s", noTable)
+	}
+}
+
 func TestRenderEmptyReport(t *testing.T) {
 	r := model.Report{
 		Title:       "Terraform plan — nonprod",

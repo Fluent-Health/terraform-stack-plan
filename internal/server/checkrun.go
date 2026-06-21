@@ -46,18 +46,40 @@ func doneStacks(stacks []events.StackState) int {
 // progressTitle renders the check-run title. While running it is the live
 // progress bar ("<bar> k/N · <label>"); once terminal it is an action-count
 // summary ("Plan · +6 ~3 −2 · 12 stacks" / "Plan · no changes" / apply variant),
-// because a frozen bar reads as stuck.
-func progressTitle(phase events.Phase, stacks []events.StackState, terminal bool) string {
+// because a frozen bar reads as stuck. kind is "plan" or "apply".
+func progressTitle(phase events.Phase, stacks []events.StackState, terminal bool, kind string) string {
 	if terminal {
-		kind := "Plan"
-		if phase == events.PhaseApplying || phase == events.PhaseVerifying {
-			kind = "Apply"
+		kindLabel := "Plan"
+		if kind == "apply" {
+			kindLabel = "Apply"
 		}
-		return terminalSummary(kind, stacks)
+		return terminalSummary(kindLabel, stacks)
 	}
 	total := len(stacks)
+	// Apply pre-apply re-plan: the run is under a pre-apply phase (warming/
+	// initializing/planning) but it is re-planning every stack before the real
+	// apply, not initializing. Report it as "preparing k/N" (k = stacks that have
+	// finished re-planning) so the title is honest until PhaseApplying.
+	if kind == "apply" && !applyStarted(phase) {
+		prepared := doneStacks(stacks)
+		frac := 0.0
+		if total > 0 {
+			frac = float64(prepared) / float64(total)
+		}
+		bar, _ := progressBar(frac)
+		if total == 0 {
+			return bar + " · preparing"
+		}
+		return fmt.Sprintf("%s %d/%d · preparing", bar, prepared, total)
+	}
 	doneCount := doneStacks(stacks)
-	bar, label, _ := progress(phase, doneCount, total)
+	initCount := 0
+	for _, s := range stacks {
+		if s.Status == events.StatusInitialized {
+			initCount++
+		}
+	}
+	bar, label, _ := progress(phase, doneCount, initCount, total)
 	if total == 0 {
 		return bar + " · " + label
 	}
@@ -162,8 +184,8 @@ func (a *App) renderAndPatch(ctx context.Context, id, base string, terminal bool
 	// action_required conclusion is self-explanatory (which gate, how to approve).
 	targets, _ := store.TargetsFor(a.db, e.PR, e.Environment)
 	upd := CheckRunUpdate{
-		Title:      progressTitle(events.Phase(e.Phase), g.Stacks, terminal),
-		Summary:    checkSummary("plan", g.Stacks, a.liveURL(base, id)),
+		Title:      progressTitle(events.Phase(e.Phase), g.Stacks, terminal, "plan"),
+		Summary:    checkSummary("plan", g.Stacks, a.liveURL(base, id), events.Phase(e.Phase)),
 		Text:       gatesSection(targets) + failuresSection(g, e.LogURL, "") + e.ReportMarkdown,
 		DetailsURL: a.liveURL(base, id),
 	}
@@ -260,14 +282,14 @@ func (a *App) driveApply(ctx context.Context, e store.Execution, base string) {
 			conclusion = "failure"
 		}
 		applyTerminal := state == "success" || state == "failure"
-		summary := checkSummary("apply", g.Stacks, a.liveURL(base, e.ID))
+		summary := checkSummary("apply", g.Stacks, a.liveURL(base, e.ID), events.Phase(e.Phase))
 		if failed > 0 {
 			// Keep the next-steps guidance (fix-forward / re-run) visible in the
 			// summary; the failing-stack detail renders in the Text below.
 			summary += "\n\n" + desc
 		}
 		upd := CheckRunUpdate{
-			Title:      progressTitle(events.Phase(e.Phase), g.Stacks, applyTerminal),
+			Title:      progressTitle(events.Phase(e.Phase), g.Stacks, applyTerminal, "apply"),
 			Summary:    summary,
 			DetailsURL: a.liveURL(base, e.ID),
 			Conclusion: conclusion,

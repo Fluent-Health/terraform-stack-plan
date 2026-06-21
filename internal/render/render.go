@@ -9,8 +9,16 @@ import (
 	"github.com/Fluent-Health/terraform-stack-plan/internal/model"
 )
 
-// Render produces the full markdown document for r.
-func Render(r model.Report) string {
+// Render produces the full markdown document for r (header + summary table + details).
+func Render(r model.Report) string { return renderDoc(r, true) }
+
+// RenderNoTable renders r WITHOUT the summary table (header + per-stack change
+// trees only). Used for the server-stored report shown in the check-run details
+// and the live-viewer report section, where a live per-stack table already covers
+// the overview. The full Render (with table) stays for stdout / PR-comment output.
+func RenderNoTable(r model.Report) string { return renderDoc(r, false) }
+
+func renderDoc(r model.Report, includeTable bool) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "<!-- %s -->\n", r.Marker)
 
@@ -27,14 +35,18 @@ func Render(r model.Report) string {
 		return b.String()
 	case model.ModeSummaryOnly:
 		renderHeader(&b, r)
-		renderTable(&b, r)
+		if includeTable {
+			renderTable(&b, r)
+		}
 		if r.Notice != "" {
 			fmt.Fprintf(&b, "\n%s\n", r.Notice)
 		}
 		return b.String()
 	default:
 		renderHeader(&b, r)
-		renderTable(&b, r)
+		if includeTable {
+			renderTable(&b, r)
+		}
 		if r.Notice != "" {
 			fmt.Fprintf(&b, "\n%s\n", r.Notice)
 		}

@@ -79,17 +79,23 @@ func opTally(v verdict) string {
 // progressCells is the width of the unicode progress bar.
 const progressCells = 10
 
-// progress maps (phase, planned, total) to a 10-cell unicode bar, a human label,
-// and a percentage. Pre-plan phases (warming/initializing) have no sub-progress,
-// so they sit at the start of their band; planning fills the remaining 80% by the
-// completed-stack fraction; an apply context tracks planned/total directly.
-func progress(phase events.Phase, planned, total int) (bar, label string, pct int) {
+// progress maps (phase, planned, initialized, total) to a 10-cell unicode bar,
+// a human label, and a percentage. Pre-plan phases (warming/initializing) have
+// no sub-progress by default; once stacks finish init the init band sub-fills
+// (5–15%) and the label reads "initialized k/N". Planning fills the remaining
+// 80% by the completed-stack fraction; an apply context tracks planned/total.
+func progress(phase events.Phase, planned, initialized, total int) (bar, label string, pct int) {
 	frac := 0.0
 	switch phase {
 	case events.PhaseWarming:
 		frac, label = 0.05, "warming cache…"
 	case events.PhaseInitializing:
-		frac, label = 0.15, fmt.Sprintf("initializing %d stacks…", total)
+		if total > 0 && initialized > 0 {
+			frac = 0.05 + 0.10*float64(initialized)/float64(total)
+			label = fmt.Sprintf("initialized %d/%d", initialized, total)
+		} else {
+			frac, label = 0.15, fmt.Sprintf("initializing %d stacks…", total)
+		}
 	case events.PhaseApplying:
 		if total > 0 {
 			frac = float64(planned) / float64(total)
@@ -112,6 +118,12 @@ func progress(phase events.Phase, planned, total int) (bar, label string, pct in
 			label = fmt.Sprintf("planning %d/%d", planned, total)
 		}
 	}
+	bar, pct = progressBar(frac)
+	return bar, label, pct
+}
+
+// progressBar renders the unicode fill bar + integer percentage for a 0..1 fraction.
+func progressBar(frac float64) (bar string, pct int) {
 	if frac < 0 {
 		frac = 0
 	}
@@ -119,9 +131,7 @@ func progress(phase events.Phase, planned, total int) (bar, label string, pct in
 		frac = 1
 	}
 	filled := int(frac*float64(progressCells) + 0.5)
-	bar = strings.Repeat("▰", filled) + strings.Repeat("▱", progressCells-filled)
-	pct = int(frac*100 + 0.5)
-	return bar, label, pct
+	return strings.Repeat("▰", filled) + strings.Repeat("▱", progressCells-filled), int(frac*100 + 0.5)
 }
 
 // checkSummary builds the check-run summary body for a plan or apply: verdict
@@ -129,7 +139,7 @@ func progress(phase events.Phase, planned, total int) (bar, label string, pct in
 // (Stack | Ops | Risk | State). kind is "plan" or "apply". The GitHub check-run
 // title already carries the status line (e.g. "Apply · applied 2/8 · …"), so the
 // summary deliberately does NOT repeat it as a headline.
-func checkSummary(kind string, stacks []events.StackState, viewerURL string) string {
+func checkSummary(kind string, stacks []events.StackState, viewerURL string, phase events.Phase) string {
 	var b strings.Builder
 
 	// Verdict chips + viewer link.
@@ -165,7 +175,7 @@ func checkSummary(kind string, stacks []events.StackState, viewerURL string) str
 				risks = append(risks, rt.Label)
 			}
 			fmt.Fprintf(&b, "| `%s` | %s | %s | %s |\n",
-				s.Path, opSummary(s.Counts), strings.Join(risks, " "), displayState(s.Status, kind).Label)
+				s.Path, opSummary(s.Counts), strings.Join(risks, " "), displayState(s.Status, kind, phase).Label)
 		}
 	}
 	return b.String()

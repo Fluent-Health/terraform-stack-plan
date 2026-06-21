@@ -140,6 +140,7 @@ type stackRow struct {
 	LogExcerpt string // recent log lines (shown when no diff yet)
 	DetailURL  string // raw full log (text/plain)
 	Follow     bool   // exec still running ⇒ stream the log via SSE follow
+	LogDefault bool   // detail pane opens on the Log tab (not Result)
 	Moved      bool   // state-only move: no plan diff, only log output
 }
 
@@ -224,14 +225,18 @@ func buildLiveModel(v liveView, kind string, finished bool, now time.Time) liveM
 		label = "APPLIED"
 	case finished:
 		label = "PLANNED"
+	case kind == "apply" && v.Phase == events.PhaseVerifying:
+		label = "VERIFYING"
+	case kind == "apply" && v.Phase == events.PhaseApplying:
+		label = "APPLYING"
+	case kind == "apply":
+		// Any pre-apply phase (warming/initializing/planning/unset): the apply is
+		// still re-planning, not applying.
+		label = "PREPARING"
 	case v.Phase == events.PhaseWarming:
 		label = "WARMING"
 	case v.Phase == events.PhaseInitializing:
 		label = "INITIALIZING"
-	case kind == "apply" && v.Phase == events.PhaseVerifying:
-		label = "VERIFYING"
-	case kind == "apply":
-		label = "APPLYING"
 	default:
 		label = "PLANNING"
 	}
@@ -254,16 +259,19 @@ func buildLiveModel(v liveView, kind string, finished bool, now time.Time) liveM
 				}
 			}
 			logExcerpt := v.StackLogs[s.Path]
+			logDefault := !finished || kind == "apply" ||
+				s.Status == events.StatusFailed || s.Status == events.StatusAborted
 			rows = append(rows, stackRow{
 				Path:       s.Path,
 				Anchor:     anchorSlug(s.Path),
-				State:      displayState(s.Status, kind),
+				State:      displayState(s.Status, kind, v.Phase),
 				Ops:        opSummary(s.Counts),
 				Risks:      risks,
 				PlanURL:    "/plan/" + v.Exec + "/" + s.Path,
 				LogExcerpt: logExcerpt,
 				DetailURL:  "/logs/" + v.Exec + "/" + s.Path,
 				Follow:     !finished,
+				LogDefault: logDefault,
 				Moved:      s.Status == events.StatusMoving,
 			})
 		}
@@ -297,7 +305,7 @@ func buildLiveModel(v liveView, kind string, finished bool, now time.Time) liveM
 		PhaseAccent: kind, PhaseLabel: label, Elapsed: elapsed,
 		Verdict:     aggregateVerdict(v.Stacks),
 		Destructive: destructive, IAMCount: iamCount(v.Stacks),
-		Progress:   progressSegments(v.Stacks, kind),
+		Progress:   progressSegments(v.Stacks, kind, v.Phase),
 		Groups:     groups,
 		Failures:   failures,
 		ReportHTML: renderMarkdown(v.Report),

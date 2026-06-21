@@ -555,19 +555,27 @@ the budget entirely.
 
 ## Shipped since v1
 
+- **`run register`** — registers the full stack set up front (before the
+  per-stack `run step` invocations begin), so the check-run progress title can
+  show `initialized k/N` and `planned k/N` with a known denominator. Without it
+  the denominator is `0` until stacks start completing. Runs once at the top of
+  the CI job before any terramate script execution. A transparent no-op when
+  `TFSTACKPLAN_SERVER` is unset.
 - **`run step`** — wraps a single terraform command with lifecycle ticks: ticks
-  `running` before, determines the terminal status after, and streams the
-  command's output live as log chunks via `/api/logs`. The terminal status is
-  `nochange` when terraform's own summary line reads `0 added, 0 changed, 0
-  destroyed`; the `--on-success <status>` flag (e.g. `--on-success safe`) sets
-  the status for any other success. A transparent offline passthrough (`run step`
-  is a no-op when `TFSTACKPLAN_SERVER` is unset), so local `terramate script run`
-  is unaffected. The motivation: terramate's parallel `script run` aborts on the
-  first failing stack and never advances to a *later* command in the same job —
-  so a closing `run tick --status safe` in a separate command is silently skipped
-  for any stack that fails before it. Putting the terminal tick inside the same
-  command (`run step --on-success safe -- terraform apply …`) removes that gap.
-  See `docs/ci-integration.md` for the canonical script form. The companion
+  `running` before (or a custom `--running <status>` — e.g. `--running
+  initializing --on-success initialized` for `terraform init`), determines the
+  terminal status after, and streams the command's output live as log chunks via
+  `/api/logs`. The terminal status is `nochange` when terraform's own summary
+  line reads `0 added, 0 changed, 0 destroyed`; the `--on-success <status>` flag
+  (e.g. `--on-success safe`) sets the status for any other success. A
+  transparent offline passthrough (`run step` is a no-op when
+  `TFSTACKPLAN_SERVER` is unset), so local `terramate script run` is unaffected.
+  The motivation: terramate's parallel `script run` aborts on the first failing
+  stack and never advances to a *later* command in the same job — so a closing
+  `run tick --status safe` in a separate command is silently skipped for any
+  stack that fails before it. Putting the terminal tick inside the same command
+  (`run step --on-success safe -- terraform apply …`) removes that gap. See
+  `docs/ci-integration.md` for the canonical script form. The companion
   migration of the infra `scripts.tm.hcl` to `run step` is a separate PR in the
   infra repo.
 - **`nochange` and `aborted` terminal statuses** — two new `events.Status` values
@@ -755,6 +763,17 @@ the budget entirely.
   GCP does not expose a stable per-grant URL, so reviewers land at the tab and
   must locate their grant by PR/env in the justification. This is a GCP surface
   limitation; no server-side workaround exists.
+- **The follow-SSE log replay (`streamLog`) reads only the live buffer — no GCS
+  fallback.** A stack that reached a terminal status and had its buffer offloaded
+  while the execution is still running (e.g. a slow parallel apply) can return a
+  blank stream; the static `GET /logs/<exec>/<stack>` endpoint serves the
+  offloaded object and is the correct URL for completed stacks. Not yet fixed
+  (see PR: live init-progress & log tweaks).
+- **Apply executions store no per-stack plan diff**, so the Result tab is empty
+  for apply stacks (and hence defaults to the Log tab). The per-stack plan
+  section is populated only by the plan driver's `Finalize.StackReports`.
+- **The live page still full-reloads on state change** (scroll position is
+  preserved via `sessionStorage`); in-place DOM swap is not yet implemented.
 
 ## Server foundations (in progress)
 
@@ -777,10 +796,14 @@ the full reasoning and alternatives weighed:
   payloads. Vocabulary is provider-neutral — `environment` (not a fixed tier set)
   and `(class, target)` approval gates (not a single IAM/project gate) — so
   multiple approval classes work without a later protocol change. Per-stack
-  `Status` values: `pending`, `running` (in-progress), `planned`, `safe`
-  (applied with changes), `nochange` (applied, 0 changes), `failed` (stack ran
-  and errored), `aborted` (run failed elsewhere; stack never reached a terminal
-  tick — set server-side at finalize).
+  `Status` values: `pending`, `initializing` (per-stack `terraform init`
+  running), `initialized` (init done), `running` (in-progress), `planned`,
+  `safe` (applied with changes), `nochange` (applied, 0 changes), `failed`
+  (stack ran and errored), `aborted` (run failed elsewhere; stack never reached a
+  terminal tick — set server-side at finalize). During an apply execution, the
+  pre-apply re-plan pass maps to **preparing → prepared** (`displayState`
+  derives these from the stack's plan-phase status when `PhaseApplying` has not
+  yet started); the badge shows **PREPARING** until `PhaseApplying`.
 - **`internal/store`** — the server's SQLite persistence (pure-Go
   `modernc.org/sqlite`, `goose` migrations embedded via `go:embed`): executions,
   their stack/edge subgraph, and per-`(class, target)` gate state, plus a
@@ -897,22 +920,28 @@ Top to bottom: a **header** (repo · #PR · short SHA, the kind+environment titl
 and a phase pill — teal `PLANNING` / blue `APPLYING` with an elapsed clock from
 `Execution.CreatedAt`); a **verdict band** — a single-line op-count row
 (`+add ~change ±replace −destroy ↔move` plus a `⚿N` IAM count and a `⚠ Destructive`
-flag) over a full-width **segmented progress bar** whose segments are one-per-stack,
-flex-sized by ops and coloured by each stack's *current state* (so the bar tracks
-live progress through the stages, re-rendered on each refresh); the optional
+flag) over a full-width **segmented progress bar** whose segments are
+rank-ordered so the bar fills left→right (done → attention → active → ready →
+initializing → not-started), flex-sized by ops and coloured by each stack's *current state*
+(so the bar tracks live progress through the stages, re-rendered on each
+refresh); the per-stack list keeps path/group order; the optional
 **approval panel**; a **stack list grouped by Google project** (`groupByProject`
 on `StackState.Project`), each row a per-state colour label + op count + risk
 badges, linking to its detail anchor; a **single selected-stack detail pane** that
 swaps via CSS `:target` (only the clicked stack shows; empty until a row is
 selected) — DaisyUI tabs (**Result · Log · Validation**, apply-only) over the
-stack's `stack_outputs`; and a **demoted collapsible dependency graph**.
+stack's `stack_outputs`; and a **demoted collapsible dependency graph**. Failed
+and aborted stacks default to the Log tab; all apply stacks default to the Log
+tab (apply stores no per-stack plan diff, so the Result tab is empty).
 
 **Selected-stack tabs + live log streaming (PR #84).** The separate per-stack page
 (`stack.gohtml`/`handleStackDetail`) is retired — the overview pane is the only
 detail surface. Per stack: **Result** is the native plan diff (`renderMarkdown` of
 the stored `plan` output; a shimmer skeleton while a running stack hasn't produced
-it yet), **Log** is the stack's log, and **Validation** (apply with a verify run)
-the verify log. Tabs are DaisyUI's label-wrapped radios (CSS-only switch). An
+it yet — empty for apply stacks, which store no per-stack diff), **Log** is the
+stack's log, and **Validation** (apply with a verify run) the verify log. Failed/
+aborted stacks and all apply stacks default to the Log tab. Tabs are DaisyUI's
+label-wrapped radios (CSS-only switch). An
 inline JS module keys off the location hash: on select it opens **one**
 `EventSource` to `/logs/{exec}/{stack}?follow=1` for that stack (closing the prior),
 parses ANSI SGR colour/bold into `<span class="a-*">` on the softened `.term`
@@ -1004,8 +1033,21 @@ stacks, viewerURL)` function in `internal/server/render.go`, consumed identicall
 by both the plan and apply drivers; the previous `renderProgress` task-list
 summary is retired. The apply check run is now correctly titled **"Terraform
 apply"** (`CheckRunUpdate.Title` is emitted by the real client and set per
-driver); previously it was mislabelled "Terraform plan". PAM approval links in
-the check summary point at
+driver); previously it was mislabelled "Terraform plan". The check-run progress
+title includes an **init band** with a known denominator N once `run register`
+registers the stacks; the label reads `initializing N stacks…` until at least one
+stack completes init, at which point it becomes `initialized k/N`. For an apply,
+the title reads `preparing k/N` during the pre-apply re-plan pass (which runs
+under a pre-apply phase before `PhaseApplying`), flipping to `applying k/N` once
+the real apply begins; `progressTitle` takes a `kind` arg and the bar rendering
+is factored into `progressBar`. The rendered report shown in the check-run
+**details** (and the live-viewer report section) uses `render.RenderNoTable` —
+header + per-stack change trees, **omitting** the leading summary table, since the
+live per-stack table already covers the overview; the full report (with the
+summary table) is still emitted to stdout / the `render` CLI for PR-comment
+output (`run()` returns both variants; `classifyResult.ReportNoTable`; the apply
+path gets the no-table report through the `classifyForGateFn` seam). PAM
+approval links in the check summary point at
 `https://console.cloud.google.com/iam-admin/pam/grants/approvals?project=<target>`
 — the "Approve grants → Pending approval" tab — which is the finest-grained
 stable URL GCP exposes (see Known limitations).

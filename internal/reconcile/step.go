@@ -55,7 +55,8 @@ func stepFinalize(cs ChangeSet, f RunnerFinalize) (ChangeSet, []Action) {
 	if f.Failed {
 		for i := range cs.Exec.Stacks {
 			switch cs.Exec.Stacks[i].RunStatus {
-			case events.StatusPending, events.StatusRunning:
+			case events.StatusPending, events.StatusRunning,
+				events.StatusInitializing, events.StatusInitialized:
 				cs.Exec.Stacks[i].RunStatus = events.StatusFailed
 			}
 		}

@@ -110,7 +110,7 @@ func runRender(args []string) int {
 	}
 	o.linkVars = lv
 
-	out, _, fits, err := run(o)
+	out, _, _, fits, err := run(o)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "tfstackplan:", err)
 		return 1
@@ -128,19 +128,19 @@ func runRender(args []string) int {
 	return 0
 }
 
-// run executes the whole pipeline and returns the markdown document and whether
-// it fits the configured byte budget.
-func run(o opts) (string, map[string]string, bool, error) {
+// run executes the whole pipeline and returns the full markdown document, the
+// no-table variant, per-stack reports, and whether it fits the byte budget.
+func run(o opts) (report, reportNoTable string, stackReports map[string]string, fits bool, err error) {
 	if o.plansDir == "" {
-		return "", nil, false, fmt.Errorf("no input: pass --plans-dir")
+		return "", "", nil, false, fmt.Errorf("no input: pass --plans-dir")
 	}
-	refs, err := plandir.Scan(o.plansDir)
-	if err != nil {
-		return "", nil, false, err
+	refs, rerr := plandir.Scan(o.plansDir)
+	if rerr != nil {
+		return "", "", nil, false, rerr
 	}
-	moves, err := statemoves.Load(o.stateMoves)
-	if err != nil {
-		return "", nil, false, err
+	moves, merr := statemoves.Load(o.stateMoves)
+	if merr != nil {
+		return "", "", nil, false, merr
 	}
 
 	var cfg *config.Config
@@ -151,9 +151,9 @@ func run(o opts) (string, map[string]string, bool, error) {
 		}
 	}
 	if cfgPath != "" {
-		c, err := config.Load(cfgPath)
-		if err != nil {
-			return "", nil, false, err
+		c, cerr := config.Load(cfgPath)
+		if cerr != nil {
+			return "", "", nil, false, cerr
 		}
 		cfg = c
 	} else {
@@ -161,15 +161,15 @@ func run(o opts) (string, map[string]string, bool, error) {
 	}
 	classified := cfg.Classification != nil
 
-	report := model.Report{Title: o.title, Marker: o.marker, Classified: classified}
+	rep := model.Report{Title: o.title, Marker: o.marker, Classified: classified}
 	if classified {
-		report.Default = cfg.Classification.Default
+		rep.Default = cfg.Classification.Default
 	}
 	base := baseVars(o.linkVars)
 	if cfg.Links != nil {
 		for _, l := range cfg.Links.Header {
 			if url := links.Resolve(l.URL, base); url != "" {
-				report.HeaderLinks = append(report.HeaderLinks, model.Link{Label: links.Resolve(l.Label, base), URL: url})
+				rep.HeaderLinks = append(rep.HeaderLinks, model.Link{Label: links.Resolve(l.Label, base), URL: url})
 			}
 		}
 	}
@@ -177,13 +177,13 @@ func run(o opts) (string, map[string]string, bool, error) {
 	var allCats [][]classify.Category
 	var anyMoved bool
 	for _, ref := range refs {
-		data, err := os.ReadFile(ref.Plan)
-		if err != nil {
-			return "", nil, false, fmt.Errorf("stack %q: %w", ref.Name, err)
+		data, derr := os.ReadFile(ref.Plan)
+		if derr != nil {
+			return "", "", nil, false, fmt.Errorf("stack %q: %w", ref.Name, derr)
 		}
-		raw, err := plan.Parse(ref.Name, data)
-		if err != nil {
-			return "", nil, false, err
+		raw, perr := plan.Parse(ref.Name, data)
+		if perr != nil {
+			return "", "", nil, false, perr
 		}
 		// Overlay pending cross-state moves (--state-moves) BEFORE building the
 		// stack: a move-target's planned create becomes a Move (non-mutating), so
@@ -259,31 +259,31 @@ func run(o opts) (string, map[string]string, bool, error) {
 			}
 			st.Changes = append(st.Changes, ch)
 		}
-		report.Stacks = append(report.Stacks, st)
+		rep.Stacks = append(rep.Stacks, st)
 	}
 
 	switch o.details {
 	case "open":
-		report.DetailsOpen = true
+		rep.DetailsOpen = true
 	case "", "closed":
-		report.DetailsOpen = false
+		rep.DetailsOpen = false
 	case "auto":
 		changed := 0
-		for _, s := range report.Stacks {
+		for _, s := range rep.Stacks {
 			if s.Counts.AnyChange() {
 				changed++
 			}
 		}
-		report.DetailsOpen = changed == 1
+		rep.DetailsOpen = changed == 1
 	default:
-		return "", nil, false, fmt.Errorf("--details must be auto|open|closed, got %q", o.details)
+		return "", "", nil, false, fmt.Errorf("--details must be auto|open|closed, got %q", o.details)
 	}
 
 	// Capture each stack's full plan section BEFORE fit reduces the report for the
 	// combined comment — the per-stack store has no comment-size budget.
-	stackReports := render.PerStack(report)
+	stackReports = render.PerStack(rep)
 
-	fits := fit.Fit(&report, o.maxBytes)
+	fits = fit.Fit(&rep, o.maxBytes)
 
 	if o.classJSON != "" && classified {
 		summary := classify.Summarize(allCats, cfg.Classification.Rules)
@@ -291,16 +291,16 @@ func run(o opts) (string, map[string]string, bool, error) {
 			summary = append(summary, classify.Category{Name: moveCategory, Icon: moveIcon})
 		}
 		doc.Summary.Categories = toEntries(summary)
-		data, err := json.MarshalIndent(doc, "", "  ")
-		if err != nil {
-			return "", nil, false, err
+		data, jerr := json.MarshalIndent(doc, "", "  ")
+		if jerr != nil {
+			return "", "", nil, false, jerr
 		}
-		if err := os.WriteFile(o.classJSON, data, 0o644); err != nil {
-			return "", nil, false, err
+		if werr := os.WriteFile(o.classJSON, data, 0o644); werr != nil {
+			return "", "", nil, false, werr
 		}
 	}
 
-	return render.Render(report), stackReports, fits, nil
+	return render.Render(rep), render.RenderNoTable(rep), stackReports, fits, nil
 }
 
 type categoryEntry struct {
