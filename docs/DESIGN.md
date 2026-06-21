@@ -1123,7 +1123,11 @@ blocks; an unconfigured server is a no-op pass — nothing gates). It then
 registers the apply execution, applies the changed stacks via the terramate
 `apply` script (terramate honoring the dependency DAG; `--parallel N` runs
 independent stacks concurrently, default serial), and revokes the PR's grants
-afterward (best-effort, whether or not the apply succeeded). Tested end to end
+afterward (best-effort, whether or not the apply succeeded). **`--parallel N` is
+also threaded into the pre-apply classify/re-plan pass** (`classifyForGate`) —
+otherwise that re-plan of every changed stack runs strictly serially and
+dominates a large tier-apply, even though the apply step itself is parallel.
+Tested end to end
 against real terramate + a stub `terraform`: gate satisfied → apply runs in DAG
 order + revoke; gate blocks → abort before any apply. The `--impersonate-requester`
 flag (see *Shipped since v1 — Privilege-backed apply*) is additive on top of this

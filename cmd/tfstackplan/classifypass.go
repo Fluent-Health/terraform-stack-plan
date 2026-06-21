@@ -25,9 +25,9 @@ import (
 // terramate/terraform on PATH. The stubbable seam (classifyForGateFn) returns the
 // gate-relevant outputs; classifyResult additionally carries the per-stack reports
 // that run plan finalizes (apply ignores them).
-var classifyForGateFn = func(ctx context.Context, dir string, stacks []string, base string, changed bool, cfgPath string) (
+var classifyForGateFn = func(ctx context.Context, dir string, stacks []string, base string, changed bool, cfgPath string, parallel int) (
 	[]events.GateTarget, map[string][]events.Category, map[string]events.Counts, []string, string, error) {
-	r, err := classifyForGate(ctx, dir, stacks, base, changed, cfgPath)
+	r, err := classifyForGate(ctx, dir, stacks, base, changed, cfgPath, parallel)
 	return r.Gates, r.Categories, r.Counts, r.Moving, r.Report, err
 }
 
@@ -46,11 +46,12 @@ type classifyResult struct {
 // passes the already-resolved stack set plus the change-detection flags it used
 // to compute it (changed/base), which select the script-run scope. At apply time
 // we re-plan rather than reuse a saved plan: a stale/locked plan can't be
-// trusted, mirroring the plan script's own -lock semantics.
-func classifyForGate(ctx context.Context, dir string, stacks []string, base string, changed bool, cfgPath string) (classifyResult, error) {
+// trusted, mirroring the plan script's own -lock semantics. parallel mirrors the
+// apply's --parallel so the re-plan runs N-wide instead of one stack at a time.
+func classifyForGate(ctx context.Context, dir string, stacks []string, base string, changed bool, cfgPath string, parallel int) (classifyResult, error) {
 	tm := newTerramate(dir)
 	if len(stacks) > 0 {
-		if rerr := tm.ScriptRun(ctx, os.Stderr, runner.ScriptRunOptions{Script: "plan", Changed: changed, Base: base}); rerr != nil {
+		if rerr := tm.ScriptRun(ctx, os.Stderr, runner.ScriptRunOptions{Script: "plan", Changed: changed, Base: base, Parallel: parallel}); rerr != nil {
 			return classifyResult{}, rerr
 		}
 	}

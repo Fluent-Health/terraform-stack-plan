@@ -160,7 +160,7 @@ func TestClassifyForGateReturnsGates(t *testing.T) {
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 
-	res, err := classifyForGate(context.Background(), dir, []string{"stacks/a", "stacks/b"}, "", false, "")
+	res, err := classifyForGate(context.Background(), dir, []string{"stacks/a", "stacks/b"}, "", false, "", 0)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -126,7 +126,7 @@ func runApply(args []string) int {
 	//    the serve DB was wiped since the PR's plan ran. Best-effort: a classify
 	//    failure must not strand a recoverable apply — the fail-closed GateCheck
 	//    below is the real guard.
-	gates, categories, counts, moving, report, cerr := classifyForGateFn(ctx, *dir, stacks, *base, *changed, *cfgPath)
+	gates, categories, counts, moving, report, cerr := classifyForGateFn(ctx, *dir, stacks, *base, *changed, *cfgPath, *parallel)
 	if cerr != nil {
 		// The classify pass is the precondition for trusting the gate state under
 		// elevation. A *successful* classify with an empty requester legitimately

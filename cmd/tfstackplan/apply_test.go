@@ -176,7 +176,7 @@ func TestRunApplyImpersonatesRequester(t *testing.T) {
 	// real classify pass would fail — and a failed classify under
 	// --impersonate-requester is now fail-closed).
 	origCls := classifyForGateFn
-	classifyForGateFn = func(_ context.Context, _ string, _ []string, _ string, _ bool, _ string) (
+	classifyForGateFn = func(_ context.Context, _ string, _ []string, _ string, _ bool, _ string, _ int) (
 		[]events.GateTarget, map[string][]events.Category, map[string]events.Counts, []string, string, error,
 	) {
 		return nil, map[string][]events.Category{}, map[string]events.Counts{}, nil, "classified", nil
@@ -231,7 +231,7 @@ func TestRunApplyMintFailClosedImpersonate(t *testing.T) {
 	// asserting on (the fixture has no `plan` script; a failed classify under
 	// --impersonate-requester is fail-closed and would abort before mint).
 	origCls := classifyForGateFn
-	classifyForGateFn = func(_ context.Context, _ string, _ []string, _ string, _ bool, _ string) (
+	classifyForGateFn = func(_ context.Context, _ string, _ []string, _ string, _ bool, _ string, _ int) (
 		[]events.GateTarget, map[string][]events.Category, map[string]events.Counts, []string, string, error,
 	) {
 		return nil, map[string][]events.Category{}, map[string]events.Counts{}, nil, "classified", nil
@@ -450,6 +450,24 @@ func TestApplyDefaultParallelIsZero(t *testing.T) {
 	}
 }
 
+// TestApplyClassifyPassUsesParallel asserts that run apply threads --parallel
+// into its pre-apply classify/re-plan pass (not just the apply step). Without
+// this, the re-plan of every changed stack runs strictly serially (one stack at
+// a time, alphabetical), which dominates a large tier-apply — the bug in #4524.
+func TestApplyClassifyPassUsesParallel(t *testing.T) {
+	srv, _ := stubServer(t)
+	setApplyEnv(t, srv.URL, 200, "prod")
+	f := &fakeTM{changed: []string{"cluster/fh-prod"}}
+	withFakeTM(t, f, nil)
+
+	if code := runApply([]string{"--dir", t.TempDir(), "--parallel", "4"}); code != 0 {
+		t.Fatalf("exit=%d want 0", code)
+	}
+	if f.classifyParallel != 4 {
+		t.Errorf("classify pass --parallel = %d, want 4 (re-plan must run N-wide, not serial)", f.classifyParallel)
+	}
+}
+
 // TestApplyFinalizeCarriesCounts asserts the classify-pass Finalize carries the
 // per-stack op counts returned by classifyForGateFn. The classify-pass Finalize
 // (the one with Gates/Categories set, emitted before the gate check) must have
@@ -462,7 +480,7 @@ func TestApplyFinalizeCarriesCounts(t *testing.T) {
 	// Override classifyForGateFn (installed by withFakeTM) with one that
 	// returns a non-empty Counts map so we can assert it ends up in the Finalize.
 	origCls := classifyForGateFn
-	classifyForGateFn = func(_ context.Context, _ string, _ []string, _ string, _ bool, _ string) (
+	classifyForGateFn = func(_ context.Context, _ string, _ []string, _ string, _ bool, _ string, _ int) (
 		[]events.GateTarget, map[string][]events.Category, map[string]events.Counts, []string, string, error,
 	) {
 		return nil, map[string][]events.Category{}, map[string]events.Counts{"a": {Add: 3}}, nil, "classified", nil
@@ -508,7 +526,7 @@ func TestApplyFailsClosedOnClassifyFailureWhenImpersonating(t *testing.T) {
 	withFakeTM(t, f, nil)
 
 	origCls := classifyForGateFn
-	classifyForGateFn = func(_ context.Context, _ string, _ []string, _ string, _ bool, _ string) (
+	classifyForGateFn = func(_ context.Context, _ string, _ []string, _ string, _ bool, _ string, _ int) (
 		[]events.GateTarget, map[string][]events.Category, map[string]events.Counts, []string, string, error,
 	) {
 		return nil, nil, nil, nil, "", errBoom
@@ -558,7 +576,7 @@ func TestApplyContinuesOnClassifyFailureWithoutImpersonate(t *testing.T) {
 	withFakeTM(t, f, nil)
 
 	origCls := classifyForGateFn
-	classifyForGateFn = func(_ context.Context, _ string, _ []string, _ string, _ bool, _ string) (
+	classifyForGateFn = func(_ context.Context, _ string, _ []string, _ string, _ bool, _ string, _ int) (
 		[]events.GateTarget, map[string][]events.Category, map[string]events.Counts, []string, string, error,
 	) {
 		return nil, nil, nil, nil, "", errBoom
