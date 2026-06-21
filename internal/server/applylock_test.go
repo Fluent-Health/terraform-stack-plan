@@ -48,6 +48,7 @@ type recordingGitHub struct {
 	updateCount      int
 	mergeGroupPRs    []int
 	mergeGroupPRsErr error
+	prHeadSHA        string
 }
 
 func (r *recordingGitHub) CreateCheckRun(_ context.Context, _, _, _ string, _ string) (int64, error) {
@@ -65,7 +66,7 @@ func (r *recordingGitHub) PostStatus(_ context.Context, _, _, _, _, _, _ string)
 }
 
 func (r *recordingGitHub) PRHeadSHA(_ context.Context, _ string, _ int) (string, error) {
-	return "", nil
+	return r.prHeadSHA, nil
 }
 
 func (r *recordingGitHub) PRAbandoned(_ context.Context, _ string, _ int) (bool, error) {
@@ -152,5 +153,21 @@ func TestMergeGroupPRResolutionError(t *testing.T) {
 	}
 	if gh.updateCount != 0 {
 		t.Fatalf("expected no check posted, got %d UpdateCheckRun call(s)", gh.updateCount)
+	}
+}
+
+func TestPRApplyLockEvaluateAndClaim(t *testing.T) {
+	a, gh := newApplyLockTestApp(t)
+	gh.prHeadSHA = "prhead"
+	seedPlan(t, a.db, 7, "prod", "o/r", "prhead", []string{"a"})
+	// open/sync: disjoint ⇒ success on PR head.
+	a.handlePRApplyLock(ctx(), "o/r", 7, false)
+	if gh.lastUpdate.Conclusion != "success" {
+		t.Fatalf("PR-head check = %q, want success", gh.lastUpdate.Conclusion)
+	}
+	// merged ⇒ claim the PR's stacks.
+	a.handlePRApplyLock(ctx(), "o/r", 7, true)
+	if c, _ := store.ClaimedStacks(a.db, "prod", time.Now()); c["a"] != 7 {
+		t.Fatalf("merged did not claim: %v", c)
 	}
 }

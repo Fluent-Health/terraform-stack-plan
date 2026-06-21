@@ -67,17 +67,32 @@ func (a *App) handleGitHubWebhook(w http.ResponseWriter, r *http.Request) {
 			Number int  `json:"number"`
 			Merged bool `json:"merged"`
 		} `json:"pull_request"`
+		Repository struct {
+			FullName string `json:"full_name"`
+		} `json:"repository"`
 	}
 	if err := json.Unmarshal(body, &payload); err != nil {
 		http.Error(w, "invalid payload", http.StatusBadRequest)
 		return
 	}
-	if payload.Action != "closed" {
+
+	pr := payload.PullRequest.Number
+	repoFullName := payload.Repository.FullName
+
+	switch payload.Action {
+	case "opened", "reopened", "synchronize":
+		if pr > 0 {
+			a.handlePRApplyLock(r.Context(), repoFullName, pr, false)
+		}
+		w.WriteHeader(http.StatusNoContent)
+		return
+	case "closed":
+		// handled below
+	default:
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 
-	pr := payload.PullRequest.Number
 	if pr <= 0 {
 		http.Error(w, "invalid PR number", http.StatusBadRequest)
 		return
@@ -86,6 +101,7 @@ func (a *App) handleGitHubWebhook(w http.ResponseWriter, r *http.Request) {
 		// A merged PR's grant is consumed by the post-merge apply (released by
 		// ApplySucceeded, PAM TTL as backstop) — do NOT orphan-revoke it.
 		log.Printf("webhook: PR #%d merged — leaving grant for the apply", pr)
+		a.handlePRApplyLock(r.Context(), repoFullName, pr, true)
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}

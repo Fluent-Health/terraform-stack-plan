@@ -118,6 +118,38 @@ func (a *App) applyLockDetailsURL(env string, pr int) string {
 	return a.cfg.PublicBaseURL + "/pr/" + strconv.Itoa(pr)
 }
 
+// handlePRApplyLock drives the auto-merge front-end: on open/sync/reopen it posts
+// apply-lock/<env> on the PR head for every env the PR touches; on merge it claims
+// the PR's stacks (the apply is imminent).
+func (a *App) handlePRApplyLock(ctx context.Context, repo string, pr int, merged bool) {
+	if !a.cfg.ApplyLock {
+		return
+	}
+	envs, err := store.EnvironmentsForPR(a.db, pr)
+	if err != nil {
+		return
+	}
+	now := time.Now()
+	for _, env := range envs {
+		stacks, ok := a.prChangedStacks(env, pr)
+		if merged {
+			if ok {
+				_ = store.ClaimStacks(a.db, env, pr, "", stacks, now.Add(a.applyLockLease()))
+			}
+			continue
+		}
+		sha, err := a.gh.PRHeadSHA(ctx, repo, pr)
+		if err != nil {
+			continue
+		}
+		if !ok {
+			a.postApplyLockUnverifiable(ctx, repo, env, sha, pr, "pr_head", "no successful plan for #"+strconv.Itoa(pr))
+			continue
+		}
+		_ = a.postApplyLock(ctx, repo, env, sha, pr, stacks, "pr_head", a.evalApplyLock(env, pr, stacks, now))
+	}
+}
+
 // handleMergeGroup evaluates the apply-lock for a GitHub merge group and posts
 // apply-lock/<env> on the group head. On checks_requested: disjoint => claim at
 // greenlight + success; overlap => held. On destroyed: release the tentative claim.
