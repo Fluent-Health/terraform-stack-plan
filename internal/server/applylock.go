@@ -1,7 +1,10 @@
 package server
 
 import (
+	"context"
 	"sort"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
@@ -47,7 +50,7 @@ func (a *App) prChangedStacks(env string, pr int) ([]string, bool) {
 }
 
 // evalApplyLock computes the verdict for ownerPR's `stacks` in env at `now`.
-// Empty stacks ⇒ clear (PR touches nothing in this env).
+// Empty stacks => clear (PR touches nothing in this env).
 func (a *App) evalApplyLock(env string, pr int, stacks []string, now time.Time) applyLockVerdict {
 	claimed, err := store.ClaimedStacks(a.db, env, now)
 	if err != nil {
@@ -60,3 +63,59 @@ func (a *App) evalApplyLock(env string, pr int, stacks []string, now time.Time) 
 	return applyLockVerdict{State: "held", Blocking: blocking,
 		Reason: "stacks being applied by another PR"}
 }
+
+// postApplyLock creates-or-updates the apply-lock/<env> check on `sha` to match
+// the verdict and persists the record (so a later release can re-PATCH it).
+// held/unverifiable => left in_progress (empty conclusion) — blocks the merge;
+// clear => conclusion success.
+func (a *App) postApplyLock(ctx context.Context, repo, env, sha string, pr int, stacks []string, kind string, v applyLockVerdict) error {
+	rec, ok, err := store.GetApplyLockCheck(a.db, env, sha)
+	if err != nil {
+		return err
+	}
+	var crID int64
+	if ok {
+		crID = rec.CheckRunID
+	} else {
+		crID, err = a.gh.CreateCheckRun(ctx, repo, sha, applyLockName(env), a.applyLockDetailsURL(env, pr))
+		if err != nil {
+			return err
+		}
+	}
+	title, summary, conclusion := applyLockOutput(env, pr, v)
+	if err := a.gh.UpdateCheckRun(ctx, repo, crID, CheckRunUpdate{
+		Title: title, Summary: summary, DetailsURL: a.applyLockDetailsURL(env, pr), Conclusion: conclusion,
+	}); err != nil {
+		return err
+	}
+	return store.UpsertApplyLockCheck(a.db, store.ApplyLockCheck{
+		Environment: env, HeadSHA: sha, CheckRunID: crID, PR: pr, Repo: repo, Stacks: stacks, State: v.State, Kind: kind,
+	})
+}
+
+// applyLockOutput renders the check title/summary + the GitHub conclusion for a
+// verdict. Help text uses the cause + next-steps style.
+func applyLockOutput(env string, pr int, v applyLockVerdict) (title, summary, conclusion string) {
+	switch v.State {
+	case "clear":
+		return "apply-lock: clear", "No overlapping apply for this environment.", "success"
+	case "unverifiable":
+		return "apply-lock: can't verify",
+			"Can't verify apply-lock — " + v.Reason + ". Retrying; re-run the plan if it failed.", ""
+	default: // held
+		return "apply-lock: holding merge",
+			"Holding — stacks `" + strings.Join(v.Blocking, "`, `") +
+				"` are being applied by another PR. Clears automatically when that apply finishes " +
+				"(or when its lease expires). Next: wait; if that apply is stuck, cancel/re-run it, " +
+				"an admin may bypass, or run `tfstackplan claims release`.", ""
+	}
+}
+
+func (a *App) applyLockDetailsURL(env string, pr int) string {
+	if a.cfg.PublicBaseURL == "" {
+		return ""
+	}
+	return a.cfg.PublicBaseURL + "/pr/" + strconv.Itoa(pr)
+}
+
+// suppress unused import warning — env and pr are used in applyLockOutput

@@ -249,3 +249,12 @@ func (c *RealClient) PRAbandoned(ctx context.Context, repo string, pr int) (bool
 	}
 	return out.State == "closed" && !out.Merged, nil
 }
+
+// applyLockName is the per-environment apply-lock check name (the merge gate
+// that branch protection / the merge queue require): "apply-lock/<env>".
+func applyLockName(environment string) string {
+	if environment == "" {
+		return "apply-lock"
+	}
+	return "apply-lock/" + environment
+}
