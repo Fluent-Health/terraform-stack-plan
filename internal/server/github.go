@@ -30,6 +30,9 @@ type GitHub interface {
 	// merged (i.e. abandoned). A merged PR returns false so its post-merge apply
 	// keeps its grant. Returns (false, err) when the PR cannot be read.
 	PRAbandoned(ctx context.Context, repo string, pr int) (bool, error)
+	// MergeGroupPRs returns the PR numbers whose commits compose the merge group
+	// at headSHA, via the commit→PRs association API.
+	MergeGroupPRs(ctx context.Context, repo, headSHA string) ([]int, error)
 }
 
 // MockGitHub is a test double for GitHub. Unset funcs are no-ops.
@@ -39,6 +42,7 @@ type MockGitHub struct {
 	PostStatusFn     func(ctx context.Context, repo, sha, context_, state, description, targetURL string) error
 	PRHeadSHAFn      func(ctx context.Context, repo string, pr int) (string, error)
 	PRAbandonedFn    func(ctx context.Context, repo string, pr int) (bool, error)
+	MergeGroupPRsFn  func(ctx context.Context, repo, headSHA string) ([]int, error)
 	// CreateCheckRunCalls counts CreateCheckRun invocations so tests can assert
 	// the check run is created exactly once (idempotency).
 	CreateCheckRunCalls int
@@ -78,4 +82,11 @@ func (m *MockGitHub) PRAbandoned(ctx context.Context, repo string, pr int) (bool
 		return m.PRAbandonedFn(ctx, repo, pr)
 	}
 	return false, nil
+}
+
+func (m *MockGitHub) MergeGroupPRs(ctx context.Context, repo, headSHA string) ([]int, error) {
+	if m.MergeGroupPRsFn != nil {
+		return m.MergeGroupPRsFn(ctx, repo, headSHA)
+	}
+	return nil, nil
 }

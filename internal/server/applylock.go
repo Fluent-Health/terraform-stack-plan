@@ -1,0 +1,323 @@
+package server
+
+import (
+	"context"
+	"sort"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
+)
+
+// applyLockVerdict is the evaluation of one PR's mergeability against the env's
+// claimed-stack set. State is clear|held|unverifiable.
+type applyLockVerdict struct {
+	State    string
+	Blocking []string
+	Reason   string
+}
+
+// overlap returns the stacks in `stacks` that are claimed by a PR other than
+// ownerPR (sorted, deterministic).
+func overlap(claimed map[string]int, stacks []string, ownerPR int) []string {
+	var out []string
+	for _, s := range stacks {
+		if pr, ok := claimed[s]; ok && pr != ownerPR {
+			out = append(out, s)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// prChangedStacks returns a PR's plan-time changed-stack set for env. ok=false
+// when there is no successful plan to read (caller fails closed).
+func (a *App) prChangedStacks(env string, pr int) ([]string, bool) {
+	id, ok := store.LatestExecutionID(a.db, pr, env)
+	if !ok {
+		return nil, false
+	}
+	g, err := store.LoadGraph(a.db, id)
+	if err != nil {
+		return nil, false
+	}
+	stacks := make([]string, 0, len(g.Stacks))
+	for _, s := range g.Stacks {
+		stacks = append(stacks, s.Path)
+	}
+	return stacks, true
+}
+
+// evalApplyLock computes the verdict for ownerPR's `stacks` in env at `now`.
+// Empty stacks => clear (PR touches nothing in this env).
+func (a *App) evalApplyLock(env string, pr int, stacks []string, now time.Time) applyLockVerdict {
+	claimed, err := store.ClaimedStacks(a.db, env, now)
+	if err != nil {
+		return applyLockVerdict{State: "unverifiable", Reason: "claimed-set query failed"}
+	}
+	blocking := overlap(claimed, stacks, pr)
+	if len(blocking) == 0 {
+		return applyLockVerdict{State: "clear"}
+	}
+	return applyLockVerdict{State: "held", Blocking: blocking,
+		Reason: "stacks being applied by another PR"}
+}
+
+// postApplyLock creates-or-updates the apply-lock/<env> check on `sha` to match
+// the verdict and persists the record (so a later release can re-PATCH it).
+// held/unverifiable => left in_progress (empty conclusion) — blocks the merge;
+// clear => conclusion success.
+func (a *App) postApplyLock(ctx context.Context, repo, env, sha string, pr int, stacks []string, kind string, v applyLockVerdict) error {
+	rec, ok, err := store.GetApplyLockCheck(a.db, env, sha)
+	if err != nil {
+		return err
+	}
+	var crID int64
+	if ok {
+		crID = rec.CheckRunID
+	} else {
+		crID, err = a.gh.CreateCheckRun(ctx, repo, sha, applyLockName(env), a.applyLockDetailsURL(env, pr))
+		if err != nil {
+			return err
+		}
+	}
+	title, summary, conclusion := applyLockOutput(env, pr, v)
+	if err := a.gh.UpdateCheckRun(ctx, repo, crID, CheckRunUpdate{
+		Title: title, Summary: summary, DetailsURL: a.applyLockDetailsURL(env, pr), Conclusion: conclusion,
+	}); err != nil {
+		return err
+	}
+	return store.UpsertApplyLockCheck(a.db, store.ApplyLockCheck{
+		Environment: env, HeadSHA: sha, CheckRunID: crID, PR: pr, Repo: repo, Stacks: stacks, State: v.State, Kind: kind,
+	})
+}
+
+// applyLockOutput renders the check title/summary + the GitHub conclusion for a
+// verdict. Help text uses the cause + next-steps style.
+func applyLockOutput(env string, pr int, v applyLockVerdict) (title, summary, conclusion string) {
+	switch v.State {
+	case "clear":
+		return "apply-lock: clear", "No overlapping apply for this environment.", "success"
+	case "unverifiable":
+		return "apply-lock: can't verify",
+			"Can't verify apply-lock — " + v.Reason + ". Retrying; re-run the plan if it failed.", ""
+	default: // held
+		return "apply-lock: holding merge",
+			"Holding — stacks `" + strings.Join(v.Blocking, "`, `") +
+				"` are being applied by another PR. Clears automatically when that apply finishes " +
+				"(or when its lease expires). Next: wait; if that apply is stuck, cancel/re-run it, " +
+				"an admin may bypass, or run `tfstackplan claims release`.", ""
+	}
+}
+
+func (a *App) applyLockDetailsURL(env string, pr int) string {
+	if a.cfg.PublicBaseURL == "" {
+		return ""
+	}
+	return a.cfg.PublicBaseURL + "/pr/" + strconv.Itoa(pr)
+}
+
+// handlePRApplyLock drives the auto-merge front-end: on open/sync/reopen it posts
+// apply-lock/<env> on the PR head for every env the PR touches; on merge it claims
+// the PR's stacks (the apply is imminent).
+func (a *App) handlePRApplyLock(ctx context.Context, repo string, pr int, merged bool) {
+	if !a.cfg.ApplyLock {
+		return
+	}
+	envs, err := store.EnvironmentsForPR(a.db, pr)
+	if err != nil {
+		return
+	}
+	now := time.Now()
+	for _, env := range envs {
+		stacks, ok := a.prChangedStacks(env, pr)
+		if merged {
+			if ok {
+				_ = store.ClaimStacks(a.db, env, pr, "", stacks, now.Add(a.applyLockLease()))
+			}
+			continue
+		}
+		sha, err := a.gh.PRHeadSHA(ctx, repo, pr)
+		if err != nil {
+			continue
+		}
+		if !ok {
+			a.postApplyLockUnverifiable(ctx, repo, env, sha, pr, "pr_head", "no successful plan for #"+strconv.Itoa(pr))
+			continue
+		}
+		_ = a.postApplyLock(ctx, repo, env, sha, pr, stacks, "pr_head", a.evalApplyLock(env, pr, stacks, now))
+	}
+}
+
+// handleMergeGroup evaluates the apply-lock for a GitHub merge group and posts
+// apply-lock/<env> on the group head. On checks_requested: disjoint => claim at
+// greenlight + success; overlap => held. On destroyed: release the tentative claim.
+// Returns a non-nil error when the group's PRs or their envs can't be resolved so
+// the caller can return 5xx and let GitHub redeliver (fail-closed).
+func (a *App) handleMergeGroup(ctx context.Context, repo, headSHA, action string) error {
+	if !a.cfg.ApplyLock {
+		return nil
+	}
+	if action == "destroyed" {
+		// Release per-env claims held by the merge group's constituent PRs.
+		// Best-effort: errors here are backed by the TTL backstop.
+		prs, err := a.gh.MergeGroupPRs(ctx, repo, headSHA)
+		if err == nil {
+			for _, pr := range prs {
+				envs, _ := store.EnvironmentsForPR(a.db, pr)
+				for _, env := range envs {
+					if rec, ok, _ := store.GetApplyLockCheck(a.db, env, headSHA); ok {
+						_ = store.ReleaseClaimsByPREnv(a.db, env, rec.PR)
+						a.reevaluateHeld(ctx, env)
+					}
+				}
+			}
+		}
+		return nil
+	}
+	// checks_requested: resolve PRs in the merge group and evaluate per env.
+	prs, err := a.gh.MergeGroupPRs(ctx, repo, headSHA)
+	if err != nil {
+		// Can't identify which envs to post on — return error so the webhook
+		// returns 5xx and GitHub redelivers, keeping required checks unreported
+		// (fail-closed). Do NOT post a misnamed apply-lock check (env="").
+		return err
+	}
+	// Collect all envs touched by the group's PRs and evaluate per env.
+	envPRStacks := map[string]map[int][]string{} // env -> pr -> stacks
+	for _, pr := range prs {
+		envs, err := store.EnvironmentsForPR(a.db, pr)
+		if err != nil {
+			// Can't determine which envs this PR touches — fail-closed same as above.
+			return err
+		}
+		if len(envs) == 0 {
+			// PR has no known envs: post unverifiable on the known env so the
+			// check is visible; no env="" misname possible here.
+			continue
+		}
+		for _, env := range envs {
+			ps, ok := a.prChangedStacks(env, pr)
+			if !ok {
+				a.postApplyLockUnverifiable(ctx, repo, env, headSHA, pr, "merge_group", "no successful plan for #"+strconv.Itoa(pr))
+				return nil
+			}
+			if envPRStacks[env] == nil {
+				envPRStacks[env] = map[int][]string{}
+			}
+			envPRStacks[env][pr] = ps
+		}
+	}
+	// Post one apply-lock/<env> check per env.
+	now := time.Now()
+	for env, prStacks := range envPRStacks {
+		// Union stacks for the env; use the last PR as the owner (single-PR merge groups are the common case).
+		var allStacks []string
+		ownerPR := 0
+		for pr, ss := range prStacks {
+			allStacks = append(allStacks, ss...)
+			ownerPR = pr
+		}
+		v := a.evalApplyLock(env, ownerPR, allStacks, now)
+		if v.State == "clear" {
+			_ = store.ClaimStacks(a.db, env, ownerPR, "", allStacks, now.Add(a.applyLockLease()))
+		}
+		_ = a.postApplyLock(ctx, repo, env, headSHA, ownerPR, allStacks, "merge_group", v)
+	}
+	return nil
+}
+
+func (a *App) postApplyLockUnverifiable(ctx context.Context, repo, env, sha string, pr int, kind, reason string) {
+	_ = a.postApplyLock(ctx, repo, env, sha, pr, nil, kind, applyLockVerdict{State: "unverifiable", Reason: reason})
+}
+
+// sweepClaimsOnce releases all expired claims and re-evaluates held checks for
+// each affected environment (the auto-heal tick).
+func (a *App) sweepClaimsOnce(ctx context.Context) {
+	if !a.cfg.ApplyLock {
+		return
+	}
+	envs, err := store.SweepExpiredClaims(a.db, time.Now())
+	if err != nil {
+		return
+	}
+	for _, env := range envs {
+		a.reevaluateHeld(ctx, env)
+	}
+}
+
+// ClaimsSweepLoop periodically releases expired claims and re-evaluates held
+// checks (mirrors OrphanSweepLoop). Self-disables when apply_lock is off.
+func (a *App) ClaimsSweepLoop(ctx context.Context, interval time.Duration) {
+	if !a.cfg.ApplyLock {
+		return
+	}
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			a.sweepClaimsOnce(ctx)
+		}
+	}
+}
+
+// applyLockLease is the heartbeat lease window for a claim.
+func (a *App) applyLockLease() time.Duration { return 30 * time.Minute }
+
+// adminReleaseClaims is the manual un-wedge path: an admin releases one stack's
+// claim (stack != "") or all of a PR's claims in env (stack == ""), then
+// re-evaluates held checks. No-op when ApplyLock is off.
+func (a *App) adminReleaseClaims(ctx context.Context, env string, pr int, stack string) {
+	if !a.cfg.ApplyLock {
+		return
+	}
+	if stack != "" {
+		_ = store.ReleaseClaimStack(a.db, env, pr, stack)
+	} else {
+		_ = store.ReleaseClaimsByPREnv(a.db, env, pr)
+	}
+	a.reevaluateHeld(ctx, env)
+}
+
+// releaseApplyClaims drops a PR's claims in an env and re-evaluates held checks
+// (each held-check record carries its own repo).
+func (a *App) releaseApplyClaims(ctx context.Context, env string, pr int) {
+	if !a.cfg.ApplyLock {
+		return
+	}
+	_ = store.ReleaseClaimsByPREnv(a.db, env, pr)
+	a.reevaluateHeld(ctx, env)
+}
+
+// renewApplyClaims extends a PR's lease in an env (apply heartbeat).
+func (a *App) renewApplyClaims(env string, pr int) {
+	if !a.cfg.ApplyLock {
+		return
+	}
+	_ = store.RenewClaims(a.db, env, pr, time.Now().Add(a.applyLockLease()))
+}
+
+// reevaluateHeld re-posts every held apply-lock check in env whose blocking
+// stacks are now clear (called after any claim release). Each held-check record
+// carries its own repo, so this needs no repo arg and works from a sweep too.
+func (a *App) reevaluateHeld(ctx context.Context, env string) {
+	if !a.cfg.ApplyLock {
+		return
+	}
+	held, err := store.HeldApplyLockChecks(a.db, env)
+	if err != nil {
+		return
+	}
+	now := time.Now()
+	for _, c := range held {
+		v := a.evalApplyLock(env, c.PR, c.Stacks, now)
+		if v.State == "clear" && c.Kind == "merge_group" {
+			_ = store.ClaimStacks(a.db, env, c.PR, "", c.Stacks, now.Add(a.applyLockLease()))
+		}
+		_ = a.postApplyLock(ctx, c.Repo, env, c.HeadSHA, c.PR, c.Stacks, c.Kind, v)
+	}
+}

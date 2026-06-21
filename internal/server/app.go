@@ -39,6 +39,9 @@ type Config struct {
 	// the pure reconcile core (internal/reconcile) instead of the legacy
 	// handlers. Off by default; engaged only at quiescence (see Task 19).
 	ReconcilerCore bool
+	// ApplyLock enables the apply-serialization feature: at most one apply runs
+	// at a time across all PRs. Off by default; inert when false.
+	ApplyLock bool
 	// LogsDir is where per-stack log buffers are written. Empty disables log
 	// ingestion (the endpoints become no-ops).
 	LogsDir string
@@ -127,6 +130,8 @@ func (a *App) Routes() http.Handler {
 	mux.Handle("POST /api/gate/check", a.auth(http.HandlerFunc(a.handleGateCheck)))
 	mux.Handle("POST /api/gate/revoke", a.auth(http.HandlerFunc(a.handleGateRevoke)))
 	mux.Handle("POST /api/logs", a.auth(http.HandlerFunc(a.handleLogs)))
+	mux.Handle("POST /api/claims/list", a.auth(http.HandlerFunc(a.handleClaimsList)))
+	mux.Handle("POST /api/claims/release", a.auth(http.HandlerFunc(a.handleClaimsRelease)))
 	return mux
 }
 

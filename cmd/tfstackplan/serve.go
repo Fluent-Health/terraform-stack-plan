@@ -92,6 +92,7 @@ func buildServeApp(ctx context.Context, cfg *config.Config, secret, ghWebhookSec
 		PublicBaseURL:       s.PublicBaseURL,
 		UseChecks:           s.UseChecks,
 		ReconcilerCore:      reconcilerCore,
+		ApplyLock:           s.ApplyLock,
 		GroupDepth:          groupDepth(s),
 		GroupPattern:        groupPattern(s),
 		LogsDir:             logsDir,
@@ -216,6 +217,7 @@ func runServe(args []string) int {
 
 	go app.ReconcileLoop(ctx, 30*time.Second)
 	go app.OrphanSweepLoop(ctx, 5*time.Minute)
+	go app.ClaimsSweepLoop(ctx, time.Minute)
 	go app.CleanLogBuffers(24 * time.Hour)
 
 	fmt.Fprintf(os.Stderr, "tfstackplan serve: listening on %s\n", *addr)

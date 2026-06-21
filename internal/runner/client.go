@@ -146,3 +146,23 @@ func (c *Client) LogChunk(ctx context.Context, lc events.LogChunk) error {
 func (c *Client) GateRevoke(ctx context.Context, g events.GateRevoke) error {
 	return c.post(ctx, "/api/gate/revoke", g)
 }
+
+// ClaimsList returns the current apply-lock claims for an environment.
+// Returns nil (no error) when the client is disabled.
+func (c *Client) ClaimsList(ctx context.Context, env string) ([]events.Claim, error) {
+	var out []events.Claim
+	if err := c.postInto(ctx, "/api/claims/list", map[string]string{"environment": env}, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ClaimsRelease asks the server to release one stack's claim (stack != "") or
+// all of a PR's claims in env (stack == ""). Best-effort; callers may ignore the error.
+func (c *Client) ClaimsRelease(ctx context.Context, env string, pr int, stack string) error {
+	return c.post(ctx, "/api/claims/release", map[string]any{
+		"environment": env,
+		"pr":          pr,
+		"stack":       stack,
+	})
+}

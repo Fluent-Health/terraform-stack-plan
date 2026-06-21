@@ -9,6 +9,63 @@ import (
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
 
+// handleClaimsList returns all apply-lock claims for an environment.
+// POST body: {"environment":"<env>"}
+// Response: JSON array of events.Claim (snake_case fields) (200); 404 when ApplyLock is off.
+func (a *App) handleClaimsList(w http.ResponseWriter, r *http.Request) {
+	if !a.cfg.ApplyLock {
+		http.NotFound(w, r)
+		return
+	}
+	var req struct {
+		Environment string `json:"environment"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		badRequest(w, err)
+		return
+	}
+	claims, err := store.ListClaims(a.db, req.Environment)
+	if err != nil {
+		http.Error(w, "list claims", http.StatusInternalServerError)
+		return
+	}
+	// Convert to events.Claim so the wire uses snake_case json tags, matching
+	// what the runner client (ClaimsList) decodes into []events.Claim.
+	// Return an empty JSON array (never null) when there are no claims.
+	out := make([]events.Claim, 0, len(claims))
+	for _, c := range claims {
+		out = append(out, events.Claim{
+			Environment: c.Environment,
+			StackPath:   c.StackPath,
+			OwnerPR:     c.OwnerPR,
+			ExpiresAt:   c.ExpiresAt,
+		})
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(out)
+}
+
+// handleClaimsRelease admin-releases one stack's claim or all of a PR's claims.
+// POST body: {"environment":"<env>","pr":<n>,"stack":"<optional>"}
+// Response: 200; 404 when ApplyLock is off.
+func (a *App) handleClaimsRelease(w http.ResponseWriter, r *http.Request) {
+	if !a.cfg.ApplyLock {
+		http.NotFound(w, r)
+		return
+	}
+	var req struct {
+		Environment string `json:"environment"`
+		PR          int    `json:"pr"`
+		Stack       string `json:"stack"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		badRequest(w, err)
+		return
+	}
+	a.adminReleaseClaims(r.Context(), req.Environment, req.PR, req.Stack)
+	w.WriteHeader(http.StatusOK)
+}
+
 func (a *App) handleInit(w http.ResponseWriter, r *http.Request) {
 	var in events.Init
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
@@ -31,6 +88,9 @@ func (a *App) handleInit(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "create check run", http.StatusBadGateway)
 			return
 		}
+	}
+	if isApplyContext(in.Context) && a.cfg.ApplyLock {
+		_ = store.AssociateClaimExecution(a.db, in.Environment, in.PR, in.ID)
 	}
 	a.drive(r.Context(), in.ID, base, false)
 	w.WriteHeader(http.StatusOK)
@@ -64,6 +124,9 @@ func (a *App) handlePhase(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if isApplyContext(e.StatusContext) && a.cfg.ApplyLock {
+		a.renewApplyClaims(e.Environment, e.PR)
+	}
 	a.drive(r.Context(), p.ID, base, false)
 	w.WriteHeader(http.StatusOK)
 }
@@ -80,6 +143,11 @@ func (a *App) handleUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	if a.Objects != nil && done(u.Status) {
 		_ = a.offloadLog(r.Context(), u.ID, u.Stack)
+	}
+	if a.cfg.ApplyLock {
+		if ue, err := store.GetExecution(a.db, u.ID); err == nil && isApplyContext(ue.StatusContext) {
+			a.renewApplyClaims(ue.Environment, ue.PR)
+		}
 	}
 	a.drive(r.Context(), u.ID, a.baseURL(r), false)
 	w.WriteHeader(http.StatusOK)
@@ -131,6 +199,9 @@ func (a *App) handleFinalize(w http.ResponseWriter, r *http.Request) {
 		a.drive(r.Context(), f.ID, a.baseURL(r), true)
 		if g, gerr := store.LoadGraph(a.db, f.ID); gerr == nil {
 			a.finalizeLogs(r.Context(), f.ID, g.Stacks)
+		}
+		if isApplyContext(e.StatusContext) && a.cfg.ApplyLock {
+			a.releaseApplyClaims(r.Context(), e.Environment, e.PR)
 		}
 		w.WriteHeader(http.StatusOK)
 		return
@@ -226,6 +297,9 @@ func (a *App) handleFinalize(w http.ResponseWriter, r *http.Request) {
 	}
 	if g, gerr := store.LoadGraph(a.db, f.ID); gerr == nil {
 		a.finalizeLogs(r.Context(), f.ID, g.Stacks)
+	}
+	if isApplyContext(e.StatusContext) && a.cfg.ApplyLock {
+		a.releaseApplyClaims(r.Context(), e.Environment, e.PR)
 	}
 	w.WriteHeader(http.StatusOK)
 }
