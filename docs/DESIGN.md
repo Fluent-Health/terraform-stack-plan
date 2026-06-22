@@ -920,11 +920,15 @@ Top to bottom: a **header** (repo · #PR · short SHA, the kind+environment titl
 and a phase pill — teal `PLANNING` / blue `APPLYING` with an elapsed clock from
 `Execution.CreatedAt`); a **verdict band** — a single-line op-count row
 (`+add ~change ±replace −destroy ↔move` plus a `⚿N` IAM count and a `⚠ Destructive`
-flag) over a full-width **segmented progress bar** whose segments are
-rank-ordered so the bar fills left→right (done → attention → active → ready →
-initializing → not-started), flex-sized by ops and coloured by each stack's *current state*
-(so the bar tracks live progress through the stages, re-rendered on each
-refresh); the per-stack list keeps path/group order; the optional
+flag) over a full-width **overall progress bar** — the same weighted full-progress
+fraction as the check-run title (shared `runProgress`/`progress`), so the bar
+tracks *whole-operation* progress across the configured phases, with the per-phase
+detail (e.g. `applying 1/4`) shown as a label beside it; a concluded run shows a
+full bar ([PR #99](https://github.com/Fluent-Health/terraform-stack-plan/pull/99)).
+(It previously rendered a per-stack *segmented* blast-radius bar coloured by each
+stack's current status, which visibly **reset to empty at phase boundaries** — e.g.
+re-planned stacks flip `prepared→queued` when the apply starts — and never
+reflected overall progress.) The per-stack list keeps path/group order; the optional
 **approval panel**; a **stack list grouped by Google project** (`groupByProject`
 on `StackState.Project`), each row a per-state colour label + op count + risk
 badges, linking to its detail anchor; a **single selected-stack detail pane** that
@@ -977,7 +981,7 @@ correlation (needs grant timestamps) is intentionally out of scope.
 Styling is **DaisyUI components** (`card`, `badge`, `menu`, `collapse`) on a custom
 DaisyUI **theme** (`briefing`) that maps the palette onto the semantic colour slots
 (primary=apply, secondary=plan, success/warning/error/accent/info=op-kinds &
-states), plus Tailwind utilities. The *only* bespoke CSS is the segmented progress
+states), plus Tailwind utilities. The *only* bespoke CSS is the progress
 bar + the dynamic `bs-*`/`sl-*` state colours — authored as plain CSS in
 `web/input.css` (so they survive tree-shaking; the slug is built in Go and never
 appears as a literal for the scanner) but reading their colours from the theme
@@ -1040,7 +1044,11 @@ stack completes init, at which point it becomes `initialized k/N`. For an apply,
 the title reads `preparing k/N` during the pre-apply re-plan pass (which runs
 under a pre-apply phase before `PhaseApplying`), flipping to `applying k/N` once
 the real apply begins; `progressTitle` takes a `kind` arg and the bar rendering
-is factored into `progressBar`. The rendered report shown in the check-run
+is factored into `progressBar`. The title is `bar · label` — the bar is the
+weighted overall fraction and the label carries the per-phase count, so it does
+**not** repeat the count between them (the old `bar k/N · applying k/N` double
+indicator); the live page renders the same bar via the shared `runProgress`
+([PR #99](https://github.com/Fluent-Health/terraform-stack-plan/pull/99)). The rendered report shown in the check-run
 **details** (and the live-viewer report section) uses `render.RenderNoTable` —
 header + per-stack change trees, **omitting** the leading summary table, since the
 live per-stack table already covers the overview; the full report (with the
@@ -1212,7 +1220,15 @@ after construction, like `Approval`). When a stack reaches a terminal status,
 `GET /logs/<exec>/<stack>` now prefers the live buffer and falls back to
 streaming the offloaded object via the pointer (`io.Copy`, not slurped), so a
 completed execution's logs survive buffer cleanup with no cloud IAM for viewers.
-With `App.Objects` unset, behavior is unchanged (buffer-only). _Remaining log
+The **follow (SSE) path** gets the same fallback ([PR #99](https://github.com/Fluent-Health/terraform-stack-plan/pull/99)):
+when the live buffer is absent (the run concluded — offloaded + deleted at
+finalize), `streamLog` replays the offloaded object (`streamOffloaded`, resuming
+from the byte offset) and emits a terminal `event: done` so the client closes
+instead of auto-retrying a buffer-less stream. Without this, a live page left open
+across finalize re-opens follow connections (as the user switches stacks) that
+replay nothing and hang — the "log briefly shows then disappears" bug. With
+`App.Objects` unset, behavior is unchanged (buffer-only; offload no-ops so the
+buffer survives and the follow path still replays it). _Remaining log
 limitation for the UI sub-plan: the SSE **replay** still reads the buffer into
 memory with no mid-replay cancellation, and should stream from disk/object-store
 with context cancellation; a periodic SSE heartbeat + reconnect
