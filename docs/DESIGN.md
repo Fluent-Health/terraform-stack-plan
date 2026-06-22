@@ -1556,13 +1556,30 @@ ruleset chooses which to enforce:
 
 **Claim lifecycle and auto-heal.** Claims are associated to the apply execution
 at `Init` time and kept alive by a **heartbeat lease** — each apply tick from
-`run step` renews the claim's expiry. On apply finalize (success or failure),
-the claim is released from the HTTP handler (mode-agnostic; works whether or
-not `reconciler_core` is on). A `ClaimsSweepLoop` (periodic background task)
-releases claims whose lease has expired — a signal that the apply process died
-without calling finalize — and re-evaluates all `pending` `apply-lock/<env>`
-checks for the same environment, so a stuck check self-heals once the dead
-apply's TTL lapses.
+`run step` renews the claim's expiry. The claim is released **when the apply
+truly ends**, not on a `Finalize`: `run apply` emits a mid-run `Finalize` during
+its classify pass (re-classify + re-request grants, *before* the cross-state
+move pre-phase and the terramate apply), so releasing on `Finalize` dropped the
+lock before the apply had started. Instead, release is a reconciler-core
+transition: the runner's apply-end `GateRevoke` (sent only at `run apply`'s
+terminal step, never during the classify pass) maps to `reconcile.ApplySucceeded`,
+and `stepApplySucceeded` emits a `ReleaseClaim` action (alongside the grant
+revokes) that the shell executes — release the claim *and* the grant the
+finished apply held, in one transition. A failed apply still sends `GateRevoke`,
+so it releases too; a classify-fail abort (no `GateRevoke`, grant kept for
+retry) leaves the claim to the TTL sweep — the safe over-hold direction,
+identical to how the grant behaves. (See the `ApplySucceeded` rows in the
+reconciler permutation harness, `internal/reconcile/step_table_test.go`.)
+
+A `ClaimsSweepLoop` (periodic background task) releases claims whose lease has
+expired — a signal that the apply process died without calling finalize — and
+re-evaluates all `pending` `apply-lock/<env>` checks for the same environment,
+so a stuck check self-heals once the dead apply's TTL lapses.
+
+> Acquisition (merge / merge_group) and the cross-PR overlap/held evaluation +
+> check posting stay in the imperative shell — they are env-global, not per-(PR,
+> environment), so they don't fit the reconciler's scoped `Step`. Only the
+> per-(PR, environment) terminal release lives in the core.
 
 **Admin un-wedge.** `tfstackplan claims list [--env ENV]` shows active claims
 (PR, stacks, expiry); `tfstackplan claims release <pr> [--env ENV]` forcibly

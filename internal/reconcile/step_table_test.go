@@ -23,6 +23,8 @@ func actionKinds(actions []Action) []string {
 			out = append(out, "PostCommitStatus")
 		case PublishSSE:
 			out = append(out, "PublishSSE")
+		case ReleaseClaim:
+			out = append(out, "ReleaseClaim")
 		}
 	}
 	sort.Strings(out)
@@ -271,22 +273,22 @@ func TestStepTable(t *testing.T) {
 			wantKinds: []string{"PublishSSE", "RevokeGrant"},
 		},
 
-		// signal=ApplySucceeded; prior gate=Satisfied → Clean, RevokeGrant only
+		// signal=ApplySucceeded; prior gate=Satisfied → Clean, releases claim + grant
 		{
-			name:      "ApplySucceeded on Satisfied: Clean, RevokeGrant no Render/SSE",
+			name:      "ApplySucceeded on Satisfied: Clean, ReleaseClaim + RevokeGrant no Render/SSE",
 			prior:     ChangeSet{PR: 7, Environment: "staging", Gate: Satisfied{Lease: Lease{Requester: "sa3"}, Targets: []Target{active("p1")}}},
 			signal:    ApplySucceeded{},
 			wantGate:  "Clean",
-			wantKinds: []string{"RevokeGrant"},
+			wantKinds: []string{"ReleaseClaim", "RevokeGrant"},
 		},
 
-		// signal=ApplySucceeded; prior gate=Pending with grants → Clean, RevokeGrant only
+		// signal=ApplySucceeded; prior gate=Pending with grants → Clean, releases claim + grant
 		{
-			name:      "ApplySucceeded on Pending with grant: Clean, RevokeGrant only",
+			name:      "ApplySucceeded on Pending with grant: Clean, ReleaseClaim + RevokeGrant",
 			prior:     ChangeSet{PR: 7, Environment: "staging", Gate: Pending{Lease: Lease{Requester: "sa1"}, Targets: []Target{active("p1")}}},
 			signal:    ApplySucceeded{},
 			wantGate:  "Clean",
-			wantKinds: []string{"RevokeGrant"},
+			wantKinds: []string{"ReleaseClaim", "RevokeGrant"},
 		},
 
 		// signal=ApplySucceeded; prior gate=NotClassified → no-op
@@ -298,22 +300,22 @@ func TestStepTable(t *testing.T) {
 			wantKinds: nil,
 		},
 
-		// signal=ApplySucceeded; prior gate=Clean → no-op
+		// signal=ApplySucceeded; prior gate=Clean (no-gate apply) → stays Clean, releases the claim
 		{
-			name:      "ApplySucceeded on Clean: no-op",
+			name:      "ApplySucceeded on Clean: stays Clean, ReleaseClaim only",
 			prior:     ChangeSet{PR: 7, Environment: "staging", Gate: Clean{}},
 			signal:    ApplySucceeded{},
 			wantGate:  "Clean",
-			wantKinds: nil,
+			wantKinds: []string{"ReleaseClaim"},
 		},
 
-		// signal=ApplySucceeded; prior gate=Blocked with grants → Clean, revoke only
+		// signal=ApplySucceeded; prior gate=Blocked with grants → Clean, releases claim + grant
 		{
-			name:      "ApplySucceeded on Blocked with grants: Clean, RevokeGrant only",
+			name:      "ApplySucceeded on Blocked with grants: Clean, ReleaseClaim + RevokeGrant",
 			prior:     ChangeSet{PR: 7, Environment: "staging", Gate: Blocked{Lease: Lease{Requester: "sa1"}, Targets: []Target{active("p1")}, By: Blocker{Reason: ReasonDenied}}},
 			signal:    ApplySucceeded{},
 			wantGate:  "Clean",
-			wantKinds: []string{"RevokeGrant"},
+			wantKinds: []string{"ReleaseClaim", "RevokeGrant"},
 		},
 
 		// lease=undecided("") → Pending with empty Requester on first finalize

@@ -200,9 +200,12 @@ func (a *App) handleFinalize(w http.ResponseWriter, r *http.Request) {
 		if g, gerr := store.LoadGraph(a.db, f.ID); gerr == nil {
 			a.finalizeLogs(r.Context(), f.ID, g.Stacks)
 		}
-		if isApplyContext(e.StatusContext) && a.cfg.ApplyLock {
-			a.releaseApplyClaims(r.Context(), e.Environment, e.PR)
-		}
+		// Note: the merge-lock claim is NOT released here. A Finalize is also
+		// emitted mid-apply by the classify pass; releasing on it dropped the lock
+		// before the apply ran. Release is driven by the apply-end GateRevoke
+		// (→ reconcile.ApplySucceeded → ReleaseClaim), which fires only when the
+		// apply truly ends. A failed apply still sends GateRevoke; a classify-fail
+		// abort keeps the claim until the TTL sweep (safe direction).
 		w.WriteHeader(http.StatusOK)
 		return
 	}
@@ -298,16 +301,16 @@ func (a *App) handleFinalize(w http.ResponseWriter, r *http.Request) {
 	if g, gerr := store.LoadGraph(a.db, f.ID); gerr == nil {
 		a.finalizeLogs(r.Context(), f.ID, g.Stacks)
 	}
-	if a.cfg.ApplyLock {
-		if isApplyContext(e.StatusContext) {
-			a.releaseApplyClaims(r.Context(), e.Environment, e.PR)
-		} else if e.PR > 0 {
-			// Plan finalize: the PR's changed stacks are now registered, so post
-			// apply-lock/<env> here. The pull_request webhook fires on PR open —
-			// before the plan registers the stacks — so this is what makes the
-			// check appear (alongside plan/<env>), enabling the auto-merge gate.
-			a.postPlanApplyLock(r.Context(), e)
-		}
+	if a.cfg.ApplyLock && !isApplyContext(e.StatusContext) && e.PR > 0 {
+		// Plan finalize: the PR's changed stacks are now registered, so post
+		// apply-lock/<env> here. The pull_request webhook fires on PR open —
+		// before the plan registers the stacks — so this is what makes the
+		// check appear (alongside plan/<env>), enabling the auto-merge gate.
+		//
+		// An apply-context finalize does NOT release the claim here: a Finalize is
+		// also emitted mid-apply by the classify pass. Release is driven by the
+		// apply-end GateRevoke (→ reconcile.ApplySucceeded → ReleaseClaim).
+		a.postPlanApplyLock(r.Context(), e)
 	}
 	w.WriteHeader(http.StatusOK)
 }

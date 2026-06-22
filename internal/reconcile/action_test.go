@@ -9,8 +9,9 @@ func TestActionVariantsImplementInterface(t *testing.T) {
 		RenderCheckRun{Terminal: true, Conclusion: "success"},
 		PostCommitStatus{State: "success"},
 		PublishSSE{},
+		ReleaseClaim{PR: 7, Environment: "staging"},
 	}
-	if len(as) != 5 {
-		t.Fatalf("want 5 actions, got %d", len(as))
+	if len(as) != 6 {
+		t.Fatalf("want 6 actions, got %d", len(as))
 	}
 }
