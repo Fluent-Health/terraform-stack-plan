@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Fluent-Health/terraform-stack-plan/internal/config"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
@@ -159,6 +160,37 @@ func TestProgressTitlePreparing(t *testing.T) {
 	}
 	if strings.Contains(got4, "preparing") {
 		t.Errorf("plan initializing title %q must not say 'preparing'", got4)
+	}
+}
+
+// The apply's pre-apply ("preparing") stage must fill the SAME unified weighted
+// bar as the rest of the apply — the warming + initializing bands — instead of a
+// separate prepared/total scale that sits at 0% and then jumps to the applying
+// band. (Apply weights: warming 1 + initializing 2 + applying 10 + verifying 1 = 14.)
+func TestRunProgressPreparingUsesUnifiedWeightedBar(t *testing.T) {
+	prog := &config.ProgressConfig{Apply: []config.PhaseWeight{
+		{Phase: events.PhaseWarming, Weight: 1},
+		{Phase: events.PhaseInitializing, Weight: 2},
+		{Phase: events.PhaseApplying, Weight: 10},
+		{Phase: events.PhaseVerifying, Weight: 1},
+	}}
+	three := func(s events.Status) []events.StackState {
+		return []events.StackState{{Path: "a", Status: s}, {Path: "b", Status: s}, {Path: "c", Status: s}}
+	}
+
+	// Warming entered (marker band) → 1/14 ≈ 7%, not 0%.
+	if _, pct, label := runProgress(prog, events.PhaseWarming, three(events.StatusPending), "apply"); pct != 7 {
+		t.Fatalf("warming pct = %d, want 7 (warming band); label=%q", pct, label)
+	}
+
+	// Initializing, all three initialized → (1 + 2)/14 ≈ 21%, and the label stays
+	// "preparing" (not "initializing"/"applying").
+	_, pct, label := runProgress(prog, events.PhaseInitializing, three(events.StatusInitialized), "apply")
+	if pct != 21 {
+		t.Fatalf("init-complete pct = %d, want 21 (warming+init band)", pct)
+	}
+	if !strings.Contains(label, "preparing") {
+		t.Fatalf("preparing label = %q, want 'preparing'", label)
 	}
 }
 
