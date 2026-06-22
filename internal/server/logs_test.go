@@ -179,6 +179,60 @@ func TestLogStreamSSE(t *testing.T) {
 	waitFor("data: after")
 }
 
+// After a run finalizes, the live buffer is offloaded to the object store and
+// deleted. A live page left open across finalize re-opens follow connections as
+// the user switches stacks; the SSE handler must replay the offloaded log instead
+// of replaying nothing and hanging (the "log briefly shows then disappears" bug).
+func TestLogStreamSSEFallsBackToObjectStoreAfterFinalize(t *testing.T) {
+	db := newServerTestDB(t)
+	a := New(db, &MockGitHub{}, Config{LogsDir: t.TempDir()})
+	a.Objects = newMemObjects()
+	if err := store.UpsertInit(db, events.Init{ID: "e1", Repo: "o/r",
+		Stacks: []events.StackState{{Path: "stacks/a", Status: events.StatusPlanned}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.appendLog("e1", "stacks/a", "archived line\n"); err != nil {
+		t.Fatal(err)
+	}
+	// Finalize: offload to the object store + delete the live buffer.
+	a.finalizeLogs(context.Background(), "e1", []events.StackState{{Path: "stacks/a"}})
+
+	srv := httptest.NewServer(a.Routes())
+	defer srv.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, "GET", srv.URL+"/logs/e1/stacks/a?follow=1", nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	done := make(chan string, 1)
+	go func() {
+		// The handler ends the stream (done event, then returns) for a concluded
+		// run, so the connection closes and the scanner reaches EOF on its own.
+		sc := bufio.NewScanner(resp.Body)
+		var b strings.Builder
+		for sc.Scan() {
+			b.WriteString(sc.Text())
+			b.WriteByte('\n')
+		}
+		done <- b.String()
+	}()
+	select {
+	case s := <-done:
+		if !strings.Contains(s, "archived line") {
+			t.Fatalf("follow after finalize did not replay offloaded log; got:\n%s", s)
+		}
+		if !strings.Contains(s, "event: done") {
+			t.Errorf("expected a terminal 'done' event so the client stops retrying; got:\n%s", s)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for offloaded log over SSE follow after finalize")
+	}
+}
+
 func TestLogStreamResumeFromLastEventID(t *testing.T) {
 	db := newServerTestDB(t)
 	a := New(db, &MockGitHub{}, Config{LogsDir: t.TempDir()})

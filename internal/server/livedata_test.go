@@ -138,29 +138,6 @@ func TestGroupByProject(t *testing.T) {
 	}
 }
 
-func TestProgressSegments(t *testing.T) {
-	stacks := []events.StackState{
-		{Path: "a", Counts: &events.Counts{Add: 6}, Status: events.StatusSafe},
-		{Path: "b", Counts: &events.Counts{Destroy: 2}, Status: events.StatusRunning},
-		{Path: "c", Status: events.StatusFailed}, // no counts → min flex 1
-	}
-	segs := progressSegments(stacks, "apply", events.PhaseApplying)
-	if len(segs) != 3 {
-		t.Fatalf("want 3 segs, got %d", len(segs))
-	}
-	// Rank-sorted: applied(0) < failed(1) < applying(2).
-	// Flex sized by ops; colour = the stack's CURRENT state (apply kind).
-	if segs[0].Flex != 6 || segs[0].StateCSS != "applied" {
-		t.Fatalf("seg0=%+v", segs[0])
-	}
-	if segs[1].Flex != 1 || segs[1].StateCSS != "failed" {
-		t.Fatalf("seg1=%+v", segs[1])
-	}
-	if segs[2].Flex != 2 || segs[2].StateCSS != "applying" {
-		t.Fatalf("seg2=%+v", segs[2])
-	}
-}
-
 func TestIAMCount(t *testing.T) {
 	stacks := []events.StackState{
 		{Categories: []events.Category{{Name: "iam"}}},
@@ -187,7 +164,7 @@ func TestRiskTags(t *testing.T) {
 func TestApplyBadgePreparing(t *testing.T) {
 	mk := func(phase events.Phase, finished bool, status string) string {
 		v := liveView{Phase: phase, Status: status}
-		return buildLiveModel(v, "apply", finished, time.Now()).PhaseLabel
+		return buildLiveModel(v, "apply", finished, nil, time.Now()).PhaseLabel
 	}
 	if got := mk(events.PhaseInitializing, false, ""); got != "PREPARING" {
 		t.Errorf("apply initializing badge = %q, want PREPARING", got)
@@ -267,31 +244,10 @@ func TestPhaseTimeline(t *testing.T) {
 	})
 }
 
-func TestProgressSegmentsOrder(t *testing.T) {
-	stacks := []events.StackState{
-		{Path: "a", Status: events.StatusPending},      // queued  → rank 5
-		{Path: "b", Status: events.StatusSafe},         // planned → rank 0
-		{Path: "c", Status: events.StatusRunning},      // planning→ rank 2
-		{Path: "d", Status: events.StatusFailed},       // failed  → rank 1
-		{Path: "e", Status: events.StatusInitializing}, // rank 4
-	}
-	segs := progressSegments(stacks, "plan", events.PhasePlanning)
-	got := make([]string, len(segs))
-	for i, s := range segs {
-		got[i] = s.StateCSS
-	}
-	want := []string{"planned", "failed", "planning", "initializing", "queued"}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("segment order = %v, want %v", got, want)
-		}
-	}
-}
-
 func TestLogDefault(t *testing.T) {
 	rows := func(kind string, finished bool, st events.Status) bool {
 		v := liveView{Stacks: []events.StackState{{Path: "x", Status: st}}}
-		m := buildLiveModel(v, kind, finished, time.Now())
+		m := buildLiveModel(v, kind, finished, nil, time.Now())
 		return m.Groups[0].Stacks[0].LogDefault
 	}
 	if rows("plan", true, events.StatusSafe) {
