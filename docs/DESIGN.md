@@ -1569,7 +1569,8 @@ finished apply held, in one transition. A failed apply still sends `GateRevoke`,
 so it releases too; a classify-fail abort (no `GateRevoke`, grant kept for
 retry) leaves the claim to the TTL sweep — the safe over-hold direction,
 identical to how the grant behaves. (See the `ApplySucceeded` rows in the
-reconciler permutation harness, `internal/reconcile/step_table_test.go`.)
+reconciler permutation harness, `internal/reconcile/step_table_test.go`, and
+PR #100 for the full root-cause + alternatives.)
 
 A `ClaimsSweepLoop` (periodic background task) releases claims whose lease has
 expired — a signal that the apply process died without calling finalize — and
