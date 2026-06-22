@@ -1044,7 +1044,12 @@ stack completes init, at which point it becomes `initialized k/N`. For an apply,
 the title reads `preparing k/N` during the pre-apply re-plan pass (which runs
 under a pre-apply phase before `PhaseApplying`), flipping to `applying k/N` once
 the real apply begins; `progressTitle` takes a `kind` arg and the bar rendering
-is factored into `progressBar`. The title is `bar · label` — the bar is the
+is factored into `progressBar`. The preparing pass uses the *same* unified
+weighted bar as the rest of the apply — its warming + initializing bands fill and
+flow continuously into the applying band; only the label (not the bar fraction)
+is special-cased to "preparing". (Earlier it rendered a separate `prepared/total`
+scale that sat at 0% during warming/init and then jumped to the applying band —
+[PR #101](https://github.com/Fluent-Health/terraform-stack-plan/pull/101).) The title is `bar · label` — the bar is the
 weighted overall fraction and the label carries the per-phase count, so it does
 **not** repeat the count between them (the old `bar k/N · applying k/N` double
 indicator); the live page renders the same bar via the shared `runProgress`

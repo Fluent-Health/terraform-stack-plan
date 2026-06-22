@@ -64,24 +64,13 @@ func progressTitle(prog *config.ProgressConfig, phase events.Phase, stacks []eve
 // running execution. It renders ONE bar across the operation's weighted phase set
 // (via progress) so the bar tracks whole-operation progress, not the current
 // phase; the label carries the per-phase count (e.g. "applying 1/4"), so the bar
-// must NOT repeat that count. For an apply still in its pre-apply re-plan pass
-// (before PhaseApplying) it reports "preparing k/N" instead, since those per-stack
-// ticks are re-planning, not applying. Shared by the check-run title and the live
-// page so both show the same overall bar.
+// must NOT repeat that count. An apply still in its pre-apply re-plan pass (before
+// PhaseApplying) uses that same unified bar — its warming/initializing bands fill
+// and flow continuously into the applying band — but with the label "preparing
+// k/N", since those per-stack ticks read as re-planning, not applying. Shared by
+// the check-run title and the live page so both show the same overall bar.
 func runProgress(prog *config.ProgressConfig, phase events.Phase, stacks []events.StackState, kind string) (bar string, pct int, label string) {
 	total := len(stacks)
-	if kind == "apply" && !applyStarted(phase) {
-		prepared := doneStacks(stacks)
-		frac := 0.0
-		if total > 0 {
-			frac = float64(prepared) / float64(total)
-		}
-		bar, pct = progressBar(frac)
-		if total == 0 {
-			return bar, pct, "preparing"
-		}
-		return bar, pct, fmt.Sprintf("preparing %d/%d", prepared, total)
-	}
 	doneCount := doneStacks(stacks)
 	initCount := 0
 	for _, s := range stacks {
@@ -89,7 +78,25 @@ func runProgress(prog *config.ProgressConfig, phase events.Phase, stacks []event
 			initCount++
 		}
 	}
-	bar, label, pct = progress(prog.For(kind), phase, doneCount, initCount, total)
+	// Pre-apply re-plan pass: the bar comes from the SAME unified weighted set (so
+	// the warming + initializing bands fill and flow continuously into the applying
+	// band — not a separate prepared/total scale that sits at 0% then jumps). When
+	// no warming/initializing preamble has been emitted yet, anchor at the first
+	// band rather than the planning fallback legacyFrac would otherwise pick.
+	preparing := kind == "apply" && !applyStarted(phase)
+	barPhase := phase
+	if preparing && barPhase == "" {
+		barPhase = events.PhaseWarming
+	}
+	bar, label, pct = progress(prog.For(kind), barPhase, doneCount, initCount, total)
+	if preparing {
+		// Only the LABEL is overridden: to a reviewer these per-stack ticks read as
+		// "preparing", not "initializing"/"applying".
+		if total == 0 {
+			return bar, pct, "preparing"
+		}
+		return bar, pct, fmt.Sprintf("preparing %d/%d", doneCount, total)
+	}
 	return bar, pct, label
 }
 
