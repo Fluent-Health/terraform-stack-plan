@@ -97,6 +97,7 @@ func buildServeApp(ctx context.Context, cfg *config.Config, secret, ghWebhookSec
 		GroupPattern:        groupPattern(s),
 		LogsDir:             logsDir,
 		PushServiceAccount:  pubsubSA(s),
+		Progress:            cfg.Progress,
 	})
 
 	if s.PubSub != nil {

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/ansi"
+	"github.com/Fluent-Health/terraform-stack-plan/internal/config"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
@@ -84,42 +85,117 @@ const progressCells = 10
 // no sub-progress by default; once stacks finish init the init band sub-fills
 // (5–15%) and the label reads "initialized k/N". Planning fills the remaining
 // 80% by the completed-stack fraction; an apply context tracks planned/total.
-func progress(phase events.Phase, planned, initialized, total int) (bar, label string, pct int) {
-	frac := 0.0
-	switch phase {
-	case events.PhaseWarming:
-		frac, label = 0.05, "warming cache…"
-	case events.PhaseInitializing:
-		if total > 0 && initialized > 0 {
-			frac = 0.05 + 0.10*float64(initialized)/float64(total)
-			label = fmt.Sprintf("initialized %d/%d", initialized, total)
-		} else {
-			frac, label = 0.15, fmt.Sprintf("initializing %d stacks…", total)
-		}
-	case events.PhaseApplying:
-		if total > 0 {
-			frac = float64(planned) / float64(total)
-		}
-		if total > 0 && planned == total {
-			label = fmt.Sprintf("applied %d/%d", planned, total)
-		} else {
-			label = fmt.Sprintf("applying %d/%d", planned, total)
-		}
-	case events.PhaseVerifying:
-		frac, label = 1.0, "verifying…"
-	default: // planning, or an unset phase treated as planning
-		switch {
-		case total <= 0:
-			frac, label = 0.20, "planning…"
-		case planned >= total:
-			frac, label = 1.0, "planned"
-		default:
-			frac = 0.20 + 0.80*float64(planned)/float64(total)
-			label = fmt.Sprintf("planning %d/%d", planned, total)
-		}
+func progress(phases []config.PhaseWeight, phase events.Phase, planned, initialized, total int) (bar, label string, pct int) {
+	label = phaseLabel(phase, planned, initialized, total)
+	var frac float64
+	if f, ok := weightedFrac(phases, phase, planned, initialized, total); ok {
+		frac = f
+	} else {
+		frac = legacyFrac(phase, planned, initialized, total)
 	}
 	bar, pct = progressBar(frac)
 	return bar, label, pct
+}
+
+// weightedFrac computes the full-progress fraction across a configured, ordered
+// weighted phase set: completed phases contribute their whole weight, the
+// current ticking phase sub-fills its band by completed/total, and a current
+// marker phase counts as its full band (markers are instantaneous). Returns
+// (_, false) when phases is empty or the phase is not in the set (caller falls
+// back to the built-in fractions).
+func weightedFrac(phases []config.PhaseWeight, phase events.Phase, planned, initialized, total int) (float64, bool) {
+	if len(phases) == 0 {
+		return 0, false
+	}
+	var totalW, cum float64
+	for _, pw := range phases {
+		totalW += pw.Weight
+	}
+	found := false
+	for _, pw := range phases {
+		if pw.Phase == phase {
+			sub := 1.0 // marker phase: full band once entered
+			if phase.Ticking() && total > 0 {
+				n := planned
+				if phase == events.PhaseInitializing {
+					n = initialized
+				}
+				sub = float64(n) / float64(total)
+			}
+			cum += pw.Weight * sub
+			found = true
+			break
+		}
+		cum += pw.Weight
+	}
+	if !found || totalW <= 0 {
+		return 0, false
+	}
+	return cum / totalW, true
+}
+
+// legacyFrac is the built-in bar fraction used when no progress{} block is
+// configured (preserves the original behavior; lint/test alias warming/verify).
+func legacyFrac(phase events.Phase, planned, initialized, total int) float64 {
+	switch phase {
+	case events.PhaseWarming, events.PhaseLinting:
+		return 0.05
+	case events.PhaseInitializing:
+		if total > 0 && initialized > 0 {
+			return 0.05 + 0.10*float64(initialized)/float64(total)
+		}
+		return 0.15
+	case events.PhaseApplying:
+		if total > 0 {
+			return float64(planned) / float64(total)
+		}
+		return 0
+	case events.PhaseTesting, events.PhaseVerifying:
+		return 1.0
+	default: // planning, or an unset phase treated as planning
+		switch {
+		case total <= 0:
+			return 0.20
+		case planned >= total:
+			return 1.0
+		default:
+			return 0.20 + 0.80*float64(planned)/float64(total)
+		}
+	}
+}
+
+// phaseLabel is the human label for a phase + counts, shared by the weighted and
+// built-in fraction paths.
+func phaseLabel(phase events.Phase, planned, initialized, total int) string {
+	switch phase {
+	case events.PhaseWarming:
+		return "warming cache…"
+	case events.PhaseLinting:
+		return "linting modules…"
+	case events.PhaseInitializing:
+		if total > 0 && initialized > 0 {
+			return fmt.Sprintf("initialized %d/%d", initialized, total)
+		}
+		return fmt.Sprintf("initializing %d stacks…", total)
+	case events.PhaseApplying:
+		if total > 0 && planned == total {
+			return fmt.Sprintf("applied %d/%d", planned, total)
+		}
+		return fmt.Sprintf("applying %d/%d", planned, total)
+	case events.PhaseTesting:
+		return "testing…"
+	case events.PhaseVerifying:
+		return "verifying…"
+	default: // planning
+		switch {
+		case total <= 0:
+			return "planning…"
+		case planned >= total:
+			return "planned"
+		default:
+			return fmt.Sprintf("planning %d/%d", planned, total)
+		}
+	}
 }
 
 // progressBar renders the unicode fill bar + integer percentage for a 0..1 fraction.

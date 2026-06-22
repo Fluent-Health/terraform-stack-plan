@@ -79,13 +79,17 @@ func runTick(args []string) int {
 // planning starts.
 func runPhase(args []string) int {
 	fs := flag.NewFlagSet("run phase", flag.ContinueOnError)
-	phase := fs.String("phase", "", "lifecycle phase (warming|initializing|planning|applying|verifying)")
+	phase := fs.String("phase", "", "lifecycle phase (warming|linting|initializing|planning|applying|testing|verifying)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
 	execID := os.Getenv(runner.EnvExecution)
 	if *phase == "" || execID == "" {
 		return 0
+	}
+	if !events.Phase(*phase).Valid() {
+		fmt.Fprintf(os.Stderr, "tfstackplan run phase: unknown phase %q\n", *phase)
+		return 2
 	}
 	c := runner.ClientFromEnv()
 	_ = c.Phase(context.Background(), events.PhaseEvent{
