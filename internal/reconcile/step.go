@@ -165,22 +165,31 @@ func priorLease(g GateState) Lease {
 	return Lease{}
 }
 
-// stepApplySucceeded revokes the changeset's grants post-apply and marks the
-// gate terminally Clean (privilege no longer needed).
+// stepApplySucceeded releases everything the finished apply held — the
+// merge-lock stack claim and the changeset's grants — and marks the gate
+// terminally Clean (privilege no longer needed).
 func stepApplySucceeded(cs ChangeSet) (ChangeSet, []Action) {
-	var actions []Action
-	switch g := cs.Gate.(type) {
-	case Pending:
-		actions = revokeAll(cs, g.Targets)
-	case Satisfied:
-		actions = revokeAll(cs, g.Targets)
-	case Blocked:
-		actions = revokeAll(cs, g.Targets)
-	default:
+	// NotClassified means the PR never planned/merged, so no apply ran and no
+	// claim/grant was ever acquired — nothing to release.
+	if _, ok := cs.Gate.(NotClassified); ok {
 		return cs, nil
 	}
+	// The apply for this (pr,env) is done: release the merge-lock claim it held.
+	// This is the level-once "apply finished" transition — driven by the
+	// runner's apply-end GateRevoke, which (unlike Finalize) is never sent during
+	// the mid-run classify pass, so the claim is held until the apply truly ends.
+	actions := []Action{ReleaseClaim{PR: cs.PR, Environment: cs.Environment}}
+	// Plus the grants the gate held (gated apply only).
+	switch g := cs.Gate.(type) {
+	case Pending:
+		actions = append(actions, revokeAll(cs, g.Targets)...)
+	case Satisfied:
+		actions = append(actions, revokeAll(cs, g.Targets)...)
+	case Blocked:
+		actions = append(actions, revokeAll(cs, g.Targets)...)
+	}
 	// No RenderCheckRun/PublishSSE here: post-apply the runner drives its own
-	// apply check run; this transition only releases the grants.
+	// apply check run; this transition only releases the claim + grants.
 	cs.Gate = Clean{}
 	return cs, actions
 }

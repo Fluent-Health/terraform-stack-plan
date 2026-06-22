@@ -38,11 +38,21 @@ type PostCommitStatus struct {
 // PublishSSE notifies the live-page hub that state changed. Pure output.
 type PublishSSE struct{}
 
+// ReleaseClaim releases the merge-lock stack claim a PR holds in an environment.
+// Emitted post-apply (the apply is done, so the claim it held is no longer
+// needed). The shell deletes the claims and re-evaluates the env's held
+// apply-lock checks (cross-PR I/O). Idempotent.
+type ReleaseClaim struct {
+	PR          int
+	Environment string
+}
+
 func (RequestGrant) isAction()     {}
 func (RevokeGrant) isAction()      {}
 func (RenderCheckRun) isAction()   {}
 func (PostCommitStatus) isAction() {}
 func (PublishSSE) isAction()       {}
+func (ReleaseClaim) isAction()     {}
 
 // YieldsResult reports whether an action produces a GrantsObserved on the
 // fixpoint loop (only RequestGrant does). The shell uses this to decide when

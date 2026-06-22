@@ -48,6 +48,10 @@ func (sh *Shell) execute(ctx context.Context, cs reconcile.ChangeSet, repo strin
 			// drive() already posts commit status on terminal renders; no separate path needed.
 		case reconcile.PublishSSE:
 			sh.publishSSE(cs)
+		case reconcile.ReleaseClaim:
+			// Post-apply: drop the PR's merge-lock claim and re-evaluate the env's
+			// held apply-lock checks (cross-PR I/O). No-op when apply_lock is off.
+			sh.app.releaseApplyClaims(ctx, act.Environment, act.PR)
 		}
 	}
 	return results
