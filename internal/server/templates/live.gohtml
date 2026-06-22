@@ -50,9 +50,10 @@
           {{ if .Destructive }}<span class="badge badge-sm badge-error shrink-0">⚠ Destructive</span>{{ end }}
         </div>
         <div>
-          <div class="flex justify-between text-xs text-base-content/50 mb-1.5"><span>Progress</span><span class="font-mono text-base-content">{{ .Verdict.TotalOps }} operations · {{ .StackCount }} stacks</span></div>
+          <div class="flex justify-between text-xs text-base-content/50 mb-1.5"><span>Progress{{ if .ProgressLabel }} · <span class="text-base-content">{{ .ProgressLabel }}</span>{{ end }}</span><span class="font-mono text-base-content">{{ .ProgressPct }}% · {{ .Verdict.TotalOps }} ops · {{ .StackCount }} stacks</span></div>
           <div class="progress-bar">
-            {{ range .Progress }}<span class="bar-seg bs-{{ .StateCSS }}" style="flex:{{ .Flex }}"></span>{{ end }}
+            {{ if gt .ProgressPct 0 }}<span class="bar-seg bs-applying" style="flex:{{ .ProgressPct }}"></span>{{ end }}
+            {{ if gt .ProgressRemain 0 }}<span class="bar-seg bs-queued" style="flex:{{ .ProgressRemain }}"></span>{{ end }}
           </div>
         </div>
       </div>
@@ -209,6 +210,7 @@
         try {
           es = new EventSource(pre.dataset.followUrl);
           es.onmessage = function (e){ if (cur===id) append(pre, e.data); };
+          es.addEventListener('done', function (){ close(); }); // concluded run: stop, don't retry
           es.onerror = function (){ /* keep the buffer already shown; EventSource auto-retries */ };
         } catch (_) { /* no EventSource → the seeded excerpt remains */ }
       }

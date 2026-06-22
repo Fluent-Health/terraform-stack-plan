@@ -246,8 +246,10 @@ func (a *App) streamLog(w http.ResponseWriter, r *http.Request, exec, stack stri
 			offset = n
 		}
 	}
+	servedBuffer := false
 	if p, ok := logFilePath(a.cfg.LogsDir, exec, stack); ok {
 		if f, err := os.Open(p); err == nil {
+			servedBuffer = true
 			if _, err := f.Seek(offset, io.SeekStart); err == nil {
 				buf := make([]byte, 32<<10)
 				for {
@@ -269,6 +271,16 @@ func (a *App) streamLog(w http.ResponseWriter, r *http.Request, exec, stack stri
 			f.Close()
 		}
 	}
+	// No live buffer: either the run hasn't written yet, or it concluded and the
+	// buffer was offloaded + deleted at finalize. A live page left open across
+	// finalize re-opens follow connections as the user switches stacks; those find
+	// no buffer, so without this they would replay nothing and hang forever. If an
+	// offloaded object exists the run is over — replay it and end the stream.
+	if !servedBuffer && a.streamOffloaded(r.Context(), w, flusher, exec, stack, &offset) {
+		writeSSEDone(w)
+		flusher.Flush()
+		return
+	}
 	tick := time.NewTicker(25 * time.Second)
 	defer tick.Stop()
 	for {
@@ -284,6 +296,55 @@ func (a *App) streamLog(w http.ResponseWriter, r *http.Request, exec, stack stri
 			flusher.Flush()
 		}
 	}
+}
+
+// streamOffloaded replays the offloaded (object-store) log over SSE for a
+// concluded run whose live buffer is gone, resuming at *offset bytes. It reports
+// whether an offloaded object existed: false means there is nothing archived yet
+// (so the caller keeps waiting for live chunks). Best-effort — a mid-stream read
+// error just ends the replay with whatever was already sent.
+func (a *App) streamOffloaded(ctx context.Context, w http.ResponseWriter, flusher http.Flusher, exec, stack string, offset *int64) bool {
+	if a.Objects == nil {
+		return false
+	}
+	pointer, _, ok, _ := store.GetStackOutput(a.db, exec, stack, "log")
+	if !ok || pointer == "" {
+		return false
+	}
+	rc, err := a.Objects.Get(ctx, pointer)
+	if err != nil {
+		return false
+	}
+	defer rc.Close()
+	if *offset > 0 {
+		// Skip what the buffer replay (or a Last-Event-ID resume) already sent.
+		if _, err := io.CopyN(io.Discard, rc, *offset); err != nil {
+			return true
+		}
+	}
+	buf := make([]byte, 32<<10)
+	for {
+		if ctx.Err() != nil {
+			return true
+		}
+		n, e := rc.Read(buf)
+		if n > 0 {
+			*offset += int64(n)
+			writeSSEEvent(w, *offset, string(buf[:n]))
+			flusher.Flush()
+		}
+		if e != nil {
+			break
+		}
+	}
+	return true
+}
+
+// writeSSEDone emits a terminal "done" event so the client closes the stream; a
+// concluded run sends no more chunks, and without this the EventSource would
+// auto-retry the (now buffer-less) follow connection in a loop.
+func writeSSEDone(w io.Writer) {
+	fmt.Fprint(w, "event: done\ndata: \n\n")
 }
 
 // writeSSE writes one SSE event: each line of data on its own `data:` field,

@@ -207,9 +207,11 @@ func TestLivePageBriefingBand(t *testing.T) {
 	for _, want := range []string{
 		`badge-primary`,        // apply-phase pill (DaisyUI badge, primary slot)
 		`APPLYING`,             // phase label
-		`class="progress-bar"`, // live progress bar (the one bespoke piece)
-		`bar-seg bs-applying`,  // segment coloured by current state (prod/api)
-		`bar-seg bs-applied`,   // applied segment (stg/db)
+		`class="progress-bar"`, // overall weighted progress bar
+		`bar-seg bs-applying`,  // filled portion of the overall bar
+		`bar-seg bs-queued`,    // unfilled remainder
+		`50%`,                  // 1 of 2 stacks applied → overall 50%
+		`applying 1/2`,         // per-phase label beside the bar
 		`sl-applying`,          // running apply → applying label colour
 		`sl-applied`,           // safe apply → applied
 		`text-warning">⚿1`,     // IAM count cell (warning slot)
@@ -248,7 +250,7 @@ func TestBuildLiveModel(t *testing.T) {
 				Counts: &events.Counts{Destroy: 2}, Categories: []events.Category{{Name: "destructive"}}},
 		},
 	}
-	m := buildLiveModel(v, "apply", false, now)
+	m := buildLiveModel(v, "apply", false, nil, now)
 
 	if m.PhaseAccent != "apply" {
 		t.Fatalf("PhaseAccent=%q", m.PhaseAccent)
@@ -265,15 +267,12 @@ func TestBuildLiveModel(t *testing.T) {
 	if !m.Destructive || m.IAMCount != 1 {
 		t.Fatalf("flags: destructive=%v iamCount=%d", m.Destructive, m.IAMCount)
 	}
-	if len(m.Progress) != 2 {
-		t.Fatalf("progress segs=%d", len(m.Progress))
+	// One overall bar: 1 of 2 stacks done (stg/db Safe) under PhaseApplying → 50%.
+	if m.ProgressPct != 50 || m.ProgressRemain != 50 {
+		t.Fatalf("progress pct=%d remain=%d, want 50/50", m.ProgressPct, m.ProgressRemain)
 	}
-	// Rank-sorted: applied(rank 0) before applying(rank 2).
-	if m.Progress[0].StateCSS != "applied" { // stg/db is Safe → applied comes first
-		t.Fatalf("progress[0]=%+v", m.Progress[0])
-	}
-	if m.Progress[1].StateCSS != "applying" { // prod/api is Running → applying second
-		t.Fatalf("progress[1]=%+v", m.Progress[1])
+	if m.ProgressLabel != "applying 1/2" {
+		t.Fatalf("progress label=%q, want %q", m.ProgressLabel, "applying 1/2")
 	}
 	if len(m.Groups) != 2 || m.Groups[0].Name != "fh-prod-host" {
 		t.Fatalf("groups=%+v", m.Groups)
@@ -328,7 +327,7 @@ func TestLivePageTriageSection(t *testing.T) {
 			{Path: "stacks/api", Status: events.StatusFailed, Detail: iamDetail},
 			{Path: "stacks/db", Status: events.StatusSafe},
 		},
-	}, "apply", true, time.Now())
+	}, "apply", true, nil, time.Now())
 	if len(m.Failures) != 1 || m.Failures[0].Path != "stacks/api" {
 		t.Fatalf("expected exactly the failed stack as a triage card, got %+v", m.Failures)
 	}
@@ -339,14 +338,14 @@ func TestLivePageTriageSection(t *testing.T) {
 		Exec:    "exec-abc",
 		Context: "apply/nonprod",
 		Stacks:  []events.StackState{{Path: "stacks/api", Status: events.StatusFailed}},
-	}, "apply", true, time.Now())
+	}, "apply", true, nil, time.Now())
 	if len(m2.Failures) != 0 {
 		t.Fatalf("failed stack with empty Detail must produce no triage card, got %+v", m2.Failures)
 	}
 }
 
 func TestBuildLiveModelPlanFinished(t *testing.T) {
-	m := buildLiveModel(liveView{Context: "plan", Status: ""}, "plan", true, time.Now())
+	m := buildLiveModel(liveView{Context: "plan", Status: ""}, "plan", true, nil, time.Now())
 	if m.PhaseAccent != "plan" || m.PhaseLabel != "PLANNED" {
 		t.Fatalf("plan finished: accent=%q label=%q", m.PhaseAccent, m.PhaseLabel)
 	}
@@ -402,7 +401,7 @@ func TestBuildLiveModelWarmingInitializingLabels(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			m := buildLiveModel(tc.view, tc.kind, tc.finished, time.Now())
+			m := buildLiveModel(tc.view, tc.kind, tc.finished, nil, time.Now())
 			if m.PhaseLabel != tc.want {
 				t.Errorf("PhaseLabel = %q, want %q", m.PhaseLabel, tc.want)
 			}
@@ -419,7 +418,7 @@ func TestMovedStackRow(t *testing.T) {
 			{Path: "stacks/mv", Status: events.StatusMoving},
 		},
 		StackLogs: map[string]string{},
-	}, "apply", false, time.Now())
+	}, "apply", false, nil, time.Now())
 	if len(m.Groups) == 0 || len(m.Groups[0].Stacks) == 0 {
 		t.Fatal("expected at least one stack row")
 	}

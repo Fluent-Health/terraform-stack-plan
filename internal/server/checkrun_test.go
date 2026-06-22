@@ -45,7 +45,7 @@ func TestPlanCheckRunSummaryAndTitle(t *testing.T) {
 		t.Fatalf("update: %d", rec.Code)
 	}
 
-	for _, want := range []string{"▰", "1/1", "planned"} {
+	for _, want := range []string{"▰", "planned"} {
 		if !strings.Contains(title, want) {
 			t.Errorf("title missing %q in: %q", want, title)
 		}
@@ -87,6 +87,24 @@ func TestProgressTitleRunningStillHasBar(t *testing.T) {
 	stacks := []events.StackState{{Path: "a", Status: events.StatusRunning}}
 	if got := progressTitle(nil, events.PhasePlanning, stacks, false, "plan"); !strings.Contains(got, "▰") {
 		t.Errorf("running title %q must keep the bar", got)
+	}
+}
+
+// The bar is overall progress; the label already carries the per-phase count
+// (e.g. "applying 1/4"). The title must NOT repeat that count between the bar and
+// the label — that double indicator ("▰… 1/4 · applying 1/4") was the bug.
+func TestProgressTitleNoDoubleCount(t *testing.T) {
+	stacks := make([]events.StackState, 4)
+	for i := range stacks {
+		stacks[i] = events.StackState{Path: fmt.Sprintf("svc/%d", i), Status: events.StatusPending}
+	}
+	stacks[0].Status = events.StatusSafe // 1 of 4 applied
+	got := progressTitle(nil, events.PhaseApplying, stacks, false, "apply")
+	if strings.Count(got, "1/4") != 1 {
+		t.Errorf("title %q should mention the count exactly once (no double indicator)", got)
+	}
+	if !strings.Contains(got, "applying 1/4") {
+		t.Errorf("title %q should carry the count in the label", got)
 	}
 }
 

@@ -56,22 +56,31 @@ func progressTitle(prog *config.ProgressConfig, phase events.Phase, stacks []eve
 		}
 		return terminalSummary(kindLabel, stacks)
 	}
+	bar, _, label := runProgress(prog, phase, stacks, kind)
+	return bar + " · " + label
+}
+
+// runProgress computes the live overall progress bar, percentage, and label for a
+// running execution. It renders ONE bar across the operation's weighted phase set
+// (via progress) so the bar tracks whole-operation progress, not the current
+// phase; the label carries the per-phase count (e.g. "applying 1/4"), so the bar
+// must NOT repeat that count. For an apply still in its pre-apply re-plan pass
+// (before PhaseApplying) it reports "preparing k/N" instead, since those per-stack
+// ticks are re-planning, not applying. Shared by the check-run title and the live
+// page so both show the same overall bar.
+func runProgress(prog *config.ProgressConfig, phase events.Phase, stacks []events.StackState, kind string) (bar string, pct int, label string) {
 	total := len(stacks)
-	// Apply pre-apply re-plan: the run is under a pre-apply phase (warming/
-	// initializing/planning) but it is re-planning every stack before the real
-	// apply, not initializing. Report it as "preparing k/N" (k = stacks that have
-	// finished re-planning) so the title is honest until PhaseApplying.
 	if kind == "apply" && !applyStarted(phase) {
 		prepared := doneStacks(stacks)
 		frac := 0.0
 		if total > 0 {
 			frac = float64(prepared) / float64(total)
 		}
-		bar, _ := progressBar(frac)
+		bar, pct = progressBar(frac)
 		if total == 0 {
-			return bar + " · preparing"
+			return bar, pct, "preparing"
 		}
-		return fmt.Sprintf("%s %d/%d · preparing", bar, prepared, total)
+		return bar, pct, fmt.Sprintf("preparing %d/%d", prepared, total)
 	}
 	doneCount := doneStacks(stacks)
 	initCount := 0
@@ -80,11 +89,8 @@ func progressTitle(prog *config.ProgressConfig, phase events.Phase, stacks []eve
 			initCount++
 		}
 	}
-	bar, label, _ := progress(prog.For(kind), phase, doneCount, initCount, total)
-	if total == 0 {
-		return bar + " · " + label
-	}
-	return fmt.Sprintf("%s %d/%d · %s", bar, doneCount, total, label)
+	bar, label, pct = progress(prog.For(kind), phase, doneCount, initCount, total)
+	return bar, pct, label
 }
 
 // terminalSummary is the concluded-run title/headline tail: kind + tally + stack

@@ -14,6 +14,7 @@ import (
 	goldmarkhtml "github.com/yuin/goldmark/renderer/html"
 	"github.com/yuin/goldmark/util"
 
+	"github.com/Fluent-Health/terraform-stack-plan/internal/config"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
@@ -123,7 +124,7 @@ type liveView struct {
 func (a *App) livePage(v liveView) string {
 	kind := execKind(v.Context)
 	finished := isFinished(kind, v.Report, v.Status)
-	m := buildLiveModel(v, kind, finished, time.Now())
+	m := buildLiveModel(v, kind, finished, a.cfg.Progress, time.Now())
 	var buf bytes.Buffer
 	_ = a.tmpl.ExecuteTemplate(&buf, "live.gohtml", m)
 	return buf.String()
@@ -188,7 +189,9 @@ type liveModel struct {
 	Verdict                                   verdict
 	Destructive                               bool
 	IAMCount                                  int
-	Progress                                  []progSeg
+	ProgressPct                               int    // overall weighted progress 0..100
+	ProgressRemain                            int    // 100 - ProgressPct (unfilled remainder)
+	ProgressLabel                             string // phase detail, e.g. "applying 1/4"
 	Groups                                    []projGroup
 	Failures                                  []failureCard // non-empty when stacks have failed
 	ReportHTML                                template.HTML
@@ -202,7 +205,7 @@ type liveModel struct {
 // buildLiveModel assembles the Briefing payload from a liveView. kind is
 // "plan"/"apply"; finished marks a concluded execution; now is the reference
 // clock for elapsed (injected for testability).
-func buildLiveModel(v liveView, kind string, finished bool, now time.Time) liveModel {
+func buildLiveModel(v liveView, kind string, finished bool, prog *config.ProgressConfig, now time.Time) liveModel {
 	shortSHA := v.SHA
 	if len(shortSHA) > 7 {
 		shortSHA = shortSHA[:7]
@@ -239,6 +242,15 @@ func buildLiveModel(v liveView, kind string, finished bool, now time.Time) liveM
 		label = "INITIALIZING"
 	default:
 		label = "PLANNING"
+	}
+
+	// One overall weighted progress bar across the operation's phases (same source
+	// as the check-run title). A concluded run shows a full bar — the weighted
+	// fraction would otherwise sit short of 100% (e.g. the verify band never fills).
+	_, pct, progLabel := runProgress(prog, v.Phase, v.Stacks, kind)
+	if finished {
+		pct = 100
+		progLabel = ""
 	}
 
 	elapsed := ""
@@ -305,7 +317,7 @@ func buildLiveModel(v liveView, kind string, finished bool, now time.Time) liveM
 		PhaseAccent: kind, PhaseLabel: label, Elapsed: elapsed,
 		Verdict:     aggregateVerdict(v.Stacks),
 		Destructive: destructive, IAMCount: iamCount(v.Stacks),
-		Progress:   progressSegments(v.Stacks, kind, v.Phase),
+		ProgressPct: pct, ProgressRemain: 100 - pct, ProgressLabel: progLabel,
 		Groups:     groups,
 		Failures:   failures,
 		ReportHTML: renderMarkdown(v.Report),
