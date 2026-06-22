@@ -6,6 +6,7 @@ import (
 	"log"
 	"strings"
 
+	"github.com/Fluent-Health/terraform-stack-plan/internal/config"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
@@ -47,7 +48,7 @@ func doneStacks(stacks []events.StackState) int {
 // progress bar ("<bar> k/N · <label>"); once terminal it is an action-count
 // summary ("Plan · +6 ~3 −2 · 12 stacks" / "Plan · no changes" / apply variant),
 // because a frozen bar reads as stuck. kind is "plan" or "apply".
-func progressTitle(phase events.Phase, stacks []events.StackState, terminal bool, kind string) string {
+func progressTitle(prog *config.ProgressConfig, phase events.Phase, stacks []events.StackState, terminal bool, kind string) string {
 	if terminal {
 		kindLabel := "Plan"
 		if kind == "apply" {
@@ -79,7 +80,7 @@ func progressTitle(phase events.Phase, stacks []events.StackState, terminal bool
 			initCount++
 		}
 	}
-	bar, label, _ := progress(phase, doneCount, initCount, total)
+	bar, label, _ := progress(prog.For(kind), phase, doneCount, initCount, total)
 	if total == 0 {
 		return bar + " · " + label
 	}
@@ -184,7 +185,7 @@ func (a *App) renderAndPatch(ctx context.Context, id, base string, terminal bool
 	// action_required conclusion is self-explanatory (which gate, how to approve).
 	targets, _ := store.TargetsFor(a.db, e.PR, e.Environment)
 	upd := CheckRunUpdate{
-		Title:      progressTitle(events.Phase(e.Phase), g.Stacks, terminal, "plan"),
+		Title:      progressTitle(a.cfg.Progress, events.Phase(e.Phase), g.Stacks, terminal, "plan"),
 		Summary:    checkSummary("plan", g.Stacks, a.liveURL(base, id), events.Phase(e.Phase)),
 		Text:       gatesSection(targets) + failuresSection(g, e.LogURL, "") + e.ReportMarkdown,
 		DetailsURL: a.liveURL(base, id),
@@ -289,7 +290,7 @@ func (a *App) driveApply(ctx context.Context, e store.Execution, base string) {
 			summary += "\n\n" + desc
 		}
 		upd := CheckRunUpdate{
-			Title:      progressTitle(events.Phase(e.Phase), g.Stacks, applyTerminal, "apply"),
+			Title:      progressTitle(a.cfg.Progress, events.Phase(e.Phase), g.Stacks, applyTerminal, "apply"),
 			Summary:    summary,
 			DetailsURL: a.liveURL(base, e.ID),
 			Conclusion: conclusion,

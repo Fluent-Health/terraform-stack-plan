@@ -35,11 +35,34 @@ type Phase string
 
 const (
 	PhaseWarming      Phase = "warming"      // warming the provider plugin cache
+	PhaseLinting      Phase = "linting"      // static lint (e.g. tflint) over modules
 	PhaseInitializing Phase = "initializing" // sequential terraform init
 	PhasePlanning     Phase = "planning"     // parallel plan
 	PhaseApplying     Phase = "applying"     // sequential apply
+	PhaseTesting      Phase = "testing"      // post-apply contract tests
 	PhaseVerifying    Phase = "verifying"    // post-apply verification
 )
+
+// Ticking reports whether a phase advances per-stack (k/N sub-progress) rather
+// than being an instantaneous marker. The progress bar sub-fills a ticking
+// phase's weighted band by completed/total; marker phases jump to their band.
+func (p Phase) Ticking() bool {
+	switch p {
+	case PhaseInitializing, PhasePlanning, PhaseApplying:
+		return true
+	}
+	return false
+}
+
+// Valid reports whether p is a known lifecycle phase.
+func (p Phase) Valid() bool {
+	switch p {
+	case PhaseWarming, PhaseLinting, PhaseInitializing, PhasePlanning,
+		PhaseApplying, PhaseTesting, PhaseVerifying:
+		return true
+	}
+	return false
+}
 
 // Category is a classification label matched by a stack (name + optional glyph).
 type Category struct {

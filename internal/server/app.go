@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/approval"
+	"github.com/Fluent-Health/terraform-stack-plan/internal/config"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/jwtutil"
 )
 
@@ -57,6 +58,10 @@ type Config struct {
 	// GitHubWebhookSecret is the HMAC-SHA256 secret GitHub sends on every webhook
 	// delivery (X-Hub-Signature-256). Empty disables the /github/webhook endpoint.
 	GitHubWebhookSecret string
+	// Progress is the optional per-operation weighted phase set (from the policy
+	// file's progress{} block) driving the full-progress bar. nil → built-in
+	// fractions.
+	Progress *config.ProgressConfig
 }
 
 // App is the HTTP application.

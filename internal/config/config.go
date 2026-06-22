@@ -15,6 +15,7 @@ import (
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/classify"
+	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/model"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/presets"
 )
@@ -26,10 +27,11 @@ const DefaultFilename = ".tfstackplan.hcl"
 type Config struct {
 	Classification *Classification // nil when no classification block present
 	Diff           DiffConfig
-	Links          *LinksConfig   // nil when no links block present
-	Server         *ServerConfig  // nil when no server block
-	Serve          *ServeConfig   // nil when no serve block (added in a later task)
-	Classes        []ClassBinding // class "<name>" {} bindings
+	Links          *LinksConfig    // nil when no links block present
+	Server         *ServerConfig   // nil when no server block
+	Serve          *ServeConfig    // nil when no serve block (added in a later task)
+	Classes        []ClassBinding  // class "<name>" {} bindings
+	Progress       *ProgressConfig // nil when no progress block (falls back to built-in fracs)
 }
 
 // Classification holds the resolved, ordered rules and the fallback class.
@@ -111,6 +113,12 @@ func Load(path string) (*Config, error) {
 				return nil, err
 			}
 			cfg.Classes = append(cfg.Classes, cb)
+		case "progress":
+			p, err := decodeProgress(blk)
+			if err != nil {
+				return nil, err
+			}
+			cfg.Progress = p
 		default:
 			return nil, fmt.Errorf("%s: unknown top-level block %q", path, blk.Type)
 		}
@@ -359,4 +367,96 @@ func (d DiffConfig) Resolve(resourceType, attr string) string {
 		return ov.Differ
 	}
 	return ""
+}
+
+// --- progress ---
+
+// ProgressConfig declares, per operation, the ordered weighted lifecycle phases
+// the run will emit. Serve uses it to render a single full-progress bar across
+// exactly those phases (ticking phases sub-fill their band by completed/total).
+// Absent => serve falls back to its built-in fractions.
+type ProgressConfig struct {
+	Plan  []PhaseWeight
+	Apply []PhaseWeight
+}
+
+// PhaseWeight is one phase's slice of the bar. Weight defaults per phase (see
+// defaultPhaseWeight) when omitted; relative within an operation's set.
+type PhaseWeight struct {
+	Phase  events.Phase
+	Weight float64
+}
+
+// defaultPhaseWeight sizes a phase's band when the config omits an explicit
+// weight: marker phases (warming/lint/test/verify) are light, the per-stack
+// ticking phases (init/plan/apply) carry the bulk.
+func defaultPhaseWeight(p events.Phase) float64 {
+	switch p {
+	case events.PhaseWarming, events.PhaseLinting, events.PhaseVerifying:
+		return 1
+	case events.PhaseInitializing, events.PhaseTesting:
+		return 2
+	case events.PhasePlanning, events.PhaseApplying:
+		return 10
+	}
+	return 1
+}
+
+// For returns the ordered weighted phases for kind ("plan"/"apply"), or nil.
+func (pc *ProgressConfig) For(kind string) []PhaseWeight {
+	if pc == nil {
+		return nil
+	}
+	if kind == "apply" {
+		return pc.Apply
+	}
+	return pc.Plan
+}
+
+func decodeProgress(blk *hclsyntax.Block) (*ProgressConfig, error) {
+	pc := &ProgressConfig{}
+	for _, op := range blk.Body.Blocks {
+		switch op.Type {
+		case "plan":
+			ph, err := decodeProgressPhases(op)
+			if err != nil {
+				return nil, err
+			}
+			pc.Plan = ph
+		case "apply":
+			ph, err := decodeProgressPhases(op)
+			if err != nil {
+				return nil, err
+			}
+			pc.Apply = ph
+		default:
+			return nil, fmt.Errorf("progress: unknown block %q (want plan|apply)", op.Type)
+		}
+	}
+	return pc, nil
+}
+
+// decodeProgressPhases reads the ordered `phase "<name>" { weight = N }` blocks.
+func decodeProgressPhases(op *hclsyntax.Block) ([]PhaseWeight, error) {
+	var out []PhaseWeight
+	for _, b := range op.Body.Blocks {
+		if b.Type != "phase" {
+			return nil, fmt.Errorf("progress.%s: unknown block %q (want phase)", op.Type, b.Type)
+		}
+		if len(b.Labels) != 1 {
+			return nil, fmt.Errorf("progress.%s.phase: expected one label (the phase name)", op.Type)
+		}
+		ph := events.Phase(b.Labels[0])
+		if !ph.Valid() {
+			return nil, fmt.Errorf("progress.%s: unknown phase %q", op.Type, b.Labels[0])
+		}
+		w := defaultPhaseWeight(ph)
+		if a, ok := b.Body.Attributes["weight"]; ok {
+			if d := gohcl.DecodeExpression(a.Expr, nil, &w); d.HasErrors() {
+				return nil, fmt.Errorf("progress.%s.phase %q weight: %s", op.Type, ph, d.Error())
+			}
+		}
+		out = append(out, PhaseWeight{Phase: ph, Weight: w})
+	}
+	return out, nil
 }
