@@ -1,6 +1,9 @@
 package reconcile
 
-import "github.com/Fluent-Health/terraform-stack-plan/internal/events"
+import (
+	"github.com/Fluent-Health/terraform-stack-plan/internal/approval"
+	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
+)
 
 // Evolve applies a single domain Event to a ChangeSet, returning the new state.
 // It is total (never panics on any state/event combination), pure (no I/O), and
@@ -104,7 +107,7 @@ func Evolve(cs ChangeSet, e Event) ChangeSet {
 		}
 		for i := range targets {
 			if targets[i].Class == ev.Class && targets[i].Target == ev.Target {
-				targets[i].Grant = ""
+				targets[i].Grant = approval.GrantState("")
 			}
 		}
 		cs.Gate = withTargets(cs.Gate, targets)
@@ -137,7 +140,7 @@ func Evolve(cs ChangeSet, e Event) ChangeSet {
 		}
 		for i := range targets {
 			if targets[i].Class == ev.Class && targets[i].Target == ev.Target {
-				targets[i].Grant = "REVOKED"
+				targets[i].Grant = approval.StateRevoked
 			}
 		}
 		cs.Gate = withTargets(cs.Gate, targets)
