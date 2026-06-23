@@ -83,6 +83,7 @@ load (I/O)  →  gather → Model (pure)  →  fit → Model' (pure)  →  rende
 
 ```
 cmd/tfstackplan/   — CLI entry; orchestrate load → gather → fit → render → write
+internal/domain/     — canonical value types (Counts, Category) shared across render/wire/persistence; leaf pkg
 internal/plandir/    — recursively scan --plans-dir for tfplan.json files; derive stack names
 internal/config/     — parse + validate the HCL config (classification {} + diff {})
 internal/presets/    — built-in named rule bundles (iam, …) as []classify.Rule
@@ -96,6 +97,14 @@ internal/render/     — Model' → markdown
 
 **Key boundaries:**
 
+- `domain` is the single home for value types that recur across the render
+  pipeline, the runner→server wire protocol, and persistence — currently
+  `Counts` and `Category` (the latter carrying `Name`/`Icon`/`Attributes`).
+  `model`, `events`, and `classify` re-export them via type aliases
+  (`type Counts = domain.Counts`), so each concept has one definition and the
+  wire/persistence layers are codecs of it rather than parallel re-modellings.
+  This is the first step of the event-sourced target architecture;
+  `Status` and the rest follow in later phases.
 - `config` + `presets` resolve into a single ordered `[]classify.Rule`.
   `classify` consumes that list and a parsed plan and returns `[]Category` (the
   set of all matching categories, in declaration order) — it neither knows nor
