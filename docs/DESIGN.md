@@ -131,7 +131,7 @@ Background and the orchestrator-integration rationale: `docs/terramate-integrati
 
 ```
 tfstackplan --plans-dir DIR
-              [--config FILE]                  # HCL policy (classification {} + diff {}); auto-discovers .tfstackplan.hcl in CWD
+              [--config FILE]                  # HCL policy (classification {} + diff {}); auto-discovers .tfstackplan.hcl (walks up to the repo root)
               [--title TEXT]
               [--marker TEXT]
               [--max-bytes N]                  # default ~60000 (under GitHub's 65536 cap); 0 disables
@@ -203,8 +203,11 @@ move/import) and `read` are dropped.
 
 ### Discovery
 
-`--config FILE`, else auto-discover `.tfstackplan.hcl` in the current working
-directory. Absent → classification disabled.
+`--config FILE`, else auto-discover `.tfstackplan.hcl` by walking **up** from the
+working directory to the repo root (the first ancestor with `.git`; the search
+stops there, so a config above the repo is out of scope). This lets a command run
+from a stack subdir (`run plan`/`run apply --dir stacks/<tier>`) find the repo-root
+policy with no explicit `--config`. Absent → classification disabled.
 
 ### HCL schema
 
