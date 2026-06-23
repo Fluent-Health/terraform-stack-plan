@@ -124,3 +124,54 @@ func TestEventStoreDataByteFidelity(t *testing.T) {
 		t.Fatalf("binary data corrupted: %v", got[0].Data)
 	}
 }
+
+func TestSnapshotSaveAndLoad(t *testing.T) {
+	es := NewEventStore(newTestDB(t))
+	if err := es.SaveSnapshot("s", 5, []byte("state-v5")); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	state, version, ok, err := es.LoadSnapshot("s")
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if !ok || version != 5 || !bytes.Equal(state, []byte("state-v5")) {
+		t.Fatalf("got state=%q version=%d ok=%v; want state-v5,5,true", state, version, ok)
+	}
+}
+
+func TestSnapshotOverwriteKeepsLatest(t *testing.T) {
+	es := NewEventStore(newTestDB(t))
+	if err := es.SaveSnapshot("s", 5, []byte("old")); err != nil {
+		t.Fatal(err)
+	}
+	if err := es.SaveSnapshot("s", 9, []byte("new")); err != nil {
+		t.Fatal(err)
+	}
+	state, version, ok, _ := es.LoadSnapshot("s")
+	if !ok || version != 9 || !bytes.Equal(state, []byte("new")) {
+		t.Fatalf("got state=%q version=%d; want new,9", state, version)
+	}
+}
+
+func TestSnapshotLoadMissing(t *testing.T) {
+	es := NewEventStore(newTestDB(t))
+	_, _, ok, err := es.LoadSnapshot("nope")
+	if err != nil {
+		t.Fatalf("load missing: %v", err)
+	}
+	if ok {
+		t.Fatal("ok = true for missing snapshot; want false")
+	}
+}
+
+func TestSnapshotStateByteFidelity(t *testing.T) {
+	es := NewEventStore(newTestDB(t))
+	blob := []byte{0x00, 0x7f, 0xff, '}'}
+	if err := es.SaveSnapshot("s", 1, blob); err != nil {
+		t.Fatal(err)
+	}
+	state, _, _, _ := es.LoadSnapshot("s")
+	if !bytes.Equal(state, blob) {
+		t.Fatalf("binary state corrupted: %v", state)
+	}
+}

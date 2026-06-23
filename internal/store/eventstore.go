@@ -93,3 +93,31 @@ func (s *EventStore) Load(streamID string) ([]StoredEvent, int, error) {
 	}
 	return out, version, rows.Err()
 }
+
+// SaveSnapshot upserts the latest snapshot for the stream (last-write-wins). No
+// concurrency check: the events table is authoritative, so a stale snapshot only
+// means replaying a longer event tail. version is the event version the snapshot
+// reflects.
+func (s *EventStore) SaveSnapshot(streamID string, version int, state []byte) error {
+	_, err := s.db.Exec(
+		`INSERT INTO snapshots (stream_id, version, state) VALUES (?,?,?)
+		 ON CONFLICT(stream_id) DO UPDATE SET
+		   version = excluded.version, state = excluded.state,
+		   updated_at = CURRENT_TIMESTAMP`,
+		streamID, version, state)
+	return err
+}
+
+// LoadSnapshot returns the latest snapshot for the stream (ok=false if none).
+func (s *EventStore) LoadSnapshot(streamID string) (state []byte, version int, ok bool, err error) {
+	err = s.db.QueryRow(
+		`SELECT state, version FROM snapshots WHERE stream_id = ?`,
+		streamID).Scan(&state, &version)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, 0, false, nil
+	}
+	if err != nil {
+		return nil, 0, false, err
+	}
+	return state, version, true, nil
+}
