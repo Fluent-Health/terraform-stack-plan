@@ -357,7 +357,7 @@ func TestClaimsListWireShape(t *testing.T) {
 
 func TestFinalizeFailedMarksInitStatusesAborted(t *testing.T) {
 	// Stacks stuck in "initializing" or "initialized" at a failed finalize must
-	// be swept to "aborted" by the legacy path, just like pending/running.
+	// be swept to "aborted" by the finalize handler, just like pending/running.
 	db := newServerTestDB(t)
 	gh := &MockGitHub{CreateCheckRunFn: func(ctx context.Context, repo, sha, env, url string) (int64, error) { return 1, nil }}
 	a := New(db, gh, Config{})

@@ -119,10 +119,9 @@ func runApply(args []string) int {
 	}
 
 	// 4. Classify pass (self-sufficient): re-run the plan classification keyed to
-	//    the same (pr, env) and submit it as a Finalize{Gates}. In reconciler-core
-	//    mode the server re-marks gate_runs (classified) and issues RequestGrant;
-	//    in legacy mode handleFinalize does requestGrants + MarkClassified. Either
-	//    way this re-establishes the gate's classification + grant requests even if
+	//    the same (pr, env) and submit it as a Finalize{Gates}. The server's
+	//    RunnerFinalize transition re-marks the run classified and issues the grant
+	//    requests, re-establishing the gate's classification + grant requests even if
 	//    the serve DB was wiped since the PR's plan ran. Best-effort: a classify
 	//    failure must not strand a recoverable apply — the fail-closed GateCheck
 	//    below is the real guard.

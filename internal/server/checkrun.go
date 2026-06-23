@@ -171,7 +171,7 @@ func (a *App) ensureCheckRun(ctx context.Context, id, repo, sha, name, detailsUR
 // renderAndPatch bumps the cache-bust rev and patches the GitHub check run with a
 // fresh summary/report. terminal=true also computes the verdict conclusion from
 // the DB snapshot (callers MUST patch terminally only after gate targets are
-// stored). A no-op in link mode (reconcile owns the commit status there).
+// stored). A no-op until the check run exists.
 func (a *App) renderAndPatch(ctx context.Context, id, base string, terminal bool) {
 	if err := store.BumpRev(a.db, id); err != nil {
 		log.Printf("rev bump %s: %v", id, err)

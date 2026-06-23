@@ -12,16 +12,16 @@ type CheckRunUpdate struct {
 }
 
 // GitHub is the surface the server needs from GitHub. A rich check run requires
-// a GitHub App with checks:write; the link-mode fallback posts a commit status
-// (statuses:write) whose target URL points at the live page. The real
-// implementation lands in a later sub-plan; tests use MockGitHub.
+// a GitHub App with checks:write; the commit-status fallback (statuses:write)
+// posts a status whose target URL points at the live page, used only until an
+// apply's check run exists. Tests use MockGitHub.
 type GitHub interface {
 	// CreateCheckRun opens an in_progress check run with the given name whose
 	// Details link is detailsURL; returns its id.
 	CreateCheckRun(ctx context.Context, repo, sha, name, detailsURL string) (int64, error)
 	// UpdateCheckRun patches an existing check run.
 	UpdateCheckRun(ctx context.Context, repo string, checkRunID int64, u CheckRunUpdate) error
-	// PostStatus sets a commit status (link-mode fallback).
+	// PostStatus sets a commit status (commit-status fallback).
 	PostStatus(ctx context.Context, repo, sha, context_, state, description, targetURL string) error
 	// PRHeadSHA returns the current head commit SHA of a pull request, so a
 	// verdict is posted on the live head rather than a stale execution SHA.
