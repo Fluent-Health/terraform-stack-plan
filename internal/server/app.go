@@ -75,6 +75,9 @@ type App struct {
 	tmpl *template.Template
 	// groupRE is the compiled Config.GroupPattern (nil → depth grouping).
 	groupRE *regexp.Regexp
+	// now returns the current time. Injectable so claim-lease and janitor time
+	// is deterministic in tests; defaults to time.Now in New.
+	now func() time.Time
 	// shell is the reconcile engine — the sole path for gate/execution state.
 	shell *Shell
 }
@@ -92,7 +95,7 @@ func New(db *sql.DB, gh GitHub, cfg Config) *App {
 			log.Printf("server: invalid group pattern %q: %v (falling back to depth grouping)", cfg.GroupPattern, err)
 		}
 	}
-	a := &App{db: db, gh: gh, cfg: cfg, hub: newHub(), tmpl: tmpl, groupRE: groupRE}
+	a := &App{db: db, gh: gh, cfg: cfg, hub: newHub(), tmpl: tmpl, groupRE: groupRE, now: time.Now}
 	a.shell = NewShell(a)
 	return a
 }

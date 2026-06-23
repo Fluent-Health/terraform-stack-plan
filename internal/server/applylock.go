@@ -126,7 +126,7 @@ func (a *App) handlePRApplyLock(ctx context.Context, repo string, pr int, merged
 	if err != nil {
 		return
 	}
-	now := time.Now()
+	now := a.now()
 	for _, env := range envs {
 		stacks, ok := a.prChangedStacks(env, pr)
 		if merged {
@@ -204,7 +204,7 @@ func (a *App) handleMergeGroup(ctx context.Context, repo, headSHA, action string
 		}
 	}
 	// Post one apply-lock/<env> check per env.
-	now := time.Now()
+	now := a.now()
 	for env, prStacks := range envPRStacks {
 		// Union stacks for the env; use the last PR as the owner (single-PR merge groups are the common case).
 		var allStacks []string
@@ -229,7 +229,7 @@ func (a *App) postApplyLockUnverifiable(ctx context.Context, repo, env, sha stri
 // sweepClaimsOnce releases all expired claims and re-evaluates held checks for
 // each affected environment (the auto-heal tick).
 func (a *App) sweepClaimsOnce(ctx context.Context) {
-	envs, err := store.SweepExpiredClaims(a.db, time.Now())
+	envs, err := store.SweepExpiredClaims(a.db, a.now())
 	if err != nil {
 		return
 	}
@@ -282,7 +282,7 @@ func (a *App) postPlanApplyLock(ctx context.Context, e store.Execution) {
 	for _, s := range g.Stacks {
 		stacks = append(stacks, s.Path)
 	}
-	v := a.evalApplyLock(e.Environment, e.PR, stacks, time.Now())
+	v := a.evalApplyLock(e.Environment, e.PR, stacks, a.now())
 	_ = a.postApplyLock(ctx, e.Repo, e.Environment, e.SHA, e.PR, stacks, "pr_head", v)
 }
 
@@ -295,7 +295,7 @@ func (a *App) releaseApplyClaims(ctx context.Context, env string, pr int) {
 
 // renewApplyClaims extends a PR's lease in an env (apply heartbeat).
 func (a *App) renewApplyClaims(env string, pr int) {
-	_ = store.RenewClaims(a.db, env, pr, time.Now().Add(a.applyLockLease()))
+	_ = store.RenewClaims(a.db, env, pr, a.now().Add(a.applyLockLease()))
 }
 
 // reevaluateHeld re-posts every held apply-lock check in env whose blocking
@@ -306,7 +306,7 @@ func (a *App) reevaluateHeld(ctx context.Context, env string) {
 	if err != nil {
 		return
 	}
-	now := time.Now()
+	now := a.now()
 	for _, c := range held {
 		v := a.evalApplyLock(env, c.PR, c.Stacks, now)
 		if v.State == "clear" && c.Kind == "merge_group" {
