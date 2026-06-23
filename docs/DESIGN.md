@@ -561,6 +561,12 @@ the budget entirely.
 
 ## Testing strategy
 
+- **Server clock is injectable.** `App.now func() time.Time` (defaults to
+  `time.Now` in `New`) is the single seam for the control plane's wall-clock
+  reads (apply-lock claim lease/sweep/eval, the live elapsed clock, the log
+  janitor cutoff). In-package tests reassign `a.now` to drive claim-expiry and
+  janitor-cutoff deterministically — no `time.Sleep`. (Uniqueness/auth time —
+  `*-<UnixNano>` ids, JWT exp — deliberately still reads `time.Now`.)
 - `plan`: table tests over fixture `plan.json` files covering each action,
   replace ordering, and no-op.
 - `classify`: table tests feeding a resolved `[]Rule` + a synthetic change set,
