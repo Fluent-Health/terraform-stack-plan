@@ -472,7 +472,7 @@ The config also carries optional **server/serve** blocks for the control plane
 entitlement, entitlement_scope, required }` binding a classification class to an
 approval gate (`entitlement_scope` is `projects` by default, or `folders` /
 `organizations` for a class that grants at a higher resource scope); and
-`serve { db_path, public_base_url, use_checks, webhook_secret_env, github_app {
+`serve { db_path, public_base_url, webhook_secret_env, github_app {
 app_id, installation_id, private_key_path }, approval "gcp-pam" { location,
 duration, requester_pool } }` for the `serve` runtime. All are optional and
 backward-compatible — a render-only `.tfstackplan.hcl` needs none of them.
@@ -694,7 +694,7 @@ the budget entirely.
   and `Clean` (classified, zero gate targets) are now distinct sum-type states in
   `GateState`, so a never-planned PR fails closed and a genuinely clean plan passes;
   the old ambiguity where every `gate_targets` write failure was indistinguishable
-  from a clean plan no longer applies when `reconciler_core` is on.
+  from a clean plan no longer applies.
 - **An `EXPIRED` grant on a never-active gate target is re-armed on the next tick.**
   A request that lapsed (EXPIRED) before any approval is re-requested by the
   reconcile loop — re-opening the approval window — rather than sitting `Pending`
@@ -716,7 +716,7 @@ the budget entirely.
   open grant on the entitlement (falling back to `PR mod pool-size` when
   exhausted), so collision is bounded by *concurrent open PRs exceeding pool
   size*, not by PR-number arithmetic. Once the first grant fixes the identity the
-  rest of the PR's grants share it. With `reconciler_core` on, the leased
+  rest of the PR's grants share it. The leased
   requester lives inside the `GateState` sum type and is carried forward
   structurally by `Step` — the old `store.SetTargetRequester` / `UpsertTarget`
   `ON CONFLICT` carve-out that preserved the requester column is gone; clobbering
@@ -832,14 +832,16 @@ land later) — see [PR #19](https://github.com/Fluent-Health/terraform-stack-pl
   client is now implemented (see *Real GitHub client* below).
 - The verdict as a **pure projection of DB state**: a `snapshot` feeds
   `conclusion()` (check-run conclusion: `""` running → `success` / `failure` /
-  `action_required` when a gate is unsatisfied) and `gateStatus()` (link-mode
-  commit status). Re-deriving from the DB is race-free and eventually consistent.
+  `action_required` when a gate is unsatisfied). Re-deriving from the DB is
+  race-free and eventually consistent.
 - The check-run lifecycle (`ensureCheckRun` idempotent create, `renderAndPatch`,
-  link-mode `reconcile`, and a `drive` dispatch) in both **check mode** (rich
-  check run) and **link mode** (commit status). `finalize` records the payload's
-  `(class, target)` gates as `AWAITING`, marks gated/moving stacks, marks the run
+  and a `drive` dispatch). Check runs are the only surface — the gate gets a
+  rich check run; a post-merge apply gets its own apply check run (falling back
+  to a commit status only until that check run exists). `finalize` records the
+  payload's `(class, target)` gates, marks gated/moving stacks, marks the run
   classified, then drives the terminal conclusion — so a gated plan concludes
-  `action_required` and waits.
+  `action_required` and waits. (Gate/finalize state is owned by the reconcile
+  core; see *Functional reconcile core* below.)
 
 **Real GitHub client** (see [PR #21](https://github.com/Fluent-Health/terraform-stack-plan/pull/21)).
 `RealClient` is the production `GitHub` implementation: it mints a short-lived
@@ -1390,15 +1392,10 @@ structurally impossible. The per-stack `gated`/`safe` overlay written to
 `stacks.status` by `save()` is a **derived** projection of `GateState` — it is not
 separately tracked truth.
 
-The engine ships behind the `reconciler_core` serve-config flag. It engages only at
-quiescence (`tfstackplan serve --check-quiescent`, with a startup guard that falls
-back to the legacy engine if the store has in-flight rows). Legacy gate handlers
-remain as the flag-OFF path pending a post-cutover cleanup.
-
-> **Rollout note (Stage 1).** `reconciler_core` (like `apply_lock` and `use_checks`)
-> is fully rolled out and now **defaults on** when omitted from the `serve {}` block;
-> an explicit value is still honored. The flag, the legacy flag-OFF path, and the
-> quiescence tooling are slated for staged removal once infra stops sending the flag.
+The reconcile core is the **sole** gate/execution engine: there is no legacy path
+and no feature flag. (It originally shipped behind an off-by-default
+`reconciler_core` flag engaged at quiescence; after the cutover the flag, the
+legacy handlers, and the `serve --check-quiescent` tooling were all removed.)
 
 The permutation test harness (`internal/reconcile/step_table_test.go`) is the
 correctness oracle, covering all state permutations as a table-driven suite. It
@@ -1527,12 +1524,11 @@ apply as) a real destroy+create. The filename is the authoritative key; `state
 cleanup` matches by filename and does not parse, so a corrupt or key-mismatched
 file is always removable.
 
-### Apply serialization — merge-lock (off by default)
+### Apply serialization — merge-lock
 
-`tfstackplan serve` can prevent overlapping tier-applies from colliding on
-per-stack Terraform state locks. It is engaged per tier by the `apply_lock`
-serve-config flag, which (as of the Stage-1 rollout) now **defaults on** when
-omitted; an explicit value is still honored, and the flag is slated for removal.
+`tfstackplan serve` prevents overlapping tier-applies from colliding on per-stack
+Terraform state locks. It is always on (no flag): serve posts an `apply-lock/<env>`
+check that holds a PR's merge while its changed stacks overlap an in-flight apply.
 
 **Mechanism.** A per-environment *claimed-stack set* (`apply_claims` table)
 records which PR currently holds each stack. When serve evaluates whether a
@@ -1625,11 +1621,12 @@ bypass directly via the GitHub Checks API, skipping the predicate entirely.
   another PR merged a new stack) between the plan and the apply, the predicate
   may use a stale stack set. When strict required checks are enabled, the merge
   queue forces a re-plan in that case, refreshing the set.
-- **Release lives in the HTTP handlers, not a reconcile action.** `ApplySucceeded`/
-  `ApplyFailed` signals do not call through `reconcile.Step` — the release is
-  issued directly from the finalize handler. This is intentional: it keeps the
-  release mode-agnostic (correct whether or not `reconciler_core` is on) and the
-  lease is the crash backstop.
+- **Release is driven by the `ApplySucceeded` reconcile transition.** The apply-end
+  `GateRevoke` drives `reconcile.Step`'s `ApplySucceeded`, which emits a
+  `ReleaseClaim` action — the shell drops the PR's claims and re-evaluates the
+  env's held checks. A mid-run classify-pass `Finalize` deliberately does NOT
+  release (it would drop the lock before the apply ran); the claim lease TTL is
+  the crash backstop.
 
 ### Delivery: binary + Cloud Run container
 
