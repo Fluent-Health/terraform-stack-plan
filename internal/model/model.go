@@ -2,6 +2,8 @@
 // through the gather → fit → render pipeline.
 package model
 
+import "github.com/Fluent-Health/terraform-stack-plan/internal/domain"
+
 // Action is the reduced primary-action bucket for a resource change.
 type Action string
 
@@ -30,33 +32,14 @@ func (a Action) Mutates() bool {
 	}
 }
 
-// Counts holds per-stack action tallies (pure no-ops excluded). Move/Import/
-// Forget are tracked separately from the create/change/destroy/replace buckets.
-type Counts struct {
-	Add, Change, Destroy, Replace int
-	Move, Import, Forget          int
-}
+// Counts holds per-stack action tallies. Alias of the canonical domain type
+// (shared with the wire protocol); Total/AnyChange live on domain.Counts.
+type Counts = domain.Counts
 
-// Total returns the sum of the create/change/destroy/replace buckets.
-func (c Counts) Total() int { return c.Add + c.Change + c.Destroy + c.Replace }
-
-// AnyChange reports whether the stack has anything worth rendering — a config
-// change, or a move / import / forget.
-func (c Counts) AnyChange() bool { return c.Total()+c.Move+c.Import+c.Forget > 0 }
-
-// Class is the classification result for a stack.
-type Class struct {
-	Name string
-	Icon string // "" when no glyph
-}
-
-// Label renders the class as "icon name" or just "name".
-func (c Class) Label() string {
-	if c.Icon == "" {
-		return c.Name
-	}
-	return c.Icon + " " + c.Name
-}
+// Class is the classification result for a stack. Alias of the canonical
+// domain.Category; Label lives there. (Render reads Name/Icon; Attributes ride
+// along harmlessly.)
+type Class = domain.Category
 
 // LeafOp is the change kind for a single leaf attribute path.
 type LeafOp uint8
