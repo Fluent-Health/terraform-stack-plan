@@ -124,7 +124,7 @@ type liveView struct {
 func (a *App) livePage(v liveView) string {
 	kind := execKind(v.Context)
 	finished := isFinished(kind, v.Report, v.Status)
-	m := buildLiveModel(v, kind, finished, a.cfg.Progress, time.Now())
+	m := buildLiveModel(v, kind, finished, a.cfg.Progress, a.now())
 	var buf bytes.Buffer
 	_ = a.tmpl.ExecuteTemplate(&buf, "live.gohtml", m)
 	return buf.String()
