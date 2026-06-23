@@ -151,6 +151,9 @@ func runApply(args []string) int {
 		_ = client.Finalize(ctx, events.Finalize{
 			ID: execID, ReportMarkdown: report, Gates: gates, Categories: categories, Counts: counts, Moving: moving,
 		})
+		// Diagnostic: record the apply-time classify gate set so a gating anomaly
+		// (e.g. an under-reported gate vs. the plan) is visible in the build log.
+		fmt.Fprintf(os.Stderr, "tfstackplan run apply: classify gates: %s\n", gateSummary(gates))
 	}
 
 	// 5. Fail-closed gate pre-check. GateCheck no-ops when no server is configured,
@@ -171,6 +174,12 @@ func runApply(args []string) int {
 		}
 		os.Setenv("GOOGLE_OAUTH_ACCESS_TOKEN", tok)
 		fmt.Fprintln(os.Stderr, "tfstackplan run apply: applying AS", requester)
+	} else if *impersonateRequester {
+		// Diagnostic: elevation was requested but the gate resolved no requester,
+		// so the apply runs under the ambient identity. With the server's
+		// apply-context gate carried forward from plan time (issue #103), this now
+		// means the (pr, env) genuinely had no gate — not a clobbered one.
+		fmt.Fprintln(os.Stderr, "tfstackplan run apply: gate resolved no leased requester — applying under the ambient identity (no gated targets for this PR/env)")
 	}
 
 	// 7. Fail-closed cross-state move pre-phase: execute any pending
@@ -230,6 +239,19 @@ func runApply(args []string) int {
 		return 1
 	}
 	return 0
+}
+
+// gateSummary renders the classify gate-target set for the build log ("none"
+// when empty, else "class/target, …").
+func gateSummary(gates []events.GateTarget) string {
+	if len(gates) == 0 {
+		return "none"
+	}
+	parts := make([]string, len(gates))
+	for i, g := range gates {
+		parts[i] = g.Class + "/" + g.Target
+	}
+	return strings.Join(parts, ", ")
 }
 
 // printGateRejected writes a classified, actionable next-steps message for a

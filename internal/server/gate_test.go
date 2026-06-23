@@ -195,6 +195,52 @@ func TestGateCheckReturnsRequester(t *testing.T) {
 	}
 }
 
+// TestApplyFinalizeKeepsPlanEstablishedGate is the issue #103 regression: after
+// the plan establishes + approves a gate, an apply-time finalize that
+// under-reports (no gates) must NOT clobber it — gate/check must still return the
+// leased requester so the apply impersonates the approved grant instead of
+// fail-opening to the ambient SA.
+func TestApplyFinalizeKeepsPlanEstablishedGate(t *testing.T) {
+	db := newServerTestDB(t)
+	fake := approval.NewFake()
+	fake.Pool = []string{"tf-applier-0@x"}
+	a := New(db, &MockGitHub{
+		CreateCheckRunFn: func(_ context.Context, _, _, _, _ string) (int64, error) { return 1, nil },
+		UpdateCheckRunFn: func(_ context.Context, _ string, _ int64, _ CheckRunUpdate) error { return nil },
+	}, Config{})
+	a.Approval = fake
+	srv := httptest.NewServer(a.Routes())
+	defer srv.Close()
+
+	// Plan time: establish + approve the gate → ACTIVE with a leased requester.
+	post(t, srv, "/api/init", events.Init{ID: "plan-1", Repo: "o/r", SHA: "sha", PR: 42, Environment: "prod",
+		Stacks: []events.StackState{{Path: "stacks/a", Project: "proj-a", Status: events.StatusPlanned}}})
+	post(t, srv, "/api/finalize", events.Finalize{ID: "plan-1",
+		Gates: []events.GateTarget{{Class: "iam", Target: "proj-a"}}})
+	fake.Approve(approval.Request{Class: "iam", Target: "proj-a", PR: 42, Environment: "prod"})
+	a.reconcileGate(context.Background(), 42, "prod")
+
+	// Apply time: a fresh apply execution (apply/<env> context) re-classifies and
+	// UNDER-REPORTS — it submits an empty gate set.
+	post(t, srv, "/api/init", events.Init{ID: "apply-1", Repo: "o/r", SHA: "sha", PR: 42, Environment: "prod",
+		Context: "apply/prod", Stacks: []events.StackState{{Path: "stacks/a", Project: "proj-a", Status: events.StatusPending}}})
+	post(t, srv, "/api/finalize", events.Finalize{ID: "apply-1"}) // no Gates → must not clobber
+
+	// The gate survives: gate/check returns 200 with the leased requester.
+	resp := postResp(t, srv, "/api/gate/check", events.GateCheck{PR: 42, Environment: "prod"})
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Fatalf("gate/check = %d, want 200", resp.StatusCode)
+	}
+	var body map[string]string
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if body["requester"] != "tf-applier-0@x" {
+		t.Fatalf("apply-time finalize clobbered the plan gate: requester = %q, want tf-applier-0@x", body["requester"])
+	}
+}
+
 func TestRevokeOrphansRevokesAcrossEnvironments(t *testing.T) {
 	db := newServerTestDB(t)
 	fake := approval.NewFake()

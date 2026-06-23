@@ -24,6 +24,12 @@ type RunnerFinalize struct {
 	Categories     map[string][]events.Category // stack path → matched categories
 	Moving         []string                     // stack paths adopting via cross-state move
 	Gates          []events.GateTarget          // (class,target) pairs needing approval
+	// ApplyContext marks a finalize from the post-merge apply (apply/<env>) rather
+	// than the plan gate. An apply finalize is a RECOVERY signal, not an authority:
+	// it may add/refresh gate targets but must never weaken a gate the plan already
+	// established (issue #103) — so stepFinalize unions the prior targets and never
+	// prunes when this is set. A plan finalize (false) stays authoritative.
+	ApplyContext bool
 }
 
 // --- observed external world ---

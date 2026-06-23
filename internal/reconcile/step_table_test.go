@@ -116,6 +116,16 @@ func TestStepTable(t *testing.T) {
 			wantGate:  "Clean",
 			wantKinds: []string{"PublishSSE", "RenderCheckRun"},
 		},
+		{
+			// #103: an apply-context finalize that under-reports (empty gates) must
+			// NOT clobber a plan-established gate — it carries the prior target
+			// forward (no revoke) so GateCheck still returns the requester.
+			name:      "#103: apply finalize empty gates keeps established gate",
+			prior:     ChangeSet{PR: 7, Environment: "staging", Gate: Satisfied{Lease: Lease{Requester: "sa3"}, Targets: []Target{active("p1")}}},
+			signal:    RunnerFinalize{ApplyContext: true, Gates: nil},
+			wantGate:  "Pending",
+			wantKinds: []string{"PublishSSE", "RenderCheckRun"},
+		},
 
 		// ── EXTENDED ROWS ─────────────────────────────────────────────────────────
 		// Each group is labelled with the axes it adds coverage for.

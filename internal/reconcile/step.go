@@ -74,18 +74,29 @@ func stepFinalize(cs ChangeSet, f RunnerFinalize) (ChangeSet, []Action) {
 		}
 	}
 
-	if len(f.Gates) == 0 {
+	prior := priorTargets(cs.Gate)
+	lease := priorLease(cs.Gate)
+
+	// The effective gate set. A plan finalize is authoritative — its set replaces
+	// the prior gate (pruning dropped targets below). An apply finalize is a
+	// recovery signal, NOT an authority: an under-reporting apply-time re-classify
+	// must never weaken a gate the plan established (issue #103 fail-open), so
+	// union the prior targets in and skip the prune. (A genuinely wiped serve has
+	// no prior targets, so this is a no-op there — recovery still works.)
+	gates := f.Gates
+	if f.ApplyContext && len(prior) > 0 {
+		gates = unionPriorTargets(f.Gates, prior)
+	}
+
+	if len(gates) == 0 {
 		cs.Gate = Clean{}
 		return cs, []Action{RenderCheckRun{Terminal: true, Conclusion: "success"}, PublishSSE{}}
 	}
 
-	prior := priorTargets(cs.Gate)
-	lease := priorLease(cs.Gate)
-
 	// Build the new target set, carrying forward prior grant observations.
 	want := map[string]bool{}
 	var targets []Target
-	for _, g := range f.Gates {
+	for _, g := range gates {
 		key := g.Class + "|" + g.Target
 		want[key] = true
 		if pt, ok := prior[key]; ok && pt.Grant.Open() {
@@ -101,19 +112,23 @@ func stepFinalize(cs ChangeSet, f RunnerFinalize) (ChangeSet, []Action) {
 		}
 	}
 
-	// Prune (revoke) targets the new plan dropped — sorted for deterministic output.
+	// Prune (revoke) targets the new plan dropped — sorted for deterministic
+	// output. Authoritative plan finalize only; an apply finalize never prunes
+	// (its set already unions the prior targets, so nothing is "dropped").
 	var actions []Action
-	prunedKeys := make([]string, 0, len(prior))
-	for key := range prior {
-		prunedKeys = append(prunedKeys, key)
-	}
-	sort.Strings(prunedKeys)
-	for _, key := range prunedKeys {
-		pt := prior[key]
-		if !want[key] && pt.GrantName != "" {
-			actions = append(actions, RevokeGrant{
-				Class: pt.Class, Target: pt.Target, PR: cs.PR, Environment: cs.Environment,
-			})
+	if !f.ApplyContext {
+		prunedKeys := make([]string, 0, len(prior))
+		for key := range prior {
+			prunedKeys = append(prunedKeys, key)
+		}
+		sort.Strings(prunedKeys)
+		for _, key := range prunedKeys {
+			pt := prior[key]
+			if !want[key] && pt.GrantName != "" {
+				actions = append(actions, RevokeGrant{
+					Class: pt.Class, Target: pt.Target, PR: cs.PR, Environment: cs.Environment,
+				})
+			}
 		}
 	}
 
@@ -128,6 +143,30 @@ func stepFinalize(cs ChangeSet, f RunnerFinalize) (ChangeSet, []Action) {
 	}
 	actions = append(actions, RenderCheckRun{}, PublishSSE{})
 	return cs, actions
+}
+
+// unionPriorTargets returns the finalize gates plus any prior target not already
+// named, so an apply-context finalize can only ADD to (never remove from) the
+// plan-established gate. Prior-only targets append in sorted key order so the
+// result is deterministic.
+func unionPriorTargets(gates []events.GateTarget, prior map[string]Target) []events.GateTarget {
+	seen := make(map[string]bool, len(gates))
+	for _, g := range gates {
+		seen[g.Class+"|"+g.Target] = true
+	}
+	out := append([]events.GateTarget(nil), gates...)
+	priorKeys := make([]string, 0, len(prior))
+	for key := range prior {
+		priorKeys = append(priorKeys, key)
+	}
+	sort.Strings(priorKeys)
+	for _, key := range priorKeys {
+		if !seen[key] {
+			pt := prior[key]
+			out = append(out, events.GateTarget{Class: pt.Class, Target: pt.Target})
+		}
+	}
+	return out
 }
 
 // priorTargets indexes a gate's targets by "class|target".

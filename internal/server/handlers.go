@@ -234,7 +234,10 @@ func (a *App) handleFinalize(w http.ResponseWriter, r *http.Request) {
 
 	// Record the gate targets, request grants, and mark gated stacks — all handled
 	// by the reconcile core's RunnerFinalize transition.
-	if err := a.shell.Handle(r.Context(), e.PR, e.Environment, e.Repo, reconcile.RunnerFinalize{Gates: f.Gates}); err != nil {
+	if err := a.shell.Handle(r.Context(), e.PR, e.Environment, e.Repo, reconcile.RunnerFinalize{
+		Gates:        f.Gates,
+		ApplyContext: isApplyContext(e.StatusContext),
+	}); err != nil {
 		http.Error(w, "reconcile finalize", http.StatusInternalServerError)
 		return
 	}
