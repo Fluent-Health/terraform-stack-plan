@@ -7,8 +7,10 @@
 package events
 
 import (
+	"encoding/json"
 	"time"
 
+	"github.com/Fluent-Health/terraform-stack-plan/internal/codes"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/domain"
 )
 
@@ -32,6 +34,54 @@ const (
 	StatusFailed       Status = "failed"       // this stack errored
 	StatusAborted      Status = "aborted"      // run failed elsewhere; this stack never reached a terminal tick
 )
+
+// AllStatuses lists every known stack status.
+func AllStatuses() []Status {
+	return []Status{
+		StatusPending, StatusInitializing, StatusInitialized, StatusRunning,
+		StatusPlanned, StatusGated, StatusSafe, StatusNochange, StatusMoving,
+		StatusFailed, StatusAborted,
+	}
+}
+
+// Valid reports whether s is a known stack status. The empty status (zero
+// value / unset) is treated as valid so omitted fields decode cleanly.
+func (s Status) Valid() bool {
+	switch s {
+	case "", StatusPending, StatusInitializing, StatusInitialized, StatusRunning,
+		StatusPlanned, StatusGated, StatusSafe, StatusNochange, StatusMoving,
+		StatusFailed, StatusAborted:
+		return true
+	}
+	return false
+}
+
+// ParseStatus validates a raw wire string into a Status, returning a coded
+// (WIRE-001) error for an unknown non-empty value.
+func ParseStatus(raw string) (Status, error) {
+	s := Status(raw)
+	if !s.Valid() {
+		return "", codes.Errorf(codes.UnknownStatus, "unknown stack status %q", raw)
+	}
+	return s, nil
+}
+
+// UnmarshalJSON decodes a JSON string and validates it, so an unknown status in
+// an untrusted payload fails fast at the wire boundary rather than entering the
+// system silently. (The store does not decode status via JSON — it scans the
+// column directly — so persisted values are never re-validated here.)
+func (s *Status) UnmarshalJSON(b []byte) error {
+	var raw string
+	if err := json.Unmarshal(b, &raw); err != nil {
+		return err
+	}
+	v, err := ParseStatus(raw)
+	if err != nil {
+		return err
+	}
+	*s = v
+	return nil
+}
 
 // Phase is the execution-wide lifecycle phase, narrated before and across the
 // per-stack work.
