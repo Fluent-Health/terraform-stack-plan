@@ -433,6 +433,34 @@ func TestCleanLogBuffersSweepsOldDirs(t *testing.T) {
 	}
 }
 
+func TestCleanLogBuffersUsesInjectedClock(t *testing.T) {
+	dir := t.TempDir()
+	a := New(newServerTestDB(t), &MockGitHub{}, Config{LogsDir: dir})
+	// Create one buffer dir and set its modtime to a known instant.
+	old := filepath.Join(dir, "exec-old")
+	if err := os.MkdirAll(old, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	modTime := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	if err := os.Chtimes(old, modTime, modTime); err != nil {
+		t.Fatal(err)
+	}
+
+	// Clock just after modTime, small maxAge → NOT yet old → kept.
+	a.now = func() time.Time { return modTime.Add(time.Minute) }
+	a.CleanLogBuffers(time.Hour)
+	if _, err := os.Stat(old); err != nil {
+		t.Fatalf("dir removed too early: %v", err)
+	}
+
+	// Clock well past modTime+maxAge → removed.
+	a.now = func() time.Time { return modTime.Add(48 * time.Hour) }
+	a.CleanLogBuffers(time.Hour)
+	if _, err := os.Stat(old); !os.IsNotExist(err) {
+		t.Fatalf("dir should have been removed, stat err = %v", err)
+	}
+}
+
 func TestHandlePlanServe(t *testing.T) {
 	a := New(newServerTestDB(t), &MockGitHub{}, Config{})
 	id := "exec-plan"

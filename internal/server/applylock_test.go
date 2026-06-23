@@ -212,6 +212,29 @@ func TestSweepClaimsOnceReleasesAndReevaluates(t *testing.T) {
 	}
 }
 
+func TestSweepExpiredClaimsUsesInjectedClock(t *testing.T) {
+	a, _ := newApplyLockTestApp(t)
+	base := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	a.now = func() time.Time { return base }
+
+	// Seed a claim for env="nonprod" pr=1 stack="a" expiring at base+1h.
+	_ = store.ClaimStacks(a.db, "nonprod", 1, "e1", []string{"a"}, base.Add(time.Hour))
+
+	// Before expiry: sweep keeps the claim.
+	a.now = func() time.Time { return base.Add(time.Second) }
+	a.sweepClaimsOnce(ctx())
+	if c, _ := store.ClaimedStacks(a.db, "nonprod", base.Add(time.Second)); c["a"] != 1 {
+		t.Fatalf("claim should still exist before expiry: %v", c)
+	}
+
+	// After expiry: advancing the injected clock past the lease releases it.
+	a.now = func() time.Time { return base.Add(24 * time.Hour) }
+	a.sweepClaimsOnce(ctx())
+	if c, _ := store.ClaimedStacks(a.db, "nonprod", base.Add(24*time.Hour)); len(c) != 0 {
+		t.Fatalf("claim should be gone after expiry: %v", c)
+	}
+}
+
 // TestPostPlanApplyLockOnFinalize covers the fix for the auto-merge front-end:
 // the apply-lock/<env> check must be posted when the plan FINALIZES (stacks now
 // known), since the pull_request webhook fires before the plan registers them.

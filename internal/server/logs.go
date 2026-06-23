@@ -139,7 +139,7 @@ func (a *App) CleanLogBuffers(maxAge time.Duration) {
 	if err != nil {
 		return
 	}
-	cutoff := time.Now().Add(-maxAge)
+	cutoff := a.now().Add(-maxAge)
 	for _, e := range entries {
 		info, err := e.Info()
 		if err != nil || !info.ModTime().Before(cutoff) {
