@@ -76,7 +76,7 @@ func TestCategoriesFromSidecar(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got["stacks/a"]) != 2 || got["stacks/a"][0] != (events.Category{Name: "iam", Icon: "🔐"}) {
+	if len(got["stacks/a"]) != 2 || got["stacks/a"][0].Name != "iam" || got["stacks/a"][0].Icon != "🔐" {
 		t.Errorf("stacks/a = %+v", got["stacks/a"])
 	}
 	if len(got["stacks/b"]) != 1 || got["stacks/b"][0].Icon != "" {
