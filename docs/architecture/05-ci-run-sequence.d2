@@ -1,0 +1,50 @@
+vars: {
+  d2-config: {
+    theme-overrides: {
+      B1: "#495AE4"; B2: "#DADCFF"; B3: "#BEF0E4"; B4: "#D6E8FF"
+      B5: "#289673"; B6: "#144037"
+      AA2: "#FF6333"; AA4: "#FF6333"; AA5: "#FF6333"
+      N1: "#14181A"; N2: "#323241"; N3: "#858C8F"; N4: "#E7E8E9"
+      N5: "#F5F0E8"; N6: "#FFF2DF"; N7: "#FFFFFF"
+    }
+  }
+}
+
+cap: "CI run — plan-on-PR then apply-on-merge, as commands & a typed gate verdict" {
+  near: top-center
+  shape: text
+  style: { font-size: 22; bold: true; font-color: "#14181A" }
+}
+
+seq: "" {
+  shape: sequence_diagram
+
+  ci: "CI runner"
+  run: "tfstackplan run"
+  serve: "serve\n(control plane)"
+  tm: "terramate /\nterraform"
+  pam: "GCP PAM"
+  gh: "GitHub"
+
+  plan: "PLAN (on PR)" {
+    ci -> run: "run plan"
+    run -> tm: "terramate plan (changed stacks)"
+    run -> serve: "Init / Update  (commands → events)"
+    run -> run: "classify + render in-process"
+    run -> serve: "Finalize  (events + Category{attrs} + gate targets)"
+    serve -> pam: "RequestGrant per (class, target)"
+    serve -> gh: "check run: action_required (gate)"
+  }
+
+  apply: "APPLY (on merge)" {
+    ci -> run: "run apply"
+    run -> serve: "gate check"
+    serve -> pam: "fresh ListGrants (confirm)"
+    serve -> run: "GateVerdict\n(Satisfied | Blocked{code} | Unconfirmable)"
+    run -> serve: "claim stacks (apply-lock)"
+    run -> tm: "terramate apply (DAG order)"
+    run -> serve: "ApplySucceeded"
+    serve -> serve: "release claim + revoke grant\n(one transition)"
+    serve -> gh: "check run: success"
+  }
+}
