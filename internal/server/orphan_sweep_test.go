@@ -21,9 +21,6 @@ func TestSweepSkipsPRWithoutExecutionRepo(t *testing.T) {
 	}
 	a := New(db, gh, Config{})
 	a.Approval = approval.NewFake()
-	if err := store.MarkClassified(db, 7, "staging"); err != nil {
-		t.Fatal(err)
-	}
 	if err := store.UpsertTarget(db, 7, "staging", "iam", "p1", "g1", "ACTIVE"); err != nil {
 		t.Fatal(err)
 	}

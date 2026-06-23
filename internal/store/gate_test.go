@@ -114,25 +114,14 @@ func TestUpsertTargetPreservesRequester(t *testing.T) {
 	}
 }
 
-func TestClassifiedMarker(t *testing.T) {
+func TestMigration008DropsGateRuns(t *testing.T) {
 	db := newTestDB(t)
-	ok, err := IsClassified(db, 42, "staging")
-	if err != nil {
-		t.Fatal(err)
+	if _, err := db.Exec("SELECT count(*) FROM gate_runs"); err == nil {
+		t.Fatal("gate_runs should not exist after migration 008")
 	}
-	if ok {
-		t.Fatal("not classified yet, want false")
-	}
-	if err := MarkClassified(db, 42, "staging"); err != nil {
-		t.Fatal(err)
-	}
-	ok, _ = IsClassified(db, 42, "staging")
-	if !ok {
-		t.Fatal("want classified true after MarkClassified")
-	}
-	// Idempotent.
-	if err := MarkClassified(db, 42, "staging"); err != nil {
-		t.Fatalf("re-mark: %v", err)
+	// gate_targets still exists (now a projection).
+	if _, err := db.Exec("SELECT count(*) FROM gate_targets"); err != nil {
+		t.Fatalf("gate_targets should still exist: %v", err)
 	}
 }
 
@@ -144,9 +133,6 @@ func TestLoadChangeSetReadsGateAndExecution(t *testing.T) {
 	if err := SetTargetRequester(db, 7, "staging", "sa3"); err != nil {
 		t.Fatal(err)
 	}
-	if err := MarkClassified(db, 7, "staging"); err != nil {
-		t.Fatal(err)
-	}
 	cs, err := LoadChangeSet(db, 7, "staging")
 	if err != nil {
 		t.Fatal(err)
@@ -156,9 +142,6 @@ func TestLoadChangeSetReadsGateAndExecution(t *testing.T) {
 	}
 	if len(cs.Targets) != 1 || cs.Targets[0].State != "ACTIVE" || cs.Targets[0].Requester != "sa3" {
 		t.Fatalf("bad targets: %+v", cs.Targets)
-	}
-	if !cs.Classified {
-		t.Fatal("want classified")
 	}
 }
 

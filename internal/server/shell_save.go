@@ -44,26 +44,14 @@ func (sh *Shell) RebuildProjection(pr int, env string) error {
 }
 
 // project writes the gate_targets index + stacks.status overlay derived from the
-// folded gate state. (Relocated verbatim from the old save(): the gate_runs
-// upsert for non-NotClassified gates, the desired-target upsert with requester,
-// the prune of dropped targets via store.TargetsFor/DeleteTarget, and the
-// overlayStatus stacks.status UPDATE. The gate_runs MarkClassified upsert is
-// retained until Task 4 removes the gate-check's IsClassified dependency.)
+// folded gate state. gate_targets is a derived projection of the event log;
+// gate_runs has been retired (migration 008).
 func (sh *Shell) project(cs reconcile.ChangeSet) error {
 	tx, err := sh.app.db.Begin()
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-
-	if _, isNC := cs.Gate.(reconcile.NotClassified); !isNC {
-		if _, err := tx.Exec(
-			`INSERT INTO gate_runs (pr, environment) VALUES (?, ?)
-			 ON CONFLICT(pr, environment) DO UPDATE SET classified_at = CURRENT_TIMESTAMP`,
-			cs.PR, cs.Environment); err != nil {
-			return err
-		}
-	}
 
 	desired := reconcileGateTargets(cs.Gate)
 	keep := map[string]bool{}
