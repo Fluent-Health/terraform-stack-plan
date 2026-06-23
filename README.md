@@ -366,7 +366,7 @@ bearer-authed.
   no open grant, falling back to a `PR mod pool` slot only when exhausted).
 - **GitHub checks.** One check run per environment (`plan/<env>` — the same name
   as the commit-status context, so branch protection requires one consistent
-  context). `use_checks = false` falls back to commit statuses (link mode).
+  context). Rich check runs are always used.
 - **Pub/Sub push ingestion** (OIDC-verified) as a latency win over the poll loop.
 
 See [`examples/serve.tfstackplan.hcl`](examples/serve.tfstackplan.hcl) for the
@@ -436,7 +436,6 @@ The `serve {}` block (real field names):
 serve {
   db_path            = "/data/tfstackplan.db"
   public_base_url    = "https://tfstackplan.example.com"
-  use_checks         = true
   webhook_secret_env = "TFSTACKPLAN_WEBHOOK_SECRET"  # env var NAME, not the secret
   logs_dir           = "/data/logs"
 

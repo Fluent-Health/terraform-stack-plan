@@ -7,6 +7,16 @@ import (
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 )
 
+// boolOr resolves an optional HCL bool: a nil pointer (attribute omitted) takes
+// the default; a set pointer is honored. Lets an absent flag default to the
+// new behavior while still honoring an explicit true/false during migration.
+func boolOr(p *bool, def bool) bool {
+	if p == nil {
+		return def
+	}
+	return *p
+}
+
 // ServerConfig is the `server {}` block: where the control-plane server lives and
 // which environment this repo's CI reports to. Used by `run` (CI) and `serve`.
 type ServerConfig struct {
@@ -81,9 +91,9 @@ type ApprovalConfig struct {
 type serveBody struct {
 	DBPath                 string         `hcl:"db_path,optional"`
 	PublicBaseURL          string         `hcl:"public_base_url,optional"`
-	UseChecks              bool           `hcl:"use_checks,optional"`
-	ReconcilerCore         bool           `hcl:"reconciler_core,optional"`
-	ApplyLock              bool           `hcl:"apply_lock,optional"`
+	UseChecks              *bool          `hcl:"use_checks,optional"`
+	ReconcilerCore         *bool          `hcl:"reconciler_core,optional"`
+	ApplyLock              *bool          `hcl:"apply_lock,optional"`
 	WebhookSecretEnv       string         `hcl:"webhook_secret_env,optional"`
 	GitHubWebhookSecretEnv string         `hcl:"github_webhook_secret_env,optional"`
 	LogsDir                string         `hcl:"logs_dir,optional"`
@@ -125,9 +135,9 @@ func decodeServe(blk *hclsyntax.Block) (*ServeConfig, error) {
 	s := &ServeConfig{
 		DBPath:                 b.DBPath,
 		PublicBaseURL:          b.PublicBaseURL,
-		UseChecks:              b.UseChecks,
-		ReconcilerCore:         b.ReconcilerCore,
-		ApplyLock:              b.ApplyLock,
+		UseChecks:              boolOr(b.UseChecks, true),
+		ReconcilerCore:         boolOr(b.ReconcilerCore, true),
+		ApplyLock:              boolOr(b.ApplyLock, true),
 		WebhookSecretEnv:       b.WebhookSecretEnv,
 		GitHubWebhookSecretEnv: b.GitHubWebhookSecretEnv,
 		LogsDir:                b.LogsDir,

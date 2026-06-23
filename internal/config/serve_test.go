@@ -88,49 +88,55 @@ serve {
 	}
 }
 
-func TestLoadServeReconcilerCore(t *testing.T) {
+func TestServeFlagDefaults(t *testing.T) {
+	// Absent → defaults to the new behavior (true) for all three flags.
 	cfg, err := Load(writeCfg(t, `
 serve {
-  db_path         = "/data/server.db"
-  reconciler_core = true
+  db_path = "x"
 }
 `))
 	if err != nil {
 		t.Fatal(err)
 	}
 	s := cfg.Serve
-	if s == nil {
-		t.Fatal("serve block not parsed")
+	if !s.ReconcilerCore || !s.ApplyLock || !s.UseChecks {
+		t.Errorf("absent flags should default true, got reconciler_core=%v apply_lock=%v use_checks=%v",
+			s.ReconcilerCore, s.ApplyLock, s.UseChecks)
 	}
-	if !s.ReconcilerCore {
-		t.Errorf("serve.reconciler_core = false, want true")
-	}
-}
 
-func TestServeApplyLockFlag(t *testing.T) {
-	// off by default
-	cfg, err := Load(writeCfg(t, `
-serve {
-  db_path    = "x"
-}
-`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.Serve.ApplyLock {
-		t.Error("apply_lock should default false")
-	}
+	// Explicit false is honored (the escape hatch during migration).
 	cfg, err = Load(writeCfg(t, `
 serve {
-  db_path    = "x"
-  apply_lock = true
+  db_path         = "x"
+  reconciler_core = false
+  apply_lock      = false
+  use_checks      = false
 }
 `))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !cfg.Serve.ApplyLock {
-		t.Error("apply_lock = true not parsed")
+	s = cfg.Serve
+	if s.ReconcilerCore || s.ApplyLock || s.UseChecks {
+		t.Errorf("explicit false should be honored, got reconciler_core=%v apply_lock=%v use_checks=%v",
+			s.ReconcilerCore, s.ApplyLock, s.UseChecks)
+	}
+
+	// Explicit true is honored.
+	cfg, err = Load(writeCfg(t, `
+serve {
+  db_path         = "x"
+  reconciler_core = true
+  apply_lock      = true
+  use_checks      = true
+}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s = cfg.Serve
+	if !s.ReconcilerCore || !s.ApplyLock || !s.UseChecks {
+		t.Errorf("explicit true should be honored, got %+v", s)
 	}
 }
 

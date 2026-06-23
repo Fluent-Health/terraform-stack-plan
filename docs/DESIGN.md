@@ -1390,10 +1390,15 @@ structurally impossible. The per-stack `gated`/`safe` overlay written to
 `stacks.status` by `save()` is a **derived** projection of `GateState` — it is not
 separately tracked truth.
 
-The engine ships behind the off-by-default `reconciler_core` serve-config flag. It
-engages only at quiescence (`tfstackplan serve --check-quiescent`, with a startup
-guard that falls back to the legacy engine if the store has in-flight rows). Legacy
-gate handlers remain as the flag-OFF path pending a post-cutover cleanup.
+The engine ships behind the `reconciler_core` serve-config flag. It engages only at
+quiescence (`tfstackplan serve --check-quiescent`, with a startup guard that falls
+back to the legacy engine if the store has in-flight rows). Legacy gate handlers
+remain as the flag-OFF path pending a post-cutover cleanup.
+
+> **Rollout note (Stage 1).** `reconciler_core` (like `apply_lock` and `use_checks`)
+> is fully rolled out and now **defaults on** when omitted from the `serve {}` block;
+> an explicit value is still honored. The flag, the legacy flag-OFF path, and the
+> quiescence tooling are slated for staged removal once infra stops sending the flag.
 
 The permutation test harness (`internal/reconcile/step_table_test.go`) is the
 correctness oracle, covering all state permutations as a table-driven suite. It
@@ -1525,8 +1530,9 @@ file is always removable.
 ### Apply serialization — merge-lock (off by default)
 
 `tfstackplan serve` can prevent overlapping tier-applies from colliding on
-per-stack Terraform state locks. The subsystem is off by default and engaged
-per tier by the `apply_lock` serve-config flag.
+per-stack Terraform state locks. It is engaged per tier by the `apply_lock`
+serve-config flag, which (as of the Stage-1 rollout) now **defaults on** when
+omitted; an explicit value is still honored, and the flag is slated for removal.
 
 **Mechanism.** A per-environment *claimed-stack set* (`apply_claims` table)
 records which PR currently holds each stack. When serve evaluates whether a
