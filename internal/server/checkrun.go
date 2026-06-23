@@ -177,9 +177,6 @@ func (a *App) renderAndPatch(ctx context.Context, id, base string, terminal bool
 		log.Printf("rev bump %s: %v", id, err)
 		return
 	}
-	if !a.cfg.UseChecks {
-		return
-	}
 	e, err := store.GetExecution(a.db, id)
 	if err != nil {
 		log.Printf("load execution %s: %v", id, err)
@@ -213,19 +210,6 @@ func (a *App) renderAndPatch(ctx context.Context, id, base string, terminal bool
 	}
 }
 
-// reconcile is the link-mode commit-status writer: it projects the execution's
-// DB state onto the per-environment plan-gate status and posts it. Best-effort.
-func (a *App) reconcile(ctx context.Context, id, base string) {
-	snap, e, ok := loadSnapshot(a.db, id)
-	if !ok || e.Repo == "" {
-		return
-	}
-	st := gateStatus(snap)
-	if err := a.gh.PostStatus(ctx, e.Repo, e.SHA, statusContext(e.Environment), st.state, st.desc, a.liveURL(base, id)); err != nil {
-		log.Printf("reconcile status %s: %v", id, err)
-	}
-}
-
 // isApplyContext reports whether a status context is a post-merge apply (e.g.
 // "apply/nonprod") rather than the plan gate.
 func isApplyContext(ctx string) bool {
@@ -236,11 +220,10 @@ func isApplyContext(ctx string) bool {
 // State derives from the stacks: any failed ⇒ failure; all terminal (or no
 // stacks at all — a no-op apply) ⇒ success; otherwise pending. Best-effort.
 //
-// Surface selection: when UseChecks is on and the execution has a check run,
-// only the check run is updated — posting a redundant commit status with the
-// same context name would make GitHub display two entries for the same apply.
-// When there is no check run (UseChecks off or check run not yet created), fall
-// back to a plain commit status.
+// Surface selection: when the execution has a check run, only the check run is
+// updated — posting a redundant commit status with the same context name would
+// make GitHub display two entries for the same apply. Until the check run exists
+// (a brief startup window), fall back to a plain commit status.
 func (a *App) driveApply(ctx context.Context, e store.Execution, base string) {
 	g, err := store.LoadGraph(a.db, e.ID)
 	if err != nil {
@@ -287,7 +270,7 @@ func (a *App) driveApply(ctx context.Context, e store.Execution, base string) {
 			log.Printf("apply set status %s: %v", e.ID, err)
 		}
 	}
-	if a.cfg.UseChecks && e.CheckRunID.Valid && e.CheckRunID.Int64 != 0 {
+	if e.CheckRunID.Valid && e.CheckRunID.Int64 != 0 {
 		var conclusion string
 		switch state {
 		case "success":
@@ -324,15 +307,14 @@ func (a *App) driveApply(ctx context.Context, e store.Execution, base string) {
 }
 
 // drive updates the GitHub surface for an execution after a state change. A
-// post-merge apply (apply/<env> context) gets a commit status; the plan gate
-// gets a check run (check mode) or a plan/<env> commit status (link mode).
+// post-merge apply (apply/<env> context) updates the apply check run (falling
+// back to a commit status until the check run exists); the plan gate drives its
+// check run.
 func (a *App) drive(ctx context.Context, id, base string, terminal bool) {
 	if e, err := store.GetExecution(a.db, id); err == nil && isApplyContext(e.StatusContext) {
 		a.driveApply(ctx, e, base)
-	} else if a.cfg.UseChecks {
-		a.renderAndPatch(ctx, id, base, terminal)
 	} else {
-		a.reconcile(ctx, id, base)
+		a.renderAndPatch(ctx, id, base, terminal)
 	}
 	if a.hub != nil {
 		a.hub.publish("exec:"+id, "changed")

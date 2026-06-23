@@ -2,7 +2,6 @@ package server
 
 import (
 	"database/sql"
-	"fmt"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
@@ -18,12 +17,6 @@ type snapshot struct {
 	finalized     bool // finalize has run (report stored)
 	totalGates    int  // distinct (class,target) gates recorded
 	activeGates   int  // gates whose grant is ACTIVE
-}
-
-// commitStatus is the GitHub commit status to post in link mode.
-type commitStatus struct {
-	state string // "pending" | "success" | "failure"
-	desc  string
 }
 
 // loadSnapshot derives the verdict input for an execution purely from the DB.
@@ -81,39 +74,5 @@ func conclusion(s snapshot) string {
 		return ""
 	default:
 		return "success"
-	}
-}
-
-// phaseBanner returns the pre-planning narration for the warming/initializing
-// phases (empty for the ticking phases, which use the k/N projection instead).
-func phaseBanner(phase events.Phase, totalStacks int) string {
-	switch phase {
-	case events.PhaseWarming:
-		return "warming plugin cache…"
-	case events.PhaseInitializing:
-		return fmt.Sprintf("initializing %d stacks…", totalStacks)
-	}
-	return ""
-}
-
-// gateStatus projects DB state onto the per-environment plan-gate commit status.
-// The phases are monotonic (DB rows only move forward), so re-deriving can never
-// regress — which is what makes the single-writer reconcile race-free.
-func gateStatus(s snapshot) commitStatus {
-	banner := phaseBanner(s.phase, s.totalStacks)
-	switch {
-	case s.anyFailed:
-		return commitStatus{"failure", "plan failed"}
-	case s.totalGates > 0:
-		if s.activeGates >= s.totalGates {
-			return commitStatus{"success", "all approvals granted"}
-		}
-		return commitStatus{"pending", fmt.Sprintf("awaiting approval — %d/%d gates", s.activeGates, s.totalGates)}
-	case banner != "":
-		return commitStatus{"pending", banner}
-	case !s.finalized:
-		return commitStatus{"pending", fmt.Sprintf("planning %d/%d stacks", s.plannedStacks, s.totalStacks)}
-	default:
-		return commitStatus{"success", "no gated changes"}
 	}
 }

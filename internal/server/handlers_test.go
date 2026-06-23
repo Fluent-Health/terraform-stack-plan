@@ -93,32 +93,6 @@ func TestUpdateTicksStackAndPatches(t *testing.T) {
 	}
 }
 
-func TestLinkModePostsStatus(t *testing.T) {
-	db := newServerTestDB(t)
-	var mu sync.Mutex
-	var gotState, gotContext string
-	gh := &MockGitHub{PostStatusFn: func(ctx context.Context, repo, sha, context_, state, desc, url string) error {
-		mu.Lock()
-		gotState, gotContext = state, context_
-		mu.Unlock()
-		return nil
-	}}
-	a := New(db, gh, Config{UseChecks: false})
-	srv := httptest.NewServer(a.Routes())
-	defer srv.Close()
-
-	post(t, srv, "/api/init", events.Init{ID: "e1", Repo: "o/r", SHA: "sha", PR: 7, Environment: "staging",
-		Stacks: []events.StackState{{Path: "a"}}})
-	if gh.CreateCheckRunCalls != 0 {
-		t.Fatalf("link mode must not create a check run, got %d", gh.CreateCheckRunCalls)
-	}
-	mu.Lock()
-	defer mu.Unlock()
-	if gotContext != "plan/staging" || gotState != "pending" {
-		t.Fatalf("status = %q/%q, want plan/staging/pending", gotContext, gotState)
-	}
-}
-
 func TestFinalizeCleanPlanConcludesSuccess(t *testing.T) {
 	db := newServerTestDB(t)
 	var mu sync.Mutex
