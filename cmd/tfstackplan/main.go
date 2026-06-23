@@ -213,9 +213,9 @@ func run(o opts) (report, reportNoTable string, stackReports map[string]string, 
 				cats = append(cats, classify.Category{Name: moveCategory, Icon: moveIcon})
 				anyMoved = true
 			}
-			st.Categories = toClasses(cats)
+			st.Categories = cats
 			allCats = append(allCats, cats)
-			doc.Stacks[ref.Name] = stackEntry{Categories: toEntries(cats), Counts: countsFromModel(raw.Counts)}
+			doc.Stacks[ref.Name] = stackEntry{Categories: toEntries(cats), Counts: raw.Counts}
 		}
 
 		for _, rc := range raw.Changes {
@@ -338,24 +338,6 @@ func toEntries(cats []classify.Category) []categoryEntry {
 	out := make([]categoryEntry, 0, len(cats))
 	for _, c := range cats {
 		out = append(out, categoryEntry{Category: c.Name, Icon: nilable(c.Icon), Attributes: c.Attributes})
-	}
-	return out
-}
-
-// countsFromModel maps the parsed per-stack model.Counts to the protocol-level
-// events.Counts written into the classification sidecar.
-func countsFromModel(c model.Counts) events.Counts {
-	return events.Counts{
-		Add: c.Add, Change: c.Change, Destroy: c.Destroy, Replace: c.Replace,
-		Move: c.Move, Import: c.Import, Forget: c.Forget,
-	}
-}
-
-// toClasses maps classify categories to render-model classes (name+icon only).
-func toClasses(cats []classify.Category) []model.Class {
-	out := make([]model.Class, len(cats))
-	for i, c := range cats {
-		out[i] = model.Class{Name: c.Name, Icon: c.Icon}
 	}
 	return out
 }
