@@ -82,6 +82,41 @@ func TestFinalizeFailedSweepsInitStatuses(t *testing.T) {
 	}
 }
 
+func TestApplyFinalizeNeverWeakensEstablishedGate(t *testing.T) {
+	// Issue #103: an apply-time re-classify that under-reports (empty Gates) must
+	// NOT clobber a plan-established gate. An apply-context finalize is a recovery
+	// signal, not an authority — it carries the prior gate forward so GateCheck
+	// still returns the leased requester (the apply impersonates the approved
+	// grant) instead of fail-opening to the ambient SA.
+	prior := ChangeSet{PR: 7, Environment: "prod", Gate: Satisfied{
+		Lease:   Lease{Requester: "tf-applier-0@x"},
+		Targets: []Target{{Class: "iam", Target: "proj-a", GrantName: "g1", Grant: approval.StateActive}},
+	}}
+	got, actions := Step(World{Prior: prior}, RunnerFinalize{ApplyContext: true, Gates: nil})
+	ts := gateTargets(got.Gate)
+	if len(ts) != 1 || ts[0].Target != "proj-a" || ts[0].GrantName != "g1" {
+		t.Fatalf("apply finalize weakened the gate: %T %+v", got.Gate, got.Gate)
+	}
+	if priorLease(got.Gate).Requester != "tf-applier-0@x" {
+		t.Fatalf("apply finalize lost the leased requester: %+v", got.Gate)
+	}
+	if revs := actionsOf[RevokeGrant](actions); len(revs) != 0 {
+		t.Fatalf("apply finalize must not revoke an established grant, got %+v", revs)
+	}
+}
+
+func TestPlanFinalizeEmptyGatesStillClears(t *testing.T) {
+	// A plan-context finalize is authoritative: a re-plan that drops all gates
+	// clears the gate (unchanged behavior — only apply-context is additive).
+	prior := ChangeSet{PR: 7, Environment: "prod", Gate: Satisfied{
+		Targets: []Target{{Class: "iam", Target: "proj-a", GrantName: "g1", Grant: approval.StateActive}},
+	}}
+	got, _ := Step(World{Prior: prior}, RunnerFinalize{Gates: nil}) // ApplyContext false
+	if _, ok := got.Gate.(Clean); !ok {
+		t.Fatalf("plan finalize with no gates should clear the gate, got %T", got.Gate)
+	}
+}
+
 func TestFinalizeReArmsTerminalButKeepsLiveGrant(t *testing.T) {
 	// Mixed prior: p1 ACTIVE (live), p2 REVOKED (terminal). A re-plan listing both
 	// must re-request ONLY p2 — the live ACTIVE grant on p1 is carried forward and
