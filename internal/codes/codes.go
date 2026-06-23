@@ -6,6 +6,8 @@
 // existing code, add a new one.
 package codes
 
+import "fmt"
+
 // Code is one distinct problem condition.
 type Code string
 
@@ -22,6 +24,11 @@ const (
 	GateUnreachable   Code = "GATE-004" // the approval server itself is unreachable (transport failure)
 )
 
+// Wire / protocol decode.
+const (
+	UnknownStatus Code = "WIRE-001" // a decoded payload carried a status outside the known set
+)
+
 // Server-internal.
 const (
 	Internal Code = "SRV-001" // unexpected server-side error
@@ -32,6 +39,25 @@ const (
 func All() []Code {
 	return []Code{
 		GateNotClassified, GateNotSatisfied, GateUnconfirmable, GateUnreachable,
+		UnknownStatus,
 		Internal,
 	}
+}
+
+// Error is a coded operational error: it pairs a stable Code with a message so
+// callers can branch on errors.As(err, *codes.Error) / Code() instead of
+// matching message text.
+type Error struct {
+	C   Code
+	Msg string
+}
+
+func (e *Error) Error() string { return string(e.C) + ": " + e.Msg }
+
+// Code implements Coded.
+func (e *Error) Code() Code { return e.C }
+
+// Errorf builds a coded *Error with a formatted message.
+func Errorf(c Code, format string, a ...any) error {
+	return &Error{C: c, Msg: fmt.Sprintf(format, a...)}
 }
