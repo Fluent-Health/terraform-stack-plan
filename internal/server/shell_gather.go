@@ -16,6 +16,17 @@ func (sh *Shell) gather(pr int, env string) (reconcile.World, error) {
 	return reconcile.World{Prior: prior, Version: version}, nil
 }
 
+// loadGate returns the current folded gate state for (pr, env) by replaying the
+// event stream — the lossless source of truth, used by read-only callers like the
+// apply gate-check. No lock needed (replay is a read).
+func (sh *Shell) loadGate(pr int, env string) (reconcile.GateState, error) {
+	state, _, err := sh.loadStream(pr, env)
+	if err != nil {
+		return nil, err
+	}
+	return state.Gate, nil
+}
+
 // loadStream reconstructs the ChangeSet for (pr, env): load the latest snapshot,
 // then replay any events past the snapshot version through Evolve. Returns the
 // folded state and the stream's current version. An empty stream yields a
