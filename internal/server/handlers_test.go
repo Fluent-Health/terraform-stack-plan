@@ -355,6 +355,23 @@ func TestClaimsListWireShape(t *testing.T) {
 	}
 }
 
+func TestUpdateRejectsUnknownStatus(t *testing.T) {
+	db := newServerTestDB(t)
+	a := New(db, &MockGitHub{}, Config{})
+	srv := httptest.NewServer(a.Routes())
+	defer srv.Close()
+
+	body := []byte(`{"id":"e1","stack":"a","status":"definitely-not-a-status"}`)
+	resp, err := http.Post(srv.URL+"/api/update", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", resp.StatusCode)
+	}
+}
+
 func TestFinalizeFailedMarksInitStatusesAborted(t *testing.T) {
 	// Stacks stuck in "initializing" or "initialized" at a failed finalize must
 	// be swept to "aborted" by the finalize handler, just like pending/running.
