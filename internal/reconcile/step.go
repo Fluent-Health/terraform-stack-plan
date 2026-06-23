@@ -22,7 +22,7 @@ func Step(w World, s Signal) (ChangeSet, []Action) {
 	case RunnerUpdate:
 		return runDecider(cs, sig)
 	case RunnerFinalize:
-		return stepFinalize(cs, sig)
+		return runDecider(cs, sig)
 	case GrantsObserved:
 		return stepObserve(cs, sig.Grants, false)
 	case GateTick:
