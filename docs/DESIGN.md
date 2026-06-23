@@ -840,17 +840,22 @@ the full reasoning and alternatives weighed:
   derives these from the stack's plan-phase status when `PhaseApplying` has not
   yet started); the badge shows **PREPARING** until `PhaseApplying`.
 - **`internal/store`** — the server's SQLite persistence (pure-Go
-  `modernc.org/sqlite`, `goose` migrations embedded via `go:embed`): executions,
-  their stack/edge subgraph, and per-`(class, target)` gate state, plus a
-  `classified` marker that tells a clean-but-planned PR apart from a never-planned
-  one (fail-closed apply gating). It also now carries the **event-store substrate**
-  — a domain-agnostic `EventStore` over an append-only `events` table (optimistic
-  concurrency on `(stream_id, version)`) plus a latest-only `snapshots` cache. This
-  is the forthcoming source of truth for the reconcile core: `Step`'s `Evolve` fold
-  will replay a stream instead of the lossy flat-row `mapRawGate` reload. **Not yet
-  wired** — Phase 4b cuts the exec stream (`exec:<pr>:<env>`) over to it (greenfield
-  reset, deleting `mapRawGate`); Phase 4c promotes the apply-lock claim ledger to an
-  `env:<env>` stream. See the event-sourced target architecture above.
+  `modernc.org/sqlite`, `goose` migrations embedded via `go:embed`): executions and
+  their stack/edge subgraph, plus the **event-sourced gate state**. The reconcile
+  gate is now event-sourced: the shell appends the events `Decide` produces to the
+  `exec:<pr>:<env>` stream (`EventStore`: append-only `events` with optimistic
+  concurrency on `(stream_id, version)` + a latest-only `snapshots` cache) and
+  reconstructs `World.Prior` by replaying `Evolve` over the snapshot+tail —
+  **losslessly** (`Blocked{reason}`, the slot blocker, the lease, the was-active bit
+  all survive). The lossy flat-row `mapRawGate` reload and the `gate_runs` classified
+  marker are **gone** (classified-ness is the folded gate variant). `gate_targets`
+  is retained as a **rebuildable derived projection** (an index for the cross-PR
+  sweep queries `PendingGates`/`OpenGrantPRs`/`PRTargets`), written by the projector
+  from the folded state and regenerable via `RebuildProjection`; it is never read as
+  truth for the gate verdict (the apply gate-check replays the stream). Cutover was
+  greenfield (migration `008` drops `gate_runs`, clears `gate_targets`; in-flight PRs
+  re-plan). Phase 4c will promote the apply-lock claim ledger to an `env:<env>`
+  stream. See the event-sourced target architecture above.
 
 **Watch out:**
 
@@ -1460,9 +1465,12 @@ PR series (Phases 1–3) for the full migration reasoning.
 
 The apply-time gate check is **fail-closed on an unconfirmable reconcile**: if the
 fresh PAM re-list cannot confirm current grant state (backend unreachable), the
-check returns `503` and apply blocks, rather than falling back to the cached
-`gate_targets.state` (which could be a stale `ACTIVE`). A `200` is only returned
-after a successful fresh reconcile.
+check returns `503` and apply blocks. After a successful reconcile it reads the
+verdict from the **replayed gate state** (the lossless `Decide`/`Evolve` fold of
+the `exec:<pr>:<env>` stream), not the projection: `NotClassified`→`409`
+not-classified, `Pending`/`Blocked`→`409` not-satisfied, `Clean`/`Satisfied`→`200`
+(the `Satisfied` lease carries the requester). A `200` is only returned after a
+successful fresh reconcile of a classified, satisfied (or clean) gate.
 
 ### `tfstackplan state` (Phase 6)
 
