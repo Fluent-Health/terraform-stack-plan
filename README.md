@@ -180,7 +180,7 @@ alphabetically. An empty (or absent) set of plans renders a header-only
 ```
 tfstackplan render --plans-dir DIR
             [--title TEXT] [--marker TEXT]
-            [--config FILE]                 # HCL policy; default: auto-discover .tfstackplan.hcl
+            [--config FILE]                 # HCL policy; default: auto-discover .tfstackplan.hcl (walks up to the repo root)
             [--max-bytes N]                 # default 60000; 0 disables the budget
             [--details auto|open|closed]    # default closed (auto = open iff one stack changed)
             [--emit-classification-json FILE]
@@ -191,9 +191,12 @@ tfstackplan render --plans-dir DIR
             [--version]
 ```
 
-`--plans-dir` is required. With no `--config` and no `.tfstackplan.hcl` present,
-classification is off, diffs use defaults, and no links are emitted — the tool
-degrades gracefully with zero config.
+`--plans-dir` is required. Config auto-discovery walks **up** from the working
+directory to the repo root (the first ancestor containing `.git`), so a command
+run from a stack subdir — e.g. `run plan`/`run apply --dir stacks/<tier>` — finds
+a repo-root `.tfstackplan.hcl` with no explicit `--config`. With no `--config` and
+no `.tfstackplan.hcl` found, classification is off, diffs use defaults, and no
+links are emitted — the tool degrades gracefully with zero config.
 
 ### Classification (presets + rules)
 
@@ -230,8 +233,8 @@ operations never contribute a category.
 `--emit-classification-json` hands CI the result as data: per-stack `categories`
 under `stacks`, plus a run-level `summary` with the per-key sorted-unique union
 of emitted attributes — what a gate consumes. See
-[`examples/.tfstackplan.hcl`](examples/.tfstackplan.hcl) for a complete
-classification + diff policy.
+[`examples/.tfstackplan.hcl`](examples/.tfstackplan.hcl) for the canonical client
+policy (classification, gating `class`, diff, links, progress).
 
 ### The byte budget
 

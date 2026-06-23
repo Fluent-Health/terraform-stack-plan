@@ -54,13 +54,47 @@ type DiffOverride struct {
 	Differ      string
 }
 
-// Discover returns the config path if DefaultFilename exists under dir.
+// Discover returns the path to the nearest DefaultFilename at or above dir,
+// searching up to (and including) the repo root. The repo root is the first
+// ancestor containing a `.git` entry; the search never ascends past it, so a
+// stray config above the repo is not picked up. Without a `.git` ancestor the
+// search runs to the filesystem root.
+//
+// Walking up is what lets a command run from a subdir (e.g. `run apply --dir
+// stacks/<tier>`) auto-discover a repo-root `.tfstackplan.hcl` without an
+// explicit `--config`.
 func Discover(dir string) (string, bool) {
-	p := filepath.Join(dir, DefaultFilename)
-	if _, err := os.Stat(p); err == nil {
-		return p, true
+	d, err := filepath.Abs(dir)
+	if err != nil {
+		d = dir
 	}
-	return "", false
+	for {
+		if p := filepath.Join(d, DefaultFilename); statFile(p) {
+			return p, true
+		}
+		// Stop at the repo root: a config above the repo is out of scope.
+		if statExists(filepath.Join(d, ".git")) {
+			return "", false
+		}
+		parent := filepath.Dir(d)
+		if parent == d {
+			return "", false // reached the filesystem root
+		}
+		d = parent
+	}
+}
+
+// statFile reports whether path exists and is a regular file.
+func statFile(path string) bool {
+	fi, err := os.Stat(path)
+	return err == nil && fi.Mode().IsRegular()
+}
+
+// statExists reports whether path exists (file or dir — `.git` is usually a dir
+// but is a file in submodules/worktrees).
+func statExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 // Load parses and validates the HCL file at path.

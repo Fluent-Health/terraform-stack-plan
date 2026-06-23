@@ -1,9 +1,79 @@
 package config
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
+
+// TestDiscoverWalksUpToRepoRoot: a config at the repo root is found from a nested
+// subdir (e.g. `run apply --dir stacks/<tier>` discovers the root .tfstackplan.hcl),
+// but the search stops at the repo root (.git) so a config above the repo is not.
+func TestDiscoverWalksUpToRepoRoot(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := filepath.Join(root, DefaultFilename)
+	if err := os.WriteFile(cfg, []byte("classification {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sub := filepath.Join(root, "stacks", "prod")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// From a nested subdir: walks up and finds the repo-root config.
+	got, ok := Discover(sub)
+	if !ok {
+		t.Fatalf("Discover(%q) = not found; want the repo-root config", sub)
+	}
+	if got, want := mustAbs(t, got), mustAbs(t, cfg); got != want {
+		t.Errorf("Discover found %q, want %q", got, want)
+	}
+
+	// A config ABOVE the repo root (outside .git) must NOT be discovered.
+	above := t.TempDir()
+	if err := os.WriteFile(filepath.Join(above, DefaultFilename), []byte("classification {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	repo := filepath.Join(above, "repo")
+	if err := os.MkdirAll(filepath.Join(repo, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	deep := filepath.Join(repo, "a", "b")
+	if err := os.MkdirAll(deep, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := Discover(deep); ok {
+		t.Errorf("Discover(%q) found a config above the repo root; want none (stop at .git)", deep)
+	}
+}
+
+// TestExampleClientConfigParses guards the canonical client example: it must stay
+// valid HCL (classification + gating class + diff + links + progress).
+func TestExampleClientConfigParses(t *testing.T) {
+	cfg, err := Load("../../examples/.tfstackplan.hcl")
+	if err != nil {
+		t.Fatalf("examples/.tfstackplan.hcl must parse: %v", err)
+	}
+	if cfg.Classification == nil {
+		t.Error("example should define a classification block")
+	}
+	if len(cfg.Classes) == 0 {
+		t.Error("example should define a gating class")
+	}
+}
+
+func mustAbs(t *testing.T, p string) string {
+	t.Helper()
+	a, err := filepath.Abs(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return a
+}
 
 func TestLoadFullOrdered(t *testing.T) {
 	c, err := Load("testdata/full.hcl")
