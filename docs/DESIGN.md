@@ -843,7 +843,14 @@ the full reasoning and alternatives weighed:
   `modernc.org/sqlite`, `goose` migrations embedded via `go:embed`): executions,
   their stack/edge subgraph, and per-`(class, target)` gate state, plus a
   `classified` marker that tells a clean-but-planned PR apart from a never-planned
-  one (fail-closed apply gating).
+  one (fail-closed apply gating). It also now carries the **event-store substrate**
+  — a domain-agnostic `EventStore` over an append-only `events` table (optimistic
+  concurrency on `(stream_id, version)`) plus a latest-only `snapshots` cache. This
+  is the forthcoming source of truth for the reconcile core: `Step`'s `Evolve` fold
+  will replay a stream instead of the lossy flat-row `mapRawGate` reload. **Not yet
+  wired** — Phase 4b cuts the exec stream (`exec:<pr>:<env>`) over to it (greenfield
+  reset, deleting `mapRawGate`); Phase 4c promotes the apply-lock claim ledger to an
+  `env:<env>` stream. See the event-sourced target architecture above.
 
 **Watch out:**
 
