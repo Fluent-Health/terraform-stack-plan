@@ -85,7 +85,7 @@ type App struct {
 	tmpl *template.Template
 	// groupRE is the compiled Config.GroupPattern (nil → depth grouping).
 	groupRE *regexp.Regexp
-	// shell is the reconcile shell (always set; used only when cfg.ReconcilerCore is on).
+	// shell is the reconcile engine — the sole path for gate/execution state.
 	shell *Shell
 }
 

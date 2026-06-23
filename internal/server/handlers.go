@@ -242,41 +242,11 @@ func (a *App) handleFinalize(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Record the gate targets and mark gated stacks. In reconciler-core mode the
-	// Shell handles grant requests, state recording, and stack status updates.
-	// In legacy mode the original inline logic applies.
-	if a.cfg.ReconcilerCore && a.shell != nil {
-		if err := a.shell.Handle(r.Context(), e.PR, e.Environment, e.Repo, reconcile.RunnerFinalize{Gates: f.Gates}); err != nil {
-			http.Error(w, "reconcile finalize", http.StatusInternalServerError)
-			return
-		}
-	} else {
-		// Record the gate targets. With a backend, request a grant per target (it
-		// records the grant name + live state); without one, record AWAITING so the
-		// verdict still parks at action_required. Either way, collect the targets so
-		// the matching stacks can be marked gated.
-		if a.Approval != nil {
-			a.requestGrants(r.Context(), e.PR, e.Environment, e.Repo, f.Gates)
-		} else {
-			for _, gt := range f.Gates {
-				if err := store.UpsertTarget(a.db, e.PR, e.Environment, gt.Class, gt.Target, "", "AWAITING"); err != nil {
-					http.Error(w, "record gate", http.StatusInternalServerError)
-					return
-				}
-			}
-		}
-		gatedTargets := map[string]bool{}
-		for _, gt := range f.Gates {
-			gatedTargets[gt.Target] = true
-		}
-		for target := range gatedTargets {
-			if _, err := a.db.Exec(
-				`UPDATE stacks SET status = ? WHERE execution_id = ? AND project = ? AND status != ?`,
-				string(events.StatusGated), f.ID, target, string(events.StatusFailed)); err != nil {
-				http.Error(w, "mark gated", http.StatusInternalServerError)
-				return
-			}
-		}
+	// Record the gate targets, request grants, and mark gated stacks — all handled
+	// by the reconcile core's RunnerFinalize transition.
+	if err := a.shell.Handle(r.Context(), e.PR, e.Environment, e.Repo, reconcile.RunnerFinalize{Gates: f.Gates}); err != nil {
+		http.Error(w, "reconcile finalize", http.StatusInternalServerError)
+		return
 	}
 
 	// Mark moving stacks (adopting resources via a cross-state move) — non-gating,
@@ -290,14 +260,6 @@ func (a *App) handleFinalize(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if !(a.cfg.ReconcilerCore && a.shell != nil) {
-		if err := store.MarkClassified(a.db, e.PR, e.Environment); err != nil {
-			http.Error(w, "mark classified", http.StatusInternalServerError)
-			return
-		}
-		// Drive terminally — AFTER gate targets are stored, so the conclusion sees them.
-		a.drive(r.Context(), f.ID, a.baseURL(r), true)
-	}
 	if g, gerr := store.LoadGraph(a.db, f.ID); gerr == nil {
 		a.finalizeLogs(r.Context(), f.ID, g.Stacks)
 	}

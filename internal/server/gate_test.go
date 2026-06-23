@@ -166,37 +166,6 @@ func TestGateRevoke(t *testing.T) {
 	}
 }
 
-// TestRequestGrantsSharedRequester verifies that requestGrants leases ONE
-// requester from the pool on the first grant and pins it on every subsequent
-// gate of the same PR — both store rows must share the same non-empty requester.
-func TestRequestGrantsSharedRequester(t *testing.T) {
-	db := newServerTestDB(t)
-	fake := approval.NewFake()
-	fake.Pool = []string{"sa0@project.iam.gserviceaccount.com", "sa1@project.iam.gserviceaccount.com"}
-	a := New(db, &MockGitHub{}, Config{})
-	a.Approval = fake
-
-	gates := []events.GateTarget{
-		{Class: "iam", Target: "proj-1"},
-		{Class: "iam", Target: "proj-2"},
-	}
-	a.requestGrants(context.Background(), 7, "nonprod", "o/r", gates)
-
-	ts, err := store.TargetsFor(db, 7, "nonprod")
-	if err != nil {
-		t.Fatalf("TargetsFor: %v", err)
-	}
-	if len(ts) != 2 {
-		t.Fatalf("want 2 targets, got %d", len(ts))
-	}
-	if ts[0].Requester == "" {
-		t.Fatalf("ts[0].Requester is empty, want a leased SA")
-	}
-	if ts[0].Requester != ts[1].Requester {
-		t.Errorf("requesters differ: ts[0]=%q ts[1]=%q — want shared across gates", ts[0].Requester, ts[1].Requester)
-	}
-}
-
 // TestGateCheckReturnsRequester verifies that after approval, gate/check returns
 // 200 with a JSON body containing the leased requester SA.
 func TestGateCheckReturnsRequester(t *testing.T) {
@@ -226,77 +195,21 @@ func TestGateCheckReturnsRequester(t *testing.T) {
 	}
 }
 
-func TestTryRequestGrantRevokesClosedBlockerAndRetries(t *testing.T) {
-	db := newServerTestDB(t)
-	fake := approval.NewFake()
-	gh := &MockGitHub{
-		PRAbandonedFn: func(_ context.Context, _ string, pr int) (bool, error) {
-			return pr == 99, nil
-		},
-	}
-	a := New(db, gh, Config{})
-
-	collided := false
-	a.Approval = &slotCollisionBackend{
-		inner: fake,
-		blockFn: func(req approval.Request) bool {
-			if !collided && req.PR == 7 {
-				collided = true
-				return true
-			}
-			return false
-		},
-		blocker: approval.Grant{
-			Name:      "grants/blocker",
-			State:     approval.StateActive,
-			Request:   approval.Request{Class: "iam", Target: "proj-a", PR: 99, Environment: "staging"},
-			Requester: "sa0",
-		},
-	}
-
-	req := approval.Request{Class: "iam", Target: "proj-a", PR: 7, Environment: "staging"}
-	g, err := a.tryRequestGrant(context.Background(), req, "o/r")
-	if err != nil {
-		t.Fatalf("closed blocker: unexpected error: %v", err)
-	}
-	if g.Name == "" {
-		t.Error("closed blocker: expected a grant name")
-	}
-}
-
-func TestTryRequestGrantSurfacesOpenBlocker(t *testing.T) {
-	db := newServerTestDB(t)
-	fake := approval.NewFake()
-	a := New(db, &MockGitHub{
-		PRAbandonedFn: func(_ context.Context, _ string, _ int) (bool, error) { return false, nil },
-	}, Config{})
-	a.Approval = &slotCollisionBackend{
-		inner:   fake,
-		blockFn: func(r approval.Request) bool { return r.PR == 7 },
-		blocker: approval.Grant{
-			Name:    "grants/blocker",
-			State:   approval.StateActive,
-			Request: approval.Request{Class: "iam", Target: "proj-a", PR: 99, Environment: "staging"},
-		},
-	}
-
-	_, err := a.tryRequestGrant(context.Background(),
-		approval.Request{Class: "iam", Target: "proj-a", PR: 7, Environment: "staging"}, "o/r")
-	if err == nil {
-		t.Error("open blocker: expected error")
-	}
-}
-
 func TestRevokeOrphansRevokesAcrossEnvironments(t *testing.T) {
 	db := newServerTestDB(t)
 	fake := approval.NewFake()
 	a := New(db, &MockGitHub{}, Config{})
 	a.Approval = fake
 
-	_ = store.UpsertTarget(db, 7, "nonprod", "iam", "proj-a", "", "AWAITING")
-	_ = store.UpsertTarget(db, 7, "prod", "iam", "proj-b", "", "AWAITING")
-	_, _ = fake.RequestGrant(context.Background(), approval.Request{Class: "iam", Target: "proj-a", PR: 7, Environment: "nonprod"})
-	_, _ = fake.RequestGrant(context.Background(), approval.Request{Class: "iam", Target: "proj-b", PR: 7, Environment: "prod"})
+	gA, _ := fake.RequestGrant(context.Background(), approval.Request{Class: "iam", Target: "proj-a", PR: 7, Environment: "nonprod"})
+	gB, _ := fake.RequestGrant(context.Background(), approval.Request{Class: "iam", Target: "proj-b", PR: 7, Environment: "prod"})
+	// Seed the persisted gate the way the reconcile core records it: classified,
+	// with the backend's grant name + state on each target (revokeOrphans drives
+	// the PRClosed transition, which only revokes targets that carry a grant name).
+	_ = store.MarkClassified(db, 7, "nonprod")
+	_ = store.MarkClassified(db, 7, "prod")
+	_ = store.UpsertTarget(db, 7, "nonprod", "iam", "proj-a", gA.Name, string(gA.State))
+	_ = store.UpsertTarget(db, 7, "prod", "iam", "proj-b", gB.Name, string(gB.State))
 
 	a.revokeOrphans(context.Background(), 7)
 
@@ -308,29 +221,6 @@ func TestRevokeOrphansRevokesAcrossEnvironments(t *testing.T) {
 			}
 		}
 	}
-}
-
-// slotCollisionBackend wraps a Fake and returns SlotCollisionError when blockFn
-// returns true, then falls through to the Fake for retries.
-type slotCollisionBackend struct {
-	inner   *approval.Fake
-	blockFn func(approval.Request) bool
-	blocker approval.Grant
-}
-
-func (s *slotCollisionBackend) RequestGrant(ctx context.Context, req approval.Request) (approval.Grant, error) {
-	if s.blockFn(req) {
-		return approval.Grant{}, &approval.SlotCollisionError{BlockingGrant: s.blocker}
-	}
-	return s.inner.RequestGrant(ctx, req)
-}
-
-func (s *slotCollisionBackend) ListGrants(ctx context.Context, class, target string) ([]approval.Grant, error) {
-	return s.inner.ListGrants(ctx, class, target)
-}
-
-func (s *slotCollisionBackend) Revoke(ctx context.Context, req approval.Request) error {
-	return s.inner.Revoke(ctx, req)
 }
 
 // TestApplyTimeReclassifyRecoversStrandedPR models the self-healing apply path:

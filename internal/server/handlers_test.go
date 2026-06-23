@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Fluent-Health/terraform-stack-plan/internal/approval"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
@@ -162,6 +163,7 @@ func TestFinalizeGatedPlanConcludesActionRequired(t *testing.T) {
 		},
 	}
 	a := New(db, gh, Config{UseChecks: true})
+	a.Approval = approval.NewFake()
 	srv := httptest.NewServer(a.Routes())
 	defer srv.Close()
 	post(t, srv, "/api/init", events.Init{ID: "e1", Repo: "o/r", SHA: "sha", PR: 7, Environment: "staging",
