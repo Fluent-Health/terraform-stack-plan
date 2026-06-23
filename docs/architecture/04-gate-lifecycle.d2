@@ -1,0 +1,53 @@
+vars: {
+  d2-config: {
+    theme-overrides: {
+      B1: "#495AE4"; B2: "#DADCFF"; B3: "#BEF0E4"; B4: "#D6E8FF"
+      B5: "#289673"; B6: "#144037"
+      AA2: "#FF6333"; AA4: "#FF6333"; AA5: "#FF6333"
+      N1: "#14181A"; N2: "#323241"; N3: "#858C8F"; N4: "#E7E8E9"
+      N5: "#F5F0E8"; N6: "#FFF2DF"; N7: "#FFFFFF"
+    }
+  }
+}
+
+direction: right
+
+cap: "GateState as a fold — transitions labelled by the events that drive them" {
+  near: top-center
+  shape: text
+  style: { font-size: 22; bold: true; font-color: "#14181A" }
+}
+
+gate: "Gate stream  (exec:<pr>:<env>)" {
+  style: { fill: "#BEF0E4"; stroke: "#289673"; stroke-width: 2; border-radius: 12; font-color: "#14181A"; bold: true }
+
+  nc: "NotClassified\napply fails closed" { style: { fill: "#FFFFFF"; stroke: "#858C8F"; border-radius: 8; font-color: "#14181A" } }
+  clean: "Clean\n0 targets · apply passes" { style: { fill: "#FFFFFF"; stroke: "#289673"; border-radius: 8; font-color: "#14181A" } }
+  pending: "Pending\ngrants in flight" { style: { fill: "#FFFFFF"; stroke: "#495AE4"; border-radius: 8; font-color: "#14181A" } }
+  sat: "Satisfied\nall ACTIVE · apply passes" { style: { fill: "#FFFFFF"; stroke: "#289673"; border-radius: 8; font-color: "#14181A"; bold: true } }
+  blocked: "Blocked\ndenied · revoked · expired · collision" { style: { fill: "#FFF2DF"; stroke: "#FF6333"; border-radius: 8; font-color: "#14181A" } }
+
+  nc -> clean: "Classified · 0 targets"
+  nc -> pending: "Classified · ≥1 target →\nGateTargetRequested"
+  pending -> sat: "GrantActivated (all targets)"
+  pending -> blocked: "GrantDenied / GrantRevoked /\nSlotCollision"
+  sat -> blocked: "GrantVanished (downgrade)"
+  blocked -> pending: "re-plan: Classified (re-arm,\nonly while terminal)"
+  pending -> blocked: "PRClosed → Blocked{revoked}" { style: { stroke: "#858C8F"; stroke-dash: 3 } }
+  sat -> blocked: "PRClosed → Blocked{revoked}" { style: { stroke: "#858C8F"; stroke-dash: 3 } }
+  sat -> clean: "ApplySucceeded → release\ngrant + claim" { style: { stroke: "#289673"; bold: true } }
+}
+
+claimledger: "Claim ledger projection  (env:<env>)" {
+  style: { fill: "#D6E8FF"; stroke: "#495AE4"; stroke-width: 2; border-radius: 12; font-color: "#14181A"; bold: true }
+  free: "stack unclaimed" { style: { fill: "#FFFFFF"; stroke: "#495AE4"; border-radius: 8; font-color: "#14181A" } }
+  held: "claimed by PR\n(heartbeat lease)" { style: { fill: "#FFFFFF"; stroke: "#495AE4"; border-radius: 8; font-color: "#14181A" } }
+  free -> held: "ClaimAcquired (merge / greenlight)"
+  held -> free: "ClaimReleased (ApplySucceeded)\nor lease TTL expiry"
+}
+
+note: "apply-lock 'held' check = overlap(PR plan stacks, claimed set) over the env stream" {
+  shape: text
+  style: { font-size: 14; italic: true; font-color: "#323241" }
+}
+claimledger -> note: "" { style: { stroke: "#FFFFFF" } }

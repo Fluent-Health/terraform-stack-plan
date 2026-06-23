@@ -1,0 +1,56 @@
+vars: {
+  d2-config: {
+    theme-overrides: {
+      B1: "#495AE4"; B2: "#DADCFF"; B3: "#BEF0E4"; B4: "#D6E8FF"
+      B5: "#289673"; B6: "#144037"
+      AA2: "#FF6333"; AA4: "#FF6333"; AA5: "#FF6333"
+      N1: "#14181A"; N2: "#323241"; N3: "#858C8F"; N4: "#E7E8E9"
+      N5: "#F5F0E8"; N6: "#FFF2DF"; N7: "#FFFFFF"
+    }
+  }
+}
+
+direction: down
+
+cap: "tfstackplan — Context: four faces in one binary, and the actors around them" {
+  near: top-center
+  shape: text
+  style: { font-size: 22; bold: true; font-color: "#14181A" }
+}
+
+ci: "CI runner\n(GitHub Actions)" {
+  style: { fill: "#FFF2DF"; stroke: "#858C8F"; border-radius: 8; font-color: "#14181A" }
+}
+
+reviewer: "Reviewer\n(human)" {
+  style: { fill: "#FFF2DF"; stroke: "#858C8F"; border-radius: 8; font-color: "#14181A" }
+}
+
+sys: "tfstackplan (single static binary)" {
+  style: { fill: "#BEF0E4"; stroke: "#289673"; stroke-width: 2; border-radius: 12; font-color: "#14181A"; bold: true }
+  render: "render\n(pure renderer)" { style: { fill: "#FFFFFF"; stroke: "#289673"; border-radius: 8; font-color: "#14181A" } }
+  run: "run\n(CI driver · event producer)" { style: { fill: "#FFFFFF"; stroke: "#289673"; border-radius: 8; font-color: "#14181A" } }
+  serve: "serve\n(event-sourced control plane)" { style: { fill: "#FFFFFF"; stroke: "#289673"; border-radius: 8; font-color: "#14181A" } }
+  state: "state\n(cross-stack state moves)" { style: { fill: "#FFFFFF"; stroke: "#289673"; border-radius: 8; font-color: "#14181A" } }
+}
+
+ext: "External systems" {
+  style: { fill: "#D6E8FF"; stroke: "#495AE4"; stroke-width: 2; border-radius: 12; font-color: "#14181A"; bold: true }
+  gh: "GitHub\n(checks · statuses · PRs)" { style: { fill: "#FFFFFF"; stroke: "#495AE4"; border-radius: 8; font-color: "#14181A" } }
+  pam: "GCP PAM\n(privileged access mgr)" { style: { fill: "#FFFFFF"; stroke: "#495AE4"; border-radius: 8; font-color: "#14181A" } }
+  gcs: "GCS\n(log offload)" { shape: cylinder; style: { fill: "#FFFFFF"; stroke: "#495AE4"; font-color: "#14181A" } }
+  tf: "terramate / terraform" { style: { fill: "#FFFFFF"; stroke: "#495AE4"; border-radius: 8; font-color: "#14181A" } }
+}
+
+ci -> sys.run: "run plan / apply / verify"
+sys.run -> ext.tf: "drives plan/apply"
+sys.run -> sys.render: "classify + render in-process"
+sys.run -> sys.serve: "commands (events) over HTTP" { style: { stroke: "#FF6333"; font-color: "#14181A"; bold: true } }
+sys.render -> ci: "markdown → PR comment"
+sys.serve -> ext.gh: "check runs · commit statuses"
+sys.serve -> ext.pam: "request / list / revoke grants"
+sys.serve -> ext.gcs: "offload stack logs"
+sys.state -> ext.tf: "state mv / import / removed"
+reviewer -> ext.pam: "approve grant"
+reviewer -> sys.serve: "watch /live"
+reviewer -> ext.gh: "review PR"

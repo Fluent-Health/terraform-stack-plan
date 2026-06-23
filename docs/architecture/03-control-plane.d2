@@ -1,0 +1,60 @@
+vars: {
+  d2-config: {
+    theme-overrides: {
+      B1: "#495AE4"; B2: "#DADCFF"; B3: "#BEF0E4"; B4: "#D6E8FF"
+      B5: "#289673"; B6: "#144037"
+      AA2: "#FF6333"; AA4: "#FF6333"; AA5: "#FF6333"
+      N1: "#14181A"; N2: "#323241"; N3: "#858C8F"; N4: "#E7E8E9"
+      N5: "#F5F0E8"; N6: "#FFF2DF"; N7: "#FFFFFF"
+    }
+  }
+}
+
+direction: right
+
+cap: "serve — event-sourced control plane: command → decide → log → fold → projections" {
+  near: top-center
+  shape: text
+  style: { font-size: 22; bold: true; font-color: "#14181A" }
+}
+
+cmds: "Commands\n(RunnerInit/Phase/Update/Finalize ·\nPRClosed · GateTick · ApplySucceeded ·\nGrantObserved)" {
+  style: { fill: "#DADCFF"; stroke: "#495AE4"; stroke-width: 2; border-radius: 12; font-color: "#14181A"; bold: true }
+}
+
+core: "Decider core (pure · total)" {
+  style: { fill: "#BEF0E4"; stroke: "#289673"; stroke-width: 2; border-radius: 12; font-color: "#14181A"; bold: true }
+  decide: "Decide(state, cmd)\n→ []Event" { style: { fill: "#FFFFFF"; stroke: "#289673"; border-radius: 8; font-color: "#14181A" } }
+  evolve: "Evolve(state, ev)\n→ state   (replaces mapRawGate)" { style: { fill: "#FFFFFF"; stroke: "#289673"; border-radius: 8; font-color: "#14181A" } }
+  react: "React(state, ev)\n→ []Command   (fixpoint loop)" { style: { fill: "#FFFFFF"; stroke: "#289673"; border-radius: 8; font-color: "#14181A" } }
+}
+
+log: "Event log — SQLite, append-only" {
+  style: { fill: "#D6E8FF"; stroke: "#495AE4"; stroke-width: 2; border-radius: 12; font-color: "#14181A"; bold: true }
+  exec: "stream  exec:<pr>:<env>\nlifecycle · stacks · gates" { shape: cylinder; style: { fill: "#FFFFFF"; stroke: "#495AE4"; font-color: "#14181A" } }
+  env: "stream  env:<env>\nclaim ledger" { shape: cylinder; style: { fill: "#FFFFFF"; stroke: "#495AE4"; font-color: "#14181A" } }
+}
+
+proj: "Projections (read models)" {
+  style: { fill: "#144037"; stroke: "#289673"; stroke-width: 2; border-radius: 12; font-color: "#FFFFFF"; bold: true }
+  verdict: "GateVerdict" { style: { fill: "#FFFFFF"; stroke: "#289673"; border-radius: 8; font-color: "#14181A" } }
+  gatep: "gate state" { style: { fill: "#FFFFFF"; stroke: "#289673"; border-radius: 8; font-color: "#14181A" } }
+  claims: "apply-lock / held" { style: { fill: "#FFFFFF"; stroke: "#289673"; border-radius: 8; font-color: "#14181A" } }
+  live: "live view / SVG" { style: { fill: "#FFFFFF"; stroke: "#289673"; border-radius: 8; font-color: "#14181A" } }
+}
+
+effects: "Actions → driven adapters" {
+  style: { fill: "#495AE4"; stroke: "#3F51E3"; stroke-width: 2; border-radius: 12; font-color: "#FFFFFF"; bold: true }
+  pam: "RequestGrant / Revoke → PAM" { style: { fill: "#FFFFFF"; stroke: "#495AE4"; border-radius: 8; font-color: "#495AE4" } }
+  gh: "RenderCheckRun → GitHub" { style: { fill: "#FFFFFF"; stroke: "#495AE4"; border-radius: 8; font-color: "#495AE4" } }
+}
+
+cmds -> core.decide: "intent"
+core.decide -> log.exec: "append events"
+core.decide -> log.env: "append events"
+log.exec -> core.evolve: "fold"
+log.env -> core.evolve: "fold"
+core.evolve -> proj: "derive read models"
+core.decide -> effects: "derived actions"
+effects -> core.react: "results → GrantObserved" { style: { stroke: "#FF6333"; stroke-dash: 4; font-color: "#14181A"; bold: true } }
+core.react -> core.decide: "re-enter as Command" { style: { stroke: "#FF6333"; stroke-dash: 4; font-color: "#14181A" } }
