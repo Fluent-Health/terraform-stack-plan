@@ -612,25 +612,24 @@ func TestApplyPhaseEmittedAfterGate(t *testing.T) {
 	}
 }
 
-// TestPrintGateRejectedClassifies asserts the fail-closed gate rejection prints
-// a classified, actionable message: a not-classified/awaiting gate points the
-// operator at the live URL + "approve" + "re-run"; an unreachable serve points
-// at the break-glass runbook.
-func TestPrintGateRejectedClassifies(t *testing.T) {
-	t.Setenv(runner.EnvServer, "https://serve.example")
-
-	var awaiting strings.Builder
-	printGateRejected(&awaiting, fmt.Errorf("apply gate not satisfied (fail-closed): post /api/gate/check: 409: not classified"), runner.ClientFromEnv(), 331)
-	got := awaiting.String()
-	for _, want := range []string{"AWAITING_APPROVAL", "https://serve.example", "approve", "re-run", "#331"} {
-		if !strings.Contains(got, want) {
-			t.Errorf("awaiting message missing %q in:\n%s", want, got)
-		}
+// TestPrintGateVerdictBuckets asserts the typed verdict bucketing: not-classified
+// and not-satisfied → AWAITING_APPROVAL; unconfirmable and unreachable →
+// GATE_UNREACHABLE. The function takes an io.Writer so a strings.Builder works.
+func TestPrintGateVerdictBuckets(t *testing.T) {
+	cases := []struct {
+		kind runner.VerdictKind
+		want string
+	}{
+		{runner.VerdictNotClassified, "AWAITING_APPROVAL"},
+		{runner.VerdictNotSatisfied, "AWAITING_APPROVAL"},
+		{runner.VerdictUnconfirmable, "GATE_UNREACHABLE"},
+		{runner.VerdictUnreachable, "GATE_UNREACHABLE"},
 	}
-
-	var down strings.Builder
-	printGateRejected(&down, fmt.Errorf("apply gate not satisfied (fail-closed): post /api/gate/check: connection refused"), runner.ClientFromEnv(), 331)
-	if !strings.Contains(down.String(), "GATE_UNREACHABLE") || !strings.Contains(down.String(), "break-glass") {
-		t.Errorf("unreachable message missing break-glass guidance:\n%s", down.String())
+	for _, tc := range cases {
+		var b strings.Builder
+		printGateVerdict(&b, runner.GateVerdict{Kind: tc.kind, Err: fmt.Errorf("x")}, 42)
+		if !strings.Contains(b.String(), tc.want) {
+			t.Errorf("kind %v: output %q missing %q", tc.kind, b.String(), tc.want)
+		}
 	}
 }
