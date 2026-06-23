@@ -38,9 +38,9 @@ func gateCheckGH() *MockGitHub {
 	}
 }
 
-func TestGateCheckFailsClosedOnReconcileErrorCore(t *testing.T) {
+func TestGateCheckFailsClosedOnReconcileError(t *testing.T) {
 	db := newServerTestDB(t)
-	a := New(db, gateCheckGH(), Config{ReconcilerCore: true})
+	a := New(db, gateCheckGH(), Config{})
 	a.Approval = errListGrantsBackend{approval.NewFake()}
 	srv := httptest.NewServer(a.Routes())
 	defer srv.Close()
@@ -48,20 +48,6 @@ func TestGateCheckFailsClosedOnReconcileErrorCore(t *testing.T) {
 	seedStaleActiveGate(t, a)
 
 	if code := post(t, srv, "/api/gate/check", events.GateCheck{PR: 7, Environment: "staging"}); code != 503 {
-		t.Fatalf("core gate/check with failing ListGrants = %d, want 503 (fail-closed)", code)
-	}
-}
-
-func TestGateCheckFailsClosedOnReconcileErrorLegacy(t *testing.T) {
-	db := newServerTestDB(t)
-	a := New(db, gateCheckGH(), Config{}) // ReconcilerCore off → legacy path
-	a.Approval = errListGrantsBackend{approval.NewFake()}
-	srv := httptest.NewServer(a.Routes())
-	defer srv.Close()
-
-	seedStaleActiveGate(t, a)
-
-	if code := post(t, srv, "/api/gate/check", events.GateCheck{PR: 7, Environment: "staging"}); code != 503 {
-		t.Fatalf("legacy gate/check with failing ListGrants = %d, want 503 (fail-closed)", code)
+		t.Fatalf("gate/check with failing ListGrants = %d, want 503 (fail-closed)", code)
 	}
 }

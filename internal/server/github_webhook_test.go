@@ -43,10 +43,15 @@ func TestGitHubWebhookRevokesOnPRClose(t *testing.T) {
 	srv := httptest.NewServer(a.Routes())
 	defer srv.Close()
 
-	_ = store.UpsertTarget(db, 7, "nonprod", "iam", "proj-a", "", "AWAITING")
-	_ = store.UpsertTarget(db, 7, "prod", "iam", "proj-b", "", "AWAITING")
-	_, _ = fake.RequestGrant(context.Background(), approval.Request{Class: "iam", Target: "proj-a", PR: 7, Environment: "nonprod"})
-	_, _ = fake.RequestGrant(context.Background(), approval.Request{Class: "iam", Target: "proj-b", PR: 7, Environment: "prod"})
+	gA, _ := fake.RequestGrant(context.Background(), approval.Request{Class: "iam", Target: "proj-a", PR: 7, Environment: "nonprod"})
+	gB, _ := fake.RequestGrant(context.Background(), approval.Request{Class: "iam", Target: "proj-b", PR: 7, Environment: "prod"})
+	// Seed the persisted gate as the reconcile core records it: classified, with
+	// the backend's grant name on each target (the PR-closed transition only
+	// revokes targets carrying a grant name).
+	_ = store.MarkClassified(db, 7, "nonprod")
+	_ = store.MarkClassified(db, 7, "prod")
+	_ = store.UpsertTarget(db, 7, "nonprod", "iam", "proj-a", gA.Name, string(gA.State))
+	_ = store.UpsertTarget(db, 7, "prod", "iam", "proj-b", gB.Name, string(gB.State))
 
 	payload := map[string]any{
 		"action":       "closed",

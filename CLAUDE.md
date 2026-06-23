@@ -31,6 +31,6 @@ returned `Action`s, and persists the new `ChangeSet` — serialized per
 
 Add new behavior as a `Step` transition with a row in the permutation harness
 (`internal/reconcile/step_table_test.go`), not as a new handler branch. The
-engine is gated behind the off-by-default `reconciler_core` serve flag (engaged
-only at quiescence; see `serve --check-quiescent`); the legacy gate handlers
-remain as the flag-OFF path until a post-cutover cleanup.
+reconcile core is the sole gate/execution engine — there is no legacy path or
+feature flag (the `reconciler_core`/`apply_lock`/`use_checks` flags and the
+quiescence cutover tooling were removed post-cutover).

@@ -41,27 +41,6 @@ func TestConclusion(t *testing.T) {
 	}
 }
 
-func TestGateStatus(t *testing.T) {
-	if st := gateStatus(snapshot{anyFailed: true}); st.state != "failure" {
-		t.Errorf("failed → %+v", st)
-	}
-	if st := gateStatus(snapshot{phase: events.PhaseWarming, totalStacks: 4}); st.state != "pending" || st.desc != "warming plugin cache…" {
-		t.Errorf("warming → %+v", st)
-	}
-	if st := gateStatus(snapshot{totalStacks: 4, plannedStacks: 2}); st.state != "pending" || st.desc != "planning 2/4 stacks" {
-		t.Errorf("planning → %+v", st)
-	}
-	if st := gateStatus(snapshot{finalized: true}); st.state != "success" {
-		t.Errorf("clean → %+v", st)
-	}
-	if st := gateStatus(snapshot{finalized: true, totalGates: 3, activeGates: 1}); st.state != "pending" || st.desc != "awaiting approval — 1/3 gates" {
-		t.Errorf("awaiting → %+v", st)
-	}
-	if st := gateStatus(snapshot{finalized: true, totalGates: 3, activeGates: 3}); st.state != "success" {
-		t.Errorf("approved → %+v", st)
-	}
-}
-
 func TestLoadSnapshot(t *testing.T) {
 	db := newServerTestDB(t)
 	in := events.Init{

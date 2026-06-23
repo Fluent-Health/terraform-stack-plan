@@ -189,7 +189,7 @@ func (c *RealClient) UpdateCheckRun(ctx context.Context, repo string, checkRunID
 	return err
 }
 
-// PostStatus sets a commit status (link-mode fallback; needs only statuses:write).
+// PostStatus sets a commit status (commit-status fallback; needs only statuses:write).
 func (c *RealClient) PostStatus(ctx context.Context, repo, sha, context_, state, description, targetURL string) error {
 	owner, name, err := splitRepo(repo)
 	if err != nil {

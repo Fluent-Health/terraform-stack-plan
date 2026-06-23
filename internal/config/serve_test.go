@@ -54,7 +54,6 @@ func TestLoadServeBlock(t *testing.T) {
 serve {
   db_path            = "/data/server.db"
   public_base_url    = "https://srv.example"
-  use_checks         = true
   webhook_secret_env = "WEBHOOK_SECRET"
 
   github_app {
@@ -77,7 +76,7 @@ serve {
 	if s == nil {
 		t.Fatal("serve block not parsed")
 	}
-	if s.DBPath != "/data/server.db" || s.PublicBaseURL != "https://srv.example" || !s.UseChecks || s.WebhookSecretEnv != "WEBHOOK_SECRET" {
+	if s.DBPath != "/data/server.db" || s.PublicBaseURL != "https://srv.example" || s.WebhookSecretEnv != "WEBHOOK_SECRET" {
 		t.Errorf("serve = %+v", s)
 	}
 	if s.GitHubApp == nil || s.GitHubApp.AppID != "12345" || s.GitHubApp.InstallationID != "67890" || s.GitHubApp.PrivateKeyPath != "/secrets/app.pem" {
@@ -85,58 +84,6 @@ serve {
 	}
 	if s.Approval == nil || s.Approval.Backend != "gcp-pam" || s.Approval.Location != "global" || s.Approval.Duration != "28800s" || len(s.Approval.RequesterPool) != 2 {
 		t.Errorf("approval = %+v", s.Approval)
-	}
-}
-
-func TestServeFlagDefaults(t *testing.T) {
-	// Absent → defaults to the new behavior (true) for all three flags.
-	cfg, err := Load(writeCfg(t, `
-serve {
-  db_path = "x"
-}
-`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	s := cfg.Serve
-	if !s.ReconcilerCore || !s.ApplyLock || !s.UseChecks {
-		t.Errorf("absent flags should default true, got reconciler_core=%v apply_lock=%v use_checks=%v",
-			s.ReconcilerCore, s.ApplyLock, s.UseChecks)
-	}
-
-	// Explicit false is honored (the escape hatch during migration).
-	cfg, err = Load(writeCfg(t, `
-serve {
-  db_path         = "x"
-  reconciler_core = false
-  apply_lock      = false
-  use_checks      = false
-}
-`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	s = cfg.Serve
-	if s.ReconcilerCore || s.ApplyLock || s.UseChecks {
-		t.Errorf("explicit false should be honored, got reconciler_core=%v apply_lock=%v use_checks=%v",
-			s.ReconcilerCore, s.ApplyLock, s.UseChecks)
-	}
-
-	// Explicit true is honored.
-	cfg, err = Load(writeCfg(t, `
-serve {
-  db_path         = "x"
-  reconciler_core = true
-  apply_lock      = true
-  use_checks      = true
-}
-`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	s = cfg.Serve
-	if !s.ReconcilerCore || !s.ApplyLock || !s.UseChecks {
-		t.Errorf("explicit true should be honored, got %+v", s)
 	}
 }
 

@@ -33,16 +33,6 @@ type Config struct {
 	// PublicBaseURL is the public origin used for check-run Details links. Empty
 	// derives it from the inbound request (e.g. behind a TLS-terminating proxy).
 	PublicBaseURL string
-	// UseChecks true → drive a rich GitHub check run (needs checks:write);
-	// false → link mode, posting a commit status (needs statuses:write).
-	UseChecks bool
-	// ReconcilerCore routes server-side gate/execution state transitions through
-	// the pure reconcile core (internal/reconcile) instead of the legacy
-	// handlers. Off by default; engaged only at quiescence (see Task 19).
-	ReconcilerCore bool
-	// ApplyLock enables the apply-serialization feature: at most one apply runs
-	// at a time across all PRs. Off by default; inert when false.
-	ApplyLock bool
 	// LogsDir is where per-stack log buffers are written. Empty disables log
 	// ingestion (the endpoints become no-ops).
 	LogsDir string
@@ -85,7 +75,7 @@ type App struct {
 	tmpl *template.Template
 	// groupRE is the compiled Config.GroupPattern (nil → depth grouping).
 	groupRE *regexp.Regexp
-	// shell is the reconcile shell (always set; used only when cfg.ReconcilerCore is on).
+	// shell is the reconcile engine — the sole path for gate/execution state.
 	shell *Shell
 }
 

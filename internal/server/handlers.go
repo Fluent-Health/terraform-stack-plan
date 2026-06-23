@@ -11,12 +11,8 @@ import (
 
 // handleClaimsList returns all apply-lock claims for an environment.
 // POST body: {"environment":"<env>"}
-// Response: JSON array of events.Claim (snake_case fields) (200); 404 when ApplyLock is off.
+// Response: JSON array of events.Claim (snake_case fields) (200).
 func (a *App) handleClaimsList(w http.ResponseWriter, r *http.Request) {
-	if !a.cfg.ApplyLock {
-		http.NotFound(w, r)
-		return
-	}
 	var req struct {
 		Environment string `json:"environment"`
 	}
@@ -47,12 +43,8 @@ func (a *App) handleClaimsList(w http.ResponseWriter, r *http.Request) {
 
 // handleClaimsRelease admin-releases one stack's claim or all of a PR's claims.
 // POST body: {"environment":"<env>","pr":<n>,"stack":"<optional>"}
-// Response: 200; 404 when ApplyLock is off.
+// Response: 200.
 func (a *App) handleClaimsRelease(w http.ResponseWriter, r *http.Request) {
-	if !a.cfg.ApplyLock {
-		http.NotFound(w, r)
-		return
-	}
 	var req struct {
 		Environment string `json:"environment"`
 		PR          int    `json:"pr"`
@@ -77,19 +69,19 @@ func (a *App) handleInit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	base := a.baseURL(r)
-	if isGate(in.Context, in.Environment) && a.cfg.UseChecks {
+	if isGate(in.Context, in.Environment) {
 		if err := a.ensureCheckRun(r.Context(), in.ID, in.Repo, in.SHA, checkRunName(in.Environment), a.liveURL(base, in.ID)); err != nil {
 			http.Error(w, "create check run", http.StatusBadGateway)
 			return
 		}
 	}
-	if isApplyContext(in.Context) && a.cfg.UseChecks {
+	if isApplyContext(in.Context) {
 		if err := a.ensureCheckRun(r.Context(), in.ID, in.Repo, in.SHA, in.Context, a.liveURL(base, in.ID)); err != nil {
 			http.Error(w, "create check run", http.StatusBadGateway)
 			return
 		}
 	}
-	if isApplyContext(in.Context) && a.cfg.ApplyLock {
+	if isApplyContext(in.Context) {
 		_ = store.AssociateClaimExecution(a.db, in.Environment, in.PR, in.ID)
 	}
 	a.drive(r.Context(), in.ID, base, false)
@@ -112,19 +104,19 @@ func (a *App) handlePhase(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	base := a.baseURL(r)
-	if isGate(e.StatusContext, e.Environment) && a.cfg.UseChecks {
+	if isGate(e.StatusContext, e.Environment) {
 		if err := a.ensureCheckRun(r.Context(), e.ID, e.Repo, e.SHA, checkRunName(e.Environment), a.liveURL(base, e.ID)); err != nil {
 			http.Error(w, "create check run", http.StatusBadGateway)
 			return
 		}
 	}
-	if isApplyContext(e.StatusContext) && a.cfg.UseChecks {
+	if isApplyContext(e.StatusContext) {
 		if err := a.ensureCheckRun(r.Context(), e.ID, e.Repo, e.SHA, e.StatusContext, a.liveURL(base, e.ID)); err != nil {
 			http.Error(w, "create check run", http.StatusBadGateway)
 			return
 		}
 	}
-	if isApplyContext(e.StatusContext) && a.cfg.ApplyLock {
+	if isApplyContext(e.StatusContext) {
 		a.renewApplyClaims(e.Environment, e.PR)
 	}
 	a.drive(r.Context(), p.ID, base, false)
@@ -144,10 +136,8 @@ func (a *App) handleUpdate(w http.ResponseWriter, r *http.Request) {
 	if a.Objects != nil && done(u.Status) {
 		_ = a.offloadLog(r.Context(), u.ID, u.Stack)
 	}
-	if a.cfg.ApplyLock {
-		if ue, err := store.GetExecution(a.db, u.ID); err == nil && isApplyContext(ue.StatusContext) {
-			a.renewApplyClaims(ue.Environment, ue.PR)
-		}
+	if ue, err := store.GetExecution(a.db, u.ID); err == nil && isApplyContext(ue.StatusContext) {
+		a.renewApplyClaims(ue.Environment, ue.PR)
 	}
 	a.drive(r.Context(), u.ID, a.baseURL(r), false)
 	w.WriteHeader(http.StatusOK)
@@ -242,41 +232,11 @@ func (a *App) handleFinalize(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Record the gate targets and mark gated stacks. In reconciler-core mode the
-	// Shell handles grant requests, state recording, and stack status updates.
-	// In legacy mode the original inline logic applies.
-	if a.cfg.ReconcilerCore && a.shell != nil {
-		if err := a.shell.Handle(r.Context(), e.PR, e.Environment, e.Repo, reconcile.RunnerFinalize{Gates: f.Gates}); err != nil {
-			http.Error(w, "reconcile finalize", http.StatusInternalServerError)
-			return
-		}
-	} else {
-		// Record the gate targets. With a backend, request a grant per target (it
-		// records the grant name + live state); without one, record AWAITING so the
-		// verdict still parks at action_required. Either way, collect the targets so
-		// the matching stacks can be marked gated.
-		if a.Approval != nil {
-			a.requestGrants(r.Context(), e.PR, e.Environment, e.Repo, f.Gates)
-		} else {
-			for _, gt := range f.Gates {
-				if err := store.UpsertTarget(a.db, e.PR, e.Environment, gt.Class, gt.Target, "", "AWAITING"); err != nil {
-					http.Error(w, "record gate", http.StatusInternalServerError)
-					return
-				}
-			}
-		}
-		gatedTargets := map[string]bool{}
-		for _, gt := range f.Gates {
-			gatedTargets[gt.Target] = true
-		}
-		for target := range gatedTargets {
-			if _, err := a.db.Exec(
-				`UPDATE stacks SET status = ? WHERE execution_id = ? AND project = ? AND status != ?`,
-				string(events.StatusGated), f.ID, target, string(events.StatusFailed)); err != nil {
-				http.Error(w, "mark gated", http.StatusInternalServerError)
-				return
-			}
-		}
+	// Record the gate targets, request grants, and mark gated stacks — all handled
+	// by the reconcile core's RunnerFinalize transition.
+	if err := a.shell.Handle(r.Context(), e.PR, e.Environment, e.Repo, reconcile.RunnerFinalize{Gates: f.Gates}); err != nil {
+		http.Error(w, "reconcile finalize", http.StatusInternalServerError)
+		return
 	}
 
 	// Mark moving stacks (adopting resources via a cross-state move) — non-gating,
@@ -290,18 +250,10 @@ func (a *App) handleFinalize(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if !(a.cfg.ReconcilerCore && a.shell != nil) {
-		if err := store.MarkClassified(a.db, e.PR, e.Environment); err != nil {
-			http.Error(w, "mark classified", http.StatusInternalServerError)
-			return
-		}
-		// Drive terminally — AFTER gate targets are stored, so the conclusion sees them.
-		a.drive(r.Context(), f.ID, a.baseURL(r), true)
-	}
 	if g, gerr := store.LoadGraph(a.db, f.ID); gerr == nil {
 		a.finalizeLogs(r.Context(), f.ID, g.Stacks)
 	}
-	if a.cfg.ApplyLock && !isApplyContext(e.StatusContext) && e.PR > 0 {
+	if !isApplyContext(e.StatusContext) && e.PR > 0 {
 		// Plan finalize: the PR's changed stacks are now registered, so post
 		// apply-lock/<env> here. The pull_request webhook fires on PR open —
 		// before the plan registers the stacks — so this is what makes the

@@ -17,7 +17,7 @@ func newApplyLockTestApp(t *testing.T) (*App, *recordingGitHub) {
 	t.Helper()
 	db := newServerTestDB(t)
 	gh := &recordingGitHub{}
-	a := New(db, gh, Config{ApplyLock: true, PublicBaseURL: "https://srv"})
+	a := New(db, gh, Config{PublicBaseURL: "https://srv"})
 	return a, gh
 }
 
@@ -94,14 +94,6 @@ func TestClaimsEndpoints(t *testing.T) {
 	got2, _ := store.ListClaims(a.db, "prod")
 	if len(got2) != 0 {
 		t.Fatalf("after pr-level release: %+v", got2)
-	}
-	// disabled app: adminReleaseClaims is a no-op
-	a2 := New(newServerTestDB(t), &recordingGitHub{}, Config{ApplyLock: false})
-	_ = store.ClaimStacks(a2.db, "prod", 7, "", []string{"x"}, time.Now().Add(time.Hour))
-	a2.adminReleaseClaims(ctx(), "prod", 7, "x")
-	got3, _ := store.ListClaims(a2.db, "prod")
-	if len(got3) != 1 {
-		t.Fatalf("disabled: claim should be untouched, got %+v", got3)
 	}
 }
 

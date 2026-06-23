@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 
@@ -14,9 +15,18 @@ func TestE2EPlanLifecycle(t *testing.T) {
 	db := newServerTestDB(t)
 	var mu sync.Mutex
 	updates := 0
+	planChecks := 0
 	var finalConcl string
 	gh := &MockGitHub{
-		CreateCheckRunFn: func(ctx context.Context, repo, sha, env, url string) (int64, error) { return 42, nil },
+		CreateCheckRunFn: func(ctx context.Context, repo, sha, env, url string) (int64, error) {
+			// Count only the plan/<env> gate check, not the always-on apply-lock/<env>.
+			if !strings.HasPrefix(env, "apply-lock") {
+				mu.Lock()
+				planChecks++
+				mu.Unlock()
+			}
+			return 42, nil
+		},
 		UpdateCheckRunFn: func(ctx context.Context, repo string, id int64, u CheckRunUpdate) error {
 			mu.Lock()
 			updates++
@@ -27,7 +37,7 @@ func TestE2EPlanLifecycle(t *testing.T) {
 			return nil
 		},
 	}
-	a := New(db, gh, Config{UseChecks: true, PublicBaseURL: "https://srv"})
+	a := New(db, gh, Config{PublicBaseURL: "https://srv"})
 	srv := httptest.NewServer(a.Routes())
 	defer srv.Close()
 
@@ -39,8 +49,8 @@ func TestE2EPlanLifecycle(t *testing.T) {
 	post(t, srv, "/api/update", events.Update{ID: "e1", Stack: "b", Status: events.StatusPlanned})
 	post(t, srv, "/api/finalize", events.Finalize{ID: "e1", ReportMarkdown: "# report"})
 
-	if gh.CreateCheckRunCalls != 1 {
-		t.Fatalf("CreateCheckRunCalls = %d, want 1", gh.CreateCheckRunCalls)
+	if planChecks != 1 {
+		t.Fatalf("plan check runs created = %d, want 1", planChecks)
 	}
 	mu.Lock()
 	defer mu.Unlock()

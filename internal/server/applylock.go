@@ -122,9 +122,6 @@ func (a *App) applyLockDetailsURL(env string, pr int) string {
 // apply-lock/<env> on the PR head for every env the PR touches; on merge it claims
 // the PR's stacks (the apply is imminent).
 func (a *App) handlePRApplyLock(ctx context.Context, repo string, pr int, merged bool) {
-	if !a.cfg.ApplyLock {
-		return
-	}
 	envs, err := store.EnvironmentsForPR(a.db, pr)
 	if err != nil {
 		return
@@ -156,9 +153,6 @@ func (a *App) handlePRApplyLock(ctx context.Context, repo string, pr int, merged
 // Returns a non-nil error when the group's PRs or their envs can't be resolved so
 // the caller can return 5xx and let GitHub redeliver (fail-closed).
 func (a *App) handleMergeGroup(ctx context.Context, repo, headSHA, action string) error {
-	if !a.cfg.ApplyLock {
-		return nil
-	}
 	if action == "destroyed" {
 		// Release per-env claims held by the merge group's constituent PRs.
 		// Best-effort: errors here are backed by the TTL backstop.
@@ -235,9 +229,6 @@ func (a *App) postApplyLockUnverifiable(ctx context.Context, repo, env, sha stri
 // sweepClaimsOnce releases all expired claims and re-evaluates held checks for
 // each affected environment (the auto-heal tick).
 func (a *App) sweepClaimsOnce(ctx context.Context) {
-	if !a.cfg.ApplyLock {
-		return
-	}
 	envs, err := store.SweepExpiredClaims(a.db, time.Now())
 	if err != nil {
 		return
@@ -248,11 +239,8 @@ func (a *App) sweepClaimsOnce(ctx context.Context) {
 }
 
 // ClaimsSweepLoop periodically releases expired claims and re-evaluates held
-// checks (mirrors OrphanSweepLoop). Self-disables when apply_lock is off.
+// checks (mirrors OrphanSweepLoop).
 func (a *App) ClaimsSweepLoop(ctx context.Context, interval time.Duration) {
-	if !a.cfg.ApplyLock {
-		return
-	}
 	t := time.NewTicker(interval)
 	defer t.Stop()
 	for {
@@ -270,11 +258,8 @@ func (a *App) applyLockLease() time.Duration { return 30 * time.Minute }
 
 // adminReleaseClaims is the manual un-wedge path: an admin releases one stack's
 // claim (stack != "") or all of a PR's claims in env (stack == ""), then
-// re-evaluates held checks. No-op when ApplyLock is off.
+// re-evaluates held checks.
 func (a *App) adminReleaseClaims(ctx context.Context, env string, pr int, stack string) {
-	if !a.cfg.ApplyLock {
-		return
-	}
 	if stack != "" {
 		_ = store.ReleaseClaimStack(a.db, env, pr, stack)
 	} else {
@@ -289,9 +274,6 @@ func (a *App) adminReleaseClaims(ctx context.Context, env string, pr int, stack 
 // the stacks — so without this the check would only appear on a later push.
 // Posting here makes it appear reliably alongside plan/<env>, on the same SHA.
 func (a *App) postPlanApplyLock(ctx context.Context, e store.Execution) {
-	if !a.cfg.ApplyLock {
-		return
-	}
 	g, err := store.LoadGraph(a.db, e.ID)
 	if err != nil {
 		return
@@ -307,18 +289,12 @@ func (a *App) postPlanApplyLock(ctx context.Context, e store.Execution) {
 // releaseApplyClaims drops a PR's claims in an env and re-evaluates held checks
 // (each held-check record carries its own repo).
 func (a *App) releaseApplyClaims(ctx context.Context, env string, pr int) {
-	if !a.cfg.ApplyLock {
-		return
-	}
 	_ = store.ReleaseClaimsByPREnv(a.db, env, pr)
 	a.reevaluateHeld(ctx, env)
 }
 
 // renewApplyClaims extends a PR's lease in an env (apply heartbeat).
 func (a *App) renewApplyClaims(env string, pr int) {
-	if !a.cfg.ApplyLock {
-		return
-	}
 	_ = store.RenewClaims(a.db, env, pr, time.Now().Add(a.applyLockLease()))
 }
 
@@ -326,9 +302,6 @@ func (a *App) renewApplyClaims(env string, pr int) {
 // stacks are now clear (called after any claim release). Each held-check record
 // carries its own repo, so this needs no repo arg and works from a sweep too.
 func (a *App) reevaluateHeld(ctx context.Context, env string) {
-	if !a.cfg.ApplyLock {
-		return
-	}
 	held, err := store.HeldApplyLockChecks(a.db, env)
 	if err != nil {
 		return

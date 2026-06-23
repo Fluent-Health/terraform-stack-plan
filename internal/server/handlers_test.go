@@ -7,10 +7,12 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/Fluent-Health/terraform-stack-plan/internal/approval"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
@@ -33,7 +35,7 @@ func post(t *testing.T, srv *httptest.Server, path string, v any) int {
 func TestInitCreatesExecutionAndCheckRunOnce(t *testing.T) {
 	db := newServerTestDB(t)
 	gh := &MockGitHub{CreateCheckRunFn: func(ctx context.Context, repo, sha, env, url string) (int64, error) { return 555, nil }}
-	a := New(db, gh, Config{UseChecks: true})
+	a := New(db, gh, Config{})
 	srv := httptest.NewServer(a.Routes())
 	defer srv.Close()
 
@@ -71,7 +73,7 @@ func TestUpdateTicksStackAndPatches(t *testing.T) {
 			return nil
 		},
 	}
-	a := New(db, gh, Config{UseChecks: true})
+	a := New(db, gh, Config{})
 	srv := httptest.NewServer(a.Routes())
 	defer srv.Close()
 
@@ -91,32 +93,6 @@ func TestUpdateTicksStackAndPatches(t *testing.T) {
 	}
 }
 
-func TestLinkModePostsStatus(t *testing.T) {
-	db := newServerTestDB(t)
-	var mu sync.Mutex
-	var gotState, gotContext string
-	gh := &MockGitHub{PostStatusFn: func(ctx context.Context, repo, sha, context_, state, desc, url string) error {
-		mu.Lock()
-		gotState, gotContext = state, context_
-		mu.Unlock()
-		return nil
-	}}
-	a := New(db, gh, Config{UseChecks: false})
-	srv := httptest.NewServer(a.Routes())
-	defer srv.Close()
-
-	post(t, srv, "/api/init", events.Init{ID: "e1", Repo: "o/r", SHA: "sha", PR: 7, Environment: "staging",
-		Stacks: []events.StackState{{Path: "a"}}})
-	if gh.CreateCheckRunCalls != 0 {
-		t.Fatalf("link mode must not create a check run, got %d", gh.CreateCheckRunCalls)
-	}
-	mu.Lock()
-	defer mu.Unlock()
-	if gotContext != "plan/staging" || gotState != "pending" {
-		t.Fatalf("status = %q/%q, want plan/staging/pending", gotContext, gotState)
-	}
-}
-
 func TestFinalizeCleanPlanConcludesSuccess(t *testing.T) {
 	db := newServerTestDB(t)
 	var mu sync.Mutex
@@ -124,13 +100,17 @@ func TestFinalizeCleanPlanConcludesSuccess(t *testing.T) {
 	gh := &MockGitHub{
 		CreateCheckRunFn: func(ctx context.Context, repo, sha, env, url string) (int64, error) { return 1, nil },
 		UpdateCheckRunFn: func(ctx context.Context, repo string, id int64, u CheckRunUpdate) error {
+			// Ignore the always-on apply-lock/<env> check; assert on the gate check only.
+			if strings.HasPrefix(u.Title, "apply-lock") {
+				return nil
+			}
 			mu.Lock()
 			concl = u.Conclusion
 			mu.Unlock()
 			return nil
 		},
 	}
-	a := New(db, gh, Config{UseChecks: true})
+	a := New(db, gh, Config{})
 	srv := httptest.NewServer(a.Routes())
 	defer srv.Close()
 	post(t, srv, "/api/init", events.Init{ID: "e1", Repo: "o/r", SHA: "sha", PR: 7, Environment: "staging",
@@ -155,13 +135,18 @@ func TestFinalizeGatedPlanConcludesActionRequired(t *testing.T) {
 	gh := &MockGitHub{
 		CreateCheckRunFn: func(ctx context.Context, repo, sha, env, url string) (int64, error) { return 1, nil },
 		UpdateCheckRunFn: func(ctx context.Context, repo string, id int64, u CheckRunUpdate) error {
+			// Ignore the always-on apply-lock/<env> check; assert on the gate check only.
+			if strings.HasPrefix(u.Title, "apply-lock") {
+				return nil
+			}
 			mu.Lock()
 			concl = u.Conclusion
 			mu.Unlock()
 			return nil
 		},
 	}
-	a := New(db, gh, Config{UseChecks: true})
+	a := New(db, gh, Config{})
+	a.Approval = approval.NewFake()
 	srv := httptest.NewServer(a.Routes())
 	defer srv.Close()
 	post(t, srv, "/api/init", events.Init{ID: "e1", Repo: "o/r", SHA: "sha", PR: 7, Environment: "staging",
@@ -257,7 +242,7 @@ func TestFinalizeBackfillsCounts(t *testing.T) {
 func TestFinalizeFailedMarksRunningStacksAborted(t *testing.T) {
 	db := newServerTestDB(t)
 	gh := &MockGitHub{CreateCheckRunFn: func(ctx context.Context, repo, sha, env, url string) (int64, error) { return 1, nil }}
-	a := New(db, gh, Config{UseChecks: true})
+	a := New(db, gh, Config{})
 	srv := httptest.NewServer(a.Routes())
 	defer srv.Close()
 	// Stack "a" is running (non-terminal) — will become aborted.
@@ -283,7 +268,7 @@ func TestFinalizeFailedMarksRunningStacksAborted(t *testing.T) {
 func TestFinalizeFailedMarksNonTerminalAborted(t *testing.T) {
 	db := newServerTestDB(t)
 	gh := &MockGitHub{CreateCheckRunFn: func(ctx context.Context, repo, sha, env, url string) (int64, error) { return 1, nil }}
-	a := New(db, gh, Config{UseChecks: true})
+	a := New(db, gh, Config{})
 	srv := httptest.NewServer(a.Routes())
 	defer srv.Close()
 
@@ -330,7 +315,7 @@ func TestFinalizeFailedMarksNonTerminalAborted(t *testing.T) {
 // store.Claim (no tags → PascalCase) vs events.Claim (snake_case) mismatch.
 func TestClaimsListWireShape(t *testing.T) {
 	db := newServerTestDB(t)
-	a := New(db, &MockGitHub{}, Config{ApplyLock: true})
+	a := New(db, &MockGitHub{}, Config{})
 	srv := httptest.NewServer(a.Routes())
 	defer srv.Close()
 
@@ -372,10 +357,10 @@ func TestClaimsListWireShape(t *testing.T) {
 
 func TestFinalizeFailedMarksInitStatusesAborted(t *testing.T) {
 	// Stacks stuck in "initializing" or "initialized" at a failed finalize must
-	// be swept to "aborted" by the legacy path, just like pending/running.
+	// be swept to "aborted" by the finalize handler, just like pending/running.
 	db := newServerTestDB(t)
 	gh := &MockGitHub{CreateCheckRunFn: func(ctx context.Context, repo, sha, env, url string) (int64, error) { return 1, nil }}
-	a := New(db, gh, Config{UseChecks: true})
+	a := New(db, gh, Config{})
 	srv := httptest.NewServer(a.Routes())
 	defer srv.Close()
 
