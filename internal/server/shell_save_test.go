@@ -8,7 +8,11 @@ import (
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
 
-func TestSaveGatePersistsTargetsAndPrunes(t *testing.T) {
+// project writes the gate_targets projection from a folded ChangeSet: it upserts
+// the desired targets (with requester) and prunes any persisted target the new
+// state no longer carries. Asserted via the projection itself (store.TargetsFor),
+// since project no longer touches the event stream that gather replays.
+func TestProjectPersistsTargetsAndPrunes(t *testing.T) {
 	app := New(newServerTestDB(t), &MockGitHub{}, Config{})
 	sh := NewShell(app)
 
@@ -20,27 +24,23 @@ func TestSaveGatePersistsTargetsAndPrunes(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Save a state that carries only p1 → p2 must be pruned.
+	// Project a state that carries only p1 → p2 must be pruned.
 	cs := reconcile.ChangeSet{PR: 7, Environment: "staging", Gate: reconcile.Satisfied{
 		Lease:   reconcile.Lease{Requester: "sa3"},
 		Targets: []reconcile.Target{{Class: "iam", Target: "p1", GrantName: "g1", Grant: approval.StateActive}},
 	}}
-	if err := sh.save(cs); err != nil {
+	if err := sh.project(cs); err != nil {
 		t.Fatal(err)
 	}
 
-	reloaded, err := sh.gather(7, "staging")
+	targets, err := store.TargetsFor(app.db, 7, "staging")
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, ok := reloaded.Prior.Gate.(reconcile.Satisfied) // single all-ACTIVE target maps to Satisfied
-	if !ok {
-		t.Fatalf("want Satisfied after reload, got %T", reloaded.Prior.Gate)
+	if len(targets) != 1 || targets[0].Target != "p1" {
+		t.Fatalf("want only p1 retained (p2 pruned), got %+v", targets)
 	}
-	if len(got.Targets) != 1 || got.Targets[0].Target != "p1" {
-		t.Fatalf("want only p1 retained (p2 pruned), got %+v", got.Targets)
-	}
-	if got.Lease.Requester != "sa3" {
-		t.Fatalf("want requester sa3 persisted, got %q", got.Lease.Requester)
+	if targets[0].Requester != "sa3" {
+		t.Fatalf("want requester sa3 persisted, got %q", targets[0].Requester)
 	}
 }

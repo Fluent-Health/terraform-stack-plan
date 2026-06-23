@@ -66,16 +66,20 @@ func (sh *Shell) Handle(ctx context.Context, pr int, env, repo string, sig recon
 			// Defensive: gather already sets these from the args; keep them set
 			// even if a future gather path leaves them zero.
 			world.Prior.PR, world.Prior.Environment = pr, env
-			state, actions := reconcile.Step(world, cur)
-			if err := sh.save(state); err != nil {
+			evs := reconcile.Decide(world.Prior, cur)
+			state := world.Prior
+			for _, e := range evs {
+				state = reconcile.Evolve(state, e)
+			}
+			if err := sh.persist(pr, env, world.Version, evs, state); err != nil {
 				outerErr = err
 				return
 			}
-			results := sh.execute(ctx, state, repo, actions)
-			if len(results) == 0 {
+			actions := sh.execute(ctx, state, repo, reconcile.React(state, evs))
+			if len(actions) == 0 {
 				return
 			}
-			cur = reconcile.GrantsObserved{Grants: results}
+			cur = reconcile.GrantsObserved{Grants: actions}
 		}
 		// Reached the iteration ceiling with work still pending — should not
 		// happen in normal flows (a finalize converges in ≤3 iterations). Log so

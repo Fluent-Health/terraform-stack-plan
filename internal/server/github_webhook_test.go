@@ -12,6 +12,8 @@ import (
 	"testing"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/approval"
+	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
+	"github.com/Fluent-Health/terraform-stack-plan/internal/reconcile"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
 
@@ -43,15 +45,25 @@ func TestGitHubWebhookRevokesOnPRClose(t *testing.T) {
 	srv := httptest.NewServer(a.Routes())
 	defer srv.Close()
 
-	gA, _ := fake.RequestGrant(context.Background(), approval.Request{Class: "iam", Target: "proj-a", PR: 7, Environment: "nonprod"})
-	gB, _ := fake.RequestGrant(context.Background(), approval.Request{Class: "iam", Target: "proj-b", PR: 7, Environment: "prod"})
-	// Seed the persisted gate as the reconcile core records it: classified, with
-	// the backend's grant name on each target (the PR-closed transition only
-	// revokes targets carrying a grant name).
-	_ = store.MarkClassified(db, 7, "nonprod")
-	_ = store.MarkClassified(db, 7, "prod")
-	_ = store.UpsertTarget(db, 7, "nonprod", "iam", "proj-a", gA.Name, string(gA.State))
-	_ = store.UpsertTarget(db, 7, "prod", "iam", "proj-b", gB.Name, string(gB.State))
+	// Establish the gate the way the reconcile core records it: drive a finalize
+	// per environment through the shell so the event stream carries the requested
+	// targets + their backend grant names (the PR-closed transition only revokes
+	// targets carrying a grant name). gather replays this stream — seeding flat
+	// gate_targets rows directly is no longer enough.
+	if err := store.UpsertInit(db, events.Init{ID: "e-np", PR: 7, Environment: "nonprod", Repo: "o/r"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpsertInit(db, events.Init{ID: "e-pr", PR: 7, Environment: "prod", Repo: "o/r"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.shell.Handle(context.Background(), 7, "nonprod", "o/r", reconcile.RunnerFinalize{
+		Gates: []events.GateTarget{{Class: "iam", Target: "proj-a"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.shell.Handle(context.Background(), 7, "prod", "o/r", reconcile.RunnerFinalize{
+		Gates: []events.GateTarget{{Class: "iam", Target: "proj-b"}}}); err != nil {
+		t.Fatal(err)
+	}
 
 	payload := map[string]any{
 		"action":       "closed",

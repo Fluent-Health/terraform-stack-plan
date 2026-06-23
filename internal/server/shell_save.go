@@ -6,16 +6,50 @@ import (
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
 
-// save persists a ChangeSet's gate state to gate_targets in one transaction:
-// it marks classified (for any non-NotClassified gate), upserts the desired
-// targets with their grant state + requester, and deletes any persisted target
-// the new state no longer carries (the prune from gap ②). Execution/stack rows
-// are written by the existing runner-event path.
-//
-// Unlike the legacy UpsertTarget, this writes `requester` in the upsert because
-// the lease lives inside the gate state and is always carried forward by Step —
-// so the old ON CONFLICT carve-out (and the clobber bug) is gone.
-func (sh *Shell) save(cs reconcile.ChangeSet) error {
+// persist appends the events Decide produced to the (pr,env) event stream, writes
+// a snapshot of the folded state, then refreshes the gate_targets projection. The
+// event log is the source of truth; gate_targets is a derived index. Append and
+// the projection are not one transaction — safe, because the projection is
+// rebuildable from the log (RebuildProjection) and self-heals on the next gather.
+func (sh *Shell) persist(pr int, env string, expectedVersion int, evs []reconcile.Event, state reconcile.ChangeSet) error {
+	if len(evs) > 0 {
+		stored, err := encodeEvents(evs)
+		if err != nil {
+			return err
+		}
+		streamID := execStreamID(pr, env)
+		if err := sh.app.eventStore.Append(streamID, expectedVersion, stored); err != nil {
+			return err
+		}
+		snap, err := reconcile.MarshalSnapshot(state)
+		if err != nil {
+			return err
+		}
+		if err := sh.app.eventStore.SaveSnapshot(streamID, expectedVersion+len(evs), snap); err != nil {
+			return err
+		}
+	}
+	return sh.project(state)
+}
+
+// RebuildProjection replays (pr,env)'s event stream and rewrites its gate_targets
+// projection from the folded state — the regenerate-a-read-model-from-the-log seam.
+func (sh *Shell) RebuildProjection(pr int, env string) error {
+	state, _, err := sh.loadStream(pr, env)
+	if err != nil {
+		return err
+	}
+	state.PR, state.Environment = pr, env
+	return sh.project(state)
+}
+
+// project writes the gate_targets index + stacks.status overlay derived from the
+// folded gate state. (Relocated verbatim from the old save(): the gate_runs
+// upsert for non-NotClassified gates, the desired-target upsert with requester,
+// the prune of dropped targets via store.TargetsFor/DeleteTarget, and the
+// overlayStatus stacks.status UPDATE. The gate_runs MarkClassified upsert is
+// retained until Task 4 removes the gate-check's IsClassified dependency.)
+func (sh *Shell) project(cs reconcile.ChangeSet) error {
 	tx, err := sh.app.db.Begin()
 	if err != nil {
 		return err

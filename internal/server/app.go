@@ -20,6 +20,7 @@ import (
 	"github.com/Fluent-Health/terraform-stack-plan/internal/approval"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/config"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/jwtutil"
+	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
 
 //go:embed templates/*.gohtml
@@ -80,6 +81,10 @@ type App struct {
 	now func() time.Time
 	// shell is the reconcile engine — the sole path for gate/execution state.
 	shell *Shell
+	// eventStore is the append-only gate event log + snapshot cache. The shell
+	// appends Decide's events here and replays them on gather; gate_targets is a
+	// derived projection.
+	eventStore *store.EventStore
 }
 
 // New builds an App.
@@ -96,6 +101,7 @@ func New(db *sql.DB, gh GitHub, cfg Config) *App {
 		}
 	}
 	a := &App{db: db, gh: gh, cfg: cfg, hub: newHub(), tmpl: tmpl, groupRE: groupRE, now: time.Now}
+	a.eventStore = store.NewEventStore(db)
 	a.shell = NewShell(a)
 	return a
 }
