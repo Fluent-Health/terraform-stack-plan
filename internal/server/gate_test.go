@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/approval"
+	"github.com/Fluent-Health/terraform-stack-plan/internal/codes"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
@@ -313,5 +314,28 @@ func TestApplyTimeReclassifyRecoversStrandedPR(t *testing.T) {
 	a.reconcileGate(context.Background(), 42, "prod")
 	if code := post(t, srv, "/api/gate/check", events.GateCheck{PR: 42, Environment: "prod"}); code != 200 {
 		t.Fatalf("approved gate/check = %d, want 200", code)
+	}
+}
+
+func TestGateCheckNotClassifiedCarriesCode(t *testing.T) {
+	db := newServerTestDB(t)
+	a := New(db, &MockGitHub{}, Config{})
+	rec := httptest.NewRecorder()
+	body, _ := json.Marshal(events.GateCheck{PR: 999, Environment: "nonprod"})
+	req := httptest.NewRequest(http.MethodPost, "/api/gate/check", bytes.NewReader(body))
+	a.handleGateCheck(rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409", rec.Code)
+	}
+	var e struct {
+		Code    string `json:"code"`
+		Message string `json:"message"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &e); err != nil {
+		t.Fatalf("body not JSON: %v (%s)", err, rec.Body.String())
+	}
+	if e.Code != string(codes.GateNotClassified) {
+		t.Fatalf("code = %q, want %q", e.Code, codes.GateNotClassified)
 	}
 }

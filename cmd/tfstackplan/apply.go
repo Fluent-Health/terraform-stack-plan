@@ -159,11 +159,12 @@ func runApply(args []string) int {
 	// 5. Fail-closed gate pre-check. GateCheck no-ops when no server is configured,
 	//    and errors (fail closed) when a configured server is unreachable or the
 	//    gate is unsatisfied.
-	requester, gateErr := client.GateCheck(ctx, events.GateCheck{PR: pr, Environment: env})
-	if gateErr != nil {
-		printGateRejected(os.Stderr, gateErr, client, pr)
+	verdict := client.GateCheck(ctx, events.GateCheck{PR: pr, Environment: env})
+	if !verdict.Allowed() {
+		printGateVerdict(os.Stderr, verdict, pr)
 		return 1
 	}
+	requester := verdict.Requester
 
 	// 6. Optionally run AS the leased requester SA.
 	if *impersonateRequester && requester != "" {
@@ -254,26 +255,20 @@ func gateSummary(gates []events.GateTarget) string {
 	return strings.Join(parts, ", ")
 }
 
-// printGateRejected writes a classified, actionable next-steps message for a
-// fail-closed gate rejection. It distinguishes a not-classified / awaiting-
-// approval gate (→ approve at the live URL, then re-run the tier's apply) from a
-// degraded/unreachable serve (→ break-glass local apply) from a generic
-// gate-not-satisfied. The live URL + PR are included so the operator has a
-// one-click path.
-func printGateRejected(w io.Writer, gateErr error, client *runner.Client, pr int) {
-	msg := gateErr.Error()
+// printGateVerdict writes actionable next-steps for a fail-closed gate
+// rejection, selected by the typed verdict (no error-string matching).
+func printGateVerdict(w io.Writer, v runner.GateVerdict, pr int) {
 	server := os.Getenv(runner.EnvServer)
-	fmt.Fprintln(w, "tfstackplan run apply: refusing to apply —", gateErr)
-	switch {
-	case strings.Contains(msg, "not classified") || strings.Contains(msg, "409") ||
-		strings.Contains(msg, "AWAITING") || strings.Contains(msg, "awaiting"):
+	fmt.Fprintln(w, "tfstackplan run apply: refusing to apply —", v.Err)
+	switch v.Kind {
+	case runner.VerdictNotClassified, runner.VerdictNotSatisfied:
 		fmt.Fprintf(w, "  state: AWAITING_APPROVAL — the PR's approval grant(s) are not yet active.\n")
 		if server != "" {
 			fmt.Fprintf(w, "  next: approve the grant(s) at %s (PR #%d), then re-run this tier's apply.\n", server, pr)
 		} else {
 			fmt.Fprintf(w, "  next: approve the grant(s) for PR #%d, then re-run this tier's apply.\n", pr)
 		}
-	case isUnreachable(msg):
+	case runner.VerdictUnconfirmable, runner.VerdictUnreachable:
 		fmt.Fprintf(w, "  state: GATE_UNREACHABLE — the approval server is degraded/unreachable.\n")
 		fmt.Fprintf(w, "  next: see the break-glass local-apply runbook in docs/ci-cd.md.\n")
 	default:
@@ -282,16 +277,4 @@ func printGateRejected(w io.Writer, gateErr error, client *runner.Client, pr int
 			fmt.Fprintf(w, "  next: review the gate at %s (PR #%d), then re-run this tier's apply.\n", server, pr)
 		}
 	}
-}
-
-// isUnreachable heuristically classifies a gate error as a transport/5xx failure
-// (serve down) rather than a 409 not-classified / unapproved gate.
-func isUnreachable(msg string) bool {
-	for _, m := range []string{"connection refused", "no such host", "timeout", "Timeout", "EOF",
-		": 500:", ": 502:", ": 503:", ": 504:", "context deadline exceeded"} {
-		if strings.Contains(msg, m) {
-			return true
-		}
-	}
-	return false
 }

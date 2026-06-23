@@ -541,6 +541,17 @@ the budget entirely.
   HCL diagnostic (file:line). Regexes are compiled once at config load so a bad
   pattern fails fast.
 - Unknown preset name → fail at config load, listing available presets.
+- **Apply gate-check outcomes are typed values, not stringly errors.** The
+  server stamps a stable, machine-readable `code` (`internal/codes`, e.g.
+  `GATE-001` not-classified, `GATE-002` not-satisfied, `GATE-003` unconfirmable)
+  on every gate-check response body; HTTP statuses are unchanged. The runner's
+  `GateCheck` maps (transport failure | status | code) into a typed
+  `runner.GateVerdict` (`Satisfied`/`NotClassified`/`NotSatisfied`/
+  `Unconfirmable`/`Unreachable`) that `run apply` switches on — `Allowed()` is
+  true only for `Satisfied`, so an unknown code or an unreachable server fails
+  closed. This replaced the prior error-substring matching. The `codes` registry
+  is the first step of the target architecture's tagged-error model; it grows as
+  later phases convert more boundaries.
 
 ## Testing strategy
 

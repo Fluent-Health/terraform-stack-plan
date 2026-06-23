@@ -77,6 +77,39 @@ func (c *Client) do(ctx context.Context, path string, payload any) (*http.Respon
 	return resp, nil
 }
 
+// doRaw sends the same authed JSON POST as do, but returns the HTTP status and
+// body for ANY response, erroring only on a transport failure. Callers that
+// must distinguish status/code (the fail-closed gate check) use this instead of
+// do's non-2xx-collapsing behavior.
+func (c *Client) doRaw(ctx context.Context, path string, payload any) (int, []byte, error) {
+	b, err := json.Marshal(payload)
+	if err != nil {
+		return 0, nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+path, bytes.NewReader(b))
+	if err != nil {
+		return 0, nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if c.secret != "" {
+		tok, err := jwtutil.Make(c.secret, "runner", "api", time.Hour)
+		if err != nil {
+			return 0, nil, fmt.Errorf("api jwt: %w", err)
+		}
+		req.Header.Set("Authorization", "Bearer "+tok)
+	}
+	resp, err := c.hc.Do(req)
+	if err != nil {
+		return 0, nil, fmt.Errorf("post %s: %w", path, err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return resp.StatusCode, nil, fmt.Errorf("post %s: read body: %w", path, err)
+	}
+	return resp.StatusCode, body, nil
+}
+
 // post sends a JSON POST with bearer auth. A no-op (nil) when disabled. Returns
 // an error on transport failure or any non-2xx status; best-effort callers
 // ignore it, the gate check honors it.
