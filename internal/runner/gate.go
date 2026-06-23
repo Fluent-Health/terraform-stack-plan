@@ -2,24 +2,69 @@ package runner
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
+	"github.com/Fluent-Health/terraform-stack-plan/internal/codes"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 )
 
-// GateCheck is the apply-time, fail-closed gate pre-check. Returns the leased
-// requester SA (when the server reports one) so the caller can impersonate it.
-// No server ⇒ ("", nil) — nothing gates. A 409, any other non-2xx, or an
-// unreachable configured server ⇒ error (apply blocks).
-func (c *Client) GateCheck(ctx context.Context, g events.GateCheck) (string, error) {
+// VerdictKind is the typed outcome of the apply-time gate pre-check.
+type VerdictKind int
+
+const (
+	VerdictSatisfied     VerdictKind = iota // apply may proceed (incl. "no server / nothing gates")
+	VerdictNotClassified                    // the PR never finalized a plan
+	VerdictNotSatisfied                     // a required grant is not yet active (or an unknown blocking code)
+	VerdictUnconfirmable                    // gate state could not be freshly confirmed
+	VerdictUnreachable                      // the approval server itself is unreachable
+)
+
+// GateVerdict is the typed result of GateCheck. It replaces error-string
+// matching: callers switch on Kind. Fail-closed by construction — Allowed() is
+// true only for VerdictSatisfied.
+type GateVerdict struct {
+	Kind      VerdictKind
+	Requester string     // leased SA to impersonate; set only when Satisfied
+	Code      codes.Code // server-reported code on a non-2xx (empty otherwise)
+	Err       error      // underlying error, for logging
+}
+
+// Allowed reports whether the apply may proceed.
+func (v GateVerdict) Allowed() bool { return v.Kind == VerdictSatisfied }
+
+// GateCheck is the apply-time, fail-closed gate pre-check. No server configured
+// ⇒ Satisfied (nothing gates). A transport failure ⇒ Unreachable. A non-2xx ⇒
+// the verdict named by the response code (an unknown code fails closed as
+// NotSatisfied). 200 ⇒ Satisfied with the leased requester.
+func (c *Client) GateCheck(ctx context.Context, g events.GateCheck) GateVerdict {
 	if !c.Enabled() {
-		return "", nil
+		return GateVerdict{Kind: VerdictSatisfied}
 	}
-	var res struct {
-		Requester string `json:"requester"`
+	status, body, err := c.doRaw(ctx, "/api/gate/check", g)
+	if err != nil {
+		return GateVerdict{Kind: VerdictUnreachable, Err: err}
 	}
-	if err := c.postInto(ctx, "/api/gate/check", g, &res); err != nil {
-		return "", fmt.Errorf("apply gate not satisfied (fail-closed): %w", err)
+	if status/100 == 2 {
+		var res struct {
+			Requester string `json:"requester"`
+		}
+		_ = json.Unmarshal(body, &res)
+		return GateVerdict{Kind: VerdictSatisfied, Requester: res.Requester}
 	}
-	return res.Requester, nil
+	var e struct {
+		Code    string `json:"code"`
+		Message string `json:"message"`
+	}
+	_ = json.Unmarshal(body, &e)
+	v := GateVerdict{Code: codes.Code(e.Code), Err: fmt.Errorf("gate check: %d: %s", status, e.Message)}
+	switch codes.Code(e.Code) {
+	case codes.GateNotClassified:
+		v.Kind = VerdictNotClassified
+	case codes.GateUnconfirmable:
+		v.Kind = VerdictUnconfirmable
+	default: // GateNotSatisfied AND any unknown/blank code → fail closed
+		v.Kind = VerdictNotSatisfied
+	}
+	return v
 }

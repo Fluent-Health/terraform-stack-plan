@@ -2,6 +2,7 @@ package runner
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -9,95 +10,58 @@ import (
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 )
 
-func TestGateCheckSatisfied(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/gate/check" {
-			t.Errorf("path = %s", r.URL.Path)
-		}
-		w.WriteHeader(200)
-	}))
-	defer srv.Close()
-	c := NewClient(srv.URL, "s")
-	if _, err := c.GateCheck(context.Background(), events.GateCheck{PR: 7, Environment: "staging"}); err != nil {
-		t.Errorf("satisfied gate = %v, want nil", err)
+func TestGateCheckVerdicts(t *testing.T) {
+	cases := []struct {
+		name     string
+		status   int
+		body     string
+		wantKind VerdictKind
+		wantReq  string
+	}{
+		{"satisfied", 200, `{"requester":"sa@x"}`, VerdictSatisfied, "sa@x"},
+		{"not-classified", 409, `{"code":"GATE-001","message":"not classified"}`, VerdictNotClassified, ""},
+		{"not-satisfied", 409, `{"code":"GATE-002","message":"gate not satisfied"}`, VerdictNotSatisfied, ""},
+		{"unconfirmable", 503, `{"code":"GATE-003","message":"x"}`, VerdictUnconfirmable, ""},
+		{"unknown-code-fails-closed", 409, `{"code":"ZZZ-999","message":"x"}`, VerdictNotSatisfied, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(tc.status)
+				io.WriteString(w, tc.body)
+			}))
+			defer srv.Close()
+			c := NewClient(srv.URL, "")
+			v := c.GateCheck(context.Background(), events.GateCheck{PR: 1, Environment: "nonprod"})
+			if v.Kind != tc.wantKind {
+				t.Fatalf("kind = %v, want %v", v.Kind, tc.wantKind)
+			}
+			if v.Requester != tc.wantReq {
+				t.Fatalf("requester = %q, want %q", v.Requester, tc.wantReq)
+			}
+			if v.Allowed() != (tc.wantKind == VerdictSatisfied) {
+				t.Fatalf("Allowed() = %v for kind %v", v.Allowed(), tc.wantKind)
+			}
+		})
 	}
 }
 
-func TestGateCheckUnsatisfiedFailsClosed(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.Error(w, "gate not satisfied", http.StatusConflict)
-	}))
-	defer srv.Close()
-	c := NewClient(srv.URL, "s")
-	if _, err := c.GateCheck(context.Background(), events.GateCheck{PR: 7, Environment: "staging"}); err == nil {
-		t.Error("409 must fail closed (error)")
+func TestGateCheckUnreachableIsFailClosed(t *testing.T) {
+	c := NewClient("http://127.0.0.1:1", "") // nothing listening
+	v := c.GateCheck(context.Background(), events.GateCheck{PR: 1, Environment: "nonprod"})
+	if v.Kind != VerdictUnreachable {
+		t.Fatalf("kind = %v, want VerdictUnreachable", v.Kind)
+	}
+	if v.Allowed() {
+		t.Fatal("unreachable verdict must not be Allowed()")
 	}
 }
 
-func TestGateCheckOfflineIsNoop(t *testing.T) {
-	c := NewClient("", "")
-	if _, err := c.GateCheck(context.Background(), events.GateCheck{PR: 7, Environment: "staging"}); err != nil {
-		t.Errorf("offline gate check = %v, want nil", err)
-	}
-}
-
-// TestGateCheckReturnsRequester verifies that a 200 response with a JSON body
-// {"requester": "poolA@x"} is decoded and returned as the first return value.
-func TestGateCheckReturnsRequester(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(200)
-		_, _ = w.Write([]byte(`{"requester":"poolA@x"}`))
-	}))
-	defer srv.Close()
-	c := NewClient(srv.URL, "s")
-	requester, err := c.GateCheck(context.Background(), events.GateCheck{PR: 7, Environment: "staging"})
-	if err != nil {
-		t.Fatalf("GateCheck error = %v, want nil", err)
-	}
-	if requester != "poolA@x" {
-		t.Errorf("requester = %q, want poolA@x", requester)
-	}
-}
-
-// TestGateCheckOfflineReturnsEmptyRequester verifies that when no server is
-// configured, GateCheck returns ("", nil) and makes no HTTP call.
-func TestGateCheckOfflineReturnsEmptyRequester(t *testing.T) {
-	// Point at a server that would fail the test if hit.
-	hit := false
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		hit = true
-		w.WriteHeader(200)
-	}))
-	defer srv.Close()
-
-	// Offline client: empty baseURL, NOT pointing at srv.
-	c := NewClient("", "")
-	requester, err := c.GateCheck(context.Background(), events.GateCheck{PR: 7, Environment: "staging"})
-	if err != nil {
-		t.Errorf("offline GateCheck error = %v, want nil", err)
-	}
-	if requester != "" {
-		t.Errorf("offline requester = %q, want empty", requester)
-	}
-	if hit {
-		t.Error("offline GateCheck must not make an HTTP call")
-	}
-}
-
-// TestGateCheckConflictReturnsEmptyRequester verifies that a 409 response
-// returns ("", err) — requester is empty and error is non-nil.
-func TestGateCheckConflictReturnsEmptyRequester(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.Error(w, "gate not satisfied", http.StatusConflict)
-	}))
-	defer srv.Close()
-	c := NewClient(srv.URL, "s")
-	requester, err := c.GateCheck(context.Background(), events.GateCheck{PR: 7, Environment: "staging"})
-	if err == nil {
-		t.Error("409 must return an error")
-	}
-	if requester != "" {
-		t.Errorf("requester on 409 = %q, want empty", requester)
+func TestGateCheckDisabledClientIsSatisfied(t *testing.T) {
+	c := NewClient("", "") // no server configured ⇒ nothing gates
+	v := c.GateCheck(context.Background(), events.GateCheck{PR: 1, Environment: "nonprod"})
+	if !v.Allowed() {
+		t.Fatal("disabled client must be Allowed() (nothing gates)")
 	}
 }
