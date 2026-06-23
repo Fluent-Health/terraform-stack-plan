@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -23,6 +24,11 @@ func TestGatedLifecycleE2E(t *testing.T) {
 	gh := &MockGitHub{
 		CreateCheckRunFn: func(ctx context.Context, repo, sha, env, url string) (int64, error) { return 1, nil },
 		UpdateCheckRunFn: func(ctx context.Context, repo string, id int64, u CheckRunUpdate) error {
+			// Ignore the apply-lock/<env> check (always-on); this test asserts on the
+			// plan/<env> gate check-run conclusion only.
+			if strings.HasPrefix(u.Title, "apply-lock") {
+				return nil
+			}
 			if u.Conclusion != "" {
 				mu.Lock()
 				concl = u.Conclusion

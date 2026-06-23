@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -125,6 +126,10 @@ func TestFinalizeCleanPlanConcludesSuccess(t *testing.T) {
 	gh := &MockGitHub{
 		CreateCheckRunFn: func(ctx context.Context, repo, sha, env, url string) (int64, error) { return 1, nil },
 		UpdateCheckRunFn: func(ctx context.Context, repo string, id int64, u CheckRunUpdate) error {
+			// Ignore the always-on apply-lock/<env> check; assert on the gate check only.
+			if strings.HasPrefix(u.Title, "apply-lock") {
+				return nil
+			}
 			mu.Lock()
 			concl = u.Conclusion
 			mu.Unlock()
@@ -156,6 +161,10 @@ func TestFinalizeGatedPlanConcludesActionRequired(t *testing.T) {
 	gh := &MockGitHub{
 		CreateCheckRunFn: func(ctx context.Context, repo, sha, env, url string) (int64, error) { return 1, nil },
 		UpdateCheckRunFn: func(ctx context.Context, repo string, id int64, u CheckRunUpdate) error {
+			// Ignore the always-on apply-lock/<env> check; assert on the gate check only.
+			if strings.HasPrefix(u.Title, "apply-lock") {
+				return nil
+			}
 			mu.Lock()
 			concl = u.Conclusion
 			mu.Unlock()

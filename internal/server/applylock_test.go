@@ -95,14 +95,6 @@ func TestClaimsEndpoints(t *testing.T) {
 	if len(got2) != 0 {
 		t.Fatalf("after pr-level release: %+v", got2)
 	}
-	// disabled app: adminReleaseClaims is a no-op
-	a2 := New(newServerTestDB(t), &recordingGitHub{}, Config{ApplyLock: false})
-	_ = store.ClaimStacks(a2.db, "prod", 7, "", []string{"x"}, time.Now().Add(time.Hour))
-	a2.adminReleaseClaims(ctx(), "prod", 7, "x")
-	got3, _ := store.ListClaims(a2.db, "prod")
-	if len(got3) != 1 {
-		t.Fatalf("disabled: claim should be untouched, got %+v", got3)
-	}
 }
 
 func TestPostApplyLock(t *testing.T) {
