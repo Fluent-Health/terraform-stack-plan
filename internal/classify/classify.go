@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 
+	"github.com/Fluent-Health/terraform-stack-plan/internal/domain"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/plan"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/statemoves"
 )
@@ -38,14 +39,9 @@ type Derivation struct {
 	Pattern       *regexp.Regexp // capture group (named "value", else group 1) yields the value
 }
 
-// Category is one matched rule's outcome: its name, icon, and — for the rule's
-// EmitAttributes — the sorted-unique non-null values across the changes it
-// matched. Attributes is nil when nothing was emitted.
-type Category struct {
-	Name       string
-	Icon       string
-	Attributes map[string][]string
-}
+// Category is one matched rule's outcome. Alias of the canonical domain type;
+// see internal/domain for the field/JSON contract.
+type Category = domain.Category
 
 // Classify returns a Category for every rule that matches enough changes, in
 // rule order. The slice is empty when no rule fires — the caller supplies the
