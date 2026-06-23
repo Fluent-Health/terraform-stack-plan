@@ -11,9 +11,9 @@ import (
 )
 
 // Shell is the imperative shell around the pure reconcile core. It gathers a
-// scoped World per signal, runs reconcile.Step to a fixpoint, executes the
-// resulting Actions, and persists the new ChangeSet — serialized per
-// (pr, environment).
+// World by replaying the event stream, runs Decide to produce events, folds
+// them via Evolve, persists (appends events + snapshot + projects), and executes
+// the React actions — serialized per (pr, environment).
 type Shell struct {
 	app *App // back-reference for store/Approval/gh/checkrun access
 
@@ -49,9 +49,10 @@ func (sh *Shell) withLock(_ context.Context, pr int, env string, fn func()) {
 	fn()
 }
 
-// Handle processes one signal for (pr, env) to a fixpoint: gather → Step →
-// save → execute → feed results back, repeating while RequestGrant actions
-// yield new observations. Serialized per (pr, env). maxIters guards the loop.
+// Handle processes one signal for (pr, env) to a fixpoint: gather (replay) →
+// Decide → persist (append+snapshot+project) → React → execute, repeating while
+// RequestGrant actions yield new observations. Serialized per (pr, env). maxIters
+// guards the loop.
 func (sh *Shell) Handle(ctx context.Context, pr int, env, repo string, sig reconcile.Signal) error {
 	const maxIters = 16
 	var outerErr error
@@ -90,9 +91,9 @@ func (sh *Shell) Handle(ctx context.Context, pr int, env, repo string, sig recon
 }
 
 // tick builds a full grant re-list for the changeset's stored targets and runs
-// it through Step as a GateTick (which folds states, promotes to Satisfied,
-// downgrades vanished grants, and drives the check run). Used by the
-// reconcile-loop and the apply-time gate pre-check in reconciler-core mode.
+// it as a GateTick (which folds states, promotes to Satisfied, downgrades
+// vanished grants, and drives the check run). Used by the reconcile-loop and
+// the apply-time gate pre-check.
 func (sh *Shell) tick(ctx context.Context, pr int, env string) error {
 	targets, err := store.TargetsFor(sh.app.db, pr, env)
 	if err != nil {

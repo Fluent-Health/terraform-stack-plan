@@ -7,7 +7,7 @@ import (
 
 // MarshalEvent serializes a domain Event to a neutral (typeTag, JSON) pair. The
 // tag is the variant's Go type name; the data is its JSON. Neutral types only —
-// no store dependency. Keep this switch and decodeEvent in sync with the Event
+// no store dependency. Keep this switch and UnmarshalEvent in sync with the Event
 // variants in event.go (the round-trip-every-variant test enforces it).
 func MarshalEvent(e Event) (string, []byte, error) {
 	tag := eventTag(e)
