@@ -58,7 +58,6 @@ class "destructive" {
 serve {
   db_path         = "/data/tfstackplan.db"      # SQLite store (WAL; single writer)
   public_base_url = "https://tfstackplan.example.com"
-  use_checks      = true                        # rich GitHub check runs (else commit statuses)
 
   # Env var NAME holding the bearer secret for /api/* (not the secret itself).
   # An empty/unset secret disables auth (local/dev only).
