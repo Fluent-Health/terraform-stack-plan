@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/approval"
+	"github.com/Fluent-Health/terraform-stack-plan/internal/codes"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/reconcile"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
@@ -63,6 +64,15 @@ func (a *App) reconcilePending(ctx context.Context) {
 	}
 }
 
+// codedError writes a stable {code,message} JSON error with the given status.
+// HTTP status carries the coarse class; the code is the precise, machine-
+// readable condition the runner switches on.
+func codedError(w http.ResponseWriter, status int, code codes.Code, msg string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(map[string]string{"code": string(code), "message": msg})
+}
+
 // handleGateCheck is the apply-time, fail-closed gate pre-check: 200 only when
 // the (pr, environment) was classified AND every recorded gate target is ACTIVE
 // (a classified plan with no gates passes). A never-planned PR, an unsatisfied
@@ -76,27 +86,27 @@ func (a *App) handleGateCheck(w http.ResponseWriter, r *http.Request) {
 	}
 	classified, err := store.IsClassified(a.db, p.PR, p.Environment)
 	if err != nil {
-		http.Error(w, "classified check", http.StatusInternalServerError)
+		codedError(w, http.StatusInternalServerError, codes.Internal, "classified check failed")
 		return
 	}
 	if !classified {
-		http.Error(w, "not classified", http.StatusConflict)
+		codedError(w, http.StatusConflict, codes.GateNotClassified, "not classified")
 		return
 	}
 	if err := a.reconcileGate(r.Context(), p.PR, p.Environment); err != nil {
 		// Could not freshly confirm the gate (e.g. PAM unreachable). Fail closed —
 		// never authorize apply from a possibly-stale cache. 503 = transient/retriable.
-		http.Error(w, "gate state could not be confirmed", http.StatusServiceUnavailable)
+		codedError(w, http.StatusServiceUnavailable, codes.GateUnconfirmable, "gate state could not be confirmed")
 		return
 	}
 	targets, err := store.TargetsFor(a.db, p.PR, p.Environment)
 	if err != nil {
-		http.Error(w, "load targets", http.StatusInternalServerError)
+		codedError(w, http.StatusInternalServerError, codes.Internal, "load targets failed")
 		return
 	}
 	for _, t := range targets {
 		if t.State != string(approval.StateActive) {
-			http.Error(w, "gate not satisfied", http.StatusConflict)
+			codedError(w, http.StatusConflict, codes.GateNotSatisfied, "gate not satisfied")
 			return
 		}
 	}
