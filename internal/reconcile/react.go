@@ -7,9 +7,13 @@ func React(state ChangeSet, evs []Event) []Action {
 	var actions []Action
 	present := false // any presentation-bearing event seen
 	for _, e := range evs {
-		switch e.(type) {
+		switch ev := e.(type) {
 		case ExecutionStarted, PhaseChanged, StackStatusChanged:
 			present = true
+		case ClaimReleased:
+			actions = append(actions, ReleaseClaim{PR: ev.PR, Environment: ev.Environment})
+		case TargetRevoked:
+			actions = append(actions, RevokeGrant{Class: ev.Class, Target: ev.Target, PR: ev.PR, Environment: ev.Env})
 		}
 	}
 	if present {

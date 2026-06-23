@@ -10,6 +10,18 @@ func Decide(state ChangeSet, s Signal) []Event {
 		return []Event{PhaseChanged{Phase: sig.Phase}}
 	case RunnerUpdate:
 		return []Event{StackStatusChanged{Stack: sig.Stack, Status: sig.Status, Detail: sig.Detail}}
+	case ApplySucceeded:
+		if _, ok := state.Gate.(NotClassified); ok {
+			return nil
+		}
+		evs := []Event{ClaimReleased{PR: state.PR, Environment: state.Environment}}
+		for _, t := range gateTargets(state.Gate) {
+			if t.GrantName == "" {
+				continue
+			}
+			evs = append(evs, TargetRevoked{Class: t.Class, Target: t.Target, PR: state.PR, Env: state.Environment})
+		}
+		return append(evs, GateReleased{})
 	default:
 		return nil
 	}

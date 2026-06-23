@@ -14,7 +14,7 @@ func Step(w World, s Signal) (ChangeSet, []Action) {
 	cs := w.Prior
 	switch sig := s.(type) {
 	case ApplySucceeded:
-		return stepApplySucceeded(cs)
+		return runDecider(cs, sig)
 	case RunnerInit:
 		return runDecider(cs, sig)
 	case RunnerPhase:

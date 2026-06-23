@@ -14,3 +14,19 @@ func TestReactExecEventsRenderNonTerminalAndSSE(t *testing.T) {
 		}
 	}
 }
+
+func TestReactApplyCleanupNoPresentation(t *testing.T) {
+	evs := []Event{
+		ClaimReleased{PR: 7, Environment: "nonprod"},
+		TargetRevoked{Class: "c", Target: "t", PR: 7, Env: "nonprod"},
+		GateReleased{},
+	}
+	got := React(ChangeSet{}, evs)
+	want := []Action{
+		ReleaseClaim{PR: 7, Environment: "nonprod"},
+		RevokeGrant{Class: "c", Target: "t", PR: 7, Environment: "nonprod"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %#v want %#v (no Render/SSE expected)", got, want)
+	}
+}
