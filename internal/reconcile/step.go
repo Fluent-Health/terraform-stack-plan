@@ -28,7 +28,7 @@ func Step(w World, s Signal) (ChangeSet, []Action) {
 	case GateTick:
 		return stepObserve(cs, sig.Grants, true)
 	case PRClosed:
-		return stepPRClosed(cs)
+		return runDecider(cs, sig)
 	default:
 		_ = sig
 		return cs, nil

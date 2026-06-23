@@ -30,3 +30,19 @@ func TestReactApplyCleanupNoPresentation(t *testing.T) {
 		t.Fatalf("got %#v want %#v (no Render/SSE expected)", got, want)
 	}
 }
+
+func TestReactPRClosedSSEOnly(t *testing.T) {
+	evs := []Event{
+		TargetRevoked{Class: "c", Target: "t", PR: 7, Env: "nonprod"},
+		PRClosedRecorded{},
+		GateBlocked{Reason: ReasonRevoked},
+	}
+	got := React(ChangeSet{Gate: Blocked{}}, evs)
+	want := []Action{
+		RevokeGrant{Class: "c", Target: "t", PR: 7, Environment: "nonprod"},
+		PublishSSE{},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %#v want %#v", got, want)
+	}
+}

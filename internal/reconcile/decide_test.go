@@ -51,3 +51,24 @@ func TestDecideApplySucceededReleasesClaimAndRevokesGrants(t *testing.T) {
 		t.Fatalf("got %#v want %#v", got, want)
 	}
 }
+
+func TestDecidePRClosedNoTargetsNoEvents(t *testing.T) {
+	if got := Decide(ChangeSet{Gate: Clean{}}, PRClosed{}); len(got) != 0 {
+		t.Fatalf("want none, got %#v", got)
+	}
+}
+
+func TestDecidePRClosedRevokesAndBlocks(t *testing.T) {
+	cs := ChangeSet{PR: 7, Environment: "nonprod", Gate: Pending{
+		Targets: []Target{{Class: "c", Target: "t", GrantName: "g1", Grant: approval.StateActive}},
+	}}
+	got := Decide(cs, PRClosed{})
+	want := []Event{
+		TargetRevoked{Class: "c", Target: "t", PR: 7, Env: "nonprod"},
+		PRClosedRecorded{},
+		GateBlocked{Reason: ReasonRevoked},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %#v want %#v", got, want)
+	}
+}
