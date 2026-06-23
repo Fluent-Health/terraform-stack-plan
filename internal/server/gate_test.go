@@ -40,7 +40,7 @@ func newGatedExecution(t *testing.T, srv *httptest.Server) {
 func TestFinalizeRequestsGrants(t *testing.T) {
 	db := newServerTestDB(t)
 	fake := approval.NewFake()
-	a := New(db, &MockGitHub{}, Config{UseChecks: true})
+	a := New(db, &MockGitHub{}, Config{})
 	a.Approval = fake
 	srv := httptest.NewServer(a.Routes())
 	defer srv.Close()
@@ -70,7 +70,7 @@ func TestReconcileGateFlipsActiveOnApproval(t *testing.T) {
 			return nil
 		},
 	}
-	a := New(db, gh, Config{UseChecks: true})
+	a := New(db, gh, Config{})
 	a.Approval = fake
 	srv := httptest.NewServer(a.Routes())
 	defer srv.Close()
@@ -112,7 +112,7 @@ func TestLatestExecutionID(t *testing.T) {
 func TestGateCheckFailClosed(t *testing.T) {
 	db := newServerTestDB(t)
 	fake := approval.NewFake()
-	a := New(db, &MockGitHub{}, Config{UseChecks: true})
+	a := New(db, &MockGitHub{}, Config{})
 	a.Approval = fake
 	srv := httptest.NewServer(a.Routes())
 	defer srv.Close()
@@ -150,7 +150,7 @@ func TestGateCheckCleanPlanPasses(t *testing.T) {
 func TestGateRevoke(t *testing.T) {
 	db := newServerTestDB(t)
 	fake := approval.NewFake()
-	a := New(db, &MockGitHub{}, Config{UseChecks: true})
+	a := New(db, &MockGitHub{}, Config{})
 	a.Approval = fake
 	srv := httptest.NewServer(a.Routes())
 	defer srv.Close()
@@ -172,7 +172,7 @@ func TestGateCheckReturnsRequester(t *testing.T) {
 	db := newServerTestDB(t)
 	fake := approval.NewFake()
 	fake.Pool = []string{"sa0@project.iam.gserviceaccount.com"}
-	a := New(db, &MockGitHub{}, Config{UseChecks: true})
+	a := New(db, &MockGitHub{}, Config{})
 	a.Approval = fake
 	srv := httptest.NewServer(a.Routes())
 	defer srv.Close()
@@ -227,53 +227,45 @@ func TestRevokeOrphansRevokesAcrossEnvironments(t *testing.T) {
 // after the serve DB has no record of a merged PR's classification (e.g. an
 // ephemeral-state restart wiped it), a fresh apply execution that re-sends
 // Init + Finalize{Gates} keyed to the same (pr, env) re-establishes the gate —
-// gate/check 409s before approval, 200 after — in BOTH legacy and reconciler-core
-// modes. This is exactly what run apply's classify pass relies on.
+// gate/check 409s before approval, 200 after. This is exactly what run apply's
+// classify pass relies on.
 func TestApplyTimeReclassifyRecoversStrandedPR(t *testing.T) {
-	for _, reconcilerCore := range []bool{false, true} {
-		name := "legacy"
-		if reconcilerCore {
-			name = "reconciler_core"
-		}
-		t.Run(name, func(t *testing.T) {
-			db := newServerTestDB(t)
-			fake := approval.NewFake()
-			fake.Pool = []string{"sa0@x"}
-			a := New(db, &MockGitHub{
-				CreateCheckRunFn: func(_ context.Context, _, _, _, _ string) (int64, error) { return 1, nil },
-				UpdateCheckRunFn: func(_ context.Context, _ string, _ int64, _ CheckRunUpdate) error { return nil },
-			}, Config{UseChecks: true, ReconcilerCore: reconcilerCore})
-			a.Approval = fake
-			srv := httptest.NewServer(a.Routes())
-			defer srv.Close()
+	db := newServerTestDB(t)
+	fake := approval.NewFake()
+	fake.Pool = []string{"sa0@x"}
+	a := New(db, &MockGitHub{
+		CreateCheckRunFn: func(_ context.Context, _, _, _, _ string) (int64, error) { return 1, nil },
+		UpdateCheckRunFn: func(_ context.Context, _ string, _ int64, _ CheckRunUpdate) error { return nil },
+	}, Config{})
+	a.Approval = fake
+	srv := httptest.NewServer(a.Routes())
+	defer srv.Close()
 
-			// Fresh DB: nothing classified yet → gate/check fails closed.
-			if code := post(t, srv, "/api/gate/check", events.GateCheck{PR: 42, Environment: "prod"}); code != 409 {
-				t.Fatalf("pre-classify gate/check = %d, want 409", code)
-			}
+	// Fresh DB: nothing classified yet → gate/check fails closed.
+	if code := post(t, srv, "/api/gate/check", events.GateCheck{PR: 42, Environment: "prod"}); code != 409 {
+		t.Fatalf("pre-classify gate/check = %d, want 409", code)
+	}
 
-			// Apply-time classify pass: a new apply execution (distinct id) submits
-			// Init + Finalize{Gates} keyed to the same (pr, env).
-			post(t, srv, "/api/init", events.Init{ID: "apply-1", Repo: "o/r", SHA: "sha", PR: 42, Environment: "prod",
-				Context: "apply/prod", Stacks: []events.StackState{{Path: "stacks/a", Project: "proj-a", Status: events.StatusPending}}})
-			post(t, srv, "/api/finalize", events.Finalize{ID: "apply-1",
-				Gates: []events.GateTarget{{Class: "iam", Target: "proj-a"}}})
+	// Apply-time classify pass: a new apply execution (distinct id) submits
+	// Init + Finalize{Gates} keyed to the same (pr, env).
+	post(t, srv, "/api/init", events.Init{ID: "apply-1", Repo: "o/r", SHA: "sha", PR: 42, Environment: "prod",
+		Context: "apply/prod", Stacks: []events.StackState{{Path: "stacks/a", Project: "proj-a", Status: events.StatusPending}}})
+	post(t, srv, "/api/finalize", events.Finalize{ID: "apply-1",
+		Gates: []events.GateTarget{{Class: "iam", Target: "proj-a"}}})
 
-			// The gate is now classified with a requested grant, still closed.
-			ts, _ := store.TargetsFor(db, 42, "prod")
-			if len(ts) != 1 || ts[0].Target != "proj-a" || ts[0].GrantName == "" {
-				t.Fatalf("targets after re-classify = %+v, want one with a grant name", ts)
-			}
-			if code := post(t, srv, "/api/gate/check", events.GateCheck{PR: 42, Environment: "prod"}); code != 409 {
-				t.Fatalf("post-classify pre-approval gate/check = %d, want 409", code)
-			}
+	// The gate is now classified with a requested grant, still closed.
+	ts, _ := store.TargetsFor(db, 42, "prod")
+	if len(ts) != 1 || ts[0].Target != "proj-a" || ts[0].GrantName == "" {
+		t.Fatalf("targets after re-classify = %+v, want one with a grant name", ts)
+	}
+	if code := post(t, srv, "/api/gate/check", events.GateCheck{PR: 42, Environment: "prod"}); code != 409 {
+		t.Fatalf("post-classify pre-approval gate/check = %d, want 409", code)
+	}
 
-			// Approve → reconcile → gate opens.
-			fake.Approve(approval.Request{Class: "iam", Target: "proj-a", PR: 42, Environment: "prod"})
-			a.reconcileGate(context.Background(), 42, "prod")
-			if code := post(t, srv, "/api/gate/check", events.GateCheck{PR: 42, Environment: "prod"}); code != 200 {
-				t.Fatalf("approved gate/check = %d, want 200", code)
-			}
-		})
+	// Approve → reconcile → gate opens.
+	fake.Approve(approval.Request{Class: "iam", Target: "proj-a", PR: 42, Environment: "prod"})
+	a.reconcileGate(context.Background(), 42, "prod")
+	if code := post(t, srv, "/api/gate/check", events.GateCheck{PR: 42, Environment: "prod"}); code != 200 {
+		t.Fatalf("approved gate/check = %d, want 200", code)
 	}
 }

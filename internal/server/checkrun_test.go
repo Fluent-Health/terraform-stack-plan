@@ -27,7 +27,7 @@ func TestPlanCheckRunSummaryAndTitle(t *testing.T) {
 			return nil
 		},
 	}
-	a := New(db, gh, Config{UseChecks: true, PublicBaseURL: "https://serve.example"})
+	a := New(db, gh, Config{PublicBaseURL: "https://serve.example"})
 
 	initBody, _ := json.Marshal(events.Init{
 		ID: "plan-1", Repo: "o/r", SHA: "abc", PR: 3, Environment: "nonprod",

@@ -14,7 +14,7 @@ import (
 func newReconcilerApplyLockApp(t *testing.T) (*App, *httptest.Server) {
 	t.Helper()
 	db := newServerTestDB(t)
-	a := New(db, &recordingGitHub{}, Config{ApplyLock: true, ReconcilerCore: true, PublicBaseURL: "https://srv"})
+	a := New(db, &recordingGitHub{}, Config{PublicBaseURL: "https://srv"})
 	srv := httptest.NewServer(a.Routes())
 	t.Cleanup(srv.Close)
 	return a, srv

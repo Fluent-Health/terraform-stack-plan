@@ -27,7 +27,7 @@ func TestApplyInitCreatesApplyCheckRun(t *testing.T) {
 			return 42, nil
 		},
 	}
-	a := New(db, gh, Config{UseChecks: true, PublicBaseURL: "https://serve.example"})
+	a := New(db, gh, Config{PublicBaseURL: "https://serve.example"})
 
 	body, _ := json.Marshal(events.Init{
 		ID: "apply-1", Repo: "o/r", SHA: "deadbeef", PR: 7, Environment: "nonprod",
@@ -60,7 +60,7 @@ func TestApplyDriveUpdatesCheckRun(t *testing.T) {
 			return nil
 		},
 	}
-	a := New(db, gh, Config{UseChecks: true, PublicBaseURL: "https://serve.example"})
+	a := New(db, gh, Config{PublicBaseURL: "https://serve.example"})
 
 	initBody, _ := json.Marshal(events.Init{
 		ID: "apply-2", Repo: "o/r", SHA: "abc", PR: 0, Environment: "nonprod",
@@ -121,7 +121,7 @@ func TestApplyDriveFailureSurfacesStackAndNextSteps(t *testing.T) {
 			return nil
 		},
 	}
-	a := New(db, gh, Config{UseChecks: true, PublicBaseURL: "https://serve.example"})
+	a := New(db, gh, Config{PublicBaseURL: "https://serve.example"})
 
 	initBody, _ := json.Marshal(events.Init{
 		ID: "apply-fail", Repo: "o/r", SHA: "abc", PR: 0, Environment: "prod",
@@ -174,7 +174,7 @@ func TestApplyInitZeroStacksResolvesSuccess(t *testing.T) {
 			return nil
 		},
 	}
-	a := New(db, gh, Config{UseChecks: true, PublicBaseURL: "https://serve.example"})
+	a := New(db, gh, Config{PublicBaseURL: "https://serve.example"})
 
 	body, _ := json.Marshal(events.Init{
 		ID: "apply-noop", Repo: "o/r", SHA: "abc", PR: 9, Environment: "nonprod",
@@ -204,7 +204,7 @@ func TestApplyDrivePersistsSuccessStatus(t *testing.T) {
 			return nil
 		},
 	}
-	a := New(db, gh, Config{UseChecks: true, PublicBaseURL: "https://serve.example"})
+	a := New(db, gh, Config{PublicBaseURL: "https://serve.example"})
 
 	initBody, _ := json.Marshal(events.Init{
 		ID: "apply-persist-ok", Repo: "o/r", SHA: "abc", PR: 0, Environment: "nonprod",
@@ -246,7 +246,7 @@ func TestApplyDrivePersistsFailureStatus(t *testing.T) {
 			return nil
 		},
 	}
-	a := New(db, gh, Config{UseChecks: true, PublicBaseURL: "https://serve.example"})
+	a := New(db, gh, Config{PublicBaseURL: "https://serve.example"})
 
 	initBody, _ := json.Marshal(events.Init{
 		ID: "apply-persist-fail", Repo: "o/r", SHA: "abc", PR: 0, Environment: "prod",
@@ -306,7 +306,7 @@ func TestDriveApplyVerdict(t *testing.T) {
 					return nil
 				},
 			}
-			a := New(db, gh, Config{UseChecks: true, PublicBaseURL: "https://serve.example"})
+			a := New(db, gh, Config{PublicBaseURL: "https://serve.example"})
 
 			id := "verdict-" + c.name
 			ss := make([]events.StackState, len(c.stacks))

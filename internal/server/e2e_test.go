@@ -37,7 +37,7 @@ func TestE2EPlanLifecycle(t *testing.T) {
 			return nil
 		},
 	}
-	a := New(db, gh, Config{UseChecks: true, PublicBaseURL: "https://srv"})
+	a := New(db, gh, Config{PublicBaseURL: "https://srv"})
 	srv := httptest.NewServer(a.Routes())
 	defer srv.Close()
 

@@ -35,7 +35,7 @@ func post(t *testing.T, srv *httptest.Server, path string, v any) int {
 func TestInitCreatesExecutionAndCheckRunOnce(t *testing.T) {
 	db := newServerTestDB(t)
 	gh := &MockGitHub{CreateCheckRunFn: func(ctx context.Context, repo, sha, env, url string) (int64, error) { return 555, nil }}
-	a := New(db, gh, Config{UseChecks: true})
+	a := New(db, gh, Config{})
 	srv := httptest.NewServer(a.Routes())
 	defer srv.Close()
 
@@ -73,7 +73,7 @@ func TestUpdateTicksStackAndPatches(t *testing.T) {
 			return nil
 		},
 	}
-	a := New(db, gh, Config{UseChecks: true})
+	a := New(db, gh, Config{})
 	srv := httptest.NewServer(a.Routes())
 	defer srv.Close()
 
@@ -110,7 +110,7 @@ func TestFinalizeCleanPlanConcludesSuccess(t *testing.T) {
 			return nil
 		},
 	}
-	a := New(db, gh, Config{UseChecks: true})
+	a := New(db, gh, Config{})
 	srv := httptest.NewServer(a.Routes())
 	defer srv.Close()
 	post(t, srv, "/api/init", events.Init{ID: "e1", Repo: "o/r", SHA: "sha", PR: 7, Environment: "staging",
@@ -145,7 +145,7 @@ func TestFinalizeGatedPlanConcludesActionRequired(t *testing.T) {
 			return nil
 		},
 	}
-	a := New(db, gh, Config{UseChecks: true})
+	a := New(db, gh, Config{})
 	a.Approval = approval.NewFake()
 	srv := httptest.NewServer(a.Routes())
 	defer srv.Close()
@@ -242,7 +242,7 @@ func TestFinalizeBackfillsCounts(t *testing.T) {
 func TestFinalizeFailedMarksRunningStacksAborted(t *testing.T) {
 	db := newServerTestDB(t)
 	gh := &MockGitHub{CreateCheckRunFn: func(ctx context.Context, repo, sha, env, url string) (int64, error) { return 1, nil }}
-	a := New(db, gh, Config{UseChecks: true})
+	a := New(db, gh, Config{})
 	srv := httptest.NewServer(a.Routes())
 	defer srv.Close()
 	// Stack "a" is running (non-terminal) — will become aborted.
@@ -268,7 +268,7 @@ func TestFinalizeFailedMarksRunningStacksAborted(t *testing.T) {
 func TestFinalizeFailedMarksNonTerminalAborted(t *testing.T) {
 	db := newServerTestDB(t)
 	gh := &MockGitHub{CreateCheckRunFn: func(ctx context.Context, repo, sha, env, url string) (int64, error) { return 1, nil }}
-	a := New(db, gh, Config{UseChecks: true})
+	a := New(db, gh, Config{})
 	srv := httptest.NewServer(a.Routes())
 	defer srv.Close()
 
@@ -315,7 +315,7 @@ func TestFinalizeFailedMarksNonTerminalAborted(t *testing.T) {
 // store.Claim (no tags → PascalCase) vs events.Claim (snake_case) mismatch.
 func TestClaimsListWireShape(t *testing.T) {
 	db := newServerTestDB(t)
-	a := New(db, &MockGitHub{}, Config{ApplyLock: true})
+	a := New(db, &MockGitHub{}, Config{})
 	srv := httptest.NewServer(a.Routes())
 	defer srv.Close()
 
@@ -360,7 +360,7 @@ func TestFinalizeFailedMarksInitStatusesAborted(t *testing.T) {
 	// be swept to "aborted" by the legacy path, just like pending/running.
 	db := newServerTestDB(t)
 	gh := &MockGitHub{CreateCheckRunFn: func(ctx context.Context, repo, sha, env, url string) (int64, error) { return 1, nil }}
-	a := New(db, gh, Config{UseChecks: true})
+	a := New(db, gh, Config{})
 	srv := httptest.NewServer(a.Routes())
 	defer srv.Close()
 

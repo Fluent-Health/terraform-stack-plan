@@ -31,7 +31,6 @@ func TestBuildServeAppBootsReady(t *testing.T) {
 		Serve: &config.ServeConfig{
 			DBPath:        filepath.Join(t.TempDir(), "s.db"),
 			PublicBaseURL: "https://srv",
-			UseChecks:     true,
 			GitHubApp:     &config.GitHubAppConfig{AppID: "1", InstallationID: "2", PrivateKeyPath: writePEM(t)},
 			Approval:      &config.ApprovalConfig{Backend: "gcp-pam", RequesterPool: []string{"sa0"}},
 		},

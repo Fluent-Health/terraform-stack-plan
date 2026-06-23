@@ -19,7 +19,7 @@ func TestSweepSkipsPRWithoutExecutionRepo(t *testing.T) {
 	gh := &MockGitHub{
 		PRAbandonedFn: func(context.Context, string, int) (bool, error) { called = true; return true, nil },
 	}
-	a := New(db, gh, Config{ReconcilerCore: true})
+	a := New(db, gh, Config{})
 	a.Approval = approval.NewFake()
 	if err := store.MarkClassified(db, 7, "staging"); err != nil {
 		t.Fatal(err)
@@ -50,7 +50,7 @@ func setupActiveGate(t *testing.T, abandoned func(context.Context, string, int) 
 		UpdateCheckRunFn: func(context.Context, string, int64, CheckRunUpdate) error { return nil },
 		PRAbandonedFn:    abandoned,
 	}
-	a := New(db, gh, Config{UseChecks: true, ReconcilerCore: true})
+	a := New(db, gh, Config{})
 	a.Approval = fake
 	srv := httptest.NewServer(a.Routes())
 	t.Cleanup(srv.Close)

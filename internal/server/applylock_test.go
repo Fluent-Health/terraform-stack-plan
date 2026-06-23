@@ -17,7 +17,7 @@ func newApplyLockTestApp(t *testing.T) (*App, *recordingGitHub) {
 	t.Helper()
 	db := newServerTestDB(t)
 	gh := &recordingGitHub{}
-	a := New(db, gh, Config{ApplyLock: true, PublicBaseURL: "https://srv"})
+	a := New(db, gh, Config{PublicBaseURL: "https://srv"})
 	return a, gh
 }
 

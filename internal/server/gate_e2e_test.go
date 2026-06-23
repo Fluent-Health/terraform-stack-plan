@@ -37,7 +37,7 @@ func TestGatedLifecycleE2E(t *testing.T) {
 			return nil
 		},
 	}
-	a := New(db, gh, Config{UseChecks: true, ReconcilerCore: true})
+	a := New(db, gh, Config{})
 	a.Approval = fake
 	srv := httptest.NewServer(a.Routes())
 	defer srv.Close()
