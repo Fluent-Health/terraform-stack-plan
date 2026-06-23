@@ -24,9 +24,9 @@ func Step(w World, s Signal) (ChangeSet, []Action) {
 	case RunnerFinalize:
 		return runDecider(cs, sig)
 	case GrantsObserved:
-		return stepObserve(cs, sig.Grants, false)
+		return runDecider(cs, sig)
 	case GateTick:
-		return stepObserve(cs, sig.Grants, true)
+		return runDecider(cs, sig)
 	case PRClosed:
 		return runDecider(cs, sig)
 	default:
@@ -236,172 +236,6 @@ func revokeAll(cs ChangeSet, targets []Target) []Action {
 	return actions
 }
 
-// stepObserve folds grant observations into the gate's targets, then recomputes
-// the gate variant: pins the lease from the first leased grant and requests any
-// still-ungranted targets (fixpoint), promotes to Satisfied when every target is
-// ACTIVE, downgrades a previously-active target whose grant is gone (gap ①),
-// surfaces DENIED/REVOKED as Blocked (gap ③), and re-arms a never-active EXPIRED
-// target (a lapsed request) via the request loop. Slot collisions are resolved
-// by resolveCollision in this file. No-op for non-gated states.
-func stepObserve(cs ChangeSet, obs []ObservedGrant, fullRelist bool) (ChangeSet, []Action) {
-	targets := gateTargets(cs.Gate)
-	lease := priorLease(cs.Gate)
-	if targets == nil {
-		return cs, nil
-	}
-	prevWasActive := isAllActive(targets)
-
-	// Resolve any slot collision first; it determines the whole gate outcome.
-	for _, o := range obs {
-		if o.Collision == nil {
-			continue
-		}
-		return resolveCollision(cs, targets, lease, o)
-	}
-
-	// A full re-list can return several grants for the same (class, target):
-	// stale terminal ones from earlier retries plus the current open/ACTIVE one.
-	// Keep the best per target (prefer ACTIVE, then open-pending, then terminal)
-	// so a stale REVOKED/EXPIRED grant can't clobber a live one and wedge the
-	// gate via firstTerminalBlock. Terminal grants are immutable and re-listed
-	// forever, so last-write-wins here would block the gate permanently.
-	byKey := map[string]ObservedGrant{}
-	for _, o := range obs {
-		k := o.Class + "|" + o.Target
-		if cur, ok := byKey[k]; !ok || foldBetter(o, cur, lease) {
-			byKey[k] = o
-		}
-	}
-
-	var actions []Action
-	for i := range targets {
-		o, ok := byKey[targets[i].Class+"|"+targets[i].Target]
-		if !ok {
-			// On a full re-list (GateTick), a target the backend no longer
-			// reports has lost its grant — clear it so a previously-active gate
-			// downgrades (gap ①). Partial feedback (GrantsObserved) leaves
-			// unmentioned targets untouched.
-			if fullRelist {
-				targets[i].Grant = ""
-			}
-			continue
-		}
-		if o.Name != "" {
-			targets[i].GrantName = o.Name
-		}
-		targets[i].Grant = o.State
-		if lease.Requester == "" && o.Requester != "" && o.State.Open() {
-			lease.Requester = o.Requester
-		}
-	}
-
-	// Denied/Revoked → Blocked terminal (gap ③). EXPIRED is intentionally NOT
-	// terminal here: a never-approved lapse is re-armed in the request loop below,
-	// and a was-active expiry downgrades via prevWasActive.
-	if r, blocked := firstTerminalBlock(targets); blocked {
-		cs.Gate = Blocked{Targets: targets, Lease: lease, By: Blocker{Reason: r}}
-		return cs, append(actions, RenderCheckRun{Terminal: true, Conclusion: "action_required"}, PublishSSE{})
-	}
-
-	// Request any target still lacking a grant (pinned to the lease).
-	requested := false
-	for _, t := range targets {
-		// Re-arm a target with no approved grant: it has none yet (GrantName ""), OR
-		// its request lapsed (EXPIRED) before approval and the gate was never
-		// satisfied. A was-active expiry (prevWasActive) is NOT re-armed here — it
-		// downgrades to Blocked{expired} below (gap ①). DENIED/REVOKED already
-		// returned via firstTerminalBlock, so a deliberate decision is never retried.
-		if t.GrantName == "" || (t.Grant == approval.StateExpired && !prevWasActive) {
-			actions = append(actions, RequestGrant{Class: t.Class, Target: t.Target, Requester: lease.Requester})
-			requested = true
-		}
-	}
-	if requested {
-		cs.Gate = Pending{Targets: targets, Lease: lease}
-		return cs, append(actions, RenderCheckRun{}, PublishSSE{})
-	}
-
-	if isAllActive(targets) {
-		cs.Gate = Satisfied{Targets: targets, Lease: lease}
-		return cs, append(actions, RenderCheckRun{Terminal: true, Conclusion: "success"}, PublishSSE{})
-	}
-
-	// gap ①: was satisfied, a grant is now gone (not terminal-denied) → downgrade.
-	if prevWasActive {
-		cs.Gate = Blocked{Targets: targets, Lease: lease, By: Blocker{Reason: ReasonExpired}}
-		return cs, append(actions, RenderCheckRun{Terminal: true, Conclusion: "action_required"}, PublishSSE{})
-	}
-
-	cs.Gate = Pending{Targets: targets, Lease: lease}
-	return cs, append(actions, RenderCheckRun{Terminal: true, Conclusion: "action_required"}, PublishSSE{})
-}
-
-// grantStateRank orders grant states for folding multiple observations of the
-// same target down to one: ACTIVE wins, then open-pending states, then any
-// terminal state, then absent. This makes a live grant beat the stale terminal
-// grants a full re-list also returns for the same (PR, target).
-func grantStateRank(s approval.GrantState) int {
-	switch s {
-	case approval.StateActive:
-		return 4
-	case approval.StateActivating:
-		return 3
-	case approval.StateAwaiting:
-		return 2
-	case "":
-		return 0
-	default: // terminal: DENIED / REVOKED / EXPIRED
-		return 1
-	}
-}
-
-// foldBetter reports whether observation a should win over b when both describe
-// the same (class,target) in a re-list. Higher grant-state rank wins; on a tie
-// the grant matching the pinned lease wins (requester continuity), then the
-// lexicographically greater Name wins. The Name tiebreak makes the fold a total,
-// backend-order-independent order so the chosen grant (and the requester it pins)
-// is deterministic regardless of PAM's unspecified re-list order. Name is the
-// backend-assigned grant id (unique per (class,target,PR,env)), so equal Names
-// don't arise in practice; if they ever did, the fold would degrade to slice order.
-func foldBetter(a, b ObservedGrant, lease Lease) bool {
-	if ra, rb := grantStateRank(a.State), grantStateRank(b.State); ra != rb {
-		return ra > rb
-	}
-	aMatch := lease.Requester != "" && a.Requester == lease.Requester
-	bMatch := lease.Requester != "" && b.Requester == lease.Requester
-	if aMatch != bMatch {
-		return aMatch
-	}
-	return a.Name > b.Name
-}
-
-// isAllActive reports whether every target has an ACTIVE grant.
-func isAllActive(targets []Target) bool {
-	if len(targets) == 0 {
-		return false
-	}
-	for _, t := range targets {
-		if t.Grant != approval.StateActive {
-			return false
-		}
-	}
-	return true
-}
-
-// firstTerminalBlock returns the block reason for the first target observed in a
-// terminal-denied state, if any.
-func firstTerminalBlock(targets []Target) (BlockReason, bool) {
-	for _, t := range targets {
-		switch t.Grant {
-		case approval.StateDenied:
-			return ReasonDenied, true
-		case approval.StateRevoked:
-			return ReasonRevoked, true
-		}
-	}
-	return "", false
-}
-
 // stepPRClosed revokes every open grant for the closed PR and moves the gate to
 // a terminal Blocked{revoked} so the persisted state matches the backend (gap
 // ④) and no later apply check can read it as satisfied (Bug #1).
@@ -420,27 +254,4 @@ func stepPRClosed(cs ChangeSet) (ChangeSet, []Action) {
 	cs.Gate = Blocked{Targets: targets, Lease: priorLease(cs.Gate), By: Blocker{Reason: ReasonRevoked}}
 	actions = append(actions, PublishSSE{})
 	return cs, actions
-}
-
-// resolveCollision implements the slot-collision policy:
-//   - blocker is a different, closed PR  → revoke it and retry our request (Bug #2)
-//   - blocker is a different, open PR     → Blocked{slot_foreign}, wait
-//   - blocker is THIS PR (another env)    → Blocked{slot_self}, wait, never self-revoke (gap ⑥)
-func resolveCollision(cs ChangeSet, targets []Target, lease Lease, o ObservedGrant) (ChangeSet, []Action) {
-	c := o.Collision
-	if c.BySelf {
-		cs.Gate = Blocked{Targets: targets, Lease: lease, By: Blocker{Reason: ReasonSlotSelf, ByPR: c.ByPR, ByEnv: c.ByEnv}}
-		return cs, []Action{RenderCheckRun{}, PublishSSE{}}
-	}
-	if !c.ByPRAbandoned {
-		cs.Gate = Blocked{Targets: targets, Lease: lease, By: Blocker{Reason: ReasonSlotForeign, ByPR: c.ByPR, ByEnv: c.ByEnv}}
-		return cs, []Action{RenderCheckRun{}, PublishSSE{}}
-	}
-	// Abandoned foreign blocker: revoke it, retry our request, stay Pending.
-	cs.Gate = Pending{Targets: targets, Lease: lease}
-	return cs, []Action{
-		RevokeGrant{Class: o.Class, Target: o.Target, PR: c.ByPR, Environment: c.ByEnv},
-		RequestGrant{Class: o.Class, Target: o.Target, Requester: lease.Requester},
-		RenderCheckRun{}, PublishSSE{},
-	}
 }

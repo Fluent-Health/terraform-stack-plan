@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/Fluent-Health/terraform-stack-plan/internal/approval"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 )
 
@@ -88,6 +89,73 @@ func TestReactApplyCleanupNoPresentation(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %#v want %#v (no Render/SSE expected)", got, want)
+	}
+}
+
+// --- observe / collision React tests ---
+
+func TestReactObserveSatisfiedRendersSuccess(t *testing.T) {
+	evs := []Event{
+		GrantObserved{Class: "c", Target: "t", Name: "g1", State: approval.StateActive},
+		GateSatisfied{},
+	}
+	got := React(ChangeSet{Gate: Satisfied{}}, evs)
+	want := []Action{RenderCheckRun{Terminal: true, Conclusion: "success"}, PublishSSE{}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %#v want %#v", got, want)
+	}
+}
+
+func TestReactObserveTerminalBlockedRendersActionRequired(t *testing.T) {
+	for _, r := range []BlockReason{ReasonDenied, ReasonRevoked, ReasonExpired} {
+		evs := []Event{
+			GrantObserved{Class: "c", Target: "t", Name: "g1", State: approval.StateDenied},
+			GateBlocked{Reason: r},
+		}
+		got := React(ChangeSet{Gate: Blocked{By: Blocker{Reason: r}}}, evs)
+		want := []Action{RenderCheckRun{Terminal: true, Conclusion: "action_required"}, PublishSSE{}}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("%s: got %#v want %#v", r, got, want)
+		}
+	}
+}
+
+func TestReactCollisionSlotBlockedRendersNonTerminal(t *testing.T) {
+	for _, r := range []BlockReason{ReasonSlotSelf, ReasonSlotForeign} {
+		evs := []Event{GateBlocked{Reason: r, ByPR: 7, ByEnv: "prod"}}
+		got := React(ChangeSet{Gate: Blocked{By: Blocker{Reason: r}}}, evs)
+		want := []Action{RenderCheckRun{}, PublishSSE{}}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("%s: got %#v want %#v", r, got, want)
+		}
+	}
+}
+
+func TestReactCollisionAbandonedRevokesThenRequestsThenRenders(t *testing.T) {
+	evs := []Event{
+		TargetRevoked{Class: "c", Target: "t", PR: 7, Env: "staging"},
+		GateTargetRequested{Class: "c", Target: "t"},
+	}
+	got := React(ChangeSet{Gate: Pending{}}, evs)
+	want := []Action{
+		RevokeGrant{Class: "c", Target: "t", PR: 7, Environment: "staging"},
+		RequestGrant{Class: "c", Target: "t"},
+		RenderCheckRun{},
+		PublishSSE{},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %#v want %#v", got, want)
+	}
+}
+
+func TestReactObserveSettledPendingRendersTerminalActionRequired(t *testing.T) {
+	// Observe batch with only fold facts (no outcome) + Pending post-fold state →
+	// terminal action_required (the awaiting-approval fallthrough).
+	evs := []Event{GrantObserved{Class: "c", Target: "t", Name: "g1", State: approval.StateAwaiting}}
+	got := React(ChangeSet{Gate: Pending{Targets: []Target{{Class: "c", Target: "t", GrantName: "g1", Grant: approval.StateAwaiting}}}}, evs)
+	want := []Action{RenderCheckRun{Terminal: true, Conclusion: "action_required"}, PublishSSE{}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %#v want %#v", got, want)
 	}
 }
 

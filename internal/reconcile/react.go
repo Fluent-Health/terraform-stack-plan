@@ -7,10 +7,19 @@ func React(state ChangeSet, evs []Event) []Action {
 	var actions []Action
 
 	// Presentation precedence: 0=none, 1=in-progress, 2=success, 3=failure.
-	// Higher precedence wins; exactly one RenderCheckRun+PublishSSE per Step.
+	// (action_required outcomes are TERMINAL and ride precedence 2.) Higher
+	// precedence wins; exactly one RenderCheckRun+PublishSSE per Step.
 	renderPrec := 0
 	var renderAction RenderCheckRun
 	sseOnly := false // PR-closed path: SSE without RenderCheckRun
+
+	// Observe-path projection: a GrantObserved/GrantCleared batch with NO outcome
+	// event (GateSatisfied / GateBlocked / GateTargetRequested) is the settled
+	// awaiting-approval fallthrough — it stays Pending but renders TERMINAL
+	// action_required, derived below from the post-fold state.Gate. (The state is
+	// itself derived from these facts, so this is a legitimate CQRS projection.)
+	observeBatch := false
+	gateOutcome := false
 
 	for _, e := range evs {
 		switch ev := e.(type) {
@@ -40,6 +49,7 @@ func React(state ChangeSet, evs []Event) []Action {
 			}
 		case GateTargetRequested:
 			// Emit RequestGrant. Also a non-terminal in-progress render (precedence 1).
+			gateOutcome = true
 			actions = append(actions, RequestGrant{
 				Class:     ev.Class,
 				Target:    ev.Target,
@@ -49,6 +59,30 @@ func React(state ChangeSet, evs []Event) []Action {
 				renderPrec = 1
 				renderAction = RenderCheckRun{}
 			}
+		case GrantObserved, GrantCleared:
+			// Fold-only facts: no presentation. Mark the batch so the settled
+			// awaiting-approval fallthrough can be projected after the loop.
+			observeBatch = true
+		case GateSatisfied:
+			// Terminal success (precedence 2).
+			gateOutcome = true
+			if renderPrec < 2 {
+				renderPrec = 2
+				renderAction = RenderCheckRun{Terminal: true, Conclusion: "success"}
+			}
+		case GateBlocked:
+			// Terminal action_required for denied/revoked/expired; NON-terminal for
+			// slot collisions (slot_self/slot_foreign), where the PR keeps waiting.
+			gateOutcome = true
+			if ev.Reason == ReasonSlotSelf || ev.Reason == ReasonSlotForeign {
+				if renderPrec < 1 {
+					renderPrec = 1
+					renderAction = RenderCheckRun{}
+				}
+			} else if renderPrec < 2 {
+				renderPrec = 2
+				renderAction = RenderCheckRun{Terminal: true, Conclusion: "action_required"}
+			}
 		case ClaimReleased:
 			actions = append(actions, ReleaseClaim{PR: ev.PR, Environment: ev.Environment})
 		case TargetRevoked:
@@ -57,6 +91,15 @@ func React(state ChangeSet, evs []Event) []Action {
 			sseOnly = true
 		}
 	}
+	// Settled awaiting-approval fallthrough: an observe batch with no gate outcome
+	// that left the gate Pending renders TERMINAL action_required (step.go:346-347).
+	if observeBatch && !gateOutcome {
+		if _, pending := state.Gate.(Pending); pending && renderPrec < 2 {
+			renderPrec = 2
+			renderAction = RenderCheckRun{Terminal: true, Conclusion: "action_required"}
+		}
+	}
+
 	switch {
 	case sseOnly:
 		actions = append(actions, PublishSSE{})

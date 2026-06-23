@@ -181,6 +181,192 @@ func TestDecidePRClosedNoTargetsNoEvents(t *testing.T) {
 	}
 }
 
+// lastOf returns the last event of type T in evs (and whether one was found).
+func lastOf[T Event](evs []Event) (T, bool) {
+	var found T
+	var ok bool
+	for _, e := range evs {
+		if v, is := e.(T); is {
+			found, ok = v, true
+		}
+	}
+	return found, ok
+}
+
+// eventsOf returns all events of type T in evs.
+func eventsOf[T Event](evs []Event) []T {
+	var out []T
+	for _, e := range evs {
+		if v, ok := e.(T); ok {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
+// --- GrantsObserved / GateTick (observe + collision) ---
+
+func TestDecideObserveNonGatedNoEvents(t *testing.T) {
+	for _, g := range []GateState{NotClassified{}, Clean{}, nil} {
+		if got := Decide(ChangeSet{Gate: g}, GrantsObserved{}); len(got) != 0 {
+			t.Fatalf("gate %T: want none, got %#v", g, got)
+		}
+	}
+}
+
+func TestDecideObserveAllActiveSatisfied(t *testing.T) {
+	cs := ChangeSet{Gate: Pending{Targets: []Target{{Class: "c", Target: "t", GrantName: "g1", Grant: approval.StateActive}}}}
+	got := Decide(cs, GrantsObserved{Grants: []ObservedGrant{
+		{Class: "c", Target: "t", Name: "g1", State: approval.StateActive},
+	}})
+	if _, ok := lastOf[GateSatisfied](got); !ok {
+		t.Fatalf("want trailing GateSatisfied, got %#v", got)
+	}
+	if obs := eventsOf[GrantObserved](got); len(obs) != 1 || obs[0].State != approval.StateActive {
+		t.Fatalf("want one GrantObserved{ACTIVE}, got %#v", got)
+	}
+}
+
+func TestDecideObserveDeniedBlocks(t *testing.T) {
+	cs := ChangeSet{Gate: Pending{Targets: []Target{{Class: "c", Target: "t"}, {Class: "c", Target: "u"}}}}
+	got := Decide(cs, GrantsObserved{Grants: []ObservedGrant{
+		{Class: "c", Target: "t", Name: "g1", State: approval.StateDenied},
+	}})
+	gb, ok := lastOf[GateBlocked](got)
+	if !ok || gb.Reason != ReasonDenied {
+		t.Fatalf("want GateBlocked{denied}, got %#v", got)
+	}
+}
+
+func TestDecideObserveRevokedBlocks(t *testing.T) {
+	cs := ChangeSet{Gate: Pending{Targets: []Target{{Class: "c", Target: "t"}}}}
+	got := Decide(cs, GrantsObserved{Grants: []ObservedGrant{
+		{Class: "c", Target: "t", Name: "g1", State: approval.StateRevoked},
+	}})
+	gb, ok := lastOf[GateBlocked](got)
+	if !ok || gb.Reason != ReasonRevoked {
+		t.Fatalf("want GateBlocked{revoked}, got %#v", got)
+	}
+}
+
+func TestDecideObserveUngrantedReArmsAll(t *testing.T) {
+	cs := ChangeSet{Gate: Pending{
+		Lease:   Lease{Requester: "sa3"},
+		Targets: []Target{{Class: "c", Target: "t"}, {Class: "c", Target: "u"}},
+	}}
+	got := Decide(cs, GrantsObserved{Grants: []ObservedGrant{
+		{Class: "c", Target: "t", Name: "g1", State: approval.StateAwaiting, Requester: "sa3"},
+	}})
+	reqs := eventsOf[GateTargetRequested](got)
+	// t has a grant now; u is still ungranted → exactly one re-arm for u, pinned.
+	if len(reqs) != 1 || reqs[0].Target != "u" || reqs[0].Requester != "sa3" {
+		t.Fatalf("want one GateTargetRequested{u, sa3}, got %#v", got)
+	}
+}
+
+func TestDecideObserveLapsedExpiredReArms(t *testing.T) {
+	cs := ChangeSet{Gate: Pending{
+		Lease:   Lease{Requester: "sa3"},
+		Targets: []Target{{Class: "c", Target: "t", GrantName: "g1", Grant: approval.StateAwaiting}},
+	}}
+	got := Decide(cs, GateTick{Grants: []ObservedGrant{
+		{Class: "c", Target: "t", Name: "g1", State: approval.StateExpired},
+	}})
+	reqs := eventsOf[GateTargetRequested](got)
+	if len(reqs) != 1 || reqs[0].Target != "t" || reqs[0].Requester != "sa3" {
+		t.Fatalf("want one GateTargetRequested{t, sa3}, got %#v", got)
+	}
+}
+
+func TestDecideTickDropsTargetClearsAndDowngrades(t *testing.T) {
+	cs := ChangeSet{Gate: Satisfied{
+		Lease:   Lease{Requester: "sa3"},
+		Targets: []Target{{Class: "c", Target: "t", GrantName: "g1", Grant: approval.StateActive}},
+	}}
+	got := Decide(cs, GateTick{Grants: []ObservedGrant{}}) // full re-list omits t
+	if _, ok := lastOf[GrantCleared](got); !ok {
+		t.Fatalf("want GrantCleared for the dropped target, got %#v", got)
+	}
+	gb, ok := lastOf[GateBlocked](got)
+	if !ok || gb.Reason != ReasonExpired {
+		t.Fatalf("want GateBlocked{expired} downgrade, got %#v", got)
+	}
+}
+
+func TestDecideObservePartialLeavesUnmentionedUntouched(t *testing.T) {
+	cs := ChangeSet{Gate: Satisfied{
+		Lease:   Lease{Requester: "sa3"},
+		Targets: []Target{{Class: "c", Target: "t", GrantName: "g1", Grant: approval.StateActive}},
+	}}
+	got := Decide(cs, GrantsObserved{Grants: []ObservedGrant{}}) // partial: mentions nothing
+	if len(eventsOf[GrantCleared](got)) != 0 {
+		t.Fatalf("partial feedback must not clear targets, got %#v", got)
+	}
+	if _, ok := lastOf[GateSatisfied](got); !ok {
+		t.Fatalf("want GateSatisfied unchanged, got %#v", got)
+	}
+}
+
+func TestDecideObserveSettledPendingEmitsNoOutcome(t *testing.T) {
+	// All targets have grants, none ACTIVE, none re-armable, not was-active.
+	cs := ChangeSet{Gate: Pending{
+		Lease:   Lease{Requester: "sa0"},
+		Targets: []Target{{Class: "c", Target: "t", GrantName: "g1", Grant: approval.StateAwaiting}},
+	}}
+	got := Decide(cs, GateTick{Grants: []ObservedGrant{
+		{Class: "c", Target: "t", Name: "g1", State: approval.StateAwaiting},
+	}})
+	// No GateSatisfied / GateBlocked / GateTargetRequested — only the GrantObserved.
+	if _, ok := lastOf[GateSatisfied](got); ok {
+		t.Fatalf("settled-Pending must not emit GateSatisfied, got %#v", got)
+	}
+	if _, ok := lastOf[GateBlocked](got); ok {
+		t.Fatalf("settled-Pending must not emit GateBlocked, got %#v", got)
+	}
+	if len(eventsOf[GateTargetRequested](got)) != 0 {
+		t.Fatalf("settled-Pending must not re-arm, got %#v", got)
+	}
+	if len(eventsOf[GrantObserved](got)) != 1 {
+		t.Fatalf("want the GrantObserved fold fact, got %#v", got)
+	}
+}
+
+func TestDecideCollisionSelfBlocks(t *testing.T) {
+	cs := ChangeSet{PR: 7, Gate: Pending{Targets: []Target{{Class: "c", Target: "t"}}}}
+	got := Decide(cs, GrantsObserved{Grants: []ObservedGrant{
+		{Class: "c", Target: "t", Collision: &Collision{ByPR: 7, ByEnv: "prod", BySelf: true}},
+	}})
+	gb, ok := lastOf[GateBlocked](got)
+	if !ok || gb.Reason != ReasonSlotSelf || gb.ByEnv != "prod" {
+		t.Fatalf("want GateBlocked{slot_self,prod}, got %#v", got)
+	}
+}
+
+func TestDecideCollisionForeignOpenBlocks(t *testing.T) {
+	cs := ChangeSet{PR: 8, Gate: Pending{Targets: []Target{{Class: "c", Target: "t"}}}}
+	got := Decide(cs, GrantsObserved{Grants: []ObservedGrant{
+		{Class: "c", Target: "t", Collision: &Collision{ByPR: 5, ByEnv: "staging", ByPRAbandoned: false}},
+	}})
+	gb, ok := lastOf[GateBlocked](got)
+	if !ok || gb.Reason != ReasonSlotForeign || gb.ByPR != 5 {
+		t.Fatalf("want GateBlocked{slot_foreign,5}, got %#v", got)
+	}
+}
+
+func TestDecideCollisionAbandonedRevokesForeignThenRequests(t *testing.T) {
+	cs := ChangeSet{PR: 8, Environment: "staging", Gate: Pending{Targets: []Target{{Class: "c", Target: "t"}}}}
+	got := Decide(cs, GrantsObserved{Grants: []ObservedGrant{
+		{Class: "c", Target: "t", Collision: &Collision{ByPR: 7, ByEnv: "staging", ByPRAbandoned: true}},
+	}})
+	want := []Event{
+		TargetRevoked{Class: "c", Target: "t", PR: 7, Env: "staging"},
+		GateTargetRequested{Class: "c", Target: "t"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %#v want %#v", got, want)
+	}
+}
+
 func TestDecidePRClosedRevokesAndBlocks(t *testing.T) {
 	cs := ChangeSet{PR: 7, Environment: "nonprod", Gate: Pending{
 		Targets: []Target{{Class: "c", Target: "t", GrantName: "g1", Grant: approval.StateActive}},
