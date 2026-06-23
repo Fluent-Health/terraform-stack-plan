@@ -552,6 +552,12 @@ the budget entirely.
   closed. This replaced the prior error-substring matching. The `codes` registry
   is the first step of the target architecture's tagged-error model; it grows as
   later phases convert more boundaries.
+- **Unknown stack `status` values are rejected at the wire boundary.**
+  `events.Status` validates on JSON decode (`ParseStatus` / `UnmarshalJSON`): an
+  unknown non-empty status in any decoded payload fails with a `WIRE-001` coded
+  error → HTTP 400, instead of entering the system silently. The empty/unset
+  status stays valid, and the store reads status via a direct column cast (not
+  JSON), so persisted values are never re-validated.
 
 ## Testing strategy
 
