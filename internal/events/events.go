@@ -6,7 +6,11 @@
 // shapes.
 package events
 
-import "time"
+import (
+	"time"
+
+	"github.com/Fluent-Health/terraform-stack-plan/internal/domain"
+)
 
 // Version is the protocol version. Bump on any breaking change to the payloads
 // below; runner and server are expected to share the same module version.
@@ -64,25 +68,13 @@ func (p Phase) Valid() bool {
 	return false
 }
 
-// Category is a classification label matched by a stack (name + optional glyph).
-type Category struct {
-	Name string `json:"name"`
-	Icon string `json:"icon,omitempty"`
-}
+// Category is a classification label matched by a stack. Alias of the canonical
+// domain type (carries Name/Icon and, additively, emitted Attributes).
+type Category = domain.Category
 
-// Counts is a stack's per-kind operation tally, for the blast-radius bar and the
-// op-count summaries. Mirrors internal/model.Counts but lives in the protocol
-// package so the runner and server share the wire shape without importing
-// internal/model. All fields omitempty so a zero stack marshals compactly.
-type Counts struct {
-	Add     int `json:"add,omitempty"`
-	Change  int `json:"change,omitempty"`
-	Destroy int `json:"destroy,omitempty"`
-	Replace int `json:"replace,omitempty"`
-	Move    int `json:"move,omitempty"`
-	Import  int `json:"import,omitempty"`
-	Forget  int `json:"forget,omitempty"`
-}
+// Counts is a stack's per-kind operation tally. Alias of the canonical domain
+// type so the runner and server share one definition with the render pipeline.
+type Counts = domain.Counts
 
 // StackState is one node in the execution graph.
 type StackState struct {
