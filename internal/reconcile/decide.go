@@ -60,7 +60,7 @@ func Decide(state ChangeSet, s Signal) []Event {
 //     each pruned dropped target (plan-authoritative only) + GateTargetRequested
 //     for the first target lacking a carried-forward live grant.
 //
-// Mirrors the logic of stepFinalize (step.go:43-135) exactly.
+// decideFinalize computes the gate/exec events for a RunnerFinalize signal.
 func decideFinalize(state ChangeSet, f RunnerFinalize) []Event {
 	if f.Failed {
 		return []Event{ExecutionFailed{}}
