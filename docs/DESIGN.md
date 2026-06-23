@@ -1409,43 +1409,47 @@ serve wiring grew.
 
 `internal/reconcile` is the pure functional core for server-side gate and
 execution-lifecycle state. Its single entry point —
-`Step(World, Signal) → (ChangeSet, []Action)` — is a total function with no I/O:
-given the current observed world and an incoming signal (plan finalized, grant
-observed, revoke requested, etc.) it returns a set of state changes and a list of
-idempotent actions to execute. The imperative shell (`internal/server/shell.go`)
-wraps it: gather a scoped `World`, call `Step`, execute the returned `Action`s
-(persisting each result back as a `GrantsObserved` signal), persist the `ChangeSet`,
-and repeat to a fixpoint — serialized per `(pr, environment)`.
+`Step(World, Signal) → (ChangeSet, []Action)` — is a thin orchestrator over three
+pure functions, each with a distinct role:
 
-`GateState` is a proper sum type: `NotClassified` (PR never finalized — apply fails
-closed), `Clean` (classified, zero gate targets — apply passes), `Pending` (grants
-in flight), `Satisfied` (all grants `ACTIVE`), `Blocked` (denied/expired/revoked or
-slot-collision). `NotClassified` ≠ `Clean`, removing the old ambiguity. The leased
-requester SA lives inside the gate variant, not in a separately clobberable column,
-so the clobber bug that existed when a re-plan called `SetTargetRequester` is
-structurally impossible. The per-stack `gated`/`safe` overlay written to
-`stacks.status` by `save()` is a **derived** projection of `GateState` — it is not
-separately tracked truth.
+- **`Decide(ChangeSet, Signal) → []Event`** — all business logic. Maps an incoming
+  signal against the prior state and emits a sequence of past-tense domain facts
+  (e.g. `GateSatisfied`, `TargetRevoked`, `ExecutionFailed`). The event taxonomy
+  covers every gate-lifecycle, execution-lifecycle, and claim-ledger transition.
+- **`Evolve(ChangeSet, Event) → ChangeSet`** — the total fold. Applies a single
+  event to the prior state, returning the new `ChangeSet`. Written replay-ready:
+  replaying the event log over an empty state converges to the same snapshot
+  that `Step` would have produced (the event store and env-claim-ledger second
+  stream remain Phase 4 — `Step` still persists the snapshot via the shell).
+- **`React(ChangeSet, []Event) → []Action`** — CQRS projection. Derives the
+  idempotent `Action`s the imperative shell must run (grant requests, revokes,
+  claim releases, `RenderCheckRun`, `PublishSSE`) from the folded state plus the
+  event batch. Presentation (`RenderCheckRun`/`PublishSSE`) is never a stored fact.
+
+`Step` calls `Decide`, folds the events via `Evolve`, then calls `React` —
+deterministic, no I/O, safe to call repeatedly. The imperative shell
+(`internal/server/shell.go`) wraps it: gather a scoped `World`, call `Step`,
+execute the returned `Action`s, persist the `ChangeSet` — serialized per
+`(pr, environment)`.
+
+`GateState` is a proper sum type: `NotClassified` (PR never finalized — apply
+fails closed), `Clean` (classified, zero gate targets — apply passes), `Pending`
+(grants in flight), `Satisfied` (all grants `ACTIVE`), `Blocked`
+(denied/expired/revoked or slot-collision). The leased requester SA lives inside
+the gate variant — the clobber bug from `SetTargetRequester` is structurally
+impossible. The per-stack `gated`/`safe` overlay is a **derived** projection of
+`GateState`, never stored truth.
 
 The reconcile core is the **sole** gate/execution engine: there is no legacy path
 and no feature flag. (It originally shipped behind an off-by-default
-`reconciler_core` flag engaged at quiescence; after the cutover the flag, the
-legacy handlers, and the `serve --check-quiescent` tooling were all removed.)
+`reconciler_core` flag; after cutover the flag, legacy handlers, and
+`serve --check-quiescent` tooling were all removed.)
 
 The permutation test harness (`internal/reconcile/step_table_test.go`) is the
-correctness oracle, covering all state permutations as a table-driven suite. It
-fixed six latent invariant gaps — ACTIVE-grant downgrade, re-plan pruning, Blocked
-surfacing for DENIED/REVOKED, revoke persistence, per-ChangeSet serialization, and
-same-PR cross-env slot self-deadlock — see PR for the full reasoning.
-
-Phase 1 boundary hardening (PR for this branch) closed three further gaps. A
-re-plan now re-arms a terminally-blocked gate target: `stepFinalize` carries a
-prior grant forward only while it is still `Open()`, so a DENIED/REVOKED/EXPIRED
-target re-enters the request cycle on the next plan instead of wedging (re-arming
-on a fresh plan, not on every tick, so a standing denial does not auto-retry).
-The grant-observation fold is deterministic on equal rank (rank → lease-requester
-match → greater grant name), and the lease is never pinned from a terminal grant.
-These three are coherent on a single `Open()` (live vs terminal) distinction.
+correctness oracle and is frozen as the behavior gate for the `Decide`/`Evolve`/
+`React` refactor: its rows are unchanged, and `Step`'s observable contract
+(`(ChangeSet, []Action)` for every permutation) is identical to before. See the
+PR series (Phases 1–3) for the full migration reasoning.
 
 The apply-time gate check is **fail-closed on an unconfirmable reconcile**: if the
 fresh PAM re-list cannot confirm current grant state (backend unreachable), the

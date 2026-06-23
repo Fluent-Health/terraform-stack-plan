@@ -27,7 +27,7 @@ type RunnerFinalize struct {
 	// ApplyContext marks a finalize from the post-merge apply (apply/<env>) rather
 	// than the plan gate. An apply finalize is a RECOVERY signal, not an authority:
 	// it may add/refresh gate targets but must never weaken a gate the plan already
-	// established (issue #103) — so stepFinalize unions the prior targets and never
+	// established (issue #103) — so decideFinalize unions the prior targets and never
 	// prunes when this is set. A plan finalize (false) stays authoritative.
 	ApplyContext bool
 }
