@@ -16,22 +16,11 @@ func Step(w World, s Signal) (ChangeSet, []Action) {
 	case ApplySucceeded:
 		return stepApplySucceeded(cs)
 	case RunnerInit:
-		cs.Exec = sig.Exec
-		if cs.Gate == nil {
-			cs.Gate = NotClassified{}
-		}
-		return cs, []Action{RenderCheckRun{}, PublishSSE{}}
+		return runDecider(cs, sig)
 	case RunnerPhase:
-		cs.Exec.Phase = sig.Phase
-		return cs, []Action{RenderCheckRun{}, PublishSSE{}}
+		return runDecider(cs, sig)
 	case RunnerUpdate:
-		for i := range cs.Exec.Stacks {
-			if cs.Exec.Stacks[i].Path == sig.Stack {
-				cs.Exec.Stacks[i].RunStatus = sig.Status
-				cs.Exec.Stacks[i].Detail = sig.Detail
-			}
-		}
-		return cs, []Action{RenderCheckRun{}, PublishSSE{}}
+		return runDecider(cs, sig)
 	case RunnerFinalize:
 		return stepFinalize(cs, sig)
 	case GrantsObserved:
