@@ -4,6 +4,7 @@ import (
 	"sort"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/approval"
+	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 )
 
 // Decide computes the past-tense domain facts that result from applying Signal
@@ -326,12 +327,56 @@ func firstTerminalBlock(targets []Target) (BlockReason, bool) {
 	return "", false
 }
 
-// runDecider is the Decider orchestrator: Decide → fold via Evolve → React.
-func runDecider(prior ChangeSet, s Signal) (ChangeSet, []Action) {
-	evs := Decide(prior, s)
-	st := prior
-	for _, e := range evs {
-		st = Evolve(st, e)
+// gateTargets returns the targets carried by any stateful gate variant.
+func gateTargets(g GateState) []Target {
+	switch v := g.(type) {
+	case Pending:
+		return v.Targets
+	case Satisfied:
+		return v.Targets
+	case Blocked:
+		return v.Targets
 	}
-	return st, React(st, evs)
+	return nil
+}
+
+// priorTargets indexes a gate's targets by "class|target".
+func priorTargets(g GateState) map[string]Target {
+	out := map[string]Target{}
+	for _, t := range gateTargets(g) {
+		out[t.Class+"|"+t.Target] = t
+	}
+	return out
+}
+
+// priorLease returns the lease carried by any stateful gate variant.
+func priorLease(g GateState) Lease {
+	switch v := g.(type) {
+	case Pending:
+		return v.Lease
+	case Satisfied:
+		return v.Lease
+	case Blocked:
+		return v.Lease
+	}
+	return Lease{}
+}
+
+// unionPriorTargets returns the finalize gates plus any prior target not already
+// named, so an apply-context finalize can only ADD to (never remove from) the
+// plan-established gate. Prior-only targets append in sorted key order so the
+// result is deterministic.
+func unionPriorTargets(gates []events.GateTarget, prior map[string]Target) []events.GateTarget {
+	seen := make(map[string]bool, len(gates))
+	for _, g := range gates {
+		seen[g.Class+"|"+g.Target] = true
+	}
+	out := append([]events.GateTarget(nil), gates...)
+	for _, key := range sortedKeys(prior) {
+		if !seen[key] {
+			pt := prior[key]
+			out = append(out, events.GateTarget{Class: pt.Class, Target: pt.Target})
+		}
+	}
+	return out
 }
