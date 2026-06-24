@@ -286,7 +286,7 @@ func TestLogStreamResumeFromLastEventID(t *testing.T) {
 func TestOffloadAndServeFromStore(t *testing.T) {
 	db := newServerTestDB(t)
 	a := New(db, &MockGitHub{}, Config{LogsDir: t.TempDir()})
-	a.Objects = FSStore{Root: t.TempDir()}
+	a.Objects = newMemObjects()
 
 	if err := a.appendLog("e1", "stacks/a", "archived log\n"); err != nil {
 		t.Fatal(err)
@@ -318,7 +318,7 @@ func TestOffloadAndServeFromStore(t *testing.T) {
 func TestHandleUpdateTriggersOffloadOnTerminal(t *testing.T) {
 	db := newServerTestDB(t)
 	a := New(db, &MockGitHub{}, Config{LogsDir: t.TempDir()})
-	a.Objects = FSStore{Root: t.TempDir()}
+	a.Objects = newMemObjects()
 	srv := httptest.NewServer(a.Routes())
 	defer srv.Close()
 

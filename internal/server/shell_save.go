@@ -10,22 +10,11 @@ import (
 // a snapshot of the folded state, then refreshes the gate_targets projection. The
 // event log is the source of truth; gate_targets is a derived index. Append and
 // the projection are not one transaction — safe, because the projection is
-// rebuildable from the log (RebuildProjection) and self-heals on the next gather.
+// rebuildable from the log and self-heals on the next gather.
 func (sh *Shell) persist(pr int, env string, expectedVersion int, evs []reconcile.Event, state reconcile.ChangeSet) error {
 	if err := sh.app.gateDecider.Append(sh.app.eventStore, execStreamID(pr, env), expectedVersion, evs, state); err != nil {
 		return err
 	}
-	return sh.project(state)
-}
-
-// RebuildProjection replays (pr,env)'s event stream and rewrites its gate_targets
-// projection from the folded state — the regenerate-a-read-model-from-the-log seam.
-func (sh *Shell) RebuildProjection(pr int, env string) error {
-	state, _, err := sh.loadStream(pr, env)
-	if err != nil {
-		return err
-	}
-	state.PR, state.Environment = pr, env
 	return sh.project(state)
 }
 
