@@ -318,7 +318,9 @@ func TestClaimsListWireShape(t *testing.T) {
 
 	// Seed a claim for env "prod", PR 42.
 	expires := time.Now().Add(time.Hour).UTC().Truncate(time.Second)
-	if err := store.ClaimStacks(db, "prod", 42, "", []string{"stacks/core"}, expires); err != nil {
+	if err := store.ReplaceClaims(db, "prod", map[string]store.Claim{
+		"stacks/core": {OwnerPR: 42, ExpiresAt: expires},
+	}); err != nil {
 		t.Fatal(err)
 	}
 
