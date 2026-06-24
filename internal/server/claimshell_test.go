@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/claims"
-	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
 
 // TestHandleClaimAcquireProjectsAndFolds: handleClaim(AcquireClaim) appends to
@@ -32,7 +31,7 @@ func TestHandleClaimAcquireProjectsAndFolds(t *testing.T) {
 	}
 
 	// The apply_claims projection mirrors the fold (cross-env index for the sweep + UI).
-	proj, _ := store.ClaimedStacks(a.db, "prod", now)
+	proj := activeClaimedStacks(a.db, "prod", now)
 	if proj["a"] != 7 || proj["b"] != 7 || len(proj) != 2 {
 		t.Fatalf("projection = %v, want a,b → 7", proj)
 	}
@@ -55,7 +54,7 @@ func TestHandleClaimReleaseClearsBoth(t *testing.T) {
 	if len(cs) != 0 {
 		t.Fatalf("fold after release = %+v, want empty", cs)
 	}
-	proj, _ := store.ClaimedStacks(a.db, "prod", now)
+	proj := activeClaimedStacks(a.db, "prod", now)
 	if len(proj) != 0 {
 		t.Fatalf("projection after release = %v, want empty", proj)
 	}
@@ -78,7 +77,7 @@ func TestHandleClaimReleaseStack(t *testing.T) {
 	if cs["b"].PR != 7 {
 		t.Fatalf("stack b lost: %+v", cs)
 	}
-	proj, _ := store.ClaimedStacks(a.db, "prod", now)
+	proj := activeClaimedStacks(a.db, "prod", now)
 	if len(proj) != 1 || proj["b"] != 7 {
 		t.Fatalf("projection = %v, want only b → 7", proj)
 	}

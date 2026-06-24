@@ -39,7 +39,6 @@ func TestImgAndLiveHandlers(t *testing.T) {
 	_ = store.SetReport(db, "e1", "# report body")
 	// per-stack plan output drives the stack's detail block on the overview
 	_ = store.UpsertStackOutput(db, "e1", "stacks/a", "plan", "", "# report body")
-	_ = store.UpsertTarget(db, 7, "staging", "iam", "proj-b", "", "AWAITING")
 
 	a := New(db, &MockGitHub{}, Config{})
 	srv := httptest.NewServer(a.Routes())

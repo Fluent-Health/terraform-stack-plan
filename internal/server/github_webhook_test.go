@@ -95,7 +95,6 @@ func TestGitHubWebhookLeavesMergedGrant(t *testing.T) {
 	srv := httptest.NewServer(a.Routes())
 	defer srv.Close()
 
-	_ = store.UpsertTarget(db, 5, "nonprod", "iam", "proj-a", "", "ACTIVE")
 	_, _ = fake.RequestGrant(context.Background(), approval.Request{Class: "iam", Target: "proj-a", PR: 5, Environment: "nonprod"})
 
 	payload := map[string]any{

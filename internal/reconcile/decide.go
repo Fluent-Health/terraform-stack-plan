@@ -362,6 +362,9 @@ func priorLease(g GateState) Lease {
 	return Lease{}
 }
 
+// Requester returns the leased requester identity for the gate ("" if none).
+func Requester(g GateState) string { return priorLease(g).Requester }
+
 // unionPriorTargets returns the finalize gates plus any prior target not already
 // named, so an apply-context finalize can only ADD to (never remove from) the
 // plan-established gate. Prior-only targets append in sorted key order so the

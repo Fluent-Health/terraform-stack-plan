@@ -8,6 +8,7 @@ import (
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/approval"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
+	"github.com/Fluent-Health/terraform-stack-plan/internal/reconcile"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
 
@@ -19,12 +20,20 @@ func (errListGrantsBackend) ListGrants(context.Context, string, string) ([]appro
 	return nil, fmt.Errorf("pam unreachable")
 }
 
-// seedStaleActiveGate records an ACTIVE target — the stale cache the gate-check
-// must NOT trust when the live reconcile fails. gate_runs was retired in
-// migration 008; classified-ness is now derived from the event stream.
-func seedStaleActiveGate(t *testing.T, a *App) {
+// seedGateViaHandle drives a RunnerFinalize signal through the shell to land a
+// pending gate for PR 7 / staging in the gate_targets projection. This is the
+// production path that populates gate_targets; the gate-check handler then
+// performs a live reconcile on top of that stored state.
+func seedGateViaHandle(t *testing.T, a *App) {
 	t.Helper()
-	if err := store.UpsertTarget(a.db, 7, "staging", "iam", "proj-a", "g1", "ACTIVE"); err != nil {
+	if err := store.UpsertInit(a.db, events.Init{ID: "e1", PR: 7, Environment: "staging", Repo: "r"}); err != nil {
+		t.Fatal(err)
+	}
+	// Use a real Fake backend (with no pool) — empty Pool → RequestGrant yields an
+	// AWAITING grant, so the gate stays pending; the projection is written.
+	if err := a.shell.Handle(context.Background(), 7, "staging", "r", reconcile.RunnerFinalize{
+		Gates: []events.GateTarget{{Class: "iam", Target: "proj-a"}},
+	}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -39,11 +48,14 @@ func gateCheckGH() *MockGitHub {
 func TestGateCheckFailsClosedOnReconcileError(t *testing.T) {
 	db := newServerTestDB(t)
 	a := New(db, gateCheckGH(), Config{})
+	// Seed the gate via the event path so gate_targets has targets for the check.
+	a.Approval = approval.NewFake()
+	seedGateViaHandle(t, a)
+	// Now replace the backend with one that always fails ListGrants.
 	a.Approval = errListGrantsBackend{approval.NewFake()}
+
 	srv := httptest.NewServer(a.Routes())
 	defer srv.Close()
-
-	seedStaleActiveGate(t, a)
 
 	if code := post(t, srv, "/api/gate/check", events.GateCheck{PR: 7, Environment: "staging"}); code != 503 {
 		t.Fatalf("gate/check with failing ListGrants = %d, want 503 (fail-closed)", code)

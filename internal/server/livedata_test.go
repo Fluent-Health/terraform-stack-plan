@@ -7,20 +7,6 @@ import (
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 )
 
-func TestGroupStacksByKey(t *testing.T) {
-	stacks := []events.StackState{
-		{Path: "nonprod/pipelines/x"},
-		{Path: "nonprod/projects/a"},
-		{Path: "nonprod/pipelines/y"},
-	}
-	groups := groupStacksByKey(stacks, 2, nil)
-	if len(groups) != 2 ||
-		groups[0].Name != "nonprod/pipelines" || len(groups[0].Stacks) != 2 ||
-		groups[1].Name != "nonprod/projects" {
-		t.Fatalf("groups = %+v, want nonprod/pipelines(2), nonprod/projects(1)", groups)
-	}
-}
-
 func TestStatusBadge(t *testing.T) {
 	cases := map[events.Status]string{
 		events.StatusPending: "badge-ghost",
@@ -181,67 +167,6 @@ func TestApplyBadgePreparing(t *testing.T) {
 	if got := mk(events.PhaseApplying, true, "failure"); got != "FAILED" {
 		t.Errorf("apply finished failure badge = %q, want FAILED", got)
 	}
-}
-
-func TestPhaseTimeline(t *testing.T) {
-	t.Run("plan in-progress", func(t *testing.T) {
-		steps := phaseTimeline("plan", events.PhasePlanning, false)
-		if len(steps) != 2 {
-			t.Fatalf("plan timeline: got %d steps, want 2", len(steps))
-		}
-		if steps[0].Name != "Plan" || steps[0].State != "active" {
-			t.Errorf("plan step 0: got {%q, %q}, want {Plan, active}", steps[0].Name, steps[0].State)
-		}
-		if steps[1].Name != "Report" || steps[1].State != "todo" {
-			t.Errorf("plan step 1: got {%q, %q}, want {Report, todo}", steps[1].Name, steps[1].State)
-		}
-	})
-
-	t.Run("plan finished", func(t *testing.T) {
-		steps := phaseTimeline("plan", events.PhasePlanning, true)
-		for _, st := range steps {
-			if st.State != "done" {
-				t.Errorf("finished plan: step %q = %q, want done", st.Name, st.State)
-			}
-		}
-	})
-
-	t.Run("apply in-progress", func(t *testing.T) {
-		steps := phaseTimeline("apply", events.PhaseApplying, false)
-		if len(steps) != 4 {
-			t.Fatalf("apply timeline: got %d steps, want 4", len(steps))
-		}
-		// Warming and Initializing precede Apply — both must be done.
-		if steps[0].Name != "Warming" || steps[0].State != "done" {
-			t.Errorf("apply step 0: got {%q, %q}, want {Warming, done}", steps[0].Name, steps[0].State)
-		}
-		if steps[1].Name != "Initializing" || steps[1].State != "done" {
-			t.Errorf("apply step 1: got {%q, %q}, want {Initializing, done}", steps[1].Name, steps[1].State)
-		}
-		if steps[2].Name != "Apply" || steps[2].State != "active" {
-			t.Errorf("apply step 2: got {%q, %q}, want {Apply, active}", steps[2].Name, steps[2].State)
-		}
-		if steps[3].Name != "Verify" || steps[3].State != "todo" {
-			t.Errorf("apply step 3: got {%q, %q}, want {Verify, todo}", steps[3].Name, steps[3].State)
-		}
-	})
-
-	t.Run("apply finished", func(t *testing.T) {
-		steps := phaseTimeline("apply", events.PhaseVerifying, true)
-		for _, st := range steps {
-			if st.State != "done" {
-				t.Errorf("finished apply: step %q = %q, want done", st.Name, st.State)
-			}
-		}
-	})
-
-	t.Run("unknown phase is all todo", func(t *testing.T) {
-		for _, st := range phaseTimeline("plan", events.Phase(""), false) {
-			if st.State != "todo" {
-				t.Errorf("empty-phase step %s = %q, want todo", st.Name, st.State)
-			}
-		}
-	})
 }
 
 func TestLogDefault(t *testing.T) {

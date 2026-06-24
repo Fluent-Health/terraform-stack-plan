@@ -12,6 +12,19 @@ import (
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
 
+// activeClaimedStacks returns unexpired claims as stack→PR (mirrors the old
+// ClaimedStacks projection query).
+func activeClaimedStacks(db *sql.DB, env string, now time.Time) map[string]int {
+	cs, _ := store.ListClaims(db, env)
+	out := map[string]int{}
+	for _, c := range cs {
+		if c.ExpiresAt.After(now) {
+			out[c.StackPath] = c.OwnerPR
+		}
+	}
+	return out
+}
+
 func ctx() context.Context { return context.Background() }
 
 func newApplyLockTestApp(t *testing.T) (*App, *recordingGitHub) {
@@ -121,23 +134,6 @@ func TestPostApplyLock(t *testing.T) {
 	}
 }
 
-func TestOverlap(t *testing.T) {
-	claimed := map[string]int{"a": 5, "b": 5, "c": 9}
-	// PR 7 touching b,d => b is claimed by another PR (5) => blocking.
-	got := overlap(claimed, []string{"b", "d"}, 7)
-	if len(got) != 1 || got[0] != "b" {
-		t.Fatalf("overlap = %v, want [b]", got)
-	}
-	// A PR's own claim does not block itself.
-	if g := overlap(claimed, []string{"a"}, 5); len(g) != 0 {
-		t.Fatalf("self-claim blocked: %v", g)
-	}
-	// Disjoint => no overlap.
-	if g := overlap(claimed, []string{"d", "e"}, 7); len(g) != 0 {
-		t.Fatalf("disjoint blocked: %v", g)
-	}
-}
-
 func TestMergeGroupHeldThenClaim(t *testing.T) {
 	a, gh := newApplyLockTestApp(t)
 	gh.mergeGroupPRs = []int{7}
@@ -159,7 +155,7 @@ func TestMergeGroupHeldThenClaim(t *testing.T) {
 	if gh.lastUpdate.Conclusion != "success" {
 		t.Fatalf("disjoint merge group conclusion = %q, want success", gh.lastUpdate.Conclusion)
 	}
-	if c, _ := store.ClaimedStacks(a.db, "prod", time.Now()); c["a"] != 7 || c["b"] != 7 {
+	if c := activeClaimedStacks(a.db, "prod", time.Now()); c["a"] != 7 || c["b"] != 7 {
 		t.Fatalf("greenlight did not claim: %v", c)
 	}
 }
@@ -187,7 +183,7 @@ func TestPRApplyLockEvaluateAndClaim(t *testing.T) {
 	}
 	// merged ⇒ claim the PR's stacks.
 	a.handlePRApplyLock(ctx(), "o/r", 7, true)
-	if c, _ := store.ClaimedStacks(a.db, "prod", time.Now()); c["a"] != 7 {
+	if c := activeClaimedStacks(a.db, "prod", time.Now()); c["a"] != 7 {
 		t.Fatalf("merged did not claim: %v", c)
 	}
 }
@@ -196,7 +192,7 @@ func TestApplyFinalizeReleasesClaims(t *testing.T) {
 	a, _ := newApplyLockTestApp(t)
 	_ = a.shell.handleClaim("prod", claims.AcquireClaim{PR: 7, Stacks: []string{"a"}, Now: time.Now()})
 	a.releaseApplyClaims(ctx(), "prod", 7)
-	if c, _ := store.ClaimedStacks(a.db, "prod", time.Now()); len(c) != 0 {
+	if c := activeClaimedStacks(a.db, "prod", time.Now()); len(c) != 0 {
 		t.Fatalf("finalize did not release: %v", c)
 	}
 	if cs, _ := a.shell.loadClaims("prod"); len(cs) != 0 {
@@ -231,14 +227,14 @@ func TestSweepExpiredClaimsUsesInjectedClock(t *testing.T) {
 	// Before expiry: sweep keeps the claim.
 	a.now = func() time.Time { return base.Add(time.Second) }
 	a.sweepClaimsOnce(ctx())
-	if c, _ := store.ClaimedStacks(a.db, "nonprod", base.Add(time.Second)); c["a"] != 1 {
+	if c := activeClaimedStacks(a.db, "nonprod", base.Add(time.Second)); c["a"] != 1 {
 		t.Fatalf("claim should still exist before expiry: %v", c)
 	}
 
 	// After expiry: advancing the injected clock past the lease releases it.
 	a.now = func() time.Time { return base.Add(24 * time.Hour) }
 	a.sweepClaimsOnce(ctx())
-	if c, _ := store.ClaimedStacks(a.db, "nonprod", base.Add(24*time.Hour)); len(c) != 0 {
+	if c := activeClaimedStacks(a.db, "nonprod", base.Add(24*time.Hour)); len(c) != 0 {
 		t.Fatalf("claim should be gone after expiry: %v", c)
 	}
 }

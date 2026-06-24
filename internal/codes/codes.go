@@ -35,7 +35,8 @@ const (
 )
 
 // All returns every registered code (for the uniqueness/format test and the
-// generated docs table).
+// generated docs table). Retained as public API: the test suite validates
+// uniqueness/format via this, and the generated docs reference table enumerates it.
 func All() []Code {
 	return []Code{
 		GateNotClassified, GateNotSatisfied, GateUnconfirmable, GateUnreachable,

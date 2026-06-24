@@ -1440,9 +1440,7 @@ serve wiring grew.
 ### Reconciler core
 
 `internal/reconcile` is the pure functional core for server-side gate and
-execution-lifecycle state. Its single entry point —
-`Step(World, Signal) → (ChangeSet, []Action)` — is a thin orchestrator over three
-pure functions, each with a distinct role:
+execution-lifecycle state. The live decider has three pure functions:
 
 - **`Decide(ChangeSet, Signal) → []Event`** — all business logic. Maps an incoming
   signal against the prior state and emits a sequence of past-tense domain facts
@@ -1450,19 +1448,21 @@ pure functions, each with a distinct role:
   covers every gate-lifecycle, execution-lifecycle, and claim-ledger transition.
 - **`Evolve(ChangeSet, Event) → ChangeSet`** — the total fold. Applies a single
   event to the prior state, returning the new `ChangeSet`. Written replay-ready:
-  replaying the event log over an empty state converges to the same snapshot
-  that `Step` would have produced (the event store and env-claim-ledger second
-  stream remain Phase 4 — `Step` still persists the snapshot via the shell).
+  replaying the event log over an empty state converges to the live snapshot.
 - **`React(ChangeSet, []Event) → []Action`** — CQRS projection. Derives the
   idempotent `Action`s the imperative shell must run (grant requests, revokes,
   claim releases, `RenderCheckRun`, `PublishSSE`) from the folded state plus the
   event batch. Presentation (`RenderCheckRun`/`PublishSSE`) is never a stored fact.
 
-`Step` calls `Decide`, folds the events via `Evolve`, then calls `React` —
-deterministic, no I/O, safe to call repeatedly. The imperative shell
-(`internal/server/shell.go`) wraps it: gather a scoped `World`, call `Step`,
-execute the returned `Action`s, persist the `ChangeSet` — serialized per
-`(pr, environment)`.
+The imperative shell (`internal/server/shell.go`) reconstructs the scoped
+`ChangeSet` by replaying the event stream for a `(pr, environment)`, runs `Decide`,
+folds the new events with `Evolve`, persists (appends events + snapshot + rebuilds
+projections), then executes the `React` actions — serialized per `(pr, environment)`.
+The event log is the source of truth; projections (e.g. `gate_targets`) are rebuilt
+from the fold, never written directly. (Phase 3 split the pre-split `Step`
+orchestrator into `Decide`/`Evolve`/`React`; `Step` was retired in the subsequent
+docs-restructure/cleanup. See the PR series (Phases 1–3) for the full migration
+reasoning.)
 
 `GateState` is a proper sum type: `NotClassified` (PR never finalized — apply
 fails closed), `Clean` (classified, zero gate targets — apply passes), `Pending`
@@ -1477,11 +1477,9 @@ and no feature flag. (It originally shipped behind an off-by-default
 `reconciler_core` flag; after cutover the flag, legacy handlers, and
 `serve --check-quiescent` tooling were all removed.)
 
-The permutation test harness (`internal/reconcile/step_table_test.go`) is the
-correctness oracle and is frozen as the behavior gate for the `Decide`/`Evolve`/
-`React` refactor: its rows are unchanged, and `Step`'s observable contract
-(`(ChangeSet, []Action)` for every permutation) is identical to before. See the
-PR series (Phases 1–3) for the full migration reasoning.
+The decider tests (`internal/reconcile/decide_test.go`, `evolve_test.go`,
+`react_test.go`) are the correctness oracle for all gate/execution/claim-ledger
+transitions.
 
 The apply-time gate check is **fail-closed on an unconfirmable reconcile**: if the
 fresh PAM re-list cannot confirm current grant state (backend unreachable), the
@@ -1655,8 +1653,8 @@ revokes) that the shell executes — release the claim *and* the grant the
 finished apply held, in one transition. A failed apply still sends `GateRevoke`,
 so it releases too; a classify-fail abort (no `GateRevoke`, grant kept for
 retry) leaves the claim to the TTL sweep — the safe over-hold direction,
-identical to how the grant behaves. (See the `ApplySucceeded` rows in the
-reconciler permutation harness, `internal/reconcile/step_table_test.go`, and
+identical to how the grant behaves. (See the `ApplySucceeded` cases in the decider tests
+(`internal/reconcile/decide_test.go`, `evolve_test.go`, `react_test.go`) and
 PR #100 for the full root-cause + alternatives.)
 
 A `ClaimsSweepLoop` (periodic background task) releases claims whose lease has
@@ -1666,8 +1664,8 @@ so a stuck check self-heals once the dead apply's TTL lapses.
 
 > Acquisition (merge / merge_group) and the cross-PR overlap/held evaluation +
 > check posting stay in the imperative shell — they are env-global, not per-(PR,
-> environment), so they don't fit the reconciler's scoped `Step`. Only the
-> per-(PR, environment) terminal release lives in the core.
+> environment), so they don't fit the reconciler's per-`(pr, environment)`
+> scope. Only the per-(PR, environment) terminal release lives in the core.
 
 **Admin un-wedge.** `tfstackplan claims list [--env ENV]` shows active claims
 (PR, stacks, expiry); `tfstackplan claims release <pr> [--env ENV]` forcibly

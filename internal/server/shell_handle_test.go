@@ -29,14 +29,14 @@ func TestHandleFinalizeRequestsAllGatesViaFixpoint(t *testing.T) {
 		t.Fatal(err)
 	}
 	// After the fixpoint, BOTH targets must be persisted with a grant + shared lease.
-	raw, err := store.LoadChangeSet(app.db, 7, "staging")
+	targets, err := store.TargetsFor(app.db, 7, "staging")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(raw.Targets) != 2 {
-		t.Fatalf("want 2 persisted targets, got %d", len(raw.Targets))
+	if len(targets) != 2 {
+		t.Fatalf("want 2 persisted targets, got %d", len(targets))
 	}
-	if raw.Targets[0].Requester == "" || raw.Targets[0].Requester != raw.Targets[1].Requester {
-		t.Fatalf("want both targets sharing one lease, got %q/%q", raw.Targets[0].Requester, raw.Targets[1].Requester)
+	if targets[0].Requester == "" || targets[0].Requester != targets[1].Requester {
+		t.Fatalf("want both targets sharing one lease, got %q/%q", targets[0].Requester, targets[1].Requester)
 	}
 }

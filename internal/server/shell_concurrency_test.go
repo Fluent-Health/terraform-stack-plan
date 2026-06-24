@@ -40,13 +40,13 @@ func TestConcurrentFinalizeAndTickNoPrematureSatisfied(t *testing.T) {
 
 	// Final persisted state must be internally consistent: if both targets are
 	// present they must share the same lease (no half-leased artifact).
-	raw, err := store.LoadChangeSet(app.db, 7, "staging")
+	targets, err := store.TargetsFor(app.db, 7, "staging")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(raw.Targets) == 2 {
-		if raw.Targets[0].Requester != raw.Targets[1].Requester {
-			t.Fatalf("inconsistent lease across targets: %q/%q", raw.Targets[0].Requester, raw.Targets[1].Requester)
+	if len(targets) == 2 {
+		if targets[0].Requester != targets[1].Requester {
+			t.Fatalf("inconsistent lease across targets: %q/%q", targets[0].Requester, targets[1].Requester)
 		}
 	}
 }

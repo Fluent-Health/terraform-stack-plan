@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -17,19 +16,6 @@ type applyLockVerdict struct {
 	State    string
 	Blocking []string
 	Reason   string
-}
-
-// overlap returns the stacks in `stacks` that are claimed by a PR other than
-// ownerPR (sorted, deterministic).
-func overlap(claimed map[string]int, stacks []string, ownerPR int) []string {
-	var out []string
-	for _, s := range stacks {
-		if pr, ok := claimed[s]; ok && pr != ownerPR {
-			out = append(out, s)
-		}
-	}
-	sort.Strings(out)
-	return out
 }
 
 // prChangedStacks returns a PR's plan-time changed-stack set for env. ok=false
@@ -259,9 +245,6 @@ func (a *App) ClaimsSweepLoop(ctx context.Context, interval time.Duration) {
 		}
 	}
 }
-
-// applyLockLease is the heartbeat lease window for a claim.
-func (a *App) applyLockLease() time.Duration { return 30 * time.Minute }
 
 // adminReleaseClaims is the manual un-wedge path: an admin releases one stack's
 // claim (stack != "") or all of a PR's claims in env (stack == ""), then

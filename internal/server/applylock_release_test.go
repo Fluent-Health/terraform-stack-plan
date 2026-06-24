@@ -6,7 +6,6 @@ import (
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/claims"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
-	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
 
 // newReconcilerApplyLockApp builds an app on the production path: reconciler core
@@ -44,7 +43,7 @@ func TestApplyEndGateRevokeReleasesClaim(t *testing.T) {
 		t.Fatalf("handleClaim acquire: %v", err)
 	}
 	// Verify the claim actually landed in the stream before driving the release.
-	if c, _ := store.ClaimedStacks(a.db, "staging", now); c["a"] != 7 {
+	if c := activeClaimedStacks(a.db, "staging", now); c["a"] != 7 {
 		t.Fatalf("expected claim seeded via ledger, got: %v", c)
 	}
 
@@ -52,7 +51,7 @@ func TestApplyEndGateRevokeReleasesClaim(t *testing.T) {
 	if code := post(t, srv, "/api/gate/revoke", events.GateRevoke{PR: 7, Environment: "staging"}); code != 200 {
 		t.Fatalf("gate/revoke = %d", code)
 	}
-	if c, _ := store.ClaimedStacks(a.db, "staging", a.now()); len(c) != 0 {
+	if c := activeClaimedStacks(a.db, "staging", a.now()); len(c) != 0 {
 		t.Fatalf("apply-end GateRevoke did not release the claim: %v", c)
 	}
 }
@@ -75,7 +74,7 @@ func TestClassifyPassFinalizeKeepsClaim(t *testing.T) {
 	if code := post(t, srv, "/api/finalize", events.Finalize{ID: "apply-1", ReportMarkdown: "# r"}); code != 200 {
 		t.Fatalf("classify finalize = %d", code)
 	}
-	if c, _ := store.ClaimedStacks(a.db, "staging", a.now()); len(c) == 0 {
+	if c := activeClaimedStacks(a.db, "staging", a.now()); len(c) == 0 {
 		t.Fatal("classify-pass finalize released the claim before the apply ran")
 	}
 }
