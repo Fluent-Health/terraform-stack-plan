@@ -841,21 +841,41 @@ the full reasoning and alternatives weighed:
   yet started); the badge shows **PREPARING** until `PhaseApplying`.
 - **`internal/store`** — the server's SQLite persistence (pure-Go
   `modernc.org/sqlite`, `goose` migrations embedded via `go:embed`): executions and
-  their stack/edge subgraph, plus the **event-sourced gate state**. The reconcile
-  gate is now event-sourced: the shell appends the events `Decide` produces to the
-  `exec:<pr>:<env>` stream (`EventStore`: append-only `events` with optimistic
-  concurrency on `(stream_id, version)` + a latest-only `snapshots` cache) and
-  reconstructs `World.Prior` by replaying `Evolve` over the snapshot+tail —
-  **losslessly** (`Blocked{reason}`, the slot blocker, the lease, the was-active bit
-  all survive). The lossy flat-row `mapRawGate` reload and the `gate_runs` classified
-  marker are **gone** (classified-ness is the folded gate variant). `gate_targets`
-  is retained as a **rebuildable derived projection** (an index for the cross-PR
-  sweep queries `PendingGates`/`OpenGrantPRs`/`PRTargets`), written by the projector
-  from the folded state and regenerable via `RebuildProjection`; it is never read as
-  truth for the gate verdict (the apply gate-check replays the stream). Cutover was
-  greenfield (migration `008` drops `gate_runs`, clears `gate_targets`; in-flight PRs
-  re-plan). Phase 4c will promote the apply-lock claim ledger to an `env:<env>`
-  stream. See the event-sourced target architecture above.
+  their stack/edge subgraph, plus **two event-sourced aggregates**. Both are driven
+  by a generic `internal/eventsourcing` decider-host (`Load`: snapshot + replay-tail
+  via `Evolve`; `Append`: encode + optimistic append + snapshot) parameterized by a
+  `Decider[S, E]` value — one engine, two stream scopes:
+  - **Gate aggregate** (`exec:<pr>:<env>` stream) — the reconcile gate state:
+    `Blocked{reason}`, slot blocker, lease, was-active bit, all folded losslessly.
+    `gate_targets` is a **rebuildable derived projection** (cross-PR index for
+    `PendingGates`/`OpenGrantPRs`/`PRTargets`), written by the projector and
+    regenerable via `RebuildProjection`; never read as truth for the gate verdict.
+    Migration `008` dropped `gate_runs` and cleared `gate_targets`; in-flight PRs
+    re-plan.
+  - **Claim-ledger aggregate** (`env:<env>` stream) — the apply-lock claim state:
+    a `ClaimSet` folded over claim/renew/release events. `apply_claims` is a
+    **derived projection** (cross-env index for the sweep + UI), written by the
+    projector from the folded `ClaimSet`; it is never read as truth for the overlap
+    predicate. `held` is a **read-time projection** (`ExpiresAt > now`): expiry is
+    enforced at query time, not as a logged event, so the log replays
+    deterministically and stale entries are invisible once their lease lapses.
+    Migration `009` cleared `apply_claims` at cutover (empty event streams → empty
+    projection; in-flight applies re-claim on their next greenlight).
+
+  The `EventStore` boundary: optimistic concurrency on `(stream_id, version)`;
+  a PK violation surfaces as `ErrConcurrencyConflict`. The in-process mutex is an
+  optimization (elide a DB round-trip when the process serializes writes) but is
+  not required for correctness — the DB constraint is the hard boundary.
+
+  **Deployment topology note.** The generic host + stream-scoped + projection model
+  supports central (one instance, all tiers), per-tier, and
+  commander/viewer (read-only projection consumer) deployments. Streams partition by
+  env/tier; nothing cross-tier is atomic. Reaching multi-writer is dropping the
+  in-process mutex, not a redesign — the DB constraint already enforces
+  optimistic concurrency. No topology configuration is built today; this is a
+  documented capability, not a shipped feature.
+
+  See the event-sourced target architecture diagrams above.
 
 **Watch out:**
 
@@ -1584,10 +1604,16 @@ file is always removable.
 Terraform state locks. It is always on (no flag): serve posts an `apply-lock/<env>`
 check that holds a PR's merge while its changed stacks overlap an in-flight apply.
 
-**Mechanism.** A per-environment *claimed-stack set* (`apply_claims` table)
-records which PR currently holds each stack. When serve evaluates whether a
-PR is safe to merge, it computes the *overlap* between the PR's plan-time
-changed stacks and the currently-claimed set. An empty intersection → `clear`;
+**Mechanism.** The claim ledger is event-sourced on the `env:<env>` stream (Phase
+4c): the `ClaimSet` is the folded state of claim/renew/release events, loaded via
+the generic `internal/eventsourcing` host. `apply_claims` is a **derived
+projection** — a cross-env SQL index written by the projector for the sweep + UI;
+it is not read for the overlap verdict. `held` is a **read-time projection**:
+expiry (`ExpiresAt > now`) is enforced at query time, not as a logged event.
+
+When serve evaluates whether a PR is safe to merge it replays the `env:<env>`
+stream to get the current `ClaimSet`, then computes the *overlap* between the PR's
+plan-time changed stacks and the live claimed set. An empty intersection → `clear`;
 any overlap → `held`. If the PR's plan stacks cannot be determined (no finalized
 plan, or the store is unreadable) the verdict is `unverifiable` — the subsystem
 **fails closed**. Serve posts a required GitHub check named `apply-lock/<env>`:

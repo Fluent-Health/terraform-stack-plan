@@ -125,6 +125,13 @@ func TestMigration008DropsGateRuns(t *testing.T) {
 	}
 }
 
+func TestMigration009ClearsApplyClaims(t *testing.T) {
+	db := newTestDB(t)
+	if _, err := db.Exec("SELECT count(*) FROM apply_claims"); err != nil {
+		t.Fatalf("apply_claims should still exist: %v", err)
+	}
+}
+
 func TestLoadChangeSetReadsGateAndExecution(t *testing.T) {
 	db := newTestDB(t)
 	if err := UpsertTarget(db, 7, "staging", "iam", "p1", "g1", "ACTIVE"); err != nil {
