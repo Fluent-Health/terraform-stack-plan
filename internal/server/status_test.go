@@ -41,6 +41,24 @@ func TestConclusion(t *testing.T) {
 	}
 }
 
+// seedProjectionTarget inserts a row directly into the gate_targets projection
+// table using the same ON CONFLICT SQL that shell.project uses. Used here to
+// seed the derived projection for read-path tests (loadSnapshot, etc.) without
+// going through the full Handle flow.
+func seedProjectionTarget(t *testing.T, db *sql.DB, pr int, environment, class, target, grant, state string) {
+	t.Helper()
+	_, err := db.Exec(
+		`INSERT INTO gate_targets (pr, environment, class, target, grant_name, state)
+		 VALUES (?,?,?,?,?,?)
+		 ON CONFLICT(pr, environment, class, target) DO UPDATE SET
+		   grant_name=excluded.grant_name, state=excluded.state,
+		   updated_at=CURRENT_TIMESTAMP`,
+		pr, environment, class, target, grant, state)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestLoadSnapshot(t *testing.T) {
 	db := newServerTestDB(t)
 	in := events.Init{
@@ -55,8 +73,10 @@ func TestLoadSnapshot(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = store.SetReport(db, "e1", "# report")
-	_ = store.UpsertTarget(db, 7, "staging", "iam", "proj-a", "g1", "ACTIVE")
-	_ = store.UpsertTarget(db, 7, "staging", "iam", "proj-b", "g2", "AWAITING")
+	// Seed the gate_targets projection directly (same SQL as shell.project) so
+	// loadSnapshot's TargetsFor call sees the expected rows.
+	seedProjectionTarget(t, db, 7, "staging", "iam", "proj-a", "g1", "ACTIVE")
+	seedProjectionTarget(t, db, 7, "staging", "iam", "proj-b", "g2", "AWAITING")
 
 	snap, exec, ok := loadSnapshot(db, "e1")
 	if !ok {

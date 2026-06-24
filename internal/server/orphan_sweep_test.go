@@ -21,7 +21,13 @@ func TestSweepSkipsPRWithoutExecutionRepo(t *testing.T) {
 	}
 	a := New(db, gh, Config{})
 	a.Approval = approval.NewFake()
-	if err := store.UpsertTarget(db, 7, "staging", "iam", "p1", "g1", "ACTIVE"); err != nil {
+	// Seed gate_targets directly (no execution row) so OpenGrantPRs returns repo=""
+	// — the exact edge case this test exercises. Using the event path (Handle) would
+	// require UpsertInit which creates an execution row and defeats the purpose.
+	if _, err := db.Exec(
+		`INSERT INTO gate_targets (pr, environment, class, target, grant_name, state)
+		 VALUES (?,?,?,?,?,?)`,
+		7, "staging", "iam", "p1", "g1", "ACTIVE"); err != nil {
 		t.Fatal(err)
 	}
 

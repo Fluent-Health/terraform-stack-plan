@@ -18,25 +18,6 @@ type Gate struct {
 	Environment string
 }
 
-// UpsertTarget records or updates the grant for a (pr, environment, class,
-// target). On conflict the grant_name, state, and updated_at are overwritten.
-// NOTE: `requester` is deliberately excluded from the ON CONFLICT update set.
-// SetTargetRequester writes the leased requester SA after the initial upsert;
-// subsequent reconcile-loop UpsertTarget calls (state refreshes) must not
-// clobber it — keeping it out of the update set is the invariant that lets
-// handleGateCheck trust targets[0].Requester for the entire (pr, environment).
-func UpsertTarget(db *sql.DB, pr int, environment, class, target, grant, state string) error {
-	_, err := db.Exec(
-		`INSERT INTO gate_targets (pr, environment, class, target, grant_name, state)
-		 VALUES (?,?,?,?,?,?)
-		 ON CONFLICT(pr, environment, class, target) DO UPDATE SET
-		   grant_name = excluded.grant_name,
-		   state      = excluded.state,
-		   updated_at = CURRENT_TIMESTAMP`,
-		pr, environment, class, target, grant, state)
-	return err
-}
-
 // PendingGates returns the (pr, environment) gates that still have at least one
 // target not yet ACTIVE — i.e. gates whose verdict may still need posting. The
 // reconcile loop walks these to self-heal the gap where an approval event is
@@ -62,16 +43,6 @@ func PendingGates(db *sql.DB) ([]Gate, error) {
 	return out, rows.Err()
 }
 
-// MarkActive flips every stored target for (pr, environment) to ACTIVE, so the
-// gate drops out of PendingGates and the live approval panel shows approved
-// rather than the stale request-time waiting state.
-func MarkActive(db *sql.DB, pr int, environment string) error {
-	_, err := db.Exec(
-		`UPDATE gate_targets SET state = 'ACTIVE', updated_at = CURRENT_TIMESTAMP
-		 WHERE pr = ? AND environment = ?`, pr, environment)
-	return err
-}
-
 // TargetsFor returns every GateTarget recorded for (pr, environment). Returns a
 // non-nil empty slice when none match.
 func TargetsFor(db *sql.DB, pr int, environment string) ([]GateTarget, error) {
@@ -91,36 +62,6 @@ func TargetsFor(db *sql.DB, pr int, environment string) ([]GateTarget, error) {
 		out = append(out, t)
 	}
 	return out, rows.Err()
-}
-
-// RawChangeSet is the persisted state for (pr, environment): the gate targets.
-// It is the store-level shape the server maps into reconcile.ChangeSet.
-// Classified-ness is derived from the event stream (gate_runs was retired in
-// migration 008); callers that need classified-ness must replay the event log.
-type RawChangeSet struct {
-	PR          int
-	Environment string
-	Targets     []GateTarget
-}
-
-// LoadChangeSet reads the gate targets for (pr, env). Classified-ness is
-// determined by replaying the event log.
-func LoadChangeSet(db *sql.DB, pr int, environment string) (RawChangeSet, error) {
-	targets, err := TargetsFor(db, pr, environment)
-	if err != nil {
-		return RawChangeSet{}, err
-	}
-	return RawChangeSet{PR: pr, Environment: environment, Targets: targets}, nil
-}
-
-// SetTargetRequester records the leased requester SA for every gate target of a
-// (pr, environment). Idempotent; no-op if no rows match.
-func SetTargetRequester(db *sql.DB, pr int, environment, requester string) error {
-	_, err := db.Exec(
-		`UPDATE gate_targets SET requester = ?, updated_at = CURRENT_TIMESTAMP
-		   WHERE pr = ? AND environment = ?`,
-		requester, pr, environment)
-	return err
 }
 
 // OpenGrantPR is a PR that still holds at least one open (non-terminal) grant,
