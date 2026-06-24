@@ -3,8 +3,8 @@ package server
 import (
 	"net/http/httptest"
 	"testing"
-	"time"
 
+	"github.com/Fluent-Health/terraform-stack-plan/internal/claims"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
@@ -37,16 +37,22 @@ func TestApplyEndGateRevokeReleasesClaim(t *testing.T) {
 	a, srv := newReconcilerApplyLockApp(t)
 	classifyGate(t, srv, 7, "staging")
 
-	// PR merged ⇒ claimed its stack.
-	if err := store.ClaimStacks(a.db, "staging", 7, "apply-1", []string{"a"}, time.Now().Add(time.Hour)); err != nil {
-		t.Fatal(err)
+	// PR merged ⇒ claimed its stack — seed through the event-sourced ledger so
+	// the release path (fold → ReleaseClaim → projectClaims) is exercised for real.
+	now := a.now()
+	if err := a.shell.handleClaim("staging", claims.AcquireClaim{PR: 7, Stacks: []string{"a"}, Now: now}); err != nil {
+		t.Fatalf("handleClaim acquire: %v", err)
+	}
+	// Verify the claim actually landed in the stream before driving the release.
+	if c, _ := store.ClaimedStacks(a.db, "staging", now); c["a"] != 7 {
+		t.Fatalf("expected claim seeded via ledger, got: %v", c)
 	}
 
 	// Apply finishes ⇒ runner posts GateRevoke (apply.go:227).
 	if code := post(t, srv, "/api/gate/revoke", events.GateRevoke{PR: 7, Environment: "staging"}); code != 200 {
 		t.Fatalf("gate/revoke = %d", code)
 	}
-	if c, _ := store.ClaimedStacks(a.db, "staging", time.Now()); len(c) != 0 {
+	if c, _ := store.ClaimedStacks(a.db, "staging", a.now()); len(c) != 0 {
 		t.Fatalf("apply-end GateRevoke did not release the claim: %v", c)
 	}
 }
@@ -60,15 +66,16 @@ func TestClassifyPassFinalizeKeepsClaim(t *testing.T) {
 
 	post(t, srv, "/api/init", events.Init{ID: "apply-1", Repo: "o/r", SHA: "sha", PR: 7, Environment: "staging",
 		Context: "apply/staging", Stacks: []events.StackState{{Path: "a", Status: events.StatusPending}}})
-	if err := store.ClaimStacks(a.db, "staging", 7, "apply-1", []string{"a"}, time.Now().Add(time.Hour)); err != nil {
-		t.Fatal(err)
+	// Seed through the event-sourced ledger, not the projection table directly.
+	if err := a.shell.handleClaim("staging", claims.AcquireClaim{PR: 7, Stacks: []string{"a"}, Now: a.now()}); err != nil {
+		t.Fatalf("handleClaim acquire: %v", err)
 	}
 
 	// The classify-pass Finalize (Gates re-classify), stacks still pending.
 	if code := post(t, srv, "/api/finalize", events.Finalize{ID: "apply-1", ReportMarkdown: "# r"}); code != 200 {
 		t.Fatalf("classify finalize = %d", code)
 	}
-	if c, _ := store.ClaimedStacks(a.db, "staging", time.Now()); len(c) == 0 {
+	if c, _ := store.ClaimedStacks(a.db, "staging", a.now()); len(c) == 0 {
 		t.Fatal("classify-pass finalize released the claim before the apply ran")
 	}
 }

@@ -4,12 +4,35 @@ import (
 	"database/sql"
 	"errors"
 	"sync"
+
+	sqlite3 "modernc.org/sqlite"
 )
 
 // ErrConcurrencyConflict is returned by Append when the stream's current version
 // is not the expected version — i.e. another writer advanced the stream since the
 // caller last read it. The caller should reload and retry.
 var ErrConcurrencyConflict = errors.New("eventstore: concurrency conflict")
+
+// isUniqueViolation reports whether err is a SQLite UNIQUE or PRIMARY KEY
+// constraint violation. This is the schema-level optimistic-concurrency backstop
+// on (stream_id, version): if two writers race past the in-tx MAX-version check
+// (or the in-process mutex is absent in a future multi-writer topology), the
+// INSERT will fail with one of these codes and Append maps it to
+// ErrConcurrencyConflict.
+//
+// modernc.org/sqlite wraps constraint errors as *sqlite.Error; Code() returns the
+// SQLite extended result code:
+//
+//	1555 = SQLITE_CONSTRAINT_PRIMARYKEY
+//	2067 = SQLITE_CONSTRAINT_UNIQUE
+func isUniqueViolation(err error) bool {
+	var se *sqlite3.Error
+	if errors.As(err, &se) {
+		c := se.Code()
+		return c == 1555 || c == 2067 // SQLITE_CONSTRAINT_PRIMARYKEY / _UNIQUE
+	}
+	return false
+}
 
 // StoredEvent is one opaque appended fact. Type is an event-type tag and Data is
 // the opaque payload (JSON bytes in practice). The store never interprets either.
@@ -63,6 +86,9 @@ func (s *EventStore) Append(streamID string, expectedVersion int, evs []StoredEv
 		if _, err := tx.Exec(
 			`INSERT INTO events (stream_id, version, type, data) VALUES (?,?,?,?)`,
 			streamID, expectedVersion+1+i, e.Type, e.Data); err != nil {
+			if isUniqueViolation(err) {
+				return ErrConcurrencyConflict
+			}
 			return err
 		}
 	}

@@ -19,6 +19,11 @@ type Shell struct {
 
 	mu    sync.Mutex
 	locks map[string]*sync.Mutex
+
+	// envLocks serializes claim-ledger writes per environment (handleClaim). Kept
+	// separate from the per-(pr,env) gate locks above so the exec→env nesting
+	// (ApplySucceeded → ReleaseClaim) is strictly one-directional and deadlock-free.
+	envLocks envLocks
 }
 
 // NewShell builds a Shell bound to an App.

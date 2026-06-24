@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Fluent-Health/terraform-stack-plan/internal/claims"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
@@ -82,7 +83,9 @@ func (r *recordingGitHub) MergeGroupPRs(_ context.Context, _, _ string) ([]int, 
 
 func TestClaimsEndpoints(t *testing.T) {
 	a, _ := newApplyLockTestApp(t)
-	_ = store.ClaimStacks(a.db, "prod", 7, "", []string{"a", "b"}, time.Now().Add(time.Hour))
+	// Seed through the ledger (the source of truth) so adminReleaseClaims —
+	// which now drives handleClaim(ReleaseClaim*) → fold → project — sees it.
+	_ = a.shell.handleClaim("prod", claims.AcquireClaim{PR: 7, Stacks: []string{"a", "b"}, Now: time.Now()})
 	// release via the App method the handler calls:
 	a.adminReleaseClaims(ctx(), "prod", 7, "a") // single stack
 	got, _ := store.ListClaims(a.db, "prod")
@@ -139,8 +142,8 @@ func TestMergeGroupHeldThenClaim(t *testing.T) {
 	a, gh := newApplyLockTestApp(t)
 	gh.mergeGroupPRs = []int{7}
 	seedPlan(t, a.db, 7, "prod", "o/r", "headPR", []string{"a", "b"}) // helper: Init w/ stacks
-	// Another PR holds stack "a" => held.
-	_ = store.ClaimStacks(a.db, "prod", 5, "e5", []string{"a"}, time.Now().Add(time.Hour))
+	// Another PR holds stack "a" => held (seed via the ledger, the fold backs evalApplyLock).
+	_ = a.shell.handleClaim("prod", claims.AcquireClaim{PR: 5, Stacks: []string{"a"}, Now: time.Now()})
 	if err := a.handleMergeGroup(ctx(), "o/r", "mgsha", "checks_requested"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -148,7 +151,7 @@ func TestMergeGroupHeldThenClaim(t *testing.T) {
 		t.Fatalf("overlap merge group should be held, got conclusion %q", gh.lastUpdate.Conclusion)
 	}
 	// Now the conflicting claim is released => a fresh checks_requested clears + claims.
-	_ = store.ReleaseClaimsByPREnv(a.db, "prod", 5)
+	_ = a.shell.handleClaim("prod", claims.ReleaseClaim{PR: 5})
 	gh.lastUpdate = CheckRunUpdate{}
 	if err := a.handleMergeGroup(ctx(), "o/r", "mgsha", "checks_requested"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -191,10 +194,13 @@ func TestPRApplyLockEvaluateAndClaim(t *testing.T) {
 
 func TestApplyFinalizeReleasesClaims(t *testing.T) {
 	a, _ := newApplyLockTestApp(t)
-	_ = store.ClaimStacks(a.db, "prod", 7, "", []string{"a"}, time.Now().Add(time.Hour))
+	_ = a.shell.handleClaim("prod", claims.AcquireClaim{PR: 7, Stacks: []string{"a"}, Now: time.Now()})
 	a.releaseApplyClaims(ctx(), "prod", 7)
 	if c, _ := store.ClaimedStacks(a.db, "prod", time.Now()); len(c) != 0 {
 		t.Fatalf("finalize did not release: %v", c)
+	}
+	if cs, _ := a.shell.loadClaims("prod"); len(cs) != 0 {
+		t.Fatalf("finalize did not release from the fold: %v", cs)
 	}
 }
 
@@ -202,7 +208,9 @@ func TestSweepClaimsOnceReleasesAndReevaluates(t *testing.T) {
 	a, gh := newApplyLockTestApp(t)
 	// A held merge-group check waiting on stack "a" claimed by PR 5 with an expired lease.
 	seedPlan(t, a.db, 7, "prod", "o/r", "mgsha", []string{"a"})
-	_ = store.ClaimStacks(a.db, "prod", 5, "e5", []string{"a"}, time.Now().Add(-time.Minute)) // expired
+	// Seed via the ledger at a back-dated Now so the lease (Now+Lease()) is already
+	// expired relative to the sweep's a.now() — the fold backs the held re-eval.
+	_ = a.shell.handleClaim("prod", claims.AcquireClaim{PR: 5, Stacks: []string{"a"}, Now: time.Now().Add(-2 * claims.Lease())})
 	_ = store.UpsertApplyLockCheck(a.db, store.ApplyLockCheck{
 		Environment: "prod", HeadSHA: "mgsha", CheckRunID: 1, PR: 7,
 		Repo: "o/r", Stacks: []string{"a"}, State: "held", Kind: "merge_group"})
@@ -217,8 +225,8 @@ func TestSweepExpiredClaimsUsesInjectedClock(t *testing.T) {
 	base := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
 	a.now = func() time.Time { return base }
 
-	// Seed a claim for env="nonprod" pr=1 stack="a" expiring at base+1h.
-	_ = store.ClaimStacks(a.db, "nonprod", 1, "e1", []string{"a"}, base.Add(time.Hour))
+	// Seed via the ledger for env="nonprod" pr=1 stack="a" (lease = base + Lease()).
+	_ = a.shell.handleClaim("nonprod", claims.AcquireClaim{PR: 1, Stacks: []string{"a"}, Now: base})
 
 	// Before expiry: sweep keeps the claim.
 	a.now = func() time.Time { return base.Add(time.Second) }
@@ -254,7 +262,7 @@ func TestPostPlanApplyLockOnFinalize(t *testing.T) {
 		t.Fatalf("applylock_checks not persisted on sha7: %+v ok=%v", rec, ok)
 	}
 	// Overlap with another PR's in-flight apply ⇒ held (empty conclusion).
-	_ = store.ClaimStacks(a.db, "prod", 9, "e9", []string{"a"}, time.Now().Add(time.Hour))
+	_ = a.shell.handleClaim("prod", claims.AcquireClaim{PR: 9, Stacks: []string{"a"}, Now: time.Now()})
 	gh.lastUpdate = CheckRunUpdate{}
 	a.postPlanApplyLock(ctx(), e)
 	if gh.lastUpdate.Conclusion != "" {

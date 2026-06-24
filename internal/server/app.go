@@ -18,8 +18,11 @@ import (
 	"time"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/approval"
+	"github.com/Fluent-Health/terraform-stack-plan/internal/claims"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/config"
+	"github.com/Fluent-Health/terraform-stack-plan/internal/eventsourcing"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/jwtutil"
+	"github.com/Fluent-Health/terraform-stack-plan/internal/reconcile"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
 
@@ -85,6 +88,11 @@ type App struct {
 	// appends Decide's events here and replays them on gather; gate_targets is a
 	// derived projection.
 	eventStore *store.EventStore
+	// gateDecider is the generic eventsourcing host wired to the gate aggregate.
+	gateDecider eventsourcing.Decider[reconcile.ChangeSet, reconcile.Event]
+	// claimsDecider is the generic eventsourcing host wired to the apply-lock
+	// claim ledger (the env:<env> stream). apply_claims is a derived projection.
+	claimsDecider eventsourcing.Decider[claims.ClaimSet, claims.Event]
 }
 
 // New builds an App.
@@ -102,6 +110,22 @@ func New(db *sql.DB, gh GitHub, cfg Config) *App {
 	}
 	a := &App{db: db, gh: gh, cfg: cfg, hub: newHub(), tmpl: tmpl, groupRE: groupRE, now: time.Now}
 	a.eventStore = store.NewEventStore(db)
+	a.gateDecider = eventsourcing.Decider[reconcile.ChangeSet, reconcile.Event]{
+		Initial:           func() reconcile.ChangeSet { return reconcile.ChangeSet{Gate: reconcile.NotClassified{}} },
+		Evolve:            reconcile.Evolve,
+		MarshalEvent:      reconcile.MarshalEvent,
+		UnmarshalEvent:    reconcile.UnmarshalEvent,
+		MarshalSnapshot:   reconcile.MarshalSnapshot,
+		UnmarshalSnapshot: reconcile.UnmarshalSnapshot,
+	}
+	a.claimsDecider = eventsourcing.Decider[claims.ClaimSet, claims.Event]{
+		Initial:           claims.Empty,
+		Evolve:            claims.Evolve,
+		MarshalEvent:      claims.MarshalEvent,
+		UnmarshalEvent:    claims.UnmarshalEvent,
+		MarshalSnapshot:   claims.MarshalSnapshot,
+		UnmarshalSnapshot: claims.UnmarshalSnapshot,
+	}
 	a.shell = NewShell(a)
 	return a
 }

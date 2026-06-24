@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Fluent-Health/terraform-stack-plan/internal/claims"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
 
@@ -49,18 +50,20 @@ func (a *App) prChangedStacks(env string, pr int) ([]string, bool) {
 	return stacks, true
 }
 
-// evalApplyLock computes the verdict for ownerPR's `stacks` in env at `now`.
-// Empty stacks => clear (PR touches nothing in this env).
+// evalApplyLock computes the verdict for ownerPR's `stacks` in env at `now` by
+// folding env's claim ledger (the source of truth) and querying claims.Held.
+// Empty stacks => clear (PR touches nothing in this env). Expiry is enforced at
+// read time inside Held (no sweep needed for correctness).
 func (a *App) evalApplyLock(env string, pr int, stacks []string, now time.Time) applyLockVerdict {
-	claimed, err := store.ClaimedStacks(a.db, env, now)
+	cs, err := a.shell.loadClaims(env)
 	if err != nil {
-		return applyLockVerdict{State: "unverifiable", Reason: "claimed-set query failed"}
+		return applyLockVerdict{State: "unverifiable", Reason: "claim-ledger load failed"}
 	}
-	blocking := overlap(claimed, stacks, pr)
-	if len(blocking) == 0 {
+	v := claims.Held(cs, pr, stacks, now)
+	if !v.Held {
 		return applyLockVerdict{State: "clear"}
 	}
-	return applyLockVerdict{State: "held", Blocking: blocking,
+	return applyLockVerdict{State: "held", Blocking: v.Blocking,
 		Reason: "stacks being applied by another PR"}
 }
 
@@ -131,7 +134,7 @@ func (a *App) handlePRApplyLock(ctx context.Context, repo string, pr int, merged
 		stacks, ok := a.prChangedStacks(env, pr)
 		if merged {
 			if ok {
-				_ = store.ClaimStacks(a.db, env, pr, "", stacks, now.Add(a.applyLockLease()))
+				_ = a.shell.handleClaim(env, claims.AcquireClaim{PR: pr, Stacks: stacks, Now: now})
 			}
 			continue
 		}
@@ -162,7 +165,7 @@ func (a *App) handleMergeGroup(ctx context.Context, repo, headSHA, action string
 				envs, _ := store.EnvironmentsForPR(a.db, pr)
 				for _, env := range envs {
 					if rec, ok, _ := store.GetApplyLockCheck(a.db, env, headSHA); ok {
-						_ = store.ReleaseClaimsByPREnv(a.db, env, rec.PR)
+						_ = a.shell.handleClaim(env, claims.ReleaseClaim{PR: rec.PR})
 						a.reevaluateHeld(ctx, env)
 					}
 				}
@@ -215,7 +218,7 @@ func (a *App) handleMergeGroup(ctx context.Context, repo, headSHA, action string
 		}
 		v := a.evalApplyLock(env, ownerPR, allStacks, now)
 		if v.State == "clear" {
-			_ = store.ClaimStacks(a.db, env, ownerPR, "", allStacks, now.Add(a.applyLockLease()))
+			_ = a.shell.handleClaim(env, claims.AcquireClaim{PR: ownerPR, Stacks: allStacks, Now: now})
 		}
 		_ = a.postApplyLock(ctx, repo, env, headSHA, ownerPR, allStacks, "merge_group", v)
 	}
@@ -226,8 +229,11 @@ func (a *App) postApplyLockUnverifiable(ctx context.Context, repo, env, sha stri
 	_ = a.postApplyLock(ctx, repo, env, sha, pr, nil, kind, applyLockVerdict{State: "unverifiable", Reason: reason})
 }
 
-// sweepClaimsOnce releases all expired claims and re-evaluates held checks for
-// each affected environment (the auto-heal tick).
+// sweepClaimsOnce re-evaluates held checks for every environment whose projection
+// carries a now-expired claim (the auto-heal tick). The env:<env> event stream is
+// the source of truth and Held filters by `now`, so expiry needs no deletion for
+// correctness — SweepExpiredClaims only enumerates affected envs (and compacts the
+// projection); RebuildClaims then re-derives the projection from the fold.
 func (a *App) sweepClaimsOnce(ctx context.Context) {
 	envs, err := store.SweepExpiredClaims(a.db, a.now())
 	if err != nil {
@@ -235,6 +241,7 @@ func (a *App) sweepClaimsOnce(ctx context.Context) {
 	}
 	for _, env := range envs {
 		a.reevaluateHeld(ctx, env)
+		_ = a.shell.RebuildClaims(env)
 	}
 }
 
@@ -261,9 +268,9 @@ func (a *App) applyLockLease() time.Duration { return 30 * time.Minute }
 // re-evaluates held checks.
 func (a *App) adminReleaseClaims(ctx context.Context, env string, pr int, stack string) {
 	if stack != "" {
-		_ = store.ReleaseClaimStack(a.db, env, pr, stack)
+		_ = a.shell.handleClaim(env, claims.ReleaseClaimStack{PR: pr, Stack: stack})
 	} else {
-		_ = store.ReleaseClaimsByPREnv(a.db, env, pr)
+		_ = a.shell.handleClaim(env, claims.ReleaseClaim{PR: pr})
 	}
 	a.reevaluateHeld(ctx, env)
 }
@@ -289,13 +296,13 @@ func (a *App) postPlanApplyLock(ctx context.Context, e store.Execution) {
 // releaseApplyClaims drops a PR's claims in an env and re-evaluates held checks
 // (each held-check record carries its own repo).
 func (a *App) releaseApplyClaims(ctx context.Context, env string, pr int) {
-	_ = store.ReleaseClaimsByPREnv(a.db, env, pr)
+	_ = a.shell.handleClaim(env, claims.ReleaseClaim{PR: pr})
 	a.reevaluateHeld(ctx, env)
 }
 
 // renewApplyClaims extends a PR's lease in an env (apply heartbeat).
 func (a *App) renewApplyClaims(env string, pr int) {
-	_ = store.RenewClaims(a.db, env, pr, a.now().Add(a.applyLockLease()))
+	_ = a.shell.handleClaim(env, claims.RenewClaim{PR: pr, Now: a.now()})
 }
 
 // reevaluateHeld re-posts every held apply-lock check in env whose blocking
@@ -310,7 +317,7 @@ func (a *App) reevaluateHeld(ctx context.Context, env string) {
 	for _, c := range held {
 		v := a.evalApplyLock(env, c.PR, c.Stacks, now)
 		if v.State == "clear" && c.Kind == "merge_group" {
-			_ = store.ClaimStacks(a.db, env, c.PR, "", c.Stacks, now.Add(a.applyLockLease()))
+			_ = a.shell.handleClaim(env, claims.AcquireClaim{PR: c.PR, Stacks: c.Stacks, Now: now})
 		}
 		_ = a.postApplyLock(ctx, c.Repo, env, c.HeadSHA, c.PR, c.Stacks, c.Kind, v)
 	}
