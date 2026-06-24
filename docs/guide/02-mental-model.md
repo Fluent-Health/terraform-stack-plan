@@ -3,25 +3,17 @@
 > One binary, four faces, one flow. Learn the flow and the faces fall out of it.
 
 If you remember one thing about `tfstackplan`, remember this: it is **one flow**,
-and each "face" of the CLI is an entry point into part of it.
+and each "face" of the CLI is an entry point into part of it. Data flows one way
+— a plan comes in, and a reviewable, governable decision comes out.
 
-```
-   plan.json (one per stack)
-        │
-        ▼
-   parse ──► classify ──► render ──►  one Markdown comment      ← render
-        │                                                          (review gap)
-        ▼
-   gate ──► apply ──► report ──►  live UI + check runs          ← run + serve
-                                                                   (observability +
-                                                                    governance gaps)
+![tfstackplan — four faces, four gaps](../architecture/00-four-faces.svg)
 
-   state moves ride along with the apply                        ← state
-                                                                   (management gap)
-```
+<details><summary>About this diagram</summary>
 
-Data flows one way. A plan comes in; a reviewable, governable decision comes
-out. Everything `tfstackplan` does is a stage on that line.
+Source: [`../architecture/00-four-faces.d2`](../architecture/00-four-faces.d2).
+Regenerate with `d2 00-four-faces.d2 00-four-faces.svg`.
+
+</details>
 
 ## The four faces are the four gaps
 

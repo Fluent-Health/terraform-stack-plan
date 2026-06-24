@@ -1,0 +1,62 @@
+vars: {
+  d2-config: {
+    theme-overrides: {
+      B1: "#495AE4"; B2: "#DADCFF"; B3: "#BEF0E4"; B4: "#D6E8FF"
+      B5: "#289673"; B6: "#144037"
+      AA2: "#FF6333"; AA4: "#FF6333"; AA5: "#FF6333"
+      N1: "#14181A"; N2: "#323241"; N3: "#858C8F"; N4: "#E7E8E9"
+      N5: "#F5F0E8"; N6: "#FFF2DF"; N7: "#FFFFFF"
+    }
+  }
+}
+
+direction: right
+
+cap: "tfstackplan — four faces, four gaps" {
+  near: top-center
+  shape: text
+  style: { font-size: 22; bold: true; font-color: "#14181A" }
+}
+
+monorepo: "Terramate monorepo\nN stacks → N plan.json per PR" {
+  style: { fill: "#FFF2DF"; stroke: "#858C8F"; stroke-width: 2; border-radius: 12; font-color: "#14181A"; bold: true }
+}
+
+tfstackplan: "tfstackplan — one binary" {
+  style: { fill: "#F5F0E8"; stroke: "#323241"; stroke-width: 2; border-radius: 12; font-color: "#14181A"; bold: true }
+
+  render: "render\ncloses the REVIEW gap" {
+    style: { fill: "#FFFFFF"; stroke: "#495AE4"; stroke-width: 2; border-radius: 8; font-color: "#14181A" }
+  }
+  run: "run\ncloses the OBSERVABILITY gap" {
+    style: { fill: "#FFFFFF"; stroke: "#144037"; stroke-width: 2; border-radius: 8; font-color: "#14181A" }
+  }
+  serve: "serve\ncloses the GOVERNANCE gap" {
+    style: { fill: "#FFFFFF"; stroke: "#289673"; stroke-width: 2; border-radius: 8; font-color: "#14181A" }
+  }
+  state: "state\ncloses the MANAGEMENT gap" {
+    style: { fill: "#FFFFFF"; stroke: "#495AE4"; stroke-width: 2; border-radius: 8; font-color: "#14181A" }
+  }
+}
+
+pr: "A pull request a team can trust" {
+  style: { fill: "#DADCFF"; stroke: "#495AE4"; stroke-width: 2; border-radius: 12; font-color: "#14181A"; bold: true }
+
+  comment: "one scannable comment" {
+    style: { fill: "#FFFFFF"; stroke: "#495AE4"; border-radius: 8; font-color: "#14181A" }
+  }
+  checks: "gates + per-env check runs" {
+    style: { fill: "#FFFFFF"; stroke: "#289673"; border-radius: 8; font-color: "#14181A" }
+  }
+  live: "live DAG + per-stack logs" {
+    style: { fill: "#FFFFFF"; stroke: "#144037"; border-radius: 8; font-color: "#14181A" }
+  }
+}
+
+monorepo -> tfstackplan.render: "N plan.json" { style: { stroke: "#323241"; font-color: "#14181A" } }
+
+tfstackplan.render -> pr.comment: "renders" { style: { stroke: "#495AE4"; font-color: "#14181A" } }
+tfstackplan.run -> tfstackplan.serve: "reports lifecycle" { style: { stroke: "#144037"; font-color: "#14181A"; stroke-dash: 4 } }
+tfstackplan.serve -> pr.checks: "gates the apply" { style: { stroke: "#289673"; font-color: "#14181A" } }
+tfstackplan.run -> pr.live: "streams" { style: { stroke: "#144037"; font-color: "#14181A"; stroke-dash: 4 } }
+tfstackplan.state -> pr.checks: "moves ride the apply" { style: { stroke: "#495AE4"; font-color: "#14181A" } }
