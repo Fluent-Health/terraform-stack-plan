@@ -12,22 +12,8 @@ import (
 // the projection are not one transaction — safe, because the projection is
 // rebuildable from the log (RebuildProjection) and self-heals on the next gather.
 func (sh *Shell) persist(pr int, env string, expectedVersion int, evs []reconcile.Event, state reconcile.ChangeSet) error {
-	if len(evs) > 0 {
-		stored, err := encodeEvents(evs)
-		if err != nil {
-			return err
-		}
-		streamID := execStreamID(pr, env)
-		if err := sh.app.eventStore.Append(streamID, expectedVersion, stored); err != nil {
-			return err
-		}
-		snap, err := reconcile.MarshalSnapshot(state)
-		if err != nil {
-			return err
-		}
-		if err := sh.app.eventStore.SaveSnapshot(streamID, expectedVersion+len(evs), snap); err != nil {
-			return err
-		}
+	if err := sh.app.gateDecider.Append(sh.app.eventStore, execStreamID(pr, env), expectedVersion, evs, state); err != nil {
+		return err
 	}
 	return sh.project(state)
 }
