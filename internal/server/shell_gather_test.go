@@ -1,76 +1,95 @@
 package server
 
 import (
+	"context"
 	"testing"
 
+	"github.com/Fluent-Health/terraform-stack-plan/internal/approval"
+	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/reconcile"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
 
-// storeRaw / storeTarget mirror the store shapes so tests can build fixtures.
-type storeRaw = store.RawChangeSet
-type storeTarget = store.GateTarget
+// gather no longer maps flat gate_targets rows (mapRawGate is gone) — it replays
+// the event stream through Evolve. These tests assert the gate sum type is
+// reconstructed losslessly by driving a real signal flow and re-gathering. The
+// per-variant Evolve mapping is unit-tested in internal/reconcile; here we cover
+// the shell's append→replay round-trip end to end.
 
-func TestGatherMapsRawGateToSumType(t *testing.T) {
-	raw := store_RawChangeSet(7, "staging", true, []rawTarget{
-		{class: "iam", target: "p1", grant: "g1", state: "ACTIVE", requester: "sa3"},
-	})
-	cs := mapRawGate(raw)
-	sat, ok := cs.Gate.(reconcile.Satisfied)
+// A finalize that establishes gate targets, then a full-active re-list, must
+// replay to Satisfied with the shared lease intact.
+func TestGatherReplaysSatisfied(t *testing.T) {
+	app := New(newServerTestDB(t), &MockGitHub{}, Config{})
+	fake := approval.NewFake()
+	fake.Pool = []string{"sa0", "sa1"}
+	app.Approval = fake
+	sh := NewShell(app)
+	if err := store.UpsertInit(app.db, events.Init{ID: "e1", PR: 7, Environment: "staging", Repo: "r"}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Establish the gate (requests grants → Pending).
+	if err := sh.Handle(context.Background(), 7, "staging", "r", reconcile.RunnerFinalize{
+		Gates: []events.GateTarget{{Class: "iam", Target: "p1"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Re-gather: the prior gate must carry the requested target + lease.
+	world, err := sh.gather(7, "staging")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reconcile.Requester(world.Prior.Gate) == "" {
+		t.Fatalf("want a leased gate after finalize, got %T %+v", world.Prior.Gate, world.Prior.Gate)
+	}
+
+	// Observe all targets ACTIVE → gate promotes to Satisfied; replay it back.
+	if err := sh.Handle(context.Background(), 7, "staging", "r", reconcile.GateTick{
+		Grants: []reconcile.ObservedGrant{
+			{Class: "iam", Target: "p1", Name: "g1", State: approval.StateActive, Requester: reconcile.Requester(world.Prior.Gate)},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	w2, err := sh.gather(7, "staging")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sat, ok := w2.Prior.Gate.(reconcile.Satisfied)
 	if !ok {
-		t.Fatalf("want Satisfied for all-ACTIVE, got %T", cs.Gate)
+		t.Fatalf("want Satisfied after all-ACTIVE re-list, got %T", w2.Prior.Gate)
 	}
-	if sat.Lease.Requester != "sa3" || len(sat.Targets) != 1 {
-		t.Fatalf("bad mapping: %+v", sat)
-	}
-}
-
-func TestGatherNotClassifiedWhenUnclassified(t *testing.T) {
-	raw := store_RawChangeSet(7, "staging", false, nil)
-	cs := mapRawGate(raw)
-	if _, ok := cs.Gate.(reconcile.NotClassified); !ok {
-		t.Fatalf("want NotClassified, got %T", cs.Gate)
+	if len(sat.Targets) != 1 || sat.Targets[0].Target != "p1" {
+		t.Fatalf("bad replayed targets: %+v", sat.Targets)
 	}
 }
 
-type rawTarget struct{ class, target, grant, state, requester string }
-
-func store_RawChangeSet(pr int, env string, classified bool, targets []rawTarget) storeRaw {
-	r := storeRaw{PR: pr, Environment: env, Classified: classified}
-	for _, t := range targets {
-		r.Targets = append(r.Targets, storeTarget{Class: t.class, Target: t.target, GrantName: t.grant, State: t.state, Requester: t.requester})
+// An empty stream (never finalized) replays to NotClassified at version 0.
+func TestGatherReplaysNotClassifiedForEmptyStream(t *testing.T) {
+	sh := newTestShell(t)
+	world, err := sh.gather(7, "staging")
+	if err != nil {
+		t.Fatal(err)
 	}
-	return r
-}
-
-func TestGatherExpiredReloadsAsPending(t *testing.T) {
-	// A persisted EXPIRED target reloads as Pending, NOT Blocked: the live core
-	// keeps a never-active EXPIRED target Pending ("no misfire"), and the flat row
-	// can't distinguish that from a was-active downgrade — so Pending matches the
-	// gate that was persisted. Apply stays fail-closed while Pending regardless.
-	g := mapRawGate(store_RawChangeSet(7, "staging", true, []rawTarget{
-		{class: "iam", target: "p1", grant: "g1", state: "EXPIRED", requester: "sa3"},
-	}))
-	if _, ok := g.Gate.(reconcile.Pending); !ok {
-		t.Fatalf("want Pending for EXPIRED reload, got %T", g.Gate)
+	if _, ok := world.Prior.Gate.(reconcile.NotClassified); !ok {
+		t.Fatalf("want NotClassified for empty stream, got %T", world.Prior.Gate)
 	}
 }
 
-func TestGatherMapsBlockedPendingClean(t *testing.T) {
-	bl := mapRawGate(store_RawChangeSet(7, "staging", true, []rawTarget{
-		{class: "iam", target: "p1", grant: "g1", state: "DENIED", requester: "sa3"},
-	}))
-	if _, ok := bl.Gate.(reconcile.Blocked); !ok {
-		t.Fatalf("want Blocked for DENIED, got %T", bl.Gate)
+// A clean finalize (no gate targets) replays to Clean.
+func TestGatherReplaysCleanForGatelessFinalize(t *testing.T) {
+	sh := newTestShell(t)
+	if err := sh.Handle(context.Background(), 7, "staging", "r", reconcile.RunnerFinalize{
+		Projects: map[string]string{"a": "proj-a"},
+	}); err != nil {
+		t.Fatal(err)
 	}
-	pe := mapRawGate(store_RawChangeSet(7, "staging", true, []rawTarget{
-		{class: "iam", target: "p1", grant: "g1", state: "AWAITING", requester: "sa3"},
-	}))
-	if _, ok := pe.Gate.(reconcile.Pending); !ok {
-		t.Fatalf("want Pending for AWAITING, got %T", pe.Gate)
+	world, err := sh.gather(7, "staging")
+	if err != nil {
+		t.Fatal(err)
 	}
-	cl := mapRawGate(store_RawChangeSet(7, "staging", true, nil))
-	if _, ok := cl.Gate.(reconcile.Clean); !ok {
-		t.Fatalf("want Clean for classified zero-target, got %T", cl.Gate)
+	if _, ok := world.Prior.Gate.(reconcile.Clean); !ok {
+		t.Fatalf("want Clean for gateless finalize, got %T", world.Prior.Gate)
 	}
 }

@@ -1,65 +1,66 @@
 package server
 
 import (
-	"github.com/Fluent-Health/terraform-stack-plan/internal/approval"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/reconcile"
-	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
 
-// gather loads the scoped World for (pr, env). For now the World carries only
-// the prior ChangeSet's gate; signal-specific external observations (ListGrants,
-// PRClosed) are attached by the caller before Step (later tasks). Execution
-// stacks are loaded by the runner-event path when needed.
+// gather loads the scoped World for (pr, env) by replaying its event stream:
+// the latest snapshot folded forward over any newer events. mapRawGate is gone —
+// the GateState sum type is reconstructed losslessly by Evolve.
 func (sh *Shell) gather(pr int, env string) (reconcile.World, error) {
-	raw, err := store.LoadChangeSet(sh.app.db, pr, env)
+	prior, version, err := sh.loadStream(pr, env)
 	if err != nil {
 		return reconcile.World{}, err
 	}
-	return reconcile.World{Prior: mapRawGate(raw)}, nil
+	prior.PR, prior.Environment = pr, env
+	return reconcile.World{Prior: prior, Version: version}, nil
 }
 
-// mapRawGate maps the persisted RawChangeSet into a reconcile.ChangeSet,
-// reconstructing the GateState sum type from the flat rows.
-func mapRawGate(raw store.RawChangeSet) reconcile.ChangeSet {
-	cs := reconcile.ChangeSet{PR: raw.PR, Environment: raw.Environment}
-	if !raw.Classified {
-		cs.Gate = reconcile.NotClassified{}
-		return cs
+// loadGate returns the current folded gate state for (pr, env) by replaying the
+// event stream — the lossless source of truth, used by read-only callers like the
+// apply gate-check. No lock needed (replay is a read).
+func (sh *Shell) loadGate(pr int, env string) (reconcile.GateState, error) {
+	state, _, err := sh.loadStream(pr, env)
+	if err != nil {
+		return nil, err
 	}
-	if len(raw.Targets) == 0 {
-		cs.Gate = reconcile.Clean{}
-		return cs
+	return state.Gate, nil
+}
+
+// loadStream reconstructs the ChangeSet for (pr, env): load the latest snapshot,
+// then replay any events past the snapshot version through Evolve. Returns the
+// folded state and the stream's current version. An empty stream yields a
+// NotClassified gate at version 0.
+func (sh *Shell) loadStream(pr int, env string) (reconcile.ChangeSet, int, error) {
+	streamID := execStreamID(pr, env)
+	state := reconcile.ChangeSet{PR: pr, Environment: env, Gate: reconcile.NotClassified{}}
+
+	snapState, snapVer, ok, err := sh.app.eventStore.LoadSnapshot(streamID)
+	if err != nil {
+		return state, 0, err
 	}
-	var targets []reconcile.Target
-	lease := reconcile.Lease{}
-	allActive := true
-	anyTerminal := false
-	for _, t := range raw.Targets {
-		gs := approval.GrantState(t.State)
-		targets = append(targets, reconcile.Target{Class: t.Class, Target: t.Target, GrantName: t.GrantName, Grant: gs})
-		if t.Requester != "" && lease.Requester == "" {
-			lease.Requester = t.Requester
+	if ok {
+		cs, derr := reconcile.UnmarshalSnapshot(snapState)
+		if derr != nil {
+			return state, 0, derr
 		}
-		if gs != approval.StateActive {
-			allActive = false
-		}
-		// Only DENIED/REVOKED reload as terminal (Blocked). EXPIRED is deliberately
-		// NOT terminal here: the flat row can't distinguish a never-active lapse
-		// from a was-active downgrade, so reloading EXPIRED as Pending matches the
-		// gate that was persisted. The next GateTick re-derives the precise verdict
-		// (stepObserve re-arms a never-active EXPIRED target; a was-active one
-		// downgrades to Blocked). Apply stays fail-closed while Pending either way.
-		if gs == approval.StateDenied || gs == approval.StateRevoked {
-			anyTerminal = true
-		}
+		cs.PR, cs.Environment = pr, env
+		state = cs
 	}
-	switch {
-	case anyTerminal:
-		cs.Gate = reconcile.Blocked{Targets: targets, Lease: lease, By: reconcile.Blocker{Reason: reconcile.ReasonDenied}}
-	case allActive:
-		cs.Gate = reconcile.Satisfied{Targets: targets, Lease: lease}
-	default:
-		cs.Gate = reconcile.Pending{Targets: targets, Lease: lease}
+
+	stored, version, err := sh.app.eventStore.Load(streamID)
+	if err != nil {
+		return state, 0, err
 	}
-	return cs
+	for i, se := range stored {
+		if i+1 <= snapVer { // events are 1-based; skip those already in the snapshot
+			continue
+		}
+		ev, derr := reconcile.UnmarshalEvent(se.Type, se.Data)
+		if derr != nil {
+			return state, 0, derr
+		}
+		state = reconcile.Evolve(state, ev)
+	}
+	return state, version, nil
 }

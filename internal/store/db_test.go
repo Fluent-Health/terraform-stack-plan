@@ -21,7 +21,7 @@ func newTestDB(t *testing.T) *sql.DB {
 func TestOpenRunsMigrations(t *testing.T) {
 	db := newTestDB(t)
 	// Each migrated table must be queryable.
-	for _, table := range []string{"executions", "stacks", "edges", "gate_targets", "gate_runs", "events", "snapshots"} {
+	for _, table := range []string{"executions", "stacks", "edges", "gate_targets", "events", "snapshots"} {
 		if _, err := db.Exec("SELECT count(*) FROM " + table); err != nil {
 			t.Errorf("table %q not present: %v", table, err)
 		}

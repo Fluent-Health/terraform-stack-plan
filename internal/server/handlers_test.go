@@ -123,9 +123,6 @@ func TestFinalizeCleanPlanConcludesSuccess(t *testing.T) {
 	if concl != "success" {
 		t.Fatalf("conclusion = %q, want success", concl)
 	}
-	if ok, _ := store.IsClassified(db, 7, "staging"); !ok {
-		t.Fatal("expected classified marker")
-	}
 }
 
 func TestFinalizeGatedPlanConcludesActionRequired(t *testing.T) {

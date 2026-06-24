@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/Fluent-Health/terraform-stack-plan/internal/approval"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/codes"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/reconcile"
@@ -73,50 +72,50 @@ func codedError(w http.ResponseWriter, status int, code codes.Code, msg string) 
 	_ = json.NewEncoder(w).Encode(map[string]string{"code": string(code), "message": msg})
 }
 
+// writeGateOK writes a 200 gate-check response with the given requester SA
+// (empty string for a clean/no-gate pass).
+func writeGateOK(w http.ResponseWriter, requester string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(map[string]string{"requester": requester})
+}
+
 // handleGateCheck is the apply-time, fail-closed gate pre-check: 200 only when
 // the (pr, environment) was classified AND every recorded gate target is ACTIVE
 // (a classified plan with no gates passes). A never-planned PR, an unsatisfied
 // gate, or any error → 409/5xx, so apply blocks. Reconciles first to catch a
-// just-approved gate.
+// just-approved gate, then reads the replayed gate state (lossless truth).
 func (a *App) handleGateCheck(w http.ResponseWriter, r *http.Request) {
 	var p events.GateCheck
 	if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
 		badRequest(w, err)
 		return
 	}
-	classified, err := store.IsClassified(a.db, p.PR, p.Environment)
-	if err != nil {
-		codedError(w, http.StatusInternalServerError, codes.Internal, "classified check failed")
-		return
-	}
-	if !classified {
-		codedError(w, http.StatusConflict, codes.GateNotClassified, "not classified")
-		return
-	}
+	// Refresh from the backend first (self-heals activating→active). tick is a
+	// no-op when there are no targets, so never-planned / clean PRs reconcile
+	// cleanly and do not 503.
 	if err := a.reconcileGate(r.Context(), p.PR, p.Environment); err != nil {
 		// Could not freshly confirm the gate (e.g. PAM unreachable). Fail closed —
 		// never authorize apply from a possibly-stale cache. 503 = transient/retriable.
 		codedError(w, http.StatusServiceUnavailable, codes.GateUnconfirmable, "gate state could not be confirmed")
 		return
 	}
-	targets, err := store.TargetsFor(a.db, p.PR, p.Environment)
+	// Read gate AFTER reconcile so a just-approved gate is reflected.
+	gate, err := a.shell.loadGate(p.PR, p.Environment)
 	if err != nil {
-		codedError(w, http.StatusInternalServerError, codes.Internal, "load targets failed")
+		codedError(w, http.StatusInternalServerError, codes.Internal, "load gate failed")
 		return
 	}
-	for _, t := range targets {
-		if t.State != string(approval.StateActive) {
-			codedError(w, http.StatusConflict, codes.GateNotSatisfied, "gate not satisfied")
-			return
-		}
+	switch g := gate.(type) {
+	case reconcile.NotClassified:
+		codedError(w, http.StatusConflict, codes.GateNotClassified, "not classified")
+	case reconcile.Clean:
+		writeGateOK(w, "")
+	case reconcile.Satisfied:
+		writeGateOK(w, g.Lease.Requester)
+	default: // Pending / Blocked
+		codedError(w, http.StatusConflict, codes.GateNotSatisfied, "gate not satisfied")
 	}
-	requester := ""
-	if len(targets) > 0 {
-		requester = targets[0].Requester
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(map[string]string{"requester": requester})
 }
 
 // handleGateRevoke revokes the grants the server requested for (pr, environment)

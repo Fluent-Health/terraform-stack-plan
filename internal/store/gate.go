@@ -72,24 +72,6 @@ func MarkActive(db *sql.DB, pr int, environment string) error {
 	return err
 }
 
-// MarkClassified records that (pr, environment) was classified by a plan, even
-// when the plan was clean (zero gate_targets). Idempotent.
-func MarkClassified(db *sql.DB, pr int, environment string) error {
-	_, err := db.Exec(
-		`INSERT INTO gate_runs (pr, environment) VALUES (?, ?)
-		 ON CONFLICT(pr, environment) DO UPDATE SET classified_at = CURRENT_TIMESTAMP`,
-		pr, environment)
-	return err
-}
-
-// IsClassified reports whether a plan ever classified (pr, environment).
-func IsClassified(db *sql.DB, pr int, environment string) (bool, error) {
-	var n int
-	err := db.QueryRow(`SELECT COUNT(*) FROM gate_runs WHERE pr = ? AND environment = ?`,
-		pr, environment).Scan(&n)
-	return n > 0, err
-}
-
 // TargetsFor returns every GateTarget recorded for (pr, environment). Returns a
 // non-nil empty slice when none match.
 func TargetsFor(db *sql.DB, pr int, environment string) ([]GateTarget, error) {
@@ -111,27 +93,24 @@ func TargetsFor(db *sql.DB, pr int, environment string) ([]GateTarget, error) {
 	return out, rows.Err()
 }
 
-// RawChangeSet is the persisted state for (pr, environment): the classified
-// marker and gate targets. It is the store-level shape the server maps into
-// reconcile.ChangeSet.
+// RawChangeSet is the persisted state for (pr, environment): the gate targets.
+// It is the store-level shape the server maps into reconcile.ChangeSet.
+// Classified-ness is derived from the event stream (gate_runs was retired in
+// migration 008); callers that need classified-ness must replay the event log.
 type RawChangeSet struct {
 	PR          int
 	Environment string
-	Classified  bool
 	Targets     []GateTarget
 }
 
-// LoadChangeSet reads the classified marker and gate targets for (pr, env).
+// LoadChangeSet reads the gate targets for (pr, env). Classified-ness is
+// determined by replaying the event log.
 func LoadChangeSet(db *sql.DB, pr int, environment string) (RawChangeSet, error) {
-	classified, err := IsClassified(db, pr, environment)
-	if err != nil {
-		return RawChangeSet{}, err
-	}
 	targets, err := TargetsFor(db, pr, environment)
 	if err != nil {
 		return RawChangeSet{}, err
 	}
-	return RawChangeSet{PR: pr, Environment: environment, Classified: classified, Targets: targets}, nil
+	return RawChangeSet{PR: pr, Environment: environment, Targets: targets}, nil
 }
 
 // SetTargetRequester records the leased requester SA for every gate target of a

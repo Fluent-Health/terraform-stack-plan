@@ -19,13 +19,11 @@ func (errListGrantsBackend) ListGrants(context.Context, string, string) ([]appro
 	return nil, fmt.Errorf("pam unreachable")
 }
 
-// seedStaleActiveGate records a classified gate with one ACTIVE target — the
-// stale cache the gate-check must NOT trust when the live reconcile fails.
+// seedStaleActiveGate records an ACTIVE target — the stale cache the gate-check
+// must NOT trust when the live reconcile fails. gate_runs was retired in
+// migration 008; classified-ness is now derived from the event stream.
 func seedStaleActiveGate(t *testing.T, a *App) {
 	t.Helper()
-	if err := store.MarkClassified(a.db, 7, "staging"); err != nil {
-		t.Fatal(err)
-	}
 	if err := store.UpsertTarget(a.db, 7, "staging", "iam", "proj-a", "g1", "ACTIVE"); err != nil {
 		t.Fatal(err)
 	}
