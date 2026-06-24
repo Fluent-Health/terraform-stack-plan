@@ -1,11 +1,12 @@
 # Architecture diagrams
 
-These five D2 views describe the **target architecture** for `tfstackplan` — an
-event-sourced redesign of the control plane that unifies its four faces
+These five D2 views describe the architecture of `tfstackplan` — an
+event-sourced control plane that unifies its four faces
 (`render` / `run` / `serve` / `state`) around one canonical domain model and a
-single decider core. They are a **design-stage** artifact: they depict where the
-code is headed, not (yet) its current shape. The narrative rationale lives in the
-design spec; the living implementation doc is [`../DESIGN.md`](../DESIGN.md).
+single decider core (`Decide` / `Evolve` / `React`). This is the shape the code
+has now, not a target: the redesign has landed. The living implementation doc is
+[`../DESIGN.md`](../DESIGN.md); the guide's [mental model](../guide/02-mental-model.md)
+is the gentler introduction.
 
 Each diagram is checked in as `.d2` source + rendered `.svg`. Regenerate with
 `d2 <name>.d2 <name>.svg` (Fluent Health theme conventions applied).

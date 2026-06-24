@@ -134,7 +134,7 @@ one stack to the report:
 - **Empty / absent plans** — if no `tfplan.json` files are found, the tool
   renders a header-only "0 stacks changed" report and exits zero.
 
-Background and the orchestrator-integration rationale: `docs/terramate-integration.md`.
+Background and the orchestrator-integration rationale: `docs/guide/01-the-gaps.md`.
 
 ### CLI surface
 
@@ -610,7 +610,7 @@ the budget entirely.
   `run tick --status safe` in a separate command is silently skipped for any
   stack that fails before it. Putting the terminal tick inside the same command
   (`run step --on-success safe -- terraform apply …`) removes that gap. See
-  `docs/ci-integration.md` for the canonical script form. The companion
+  `docs/guide/09-ci-integration.md` for the canonical script form. The companion
   migration of the infra `scripts.tm.hcl` to `run step` is a separate PR in the
   infra repo.
 - **`nochange` and `aborted` terminal statuses** — two new `events.Status` values
@@ -632,7 +632,7 @@ the budget entirely.
   identity**. An unapproved IAM change therefore fails at GCP (403), not only at
   the fail-closed gate pre-check. The flag is a no-op when the gate check returns
   an empty requester (gateless plan, or no server configured) — a gateless apply
-  needs no elevation and proceeds as normal. See `docs/ci-integration.md` for the
+  needs no elevation and proceeds as normal. See `docs/guide/09-ci-integration.md` for the
   full wiring and `SECURITY.md` for the hardening notes.
 - **Fractal per-resource nesting** — every resource is its own `<details>` row
   inside a per-stack blockquote bar, with one size-based open/closed rule.
@@ -1194,7 +1194,7 @@ sets `App.Approval`, starts the reconcile loop, and serves. The binary is static
 and embeds its assets, so the release workflow builds a distroless, multi-arch
 container and pushes it to GHCR alongside the per-platform binaries; its
 entrypoint is `serve`. Deployment notes (single instance, Litestream, identity)
-are in `docs/deploy-cloud-run.md`; the hardening notes are in `SECURITY.md`.
+are in `docs/reference/install-and-deploy.md`; the hardening notes are in `SECURITY.md`.
 With this, **Phase 1 is complete**: render + serve (live DAG, approval gates,
 one check run per environment) ship from one binary.
 
@@ -1257,7 +1257,7 @@ order + revoke; gate blocks → abort before any apply. The `--impersonate-reque
 flag (see *Shipped since v1 — Privilege-backed apply*) is additive on top of this
 increment; the gate pre-check behaviour is unchanged with the flag on.
 
-The sixth increment landed the **CI integration guide** (`docs/ci-integration.md`):
+The sixth increment landed the **CI integration guide** (`docs/guide/09-ci-integration.md`):
 the consumer-facing wiring — the `TFSTACKPLAN_*` environment, the terramate
 `plan`/`apply` scripts that run terraform + `run tick`, and example plan-on-PR /
 apply-on-merge CI jobs that each shrink to checkout + one `run` invocation. With
