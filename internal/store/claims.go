@@ -27,6 +27,59 @@ func ClaimStacks(db *sql.DB, env string, pr int, execID string, stacks []string,
 	return tx.Commit()
 }
 
+// ReplaceClaims rewrites the apply_claims projection for env to exactly match
+// `rows` (stack_path → {owner_pr, expires_at}). Upserts each row and deletes any
+// existing rows for env not present in the new set. This is the projector seam:
+// the env:<env> event stream is the source of truth, apply_claims a derived
+// cross-env index for the sweep + the live-UI list. Atomic in one tx.
+func ReplaceClaims(db *sql.DB, env string, rows map[string]Claim) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	keep := make(map[string]bool, len(rows))
+	for stack, c := range rows {
+		keep[stack] = true
+		if _, err := tx.Exec(
+			`INSERT INTO apply_claims (environment, stack_path, owner_pr, execution_id, expires_at)
+			 VALUES (?,?,?,?,?)
+			 ON CONFLICT(environment, stack_path) DO UPDATE SET
+			   owner_pr=excluded.owner_pr, expires_at=excluded.expires_at`,
+			env, stack, c.OwnerPR, nil, c.ExpiresAt.UTC()); err != nil {
+			return err
+		}
+	}
+	// Delete projection rows for env that the folded set no longer contains.
+	existing, err := tx.Query(`SELECT stack_path FROM apply_claims WHERE environment = ?`, env)
+	if err != nil {
+		return err
+	}
+	var drop []string
+	for existing.Next() {
+		var s string
+		if err := existing.Scan(&s); err != nil {
+			existing.Close()
+			return err
+		}
+		if !keep[s] {
+			drop = append(drop, s)
+		}
+	}
+	existing.Close()
+	if err := existing.Err(); err != nil {
+		return err
+	}
+	for _, s := range drop {
+		if _, err := tx.Exec(
+			`DELETE FROM apply_claims WHERE environment = ? AND stack_path = ?`, env, s); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
 // ClaimedStacks returns the active (unexpired at `now`) claims for env as
 // stack_path → owner_pr.
 func ClaimedStacks(db *sql.DB, env string, now time.Time) (map[string]int, error) {
