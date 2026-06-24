@@ -8,9 +8,9 @@ them so they stay consistent over time.
 | Asset | Status | Where it's embedded | How it's made |
 |-------|--------|---------------------|---------------|
 | `../architecture/00-four-faces.svg` | ✅ done | [guide/02](../guide/02-mental-model.md), [architecture](../architecture/) | D2 — `d2 00-four-faces.d2 00-four-faces.svg` |
-| `hero-reviewer.png` | ⏳ to generate | README hero | Nano-Banana / Gemini (prompt below) |
-| `aside-this-is-fine.png` | ⏳ to generate | [guide/07 (serve)](../guide/07-serve.md) | Nano-Banana / Gemini (prompt below) |
-| `aside-the-adults.png` | ⏳ to generate | [guide/01 (the gaps)](../guide/01-the-gaps.md) | Nano-Banana / Gemini (prompt below) |
+| `hero-reviewer.jpg` | ✅ done | README hero | Nano-Banana / Gemini (prompt below); downscaled to ~1600px JPG |
+| `aside-this-is-fine.jpg` | ✅ done | [guide/07 (serve)](../guide/07-serve.md) | Nano-Banana / Gemini (prompt below); downscaled to ~1400px JPG |
+| `aside-the-adults.jpg` | ✅ done | [guide/01 (the gaps)](../guide/01-the-gaps.md) | Nano-Banana / Gemini (prompt below); downscaled to ~1400px JPG |
 | `serve-dag.png` | ⏳ to capture | README + [guide/07](../guide/07-serve.md) | screenshot of a live `serve` run (see below) |
 | `serve-gate.png` | ⏳ to capture | [guide/07](../guide/07-serve.md) | screenshot — an approval gate |
 | `run.gif` | ⏳ to capture | [guide/06](../guide/06-run.md) | screen / asciinema cast of a `run` (see below) |

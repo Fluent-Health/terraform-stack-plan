@@ -3,6 +3,11 @@
 > Your monorepo just opened **8 Terraform plans** on this one PR.
 > Your reviewer has gone very quiet.
 
+<p align="center">
+  <img src="docs/images/hero-reviewer.jpg" alt="An engineer at dusk, cold coffee in hand, a '127 files changed' sign glowing in the window" width="760">
+  <br><sub><i>He's reviewing the networking stack.</i></sub>
+</p>
+
 `tfstackplan` turns the N `plan.json` files a monorepo spits out per PR into a
 single comment a human can actually read — then, if you're brave, gates the
 apply behind a button someone has to consciously press.
