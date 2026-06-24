@@ -42,18 +42,19 @@ func TestConclusion(t *testing.T) {
 }
 
 // seedProjectionTarget inserts a row directly into the gate_targets projection
-// table using the same ON CONFLICT SQL that shell.project uses. Used here to
-// seed the derived projection for read-path tests (loadSnapshot, etc.) without
-// going through the full Handle flow.
-func seedProjectionTarget(t *testing.T, db *sql.DB, pr int, environment, class, target, grant, state string) {
+// table, mirroring the gate_targets projection write in shell.project exactly
+// (same columns, ON CONFLICT clause, and update set). Used here to seed the
+// derived projection for read-path tests (loadSnapshot, etc.) without going
+// through the full Handle flow.
+func seedProjectionTarget(t *testing.T, db *sql.DB, pr int, environment, class, target, grant, state, requester string) {
 	t.Helper()
 	_, err := db.Exec(
-		`INSERT INTO gate_targets (pr, environment, class, target, grant_name, state)
-		 VALUES (?,?,?,?,?,?)
+		`INSERT INTO gate_targets (pr, environment, class, target, grant_name, state, requester)
+		 VALUES (?,?,?,?,?,?,?)
 		 ON CONFLICT(pr, environment, class, target) DO UPDATE SET
 		   grant_name=excluded.grant_name, state=excluded.state,
-		   updated_at=CURRENT_TIMESTAMP`,
-		pr, environment, class, target, grant, state)
+		   requester=excluded.requester, updated_at=CURRENT_TIMESTAMP`,
+		pr, environment, class, target, grant, state, requester)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,8 +76,8 @@ func TestLoadSnapshot(t *testing.T) {
 	_ = store.SetReport(db, "e1", "# report")
 	// Seed the gate_targets projection directly (same SQL as shell.project) so
 	// loadSnapshot's TargetsFor call sees the expected rows.
-	seedProjectionTarget(t, db, 7, "staging", "iam", "proj-a", "g1", "ACTIVE")
-	seedProjectionTarget(t, db, 7, "staging", "iam", "proj-b", "g2", "AWAITING")
+	seedProjectionTarget(t, db, 7, "staging", "iam", "proj-a", "g1", "ACTIVE", "")
+	seedProjectionTarget(t, db, 7, "staging", "iam", "proj-b", "g2", "AWAITING", "")
 
 	snap, exec, ok := loadSnapshot(db, "e1")
 	if !ok {

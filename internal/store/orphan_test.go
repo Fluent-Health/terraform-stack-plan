@@ -11,8 +11,8 @@ func TestOpenGrantPRsCollapsesMultiEnv(t *testing.T) {
 		"e1", "o/r", "sha", 7, "staging"); err != nil {
 		t.Fatal(err)
 	}
-	seedGateTargetSQL(t, db, 7, "staging", "iam", "p1", "g1", "ACTIVE")
-	seedGateTargetSQL(t, db, 7, "prod", "iam", "p1", "g2", "AWAITING")
+	seedGateTargetSQL(t, db, 7, "staging", "iam", "p1", "g1", "ACTIVE", "")
+	seedGateTargetSQL(t, db, 7, "prod", "iam", "p1", "g2", "AWAITING", "")
 	got, err := OpenGrantPRs(db)
 	if err != nil {
 		t.Fatal(err)
@@ -33,13 +33,13 @@ func TestOpenGrantPRs(t *testing.T) {
 	}
 	// PR 7: fully-ACTIVE (Satisfied) gate — the merged-PR orphan PendingGates omits.
 	mkExec("e7", "o/r7", 7, "staging")
-	seedGateTargetSQL(t, db, 7, "staging", "iam", "p1", "g1", "ACTIVE")
+	seedGateTargetSQL(t, db, 7, "staging", "iam", "p1", "g1", "ACTIVE", "")
 	// PR 8: only a terminal REVOKED grant — no open grant, must be excluded.
 	mkExec("e8", "o/r8", 8, "staging")
-	seedGateTargetSQL(t, db, 8, "staging", "iam", "p1", "g2", "REVOKED")
+	seedGateTargetSQL(t, db, 8, "staging", "iam", "p1", "g2", "REVOKED", "")
 	// PR 9: AWAITING (open) — included, with its repo.
 	mkExec("e9", "o/r9", 9, "prod")
-	seedGateTargetSQL(t, db, 9, "prod", "iam", "p2", "g3", "AWAITING")
+	seedGateTargetSQL(t, db, 9, "prod", "iam", "p2", "g3", "AWAITING", "")
 
 	got, err := OpenGrantPRs(db)
 	if err != nil {

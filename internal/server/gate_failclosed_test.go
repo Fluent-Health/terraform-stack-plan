@@ -29,8 +29,8 @@ func seedGateViaHandle(t *testing.T, a *App) {
 	if err := store.UpsertInit(a.db, events.Init{ID: "e1", PR: 7, Environment: "staging", Repo: "r"}); err != nil {
 		t.Fatal(err)
 	}
-	// Use a real Fake backend (with no pool) so RequestGrant is skipped but the
-	// gate state (Pending) is persisted and the projection is written.
+	// Use a real Fake backend (with no pool) — empty Pool → RequestGrant yields an
+	// AWAITING grant, so the gate stays pending; the projection is written.
 	if err := a.shell.Handle(context.Background(), 7, "staging", "r", reconcile.RunnerFinalize{
 		Gates: []events.GateTarget{{Class: "iam", Target: "proj-a"}},
 	}); err != nil {

@@ -6,18 +6,19 @@ import (
 )
 
 // seedGateTargetSQL inserts a row directly into the gate_targets projection
-// table using the same ON CONFLICT SQL that shell.project uses. Tests for live
-// read functions (PendingGates, PRTargets, TargetsFor) use this instead of the
+// table, mirroring the gate_targets projection write in shell.project exactly
+// (same columns, ON CONFLICT clause, and update set). Tests for live read
+// functions (PendingGates, PRTargets, TargetsFor) use this instead of the
 // removed UpsertTarget writer.
-func seedGateTargetSQL(t *testing.T, db *sql.DB, pr int, environment, class, target, grant, state string) {
+func seedGateTargetSQL(t *testing.T, db *sql.DB, pr int, environment, class, target, grant, state, requester string) {
 	t.Helper()
 	_, err := db.Exec(
-		`INSERT INTO gate_targets (pr, environment, class, target, grant_name, state)
-		 VALUES (?,?,?,?,?,?)
+		`INSERT INTO gate_targets (pr, environment, class, target, grant_name, state, requester)
+		 VALUES (?,?,?,?,?,?,?)
 		 ON CONFLICT(pr, environment, class, target) DO UPDATE SET
 		   grant_name=excluded.grant_name, state=excluded.state,
-		   updated_at=CURRENT_TIMESTAMP`,
-		pr, environment, class, target, grant, state)
+		   requester=excluded.requester, updated_at=CURRENT_TIMESTAMP`,
+		pr, environment, class, target, grant, state, requester)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,10 +47,10 @@ func TestMigration009ClearsApplyClaims(t *testing.T) {
 func TestPendingGates(t *testing.T) {
 	db := newTestDB(t)
 	// gate 42/staging: one target still awaiting → pending.
-	seedGateTargetSQL(t, db, 42, "staging", "iam", "proj-a", "g1", "ACTIVE")
-	seedGateTargetSQL(t, db, 42, "staging", "iam", "proj-b", "g2", "AWAITING")
+	seedGateTargetSQL(t, db, 42, "staging", "iam", "proj-a", "g1", "ACTIVE", "")
+	seedGateTargetSQL(t, db, 42, "staging", "iam", "proj-b", "g2", "AWAITING", "")
 	// gate 7/prod: all active → not pending.
-	seedGateTargetSQL(t, db, 7, "prod", "iam", "proj-c", "g3", "ACTIVE")
+	seedGateTargetSQL(t, db, 7, "prod", "iam", "proj-c", "g3", "ACTIVE", "")
 
 	pending, err := PendingGates(db)
 	if err != nil {
@@ -65,10 +66,10 @@ func TestPendingGates(t *testing.T) {
 func TestPRTargets(t *testing.T) {
 	db := newTestDB(t)
 	// Two environments for PR 7.
-	seedGateTargetSQL(t, db, 7, "nonprod", "iam", "proj-a", "g1", "AWAITING")
-	seedGateTargetSQL(t, db, 7, "prod", "iam", "proj-b", "g2", "ACTIVE")
+	seedGateTargetSQL(t, db, 7, "nonprod", "iam", "proj-a", "g1", "AWAITING", "")
+	seedGateTargetSQL(t, db, 7, "prod", "iam", "proj-b", "g2", "ACTIVE", "")
 	// Different PR — must not appear in PR 7's results.
-	seedGateTargetSQL(t, db, 8, "nonprod", "iam", "proj-a", "g3", "AWAITING")
+	seedGateTargetSQL(t, db, 8, "nonprod", "iam", "proj-a", "g3", "AWAITING", "")
 
 	ts, err := PRTargets(db, 7)
 	if err != nil {
