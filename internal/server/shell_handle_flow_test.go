@@ -32,7 +32,7 @@ func TestHandleApproveThenTickBecomesApplyAllowed(t *testing.T) {
 	}
 	// Pre-approval: apply must be blocked.
 	w0, _ := sh.gather(7, "staging")
-	if reconcile.ApplyAllowed(w0.Prior.Gate) {
+	if applyAllowed(w0.Prior.Gate) {
 		t.Fatalf("apply should be blocked before approval, gate=%T", w0.Prior.Gate)
 	}
 	// Approver flips the grant ACTIVE; a full re-list tick promotes to Satisfied.
@@ -48,7 +48,7 @@ func TestHandleApproveThenTickBecomesApplyAllowed(t *testing.T) {
 		t.Fatal(err)
 	}
 	w1, _ := sh.gather(7, "staging")
-	if !reconcile.ApplyAllowed(w1.Prior.Gate) {
+	if !applyAllowed(w1.Prior.Gate) {
 		t.Fatalf("apply should be allowed after approval, gate=%T", w1.Prior.Gate)
 	}
 }
@@ -73,7 +73,17 @@ func TestHandlePRClosedRevokesAndBlocks(t *testing.T) {
 	}
 	// Gate must not permit apply.
 	w, _ := sh.gather(7, "staging")
-	if reconcile.ApplyAllowed(w.Prior.Gate) {
+	if applyAllowed(w.Prior.Gate) {
 		t.Fatalf("apply must be blocked after PR closed, gate=%T", w.Prior.Gate)
 	}
+}
+
+// applyAllowed mirrors the fail-closed apply-gate verdict from the deleted
+// reconcile.ApplyAllowed helper: only Clean or Satisfied permit apply.
+func applyAllowed(g reconcile.GateState) bool {
+	switch g.(type) {
+	case reconcile.Clean, reconcile.Satisfied:
+		return true
+	}
+	return false
 }

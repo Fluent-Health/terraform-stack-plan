@@ -53,11 +53,3 @@ func (RenderCheckRun) isAction()   {}
 func (PostCommitStatus) isAction() {}
 func (PublishSSE) isAction()       {}
 func (ReleaseClaim) isAction()     {}
-
-// YieldsResult reports whether an action produces a GrantsObserved on the
-// fixpoint loop (only RequestGrant does). The shell uses this to decide when
-// the fixpoint has converged.
-func YieldsResult(a Action) bool {
-	_, ok := a.(RequestGrant)
-	return ok
-}
