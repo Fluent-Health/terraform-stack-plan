@@ -35,6 +35,8 @@ this set of stacks, this person clicked approve," no way to require a human in
 front of a destructive change, no concept of *who* is allowed to apply *what*.
 The apply either runs or it doesn't.
 
+![A meeting room: Terramate, GitHub Actions, and terraform apply look pleased with themselves; tfstackplan stands at a whiteboard reading "who approved the prod destroy?"](../images/aside-the-adults.jpg)
+
 ## Gap 3 — Observability
 
 While the apply runs, where is it? Which stacks are done, which are in flight,

@@ -6,6 +6,8 @@ The governance gap is real: once `render` gives reviewers a readable plan, there
 is still nothing between a human approving a PR and `terraform apply` running
 unchecked across every stack that changed. `serve` is that thing.
 
+![A dog in a hard hat sits calmly at a terminal in a server room as one line reads "Destroying... google_sql_database_instance.prod"](../images/aside-this-is-fine.jpg)
+
 It is a long-running control-plane service — a single binary you run on Cloud
 Run — that gives a multi-stack execution a **live dependency-DAG UI**, **approval
 gates**, **one GitHub check run per environment**, and **SSE-tailed per-stack
