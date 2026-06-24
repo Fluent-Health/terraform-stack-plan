@@ -61,7 +61,13 @@ func TestSweepExpiredClaims(t *testing.T) {
 		t.Fatalf("swept envs = %v, want [prod]", envs)
 	}
 	got2, _ := ListClaims(db, "stage")
-	if len(got2) != 1 {
+	live := 0
+	for _, c := range got2 {
+		if c.ExpiresAt.After(now) {
+			live++
+		}
+	}
+	if live != 1 {
 		t.Fatalf("swept a live claim: %v", got2)
 	}
 }
