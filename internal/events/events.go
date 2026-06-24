@@ -35,7 +35,8 @@ const (
 	StatusAborted      Status = "aborted"      // run failed elsewhere; this stack never reached a terminal tick
 )
 
-// AllStatuses lists every known stack status.
+// AllStatuses lists every known stack status. Retained as public API: the test
+// suite validates all members via this, and docs/consumers enumerate statuses from it.
 func AllStatuses() []Status {
 	return []Status{
 		StatusPending, StatusInitializing, StatusInitialized, StatusRunning,

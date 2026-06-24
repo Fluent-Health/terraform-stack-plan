@@ -131,12 +131,6 @@ type AttrDiff struct {
 	Selected int // chosen variant index; fit mutates this
 }
 
-// Sel returns the currently-selected variant.
-func (a AttrDiff) Sel() Variant { return a.Variants[a.Selected] }
-
-// AtLast reports whether the selected variant is already the least-detail one.
-func (a AttrDiff) AtLast() bool { return a.Selected >= len(a.Variants)-1 }
-
 // Link is a labelled report-header link.
 type Link struct {
 	Label string
