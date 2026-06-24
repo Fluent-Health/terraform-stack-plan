@@ -175,3 +175,16 @@ func TestSnapshotStateByteFidelity(t *testing.T) {
 		t.Fatalf("binary state corrupted: %v", state)
 	}
 }
+
+func TestIsUniqueViolationMapsPKConflict(t *testing.T) {
+	db := newTestDB(t)
+	// A real PK collision on the events table yields a unique-violation error.
+	_, _ = db.Exec(`INSERT INTO events (stream_id, version, type, data) VALUES ('s',1,'x','{}')`)
+	_, err := db.Exec(`INSERT INTO events (stream_id, version, type, data) VALUES ('s',1,'y','{}')`)
+	if err == nil {
+		t.Fatal("expected a PK unique-violation")
+	}
+	if !isUniqueViolation(err) {
+		t.Fatalf("isUniqueViolation(%v) = false; want true", err)
+	}
+}
