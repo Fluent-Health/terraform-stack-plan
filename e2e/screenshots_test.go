@@ -49,8 +49,8 @@ func TestCaptureScreenshots(t *testing.T) {
 		t.Fatalf("mint view token: %v", err)
 	}
 
-	// Seed the scenario
-	execID, err := demo.SeedScenario(context.Background(), srv.URL, apiToken)
+	// Seed the scenario (returns both plan and apply IDs)
+	planID, applyID, err := demo.SeedScenario(context.Background(), srv.URL, apiToken)
 	if err != nil {
 		t.Fatalf("seed scenario: %v", err)
 	}
@@ -70,7 +70,7 @@ func TestCaptureScreenshots(t *testing.T) {
 	ctx, cancel := chromedp.NewContext(allocCtx)
 	defer cancel()
 
-	ctx, cancel = context.WithTimeout(ctx, 30*time.Second)
+	ctx, cancel = context.WithTimeout(ctx, 45*time.Second)
 	defer cancel()
 
 	outDir := "../docs/images"
@@ -78,11 +78,11 @@ func TestCaptureScreenshots(t *testing.T) {
 		t.Fatalf("mkdir docs/images: %v", err)
 	}
 
-	// 1. Capture DAG View Page (Full Page)
-	liveURL := srv.URL + "/live/" + execID + "?token=" + viewToken
+	// 1. Capture DAG View Page (Full Page of the Apply Run)
+	applyURL := srv.URL + "/live/" + applyID + "?token=" + viewToken
 	var buf []byte
 	err = chromedp.Run(ctx,
-		chromedp.Navigate(liveURL),
+		chromedp.Navigate(applyURL),
 		chromedp.WaitVisible("svg", chromedp.ByQuery),
 		chromedp.Sleep(2*time.Second), // Wait for SVG transitions to settle
 		chromedp.Screenshot("body", &buf, chromedp.NodeVisible),
@@ -97,10 +97,10 @@ func TestCaptureScreenshots(t *testing.T) {
 	}
 	t.Logf("Created: %s", dagPath)
 
-	// 2. Capture Gated Environment Approvals Panel
+	// 2. Capture Gated Environment Approvals Panel (From the Apply Run)
 	var bufGate []byte
 	err = chromedp.Run(ctx,
-		chromedp.Navigate(liveURL),
+		chromedp.Navigate(applyURL),
 		chromedp.WaitVisible(".panel", chromedp.ByQuery),
 		chromedp.Sleep(1*time.Second),
 		chromedp.Screenshot(".panel", &bufGate, chromedp.NodeVisible),
@@ -114,4 +114,42 @@ func TestCaptureScreenshots(t *testing.T) {
 		t.Fatalf("write serve-gate.png failed: %v", err)
 	}
 	t.Logf("Created: %s", gatePath)
+
+	// 3. Capture Plan Result / Diff view (With apps/iam stack selected)
+	planURL := srv.URL + "/live/" + planID + "?token=" + viewToken + "#stack-apps-iam"
+	var bufPlan []byte
+	err = chromedp.Run(ctx,
+		chromedp.Navigate(planURL),
+		chromedp.WaitVisible("section#stack-apps-iam .tfsp-report", chromedp.ByQuery),
+		chromedp.Sleep(2*time.Second), // Wait for plan markdown fetch and render
+		chromedp.Screenshot("body", &bufPlan, chromedp.NodeVisible),
+	)
+	if err != nil {
+		t.Fatalf("capture serve-plan screenshot failed: %v", err)
+	}
+
+	planPath := filepath.Join(outDir, "serve-plan.png")
+	if err := os.WriteFile(planPath, bufPlan, 0644); err != nil {
+		t.Fatalf("write serve-plan.png failed: %v", err)
+	}
+	t.Logf("Created: %s", planPath)
+
+	// 4. Capture Apply Log view (With apps/frontend stack selected)
+	applyLogURL := srv.URL + "/live/" + applyID + "?token=" + viewToken + "#stack-apps-frontend"
+	var bufApply []byte
+	err = chromedp.Run(ctx,
+		chromedp.Navigate(applyLogURL),
+		chromedp.WaitVisible("section#stack-apps-frontend pre[data-stack=\"apps/frontend\"]", chromedp.ByQuery),
+		chromedp.Sleep(2*time.Second), // Wait for log streams to populate
+		chromedp.Screenshot("body", &bufApply, chromedp.NodeVisible),
+	)
+	if err != nil {
+		t.Fatalf("capture serve-apply screenshot failed: %v", err)
+	}
+
+	applyPath := filepath.Join(outDir, "serve-apply.png")
+	if err := os.WriteFile(applyPath, bufApply, 0644); err != nil {
+		t.Fatalf("write serve-apply.png failed: %v", err)
+	}
+	t.Logf("Created: %s", applyPath)
 }

@@ -187,14 +187,17 @@ func runServe(args []string) int {
 			if strings.HasPrefix(hostPort, ":") {
 				hostPort = "127.0.0.1" + hostPort
 			}
-			execID, err := demo.SeedScenario(ctx, "http://"+hostPort, "demo-secret")
+			planID, applyID, err := demo.SeedScenario(ctx, "http://"+hostPort, "demo-secret")
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "demo: seed scenario failed: %v\n", err)
 				return
 			}
 			fmt.Fprintf(os.Stderr, "\n=================================================================\n")
 			fmt.Fprintf(os.Stderr, "DEMO MODE READY!\n")
-			fmt.Fprintf(os.Stderr, "Seeded Execution ID: %s\n", execID)
+			fmt.Fprintf(os.Stderr, "Seeded Plan ID:      %s\n", planID)
+			fmt.Fprintf(os.Stderr, "Seeded Apply ID:     %s\n", applyID)
+			fmt.Fprintf(os.Stderr, "Browse Plan (Diff):  http://%s/live/%s\n", hostPort, planID)
+			fmt.Fprintf(os.Stderr, "Browse Apply (Log):  http://%s/live/%s\n", hostPort, applyID)
 			fmt.Fprintf(os.Stderr, "Webhook URL:         http://%s/webhook\n", hostPort)
 			fmt.Fprintf(os.Stderr, "Ready URL:           http://%s/ready\n", hostPort)
 			fmt.Fprintf(os.Stderr, "=================================================================\n\n")

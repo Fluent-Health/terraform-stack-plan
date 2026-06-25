@@ -60,6 +60,14 @@ And here is the gated environment view showing required approvals that must be g
 
 ![An environment with a pending approval gate requiring human approval](../images/serve-gate.png)
 
+Below is the drill-down view showing the **Result (Plan) tab** for a selected stack, displaying its formatted Terraform plan diff report:
+
+![A planning run showing the plan diff report of the selected apps/iam stack](../images/serve-plan.png)
+
+Similarly, here is the **Log tab** for a selected stack showing the active, color-coded, live terminal apply logs as they stream in real time:
+
+![An apply run showing the active terminal apply logs of the selected apps/frontend stack](../images/serve-apply.png)
+
 ## Approval gates
 
 Classification (from `render` / `run plan`) can mark a stack's changes as IAM

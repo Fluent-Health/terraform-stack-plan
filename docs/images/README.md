@@ -13,6 +13,8 @@ them so they stay consistent over time.
 | `aside-the-adults.jpg` | ✅ done | [guide/01 (the gaps)](../guide/01-the-gaps.md) | Nano-Banana / Gemini (prompt below); downscaled to ~1400px JPG |
 | `serve-dag.png` | ✅ done | README + [guide/07](../guide/07-serve.md) | `make screenshots` (automated chromedp capture) |
 | `serve-gate.png` | ✅ done | [guide/07](../guide/07-serve.md) | `make screenshots` (automated chromedp capture) |
+| `serve-plan.png` | ✅ done | [guide/07](../guide/07-serve.md) | `make screenshots` (automated chromedp capture) |
+| `serve-apply.png` | ✅ done | [guide/07](../guide/07-serve.md) | `make screenshots` (automated chromedp capture) |
 | `run.gif` | ⏳ to capture | [guide/06](../guide/06-run.md) | screen / asciinema cast of a `run` (see below) |
 
 > Until an asset exists, **do not** add its `![…](…)` embed to a doc — a
@@ -76,6 +78,8 @@ go run ./cmd/tfstackplan serve --demo --addr :8080
   done / in-flight / blocked stacks.
 - `serve-gate.png` — an environment with a pending approval gate (a destructive
   or IAM change awaiting a human).
+- `serve-plan.png` — a planning run with a selected stack showing its plan diff report.
+- `serve-apply.png` — an apply run with a selected stack showing its live terminal apply logs.
 
 Re-capture when the UI changes materially; note the version in the commit.
 

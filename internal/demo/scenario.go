@@ -12,11 +12,13 @@ import (
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 )
 
-// SeedScenario sends a sequence of lifecycle events to baseURL to construct
-// a rich, realistic DAG execution for the local demo.
-func SeedScenario(ctx context.Context, baseURL string, bearerToken string) (string, error) {
+// SeedScenario sends sequences of lifecycle events to baseURL to construct
+// both a Plan execution (showing result diffs) and an Apply execution (showing logs).
+// Returns (planID, applyID, error).
+func SeedScenario(ctx context.Context, baseURL string, bearerToken string) (string, string, error) {
 	hc := &http.Client{Timeout: 5 * time.Second}
-	execID := fmt.Sprintf("demo-run-%d", time.Now().UnixNano()%1000000)
+	planID := fmt.Sprintf("demo-plan-%d", time.Now().UnixNano()%1000000)
+	applyID := fmt.Sprintf("demo-apply-%d", (time.Now().UnixNano()+12345)%1000000)
 
 	// Wait for the server to be ready before starting
 	readyURL := baseURL + "/ready"
@@ -35,23 +37,25 @@ func SeedScenario(ctx context.Context, baseURL string, bearerToken string) (stri
 		}
 		select {
 		case <-ctx.Done():
-			return "", ctx.Err()
+			return "", "", ctx.Err()
 		case <-time.After(100 * time.Millisecond):
 		}
 	}
 	if !ready {
-		return "", fmt.Errorf("server at %s not ready after timeout", baseURL)
+		return "", "", fmt.Errorf("server at %s not ready after timeout", baseURL)
 	}
 
-	// 1. Send Init event with ~8 stacks and dependencies (edges)
-	initEv := events.Init{
-		ID:          execID,
+	// ==========================================
+	// 1. Seed Plan Execution (Result Tab / Diff)
+	// ==========================================
+	planInitEv := events.Init{
+		ID:          planID,
 		Repo:        "Fluent-Health/terraform-stack-plan",
 		SHA:         "8a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t",
 		PR:          42,
 		Environment: "destructive+iam",
 		LogURL:      "https://github.com/Fluent-Health/terraform-stack-plan/actions/runs/123456",
-		Context:     "apply/destructive+iam",
+		Context:     "plan", // Plan context (LogDefault = false when finished)
 		Stacks: []events.StackState{
 			{Path: "infra/vpc", Status: events.StatusPending},
 			{Path: "infra/dns", Status: events.StatusPending},
@@ -76,33 +80,96 @@ func SeedScenario(ctx context.Context, baseURL string, bearerToken string) (stri
 		},
 	}
 
-	if err := post(ctx, hc, baseURL+"/api/init", bearerToken, initEv); err != nil {
-		return "", fmt.Errorf("init failed: %w", err)
+	if err := post(ctx, hc, baseURL+"/api/init", bearerToken, planInitEv); err != nil {
+		return "", "", fmt.Errorf("plan init failed: %w", err)
 	}
 
-	// 2. Animate statuses with updates
-	updates := []events.Update{
-		{ID: execID, Stack: "infra/vpc", Status: events.StatusRunning},
-		{ID: execID, Stack: "infra/vpc", Status: events.StatusSafe},
-		{ID: execID, Stack: "infra/dns", Status: events.StatusRunning},
-		{ID: execID, Stack: "infra/dns", Status: events.StatusSafe},
-		{ID: execID, Stack: "apps/iam", Status: events.StatusGated},
-		{ID: execID, Stack: "apps/db", Status: events.StatusGated},
-		{ID: execID, Stack: "apps/web", Status: events.StatusPlanned},
-		{ID: execID, Stack: "apps/api", Status: events.StatusPlanned},
-		{ID: execID, Stack: "apps/frontend", Status: events.StatusRunning},
+	planUpdates := []events.Update{
+		{ID: planID, Stack: "infra/vpc", Status: events.StatusNochange},
+		{ID: planID, Stack: "infra/dns", Status: events.StatusNochange},
+		{ID: planID, Stack: "apps/iam", Status: events.StatusPlanned},
+		{ID: planID, Stack: "apps/db", Status: events.StatusPlanned},
+		{ID: planID, Stack: "apps/web", Status: events.StatusPlanned},
+		{ID: planID, Stack: "apps/api", Status: events.StatusPlanned},
+		{ID: planID, Stack: "apps/frontend", Status: events.StatusNochange},
+		{ID: planID, Stack: "apps/cdn", Status: events.StatusNochange},
 	}
 
-	for _, u := range updates {
+	for _, u := range planUpdates {
 		if err := post(ctx, hc, baseURL+"/api/update", bearerToken, u); err != nil {
-			return "", fmt.Errorf("update failed for %s: %w", u.Stack, err)
+			return "", "", fmt.Errorf("plan update failed for %s: %w", u.Stack, err)
 		}
 	}
 
-	// 3. Finalize run to register gates
-	finalizeEv := events.Finalize{
-		ID:             execID,
-		ReportMarkdown: "## Demo Report\n\n- Infrastructure is fully set up.\n- Application deployments are gated for security.\n",
+	planFinalizeEv := events.Finalize{
+		ID:             planID,
+		ReportMarkdown: "## Plan Summary Report\n\n- No-change: 4 stacks\n- Planned (Gated): 2 stacks\n- Planned (Clean): 2 stacks\n",
+		Gates: []events.GateTarget{
+			{Class: "iam", Target: "proj-a"},
+			{Class: "destructive", Target: "proj-a"},
+		},
+		Projects: map[string]string{
+			"apps/iam": "proj-a",
+			"apps/db":  "proj-a",
+		},
+		Categories: map[string][]events.Category{
+			"apps/iam": {{Name: "iam", Icon: "🔐"}},
+			"apps/db":  {{Name: "destructive", Icon: "💣"}},
+		},
+		Counts: map[string]events.Counts{
+			"apps/iam": {Add: 1},
+			"apps/db":  {Destroy: 1},
+		},
+		StackReports: map[string]string{
+			"apps/iam": "```diff\n+ google_project_iam_member.x\n+ project = \"proj-a\"\n+ role    = \"roles/editor\"\n```\n",
+			"apps/db":  "```diff\n- google_sql_database_instance.prod\n- name    = \"db-prod\"\n```\n",
+		},
+	}
+
+	if err := post(ctx, hc, baseURL+"/api/finalize", bearerToken, planFinalizeEv); err != nil {
+		return "", "", fmt.Errorf("plan finalize failed: %w", err)
+	}
+
+	// ==========================================
+	// 2. Seed Apply Execution (Log Tab / Output)
+	// ==========================================
+	applyInitEv := events.Init{
+		ID:          applyID,
+		Repo:        "Fluent-Health/terraform-stack-plan",
+		SHA:         "8a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t",
+		PR:          42,
+		Environment: "destructive+iam",
+		LogURL:      "https://github.com/Fluent-Health/terraform-stack-plan/actions/runs/123456",
+		Context:     "apply/destructive+iam", // Apply context (LogDefault = true)
+		Stacks:      planInitEv.Stacks,
+		Edges:       planInitEv.Edges,
+	}
+
+	if err := post(ctx, hc, baseURL+"/api/init", bearerToken, applyInitEv); err != nil {
+		return "", "", fmt.Errorf("apply init failed: %w", err)
+	}
+
+	applyUpdates := []events.Update{
+		{ID: applyID, Stack: "infra/vpc", Status: events.StatusRunning},
+		{ID: applyID, Stack: "infra/vpc", Status: events.StatusSafe},
+		{ID: applyID, Stack: "infra/dns", Status: events.StatusRunning},
+		{ID: applyID, Stack: "infra/dns", Status: events.StatusSafe},
+		{ID: applyID, Stack: "apps/iam", Status: events.StatusGated},
+		{ID: applyID, Stack: "apps/db", Status: events.StatusGated},
+		{ID: applyID, Stack: "apps/web", Status: events.StatusPlanned},
+		{ID: applyID, Stack: "apps/api", Status: events.StatusPlanned},
+		{ID: applyID, Stack: "apps/frontend", Status: events.StatusRunning},
+	}
+
+	for _, u := range applyUpdates {
+		if err := post(ctx, hc, baseURL+"/api/update", bearerToken, u); err != nil {
+			return "", "", fmt.Errorf("apply update failed for %s: %w", u.Stack, err)
+		}
+	}
+
+	applyFinalizeEv := events.Finalize{
+		ID:             applyID,
+		ReportMarkdown: "## Apply Report\n\n- Infrastructure is fully set up.\n- Application deployments are gated for security.\n",
 		Gates: []events.GateTarget{
 			{Class: "iam", Target: "proj-a"},
 			{Class: "destructive", Target: "proj-a"},
@@ -121,27 +188,27 @@ func SeedScenario(ctx context.Context, baseURL string, bearerToken string) (stri
 		},
 	}
 
-	if err := post(ctx, hc, baseURL+"/api/finalize", bearerToken, finalizeEv); err != nil {
-		return "", fmt.Errorf("finalize failed: %w", err)
+	if err := post(ctx, hc, baseURL+"/api/finalize", bearerToken, applyFinalizeEv); err != nil {
+		return "", "", fmt.Errorf("apply finalize failed: %w", err)
 	}
 
-	// 4. Force gate check to register awaiting state on fake backends
+	// Force gate check to register awaiting state on fake backends
 	gateCheckEv := events.GateCheck{PR: 42, Environment: "destructive+iam"}
 	if err := postGateCheck(ctx, hc, baseURL+"/api/gate/check", bearerToken, gateCheckEv); err != nil {
-		return "", fmt.Errorf("gate check failed: %w", err)
+		return "", "", fmt.Errorf("gate check failed: %w", err)
 	}
 
-	// 5. Post some sample logs
+	// Post some sample logs to apps/frontend (representing apply logging)
 	logEv := events.LogChunk{
-		ID:    execID,
+		ID:    applyID,
 		Stack: "apps/frontend",
-		Data:  "yarn install --silent\nyarn build\nCreating static production bundle...\n",
+		Data:  "\x1b[32m✔ yarn install --silent\x1b[0m\n\x1b[34mℹ yarn build\x1b[0m\nCreating static production bundle...\n\x1b[32m✔ Compiled successfully!\x1b[0m\n",
 	}
 	if err := post(ctx, hc, baseURL+"/api/logs", bearerToken, logEv); err != nil {
-		return "", fmt.Errorf("logs failed: %w", err)
+		return "", "", fmt.Errorf("apply logs failed: %w", err)
 	}
 
-	return execID, nil
+	return planID, applyID, nil
 }
 
 func post(ctx context.Context, hc *http.Client, url, token string, payload any) error {
@@ -187,7 +254,6 @@ func postGateCheck(ctx context.Context, hc *http.Client, url, token string, gc e
 		return err
 	}
 	defer resp.Body.Close()
-	// Both OK (200) and Conflict (409, gate not approved yet) are expected/valid outcomes for demo
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusConflict {
 		respBody, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("status %d: %s", resp.StatusCode, string(respBody))

@@ -48,8 +48,8 @@ func TestServeE2E(t *testing.T) {
                 t.Fatalf("mint view token: %v", err)
         }
 
-        // Seed the scenario
-        execID, err := demo.SeedScenario(context.Background(), srv.URL, apiToken)
+        // Seed the scenario (returns both plan and apply IDs)
+        planID, applyID, err := demo.SeedScenario(context.Background(), srv.URL, apiToken)
         if err != nil {
                 t.Fatalf("seed scenario: %v", err)
         }
@@ -72,8 +72,8 @@ func TestServeE2E(t *testing.T) {
                 t.Errorf("expected index page to show environment 'destructive+iam' (escaped as 'destructive&#43;iam')")
         }
 
-        // 2. Assert GET /live/{id} renders the DAG SVG and the approval panel
-        resp2, err := http.Get(srv.URL + "/live/" + execID + "?token=" + viewToken)
+        // 2. Assert GET /live/{id} renders the DAG SVG and the approval panel for apply ID
+        resp2, err := http.Get(srv.URL + "/live/" + applyID + "?token=" + viewToken)
         if err != nil {
                 t.Fatalf("GET live: %v", err)
         }
@@ -98,5 +98,15 @@ func TestServeE2E(t *testing.T) {
 
         if !strings.Contains(bodyStr, "Approvals") || !strings.Contains(bodyStr, "Awaiting approval") {
                 t.Errorf("expected live page to contain the Approvals panel waiting for grant actions")
+        }
+
+        // 3. Assert GET /live/{id} renders successfully for plan ID too
+        resp3, err := http.Get(srv.URL + "/live/" + planID + "?token=" + viewToken)
+        if err != nil {
+                t.Fatalf("GET live (plan): %v", err)
+        }
+        defer resp3.Body.Close()
+        if resp3.StatusCode != http.StatusOK {
+                t.Errorf("GET live (plan) status = %d, want 200", resp3.StatusCode)
         }
 }
