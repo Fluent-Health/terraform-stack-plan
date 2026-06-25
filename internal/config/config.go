@@ -528,9 +528,6 @@ func decodeCache(blk *hclsyntax.Block) (*CacheConfig, error) {
 	if bucket == "" {
 		bucket = os.Getenv("TFSTACKPLAN_CACHE_BUCKET")
 	}
-	if bucket == "" {
-		bucket = os.Getenv("_CACHE_BUCKET")
-	}
 	prefix := body.Prefix
 	if prefix == "" {
 		prefix = "infra/tf-plugins"
@@ -538,9 +535,6 @@ func decodeCache(blk *hclsyntax.Block) (*CacheConfig, error) {
 	version := body.Version
 	if version == "" {
 		version = os.Getenv("TFSTACKPLAN_CACHE_VERSION")
-	}
-	if version == "" {
-		version = os.Getenv("_CACHE_VERSION")
 	}
 	if version == "" {
 		version = "0"
@@ -551,4 +545,3 @@ func decodeCache(blk *hclsyntax.Block) (*CacheConfig, error) {
 		Version: version,
 	}, nil
 }
-

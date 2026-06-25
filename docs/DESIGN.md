@@ -1265,6 +1265,53 @@ this, **Phase 2 is complete**: `tfstackplan run` drives plan/apply end to end,
 reporting to the `serve` control plane, while terraform keeps executing in the
 consumer's own CI under their own identities.
 
+**Native provider caching** (`run plan` / `run apply`) — both drivers support a
+`cache {}` config block that pre-warms the local Terraform plugin cache directory
+(`TF_PLUGIN_CACHE_DIR`, defaulting to `/workspace/.tf-plugin-cache`) from GCS
+before `terraform init` runs. Providers found in GCS are restored directly from
+the archive; providers missing from the cache are downloaded from the Terraform
+registry (or the provider's own registry host for non-public providers) and
+installed. After the script completes, any newly installed providers are uploaded to
+GCS so subsequent runs hit the cache. In `run apply` the warm pass runs **after**
+the gate pre-check so a gate-rejected apply never emits a `PhaseWarming` event.
+
+Configuration in `.tfstackplan.hcl`:
+
+```hcl
+cache {
+  bucket  = "my-tf-plugins-cache"   # GCS bucket (also: TFSTACKPLAN_CACHE_BUCKET env)
+  prefix  = "infra/tf-plugins"      # GCS key prefix (default: "infra/tf-plugins")
+  version = "v1"                    # cache key namespace (default: "0"); bump to bust
+}
+```
+
+Absent → caching is skipped entirely (no GCS access, no extra latency). GCP
+credential failures are logged and the run continues without warming — apply is
+never blocked by a cache miss; terraform's own `init` download handles it.
+
+**Implementation:** `internal/cache` — `ProviderCache.Warm` fans out up to 8
+concurrent per-provider restores, each atomically placed via `os.Rename` into
+`<cacheDir>/<address>/<version>/<os_arch>/`; `ProviderCache.Save` walks the
+cache directory and uploads any provider not yet present in GCS as a `.tar.gz`.
+GCS key format: `{version}/{address}/{provider_version}/{os_arch}.tar.gz`. Archive
+extraction guards against zip-slip (path-traversal) for both `.tar.gz` and `.zip`
+archives.
+
+**Known limitations:**
+- GCP credentials (ADC) are required; a machine without credentials silently skips
+  warming and lets terraform's own `init` download handle providers.
+- `Save` buffers each provider archive in memory (`bytes.Buffer`) before uploading;
+  a directory with many or very large binaries can spike RAM at finalize time.
+  Streaming tar-to-GCS is a follow-on.
+- The cache is per-`(version, os_arch)` — provider archives for different platforms
+  are stored independently.
+- Concurrent `Warm` calls for the same provider (e.g. two CI runs sharing a cache
+  directory) are safe: `restoreOne` uses `os.Rename` for an atomic install, and if
+  the rename fails because a concurrent goroutine already won the race, it verifies
+  the binary is present before returning success. The `Save` path has a TOCTOU
+  window on the GCS `Exists` check, so a provider may be uploaded twice in a tight
+  race; this is harmless (idempotent PUT).
+
 **Phase 3: logs + UI v2 (in progress).** The first increment landed the
 **server-side log pipeline foundation**: `POST /api/logs` (bearer-authed)
 ingests per-stack output chunks (`events.LogChunk`), the server appends them to

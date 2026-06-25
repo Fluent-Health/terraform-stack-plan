@@ -10,10 +10,15 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
 )
+
+// platform is the OS_ARCH string Terraform uses for plugin cache directories
+// and registry download URLs (e.g. "linux_amd64").
+var platform = runtime.GOOS + "_" + runtime.GOARCH
 
 type ProviderCache struct {
 	Store       StorageBackend
@@ -90,13 +95,13 @@ func (c *ProviderCache) Warm(ctx context.Context, stackPaths []string) error {
 }
 
 func (c *ProviderCache) restoreOne(ctx context.Context, p Provider) error {
-	dest := filepath.Join(c.CacheDir, p.Address, p.Version, "linux_amd64")
+	dest := filepath.Join(c.CacheDir, p.Address, p.Version, platform)
 	binName := "terraform-provider-" + filepath.Base(p.Address)
 	if _, err := os.Stat(filepath.Join(dest, binName)); err == nil {
 		return nil // Already warm in local cache
 	}
 
-	key := fmt.Sprintf("%s/%s/linux_amd64.tar.gz", p.Address, p.Version)
+	key := fmt.Sprintf("%s/%s/%s.tar.gz", p.Address, p.Version, platform)
 	if c.Version != "" && c.Version != "0" {
 		key = c.Version + "/" + key
 	}
@@ -146,7 +151,15 @@ func (c *ProviderCache) restoreOne(ctx context.Context, p Provider) error {
 	if err := os.MkdirAll(filepath.Dir(dest), 0755); err != nil {
 		return err
 	}
-	return os.Rename(tmpDir, dest)
+	if err := os.Rename(tmpDir, dest); err != nil {
+		// A concurrent Warm() won the race and already installed this provider.
+		// If the binary is present the installation is complete; treat as success.
+		if _, statErr := os.Stat(filepath.Join(dest, binName)); statErr == nil {
+			return nil
+		}
+		return err
+	}
+	return nil
 }
 
 func extractTarGz(r io.Reader, dest string) error {
@@ -166,6 +179,9 @@ func extractTarGz(r io.Reader, dest string) error {
 			return err
 		}
 		target := filepath.Join(dest, hdr.Name)
+		if !strings.HasPrefix(filepath.Clean(target)+string(filepath.Separator), filepath.Clean(dest)+string(filepath.Separator)) {
+			return fmt.Errorf("archive entry %q escapes destination directory", hdr.Name)
+		}
 		if hdr.Typeflag == tar.TypeDir {
 			if err := os.MkdirAll(target, 0755); err != nil {
 				return err
@@ -209,6 +225,9 @@ func extractZip(r io.Reader, dest string) error {
 
 	for _, file := range zr.File {
 		path := filepath.Join(dest, file.Name)
+		if !strings.HasPrefix(filepath.Clean(path)+string(filepath.Separator), filepath.Clean(dest)+string(filepath.Separator)) {
+			return fmt.Errorf("zip entry %q escapes destination directory", file.Name)
+		}
 		if file.FileInfo().IsDir() {
 			if err := os.MkdirAll(path, 0755); err != nil {
 				return err
@@ -243,12 +262,12 @@ func (c *ProviderCache) Save(ctx context.Context) error {
 	}
 
 	var providerDirs []string
-	// Walk CacheDir to find .../<addr>/<version>/linux_amd64 directories
+	// Walk CacheDir to find .../<addr>/<version>/<platform> directories
 	err := filepath.Walk(c.CacheDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
-		if info.IsDir() && filepath.Base(path) == "linux_amd64" {
+		if info.IsDir() && filepath.Base(path) == platform {
 			// Check if it contains terraform-provider-*
 			files, err := os.ReadDir(path)
 			if err != nil {
@@ -273,7 +292,7 @@ func (c *ProviderCache) Save(ctx context.Context) error {
 		if err != nil {
 			continue
 		}
-		// rel is <namespace_domain>/<namespace>/<name>/<version>/linux_amd64
+		// rel is <namespace_domain>/<namespace>/<name>/<version>/<platform>
 		parts := strings.Split(filepath.ToSlash(rel), "/")
 		if len(parts) < 4 {
 			continue
@@ -281,7 +300,7 @@ func (c *ProviderCache) Save(ctx context.Context) error {
 		version := parts[len(parts)-2]
 		address := strings.Join(parts[:len(parts)-2], "/")
 
-		key := fmt.Sprintf("%s/%s/linux_amd64.tar.gz", address, version)
+		key := fmt.Sprintf("%s/%s/%s.tar.gz", address, version, platform)
 		if c.Version != "" && c.Version != "0" {
 			key = c.Version + "/" + key
 		}
@@ -302,6 +321,7 @@ func (c *ProviderCache) Save(ctx context.Context) error {
 			continue
 		}
 
+		var writeErr error
 		for _, f := range files {
 			if f.IsDir() {
 				continue
@@ -317,17 +337,27 @@ func (c *ProviderCache) Save(ctx context.Context) error {
 			}
 			hdr.Name = f.Name()
 			if err := tw.WriteHeader(hdr); err != nil {
-				continue
+				writeErr = err
+				break
 			}
 			fileBytes, err := os.ReadFile(filePath)
 			if err != nil {
-				continue
+				writeErr = err
+				break
 			}
-			tw.Write(fileBytes)
+			if _, err := tw.Write(fileBytes); err != nil {
+				writeErr = err
+				break
+			}
 		}
 
 		tw.Close()
 		gw.Close()
+
+		if writeErr != nil {
+			fmt.Fprintf(os.Stderr, "cache: save %s %s: tar write error: %v\n", address, version, writeErr)
+			continue
+		}
 
 		if err := c.Store.Put(ctx, key, &buf, int64(buf.Len())); err != nil {
 			fmt.Fprintf(os.Stderr, "cache: save %s %s failed: %v\n", address, version, err)

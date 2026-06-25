@@ -74,21 +74,30 @@ func runPlan(args []string) int {
 	}
 	var cfg *config.Config
 	if pPath != "" {
-		cfg, _ = config.Load(pPath)
+		var loadErr error
+		cfg, loadErr = config.Load(pPath)
+		if loadErr != nil {
+			fmt.Fprintf(os.Stderr, "tfstackplan run plan: cache config: %v\n", loadErr)
+		}
 	}
 
+	var pc *cache.ProviderCache
 	if cfg != nil && cfg.Cache != nil {
 		_ = client.Phase(ctx, events.PhaseEvent{ID: execID, Phase: events.PhaseWarming})
-		tokenFunc, _, _ := gcpCreds(ctx)
-		gcsStore := cache.NewGCSStorage(tokenFunc, cfg.Cache.Bucket, cfg.Cache.Prefix)
-		pc := cache.NewProviderCache(gcsStore, "", cfg.Cache.Version)
-		// Gather absolute stack paths for ParseLockFile matching
-		absStacks := make([]string, len(stacks))
-		for i, s := range stacks {
-			absStacks[i] = filepath.Join(*dir, s)
-		}
-		if err := pc.Warm(ctx, absStacks); err != nil {
-			fmt.Fprintf(os.Stderr, "tfstackplan run plan: warming cache warning: %v\n", err)
+		tokenFunc, _, credErr := gcpCreds(ctx)
+		if credErr != nil {
+			fmt.Fprintf(os.Stderr, "tfstackplan run plan: cache warming: no GCP credentials: %v\n", credErr)
+		} else {
+			gcsStore := cache.NewGCSStorage(tokenFunc, cfg.Cache.Bucket, cfg.Cache.Prefix)
+			pc = cache.NewProviderCache(gcsStore, "", cfg.Cache.Version)
+			// Gather absolute stack paths for ParseLockFile matching
+			absStacks := make([]string, len(stacks))
+			for i, s := range stacks {
+				absStacks[i] = filepath.Join(*dir, s)
+			}
+			if err := pc.Warm(ctx, absStacks); err != nil {
+				fmt.Fprintf(os.Stderr, "tfstackplan run plan: warming cache warning: %v\n", err)
+			}
 		}
 	}
 
@@ -106,6 +115,12 @@ func runPlan(args []string) int {
 		})
 		if stop != nil {
 			stop()
+		}
+	}
+
+	if pc != nil {
+		if err := pc.Save(ctx); err != nil {
+			fmt.Fprintf(os.Stderr, "tfstackplan run plan: cache save: %v\n", err)
 		}
 	}
 

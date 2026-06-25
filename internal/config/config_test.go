@@ -264,9 +264,7 @@ cache {}
 `
 	// Clear environments first
 	os.Unsetenv("TFSTACKPLAN_CACHE_BUCKET")
-	os.Unsetenv("_CACHE_BUCKET")
 	os.Unsetenv("TFSTACKPLAN_CACHE_VERSION")
-	os.Unsetenv("_CACHE_VERSION")
 
 	cfg, err := ParseString(".tfstackplan.hcl", src)
 	if err != nil {
@@ -305,23 +303,4 @@ cache {}
 		t.Errorf("expected version 'env-version' from env, got %q", cfgEnv.Cache.Version)
 	}
 
-	// Test secondary env fallbacks (_CACHE_BUCKET, _CACHE_VERSION)
-	os.Unsetenv("TFSTACKPLAN_CACHE_BUCKET")
-	os.Unsetenv("TFSTACKPLAN_CACHE_VERSION")
-	os.Setenv("_CACHE_BUCKET", "secondary-bucket")
-	os.Setenv("_CACHE_VERSION", "secondary-version")
-	defer os.Unsetenv("_CACHE_BUCKET")
-	defer os.Unsetenv("_CACHE_VERSION")
-
-	cfgSecEnv, err := ParseString(".tfstackplan.hcl", src)
-	if err != nil {
-		t.Fatalf("failed to parse config: %v", err)
-	}
-	if cfgSecEnv.Cache.Bucket != "secondary-bucket" {
-		t.Errorf("expected bucket 'secondary-bucket' from env, got %q", cfgSecEnv.Cache.Bucket)
-	}
-	if cfgSecEnv.Cache.Version != "secondary-version" {
-		t.Errorf("expected version 'secondary-version' from env, got %q", cfgSecEnv.Cache.Version)
-	}
 }
-

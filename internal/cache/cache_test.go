@@ -12,6 +12,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 )
 
@@ -69,8 +71,8 @@ provider "registry.terraform.io/hashicorp/null" {
 
 	// Mock GCS server / StorageBackend:
 	// Let's say google provider exists in storage, but null provider does not (will fetch from registry).
-	googleKey := "v1/registry.terraform.io/hashicorp/google/6.10.0/linux_amd64.tar.gz"
-	nullKey := "v1/registry.terraform.io/hashicorp/null/3.2.1/linux_amd64.tar.gz"
+	googleKey := fmt.Sprintf("v1/registry.terraform.io/hashicorp/google/6.10.0/%s.tar.gz", platform)
+	nullKey := fmt.Sprintf("v1/registry.terraform.io/hashicorp/null/3.2.1/%s.tar.gz", platform)
 
 	storageGetCalled := false
 	store := &mockStorage{
@@ -129,6 +131,7 @@ provider "registry.terraform.io/hashicorp/null" {
 
 	pc := NewProviderCache(store, tmpCacheDir, "v1")
 	pc.Registry = &RegistryClient{
+		host:    "registry.terraform.io",
 		baseURL: regSrv.URL,
 		hc:      &http.Client{},
 	}
@@ -146,7 +149,7 @@ provider "registry.terraform.io/hashicorp/null" {
 	}
 
 	// Verify both providers exist in the cache directory
-	googleBin := filepath.Join(tmpCacheDir, "registry.terraform.io/hashicorp/google/6.10.0/linux_amd64/terraform-provider-google")
+	googleBin := filepath.Join(tmpCacheDir, "registry.terraform.io/hashicorp/google/6.10.0", platform, "terraform-provider-google")
 	if _, err := os.Stat(googleBin); err != nil {
 		t.Errorf("google binary not found in cache: %v", err)
 	} else {
@@ -156,7 +159,7 @@ provider "registry.terraform.io/hashicorp/null" {
 		}
 	}
 
-	nullBin := filepath.Join(tmpCacheDir, "registry.terraform.io/hashicorp/null/3.2.1/linux_amd64/terraform-provider-null")
+	nullBin := filepath.Join(tmpCacheDir, "registry.terraform.io/hashicorp/null/3.2.1", platform, "terraform-provider-null")
 	if _, err := os.Stat(nullBin); err != nil {
 		t.Errorf("null binary not found in cache: %v", err)
 	} else {
@@ -169,9 +172,9 @@ provider "registry.terraform.io/hashicorp/null" {
 
 func TestProviderCacheSave(t *testing.T) {
 	tmpCacheDir := t.TempDir()
-	
+
 	// Create a local provider manually in the cache directory
-	localProviderDir := filepath.Join(tmpCacheDir, "registry.terraform.io/hashicorp/aws/5.0.0/linux_amd64")
+	localProviderDir := filepath.Join(tmpCacheDir, "registry.terraform.io/hashicorp/aws/5.0.0", platform)
 	if err := os.MkdirAll(localProviderDir, 0755); err != nil {
 		t.Fatalf("failed to create local provider dir: %v", err)
 	}
@@ -180,7 +183,7 @@ func TestProviderCacheSave(t *testing.T) {
 		t.Fatalf("failed to write local bin: %v", err)
 	}
 
-	awsKey := "v1/registry.terraform.io/hashicorp/aws/5.0.0/linux_amd64.tar.gz"
+	awsKey := fmt.Sprintf("v1/registry.terraform.io/hashicorp/aws/5.0.0/%s.tar.gz", platform)
 
 	putCalled := false
 	var putBytes []byte
@@ -240,6 +243,92 @@ func TestProviderCacheSave(t *testing.T) {
 	}
 }
 
+// TestProviderCacheWarmConcurrent verifies that concurrent Warm() calls for the
+// same provider are safe. Each goroutine calls Warm independently (simulating
+// parallel CI runs sharing one cache dir); the atomic os.Rename ensures
+// last-writer-wins with no partial reads or corruption.
+func TestProviderCacheWarmConcurrent(t *testing.T) {
+	const numConcurrent = 8
+
+	tmpCacheDir := t.TempDir()
+	stackDir := t.TempDir()
+
+	lockContent := []byte(`
+provider "registry.terraform.io/hashicorp/google" {
+  version     = "6.10.0"
+  constraints = ">= 6.0.0"
+  hashes = [
+    "h1:mockhash",
+  ]
+}
+`)
+	if err := os.WriteFile(filepath.Join(stackDir, ".terraform.lock.hcl"), lockContent, 0644); err != nil {
+		t.Fatalf("failed to write lock file: %v", err)
+	}
+
+	googleKey := fmt.Sprintf("v1/registry.terraform.io/hashicorp/google/6.10.0/%s.tar.gz", platform)
+	var getCount int32
+
+	store := &mockStorage{
+		existsFunc: func(ctx context.Context, key string) (bool, error) {
+			return key == googleKey, nil
+		},
+		getFunc: func(ctx context.Context, key string) (io.ReadCloser, int64, error) {
+			atomic.AddInt32(&getCount, 1)
+			pr, pw := io.Pipe()
+			go func() {
+				gw := gzip.NewWriter(pw)
+				tw := tar.NewWriter(gw)
+				content := "google-binary-data"
+				hdr := &tar.Header{
+					Name: "terraform-provider-google",
+					Mode: 0755,
+					Size: int64(len(content)),
+				}
+				tw.WriteHeader(hdr)       //nolint:errcheck
+				tw.Write([]byte(content)) //nolint:errcheck
+				tw.Close()
+				gw.Close()
+				pw.Close()
+			}()
+			return pr, -1, nil
+		},
+	}
+
+	var wg sync.WaitGroup
+	var errCount int32
+	for i := 0; i < numConcurrent; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			pc := NewProviderCache(store, tmpCacheDir, "v1")
+			if err := pc.Warm(context.Background(), []string{stackDir}); err != nil {
+				atomic.AddInt32(&errCount, 1)
+				t.Errorf("concurrent Warm failed: %v", err)
+			}
+		}()
+	}
+	wg.Wait()
+
+	if errCount > 0 {
+		t.Fatalf("%d Warm() goroutines failed", errCount)
+	}
+
+	googleBin := filepath.Join(tmpCacheDir, "registry.terraform.io/hashicorp/google/6.10.0", platform, "terraform-provider-google")
+	data, err := os.ReadFile(googleBin)
+	if err != nil {
+		t.Fatalf("google binary not in cache after concurrent Warm: %v", err)
+	}
+	if string(data) != "google-binary-data" {
+		t.Errorf("google binary content wrong after concurrent Warm: %q", string(data))
+	}
+
+	if getCount == 0 {
+		t.Error("expected at least one GCS Get call across concurrent Warm goroutines")
+	}
+	t.Logf("concurrent Warm: %d GCS Get calls across %d goroutines (last-writer-wins, no corruption)", getCount, numConcurrent)
+}
+
 // helper to write a mock zip file
 func importZip(w io.Writer, filename, content string) {
 	zw := zip.NewWriter(w)
@@ -250,4 +339,3 @@ func importZip(w io.Writer, filename, content string) {
 	f.Write([]byte(content))
 	zw.Close()
 }
-
