@@ -161,6 +161,69 @@ func TestRunApplyE2EGateBlocks(t *testing.T) {
 	}
 }
 
+// TestRunApplyWarmsBeforeClassifyPass is a regression test for the cold-cache
+// parallel-init race. run apply must pre-warm the provider cache BEFORE the
+// classify pass, which runs the terramate `plan` script (parallel
+// `terraform init`+plan across stacks). Terraform's shared plugin cache
+// (TF_PLUGIN_CACHE_DIR) is not concurrency-safe to POPULATE: with a cold cache,
+// N concurrent inits race to download the same provider into the same dir and
+// one stack ends up with a package whose dir-hash matches no lock entry
+// ("doesn't match any of the checksums recorded in the dependency lock file").
+// Warming first turns every parallel init into a pure cache read. The observable
+// invariant: the PhaseWarming tick (emitted at the top of the warm step) reaches
+// the server before the classify pass runs. A prior placement warmed only before
+// the apply script, leaving the classify pass to race on a cold cache.
+func TestRunApplyWarmsBeforeClassifyPass(t *testing.T) {
+	dir := t.TempDir()
+	// A cache block makes runApply take the warm path.
+	cfgPath := filepath.Join(dir, ".tfstackplan.hcl")
+	if err := os.WriteFile(cfgPath, []byte("cache {\n  bucket = \"b\"\n  prefix = \"p\"\n}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Force gcpCreds to fail fast so warm emits the warming tick then skips the
+	// network — deterministic regardless of any ambient ADC on the host.
+	t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", filepath.Join(dir, "nonexistent.json"))
+
+	srv, rs := stubServer(t)
+	setApplyEnv(t, srv.URL, 7, "staging")
+
+	// One stack so the run reaches the classify pass + warm (--changed=false ⇒ List()).
+	f := &fakeTM{all: []string{"stacks/a"}}
+	origTM := newTerramate
+	newTerramate = func(string) tmRunner { return f }
+	t.Cleanup(func() { newTerramate = origTM })
+
+	// Classify stub records its invocation in the server's order slice (under the
+	// same lock) so we can assert it runs AFTER the warming tick.
+	origCls := classifyForGateFn
+	classifyForGateFn = func(_ context.Context, _ string, _ []string, _ string, _ bool, _ string, _ int) (
+		[]events.GateTarget, map[string][]events.Category, map[string]events.Counts, []string, string, error,
+	) {
+		rs.mu.Lock()
+		rs.order = append(rs.order, "CLASSIFY")
+		rs.mu.Unlock()
+		return nil, map[string][]events.Category{}, map[string]events.Counts{}, nil, "classified", nil
+	}
+	t.Cleanup(func() { classifyForGateFn = origCls })
+
+	// No real cross-state moves.
+	origMoves := applyMovesFn
+	applyMovesFn = func(_ context.Context, _ string, _ bool, _ statemove.Locker, _ io.Writer, _ func(string, string)) error {
+		return nil
+	}
+	t.Cleanup(func() { applyMovesFn = origMoves })
+
+	if code := runApply([]string{"--dir", dir, "--changed=false", "--config", cfgPath}); code != 0 {
+		t.Fatalf("run apply = %d, want 0", code)
+	}
+	if !rs.has("/api/phase") {
+		t.Fatal("warming phase tick was never emitted")
+	}
+	if !rs.orderedBefore("/api/phase", "CLASSIFY") {
+		t.Errorf("warm did not precede the classify pass; order=%v", rs.order)
+	}
+}
+
 // TestRunApplyImpersonatesRequester verifies that --impersonate-requester mints
 // a token for the SA returned by the gate-check and exports it as
 // GOOGLE_OAUTH_ACCESS_TOKEN before the apply runs.

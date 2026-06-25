@@ -137,6 +137,39 @@ func runApply(args []string) int {
 		}
 	}
 
+	// 3.5. Pre-warm the provider cache BEFORE the classify pass. The classify pass
+	// (step 4) runs the terramate `plan` script — parallel `terraform init` + plan
+	// across stacks — and the later apply script does the same. Terraform's shared
+	// plugin cache (TF_PLUGIN_CACHE_DIR) is NOT concurrency-safe to POPULATE: if the
+	// cache is cold when N inits start, they race to download the same provider into
+	// the same directory and one stack ends up with a partial/duplicated package
+	// whose dir-hash matches no lock entry ("doesn't match any of the checksums
+	// recorded in the dependency lock file"). Warming first makes every parallel
+	// init a pure cache READ (hardlink only), which IS safe. This must precede the
+	// classify pass — warming only before the apply script (the old placement) left
+	// the classify pass's inits to race on a cold cache. Warm runs under the ambient
+	// build SA (before any requester impersonation), which holds cache-bucket access;
+	// it only downloads providers locally, so running it before the gate check is
+	// safe (the gate guards state mutation, not provider fetches).
+	var pc *cache.ProviderCache
+	if cfg != nil && cfg.Cache != nil {
+		_ = client.Phase(ctx, events.PhaseEvent{ID: execID, Phase: events.PhaseWarming})
+		tokenFunc, _, credErr := gcpCreds(ctx)
+		if credErr != nil {
+			fmt.Fprintf(os.Stderr, "tfstackplan run apply: cache warming: no GCP credentials: %v\n", credErr)
+		} else {
+			gcsStore := cache.NewGCSStorage(tokenFunc, cfg.Cache.Bucket, cfg.Cache.Prefix)
+			pc = cache.NewProviderCache(gcsStore, "", cfg.Cache.Version)
+			absStacks := make([]string, len(stacks))
+			for i, s := range stacks {
+				absStacks[i] = filepath.Join(*dir, s)
+			}
+			if err := pc.Warm(ctx, absStacks); err != nil {
+				fmt.Fprintf(os.Stderr, "tfstackplan run apply: warming cache warning: %v\n", err)
+			}
+		}
+	}
+
 	// 4. Classify pass (self-sufficient): re-run the plan classification keyed to
 	//    the same (pr, env) and submit it as a Finalize{Gates}. The server's
 	//    RunnerFinalize transition re-marks the run classified and issues the grant
@@ -184,27 +217,6 @@ func runApply(args []string) int {
 		return 1
 	}
 	requester := verdict.Requester
-
-	// 5.5. Pre-Warming Cache: now that the gate is satisfied, warm providers
-	// before the apply script runs so terraform init can use the local cache.
-	var pc *cache.ProviderCache
-	if cfg != nil && cfg.Cache != nil {
-		_ = client.Phase(ctx, events.PhaseEvent{ID: execID, Phase: events.PhaseWarming})
-		tokenFunc, _, credErr := gcpCreds(ctx)
-		if credErr != nil {
-			fmt.Fprintf(os.Stderr, "tfstackplan run apply: cache warming: no GCP credentials: %v\n", credErr)
-		} else {
-			gcsStore := cache.NewGCSStorage(tokenFunc, cfg.Cache.Bucket, cfg.Cache.Prefix)
-			pc = cache.NewProviderCache(gcsStore, "", cfg.Cache.Version)
-			absStacks := make([]string, len(stacks))
-			for i, s := range stacks {
-				absStacks[i] = filepath.Join(*dir, s)
-			}
-			if err := pc.Warm(ctx, absStacks); err != nil {
-				fmt.Fprintf(os.Stderr, "tfstackplan run apply: warming cache warning: %v\n", err)
-			}
-		}
-	}
 
 	// 6. Optionally run AS the leased requester SA.
 	if *impersonateRequester && requester != "" {
