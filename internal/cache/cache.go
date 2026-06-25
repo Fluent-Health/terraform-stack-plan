@@ -45,6 +45,12 @@ func NewProviderCache(store StorageBackend, cacheDir, version string) *ProviderC
 }
 
 func (c *ProviderCache) Warm(ctx context.Context, stackPaths []string) error {
+	// Ensure the cache dir exists so TF_PLUGIN_CACHE_DIR is valid even when
+	// there are no lock files (e.g. new stacks without a committed lock file).
+	if err := os.MkdirAll(c.CacheDir, 0755); err != nil {
+		return err
+	}
+
 	// 1. Gather all providers from lock files
 	var list []Provider
 	for _, stack := range stackPaths {
