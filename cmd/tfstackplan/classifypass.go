@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/config"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
@@ -207,5 +208,71 @@ func validateXMoveManifest(dir, outDir string) {
 			fmt.Fprintf(os.Stderr, "⚠️  xmove %s: address %q not found in %s plan — manifest may be stale or address has been renamed\n",
 				fx.Key, fromAddr, resolvedSource)
 		}
+
+		// Validate Destination Stack Provider Config
+		destStackDir := filepath.Join(dir, filepath.FromSlash(fx.DestStack))
+
+		// Collect unique providers needed by the moved-in resources
+		neededProviders := map[string]string{} // providerName -> resourceType
+		for _, p := range fx.XMove.Pairs {
+			parts := strings.Split(p.To, ".")
+			if len(parts) >= 2 {
+				resType := parts[len(parts)-2]
+				provParts := strings.Split(resType, "_")
+				if len(provParts) > 0 {
+					prov := provParts[0]
+					if !implicitProviders[prov] && prov != "module" {
+						neededProviders[prov] = resType
+					}
+				}
+			}
+		}
+
+		// Check if each needed provider has an explicit config block in the dest stack directory
+		for prov, resType := range neededProviders {
+			if !hasProviderConfig(destStackDir, prov) {
+				fmt.Fprintf(os.Stderr, "⚠️  xmove %s: %s will receive %s resources but has no `provider %q {}` block configured — apply will fail after state move\n",
+					fx.Key, fx.DestStack, resType, prov)
+			}
+		}
 	}
+}
+
+var implicitProviders = map[string]bool{
+	"random":   true,
+	"null":     true,
+	"local":    true,
+	"tls":      true,
+	"archive":  true,
+	"template": true,
+	"time":     true,
+}
+
+func hasProviderConfig(stackDir, providerName string) bool {
+	entries, err := os.ReadDir(stackDir)
+	if err != nil {
+		return false
+	}
+
+	pattern := fmt.Sprintf(`provider\s+"%s"\s*\{`, regexp.QuoteMeta(providerName))
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		return false
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".tf") {
+			continue
+		}
+
+		content, err := os.ReadFile(filepath.Join(stackDir, entry.Name()))
+		if err != nil {
+			continue
+		}
+
+		if re.Match(content) {
+			return true
+		}
+	}
+	return false
 }

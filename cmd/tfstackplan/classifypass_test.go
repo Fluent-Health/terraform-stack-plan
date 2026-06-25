@@ -293,3 +293,82 @@ xmove {
 		t.Fatalf("expected warning message to contain %q, got: %q", expected, out)
 	}
 }
+
+func TestValidateXMoveManifest_warnsForMissingProviders(t *testing.T) {
+	dir := t.TempDir()
+	const (
+		srcStack = "stacks/nonprod/service-projects/fh-dev-svc"
+		dstStack = "stacks/nonprod/workloads/cms/fh-dev-svc"
+	)
+
+	write := func(rel, body string) {
+		p := filepath.Join(dir, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Source plan has valid resource delete.
+	write(srcStack+"/tfplan.json", `{"format_version":"1.2","resource_changes":[
+	  {"address":"module.main.module.cms[0].postgresql_grant.a","type":"postgresql_grant","name":"a",
+	   "change":{"actions":["delete"],"before":{"id":"abc"},"after":null}}]}`)
+
+	// XMove manifest moves "postgresql_grant" to dstStack.
+	write(dstStack+"/_tfsp_xmove.PR-1.hcl", `# tfstackplan:key=PR-1
+xmove {
+  source_stack = "`+srcStack+`"
+  moves = {
+    "module.main.module.cms[0].postgresql_grant.a" = "postgresql_grant.a"
+  }
+}
+`)
+
+	// Destination stack has NO provider "postgresql" block!
+	write(dstStack+"/main.tf", `resource "postgresql_grant" "a" {}`)
+
+	// Capture Stderr
+	oldStderr := os.Stderr
+	r, w, _ := os.Pipe()
+	os.Stderr = w
+
+	validateXMoveManifest(dir, dir)
+
+	w.Close()
+	os.Stderr = oldStderr
+
+	var buf [1024]byte
+	n, _ := r.Read(buf[:])
+	out := string(buf[:n])
+
+	expected := "⚠️  xmove PR-1: " + dstStack + " will receive postgresql_grant resources but has no `provider \"postgresql\" {}` block configured"
+	if !strings.Contains(out, "⚠️") || !strings.Contains(out, "has no `provider") {
+		t.Fatalf("expected warning message to contain %q, got: %q", expected, out)
+	}
+
+	// Now write provider block and verify NO warning!
+	write(dstStack+"/providers.tf", `
+provider "postgresql" {
+  host = "localhost"
+}
+`)
+
+	// Capture Stderr again
+	r2, w2, _ := os.Pipe()
+	os.Stderr = w2
+
+	validateXMoveManifest(dir, dir)
+
+	w2.Close()
+	os.Stderr = oldStderr
+
+	var buf2 [1024]byte
+	n2, _ := r2.Read(buf2[:])
+	out2 := string(buf2[:n2])
+
+	if strings.Contains(out2, "has no `provider") {
+		t.Fatalf("expected NO provider config warning when postgresql provider block is configured, got: %q", out2)
+	}
+}
