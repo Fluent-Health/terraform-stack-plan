@@ -75,3 +75,39 @@ func TestLinkFields(t *testing.T) {
 		t.Fatal("link fields not wired")
 	}
 }
+
+func TestLeafOpSym(t *testing.T) {
+	cases := []struct {
+		op   LeafOp
+		want string
+	}{
+		{OpAdd, "+"},
+		{OpRemove, "-"},
+		{OpChange, "~"},
+	}
+	for _, c := range cases {
+		if got := c.op.Sym(); got != c.want {
+			t.Errorf("LeafOp(%d).Sym() = %q, want %q", c.op, got, c.want)
+		}
+	}
+}
+
+func TestFieldSelAndAtLast(t *testing.T) {
+	v1 := Variant{Level: LevelStructural, Content: "short"}
+	v2 := Variant{Level: LevelLineDiff, Content: "long"}
+	f := Field{
+		Name:     "data",
+		Variants: []Variant{v1, v2},
+		Selected: 0,
+	}
+	if got := f.Sel(); got.Content != "short" {
+		t.Errorf("Sel() = %v, want %v", got, v1)
+	}
+	if f.AtLast() {
+		t.Errorf("AtLast() = true, want false (selected 0 out of 2)")
+	}
+	f.Selected = 1
+	if !f.AtLast() {
+		t.Errorf("AtLast() = false, want true (selected 1 out of 2)")
+	}
+}

@@ -120,6 +120,49 @@ func TestFinalizeCountsMap(t *testing.T) {
 	}
 }
 
+func TestStatusValidAndParse(t *testing.T) {
+	if !StatusPending.Valid() {
+		t.Error("pending should be a valid status")
+	}
+	if Status("invalid").Valid() {
+		t.Error("invalid should not be a valid status")
+	}
+	if !Status("").Valid() {
+		t.Error("empty status should be valid for decoding")
+	}
+
+	got, err := ParseStatus("gated")
+	if err != nil || got != StatusGated {
+		t.Errorf("ParseStatus(gated) = (%q, %v), want (gated, nil)", got, err)
+	}
+
+	_, err = ParseStatus("bogus")
+	if err == nil {
+		t.Error("ParseStatus(bogus) expected error, got nil")
+	}
+
+	var status Status
+	if err := json.Unmarshal([]byte(`"running"`), &status); err != nil || status != StatusRunning {
+		t.Errorf("Unmarshal(running) failed: %v", err)
+	}
+}
+
+func TestPhaseTickingAndValid(t *testing.T) {
+	if !PhasePlanning.Ticking() {
+		t.Error("planning should be ticking")
+	}
+	if PhaseWarming.Ticking() {
+		t.Error("warming should not be ticking")
+	}
+
+	if !PhaseVerifying.Valid() {
+		t.Error("verifying should be a valid phase")
+	}
+	if Phase("invalid").Valid() {
+		t.Error("invalid should not be a valid phase")
+	}
+}
+
 func contains(s, sub string) bool {
 	return len(s) >= len(sub) && (func() bool {
 		for i := 0; i+len(sub) <= len(s); i++ {
