@@ -247,6 +247,53 @@ func TestRenderMovedRow(t *testing.T) {
 	}
 }
 
+func TestRenderDirectionalMovedRows(t *testing.T) {
+	// Move-out test
+	r1 := sampleReport()
+	r1.Stacks[0].Counts = model.Counts{Move: 1}
+	r1.Stacks[0].Changes = []model.Change{{
+		Address: "google_storage_bucket.assets", Action: model.ActionNoop,
+		Moved: true, MoveDirection: "out",
+	}}
+	out1 := Render(r1)
+	want1 := glyphMoveOut + "&nbsp;google_storage_bucket.assets<br>" + metaIndent + "moved out (relocating)"
+	if !strings.Contains(out1, want1) {
+		t.Fatalf("moved out row label wrong:\n%s", out1)
+	}
+
+	// Move-in test
+	r2 := sampleReport()
+	r2.Stacks[0].Counts = model.Counts{Move: 1}
+	r2.Stacks[0].Changes = []model.Change{{
+		Address: "google_storage_bucket.assets", Action: model.ActionNoop,
+		Moved: true, MoveDirection: "in",
+	}}
+	out2 := Render(r2)
+	want2 := glyphMoveIn + "&nbsp;google_storage_bucket.assets<br>" + metaIndent + "moved in (cross-state)"
+	if !strings.Contains(out2, want2) {
+		t.Fatalf("moved in row label wrong:\n%s", out2)
+	}
+
+	// Move + Update test
+	r3 := sampleReport()
+	r3.Stacks[0].Counts = model.Counts{Move: 1}
+	r3.Stacks[0].Changes = []model.Change{{
+		Address: "google_storage_bucket.assets", Action: model.ActionNoop,
+		Moved: true, MoveDirection: "in-update",
+		Fields: []model.Field{
+			{Name: "labels", Leaves: []model.Leaf{{Op: model.OpAdd, Path: "labels.team", New: `"platform"`}}},
+		},
+	}}
+	out3 := Render(r3)
+	want3 := glyphMoveUpd + "&nbsp;google_storage_bucket.assets<br>" + metaIndent + "moved in and updated"
+	if !strings.Contains(out3, want3) {
+		t.Fatalf("moved and updated row label wrong:\n%s", out3)
+	}
+	if !strings.Contains(out3, "+ labels.team = \"platform\"") {
+		t.Fatalf("moved and updated diff body wrong:\n%s", out3)
+	}
+}
+
 func TestRenderImportedRow(t *testing.T) {
 	r := sampleReport()
 	r.Stacks[0].Counts = model.Counts{Import: 1}
