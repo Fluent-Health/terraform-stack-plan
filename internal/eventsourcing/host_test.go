@@ -89,3 +89,31 @@ func TestHostSnapshotPlusTail(t *testing.T) {
 		t.Fatalf("state=%d version=%d; want 15,2", state, version)
 	}
 }
+
+func TestHostLoadUnmarshalFailure(t *testing.T) {
+	es, d := testES(t), counterDecider()
+
+	// Append two valid events manually to bypass snapshotting so replay occurs
+	stored := []store.StoredEvent{
+		{Type: "add", Data: []byte(`{"N":2}`)},
+		{Type: "add", Data: []byte(`{"N":3}`)},
+	}
+	if err := es.Append("c-bad", 0, stored); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a copy of the decider that explicitly fails on event unmarshaling
+	badDecider := d
+	badDecider.UnmarshalEvent = func(tag string, data []byte) (addE, error) {
+		return addE{}, errors.New("unmarshal boom")
+	}
+
+	// Loading with the bad decider must fail with the decider's unmarshal error
+	_, _, err := badDecider.Load(es, "c-bad")
+	if err == nil {
+		t.Fatal("expected Load() to fail, but it returned no error")
+	}
+	if err.Error() != "unmarshal boom" {
+		t.Errorf("Load() err = %v, want 'unmarshal boom'", err)
+	}
+}
