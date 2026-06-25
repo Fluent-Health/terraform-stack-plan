@@ -10,12 +10,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/chromedp/chromedp"
+	"github.com/Fluent-Health/terraform-stack-plan/internal/approval"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/demo"
+	"github.com/Fluent-Health/terraform-stack-plan/internal/jwtutil"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/server"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
-	"github.com/Fluent-Health/terraform-stack-plan/internal/approval"
-	"github.com/Fluent-Health/terraform-stack-plan/internal/jwtutil"
+	"github.com/chromedp/chromedp"
 )
 
 func TestCaptureScreenshots(t *testing.T) {
