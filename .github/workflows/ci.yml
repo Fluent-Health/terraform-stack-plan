@@ -63,25 +63,8 @@ jobs:
           profile: coverage.out
           comment-report: true
           badge-file-name: coverage.svg
-
-      - name: Update coverage badge
-        if: github.ref == 'refs/heads/main' && matrix.go == 'stable'
-        run: |
-          sudo chown $USER:$USER coverage.svg || true
-          cp coverage.svg /tmp/coverage.svg
-          git fetch origin
-          curr_ref=$(git branch --show-current)
-          [ -z "$curr_ref" ] && curr_ref=$(git rev-parse HEAD)
-          git checkout badges 2>/dev/null || git checkout --orphan badges
-          git rm -rf . || true
-          sudo rm -f coverage.svg || true
-          cp /tmp/coverage.svg coverage.svg
-          git add coverage.svg
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git commit -m "chore: update coverage badge [skip ci]" || exit 0
-          git push -u origin badges --force
-          git checkout "$curr_ref"
+          git-token: ${{ github.ref == 'refs/heads/main' && matrix.go == 'stable' && github.token || '' }}
+          git-branch: badges
 
       - name: build
         run: go build ./...
