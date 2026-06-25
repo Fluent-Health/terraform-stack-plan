@@ -99,3 +99,34 @@ func TestApplyStateMoves_reclassifiesDestroyWithPreviousAddress(t *testing.T) {
 		}
 	}
 }
+
+func TestApplyStateMoves_reclassifiesByPreviousAddress(t *testing.T) {
+	// PR combines same-plan moved{} (module.agent -> module.agent[0]) with xmove.
+	// The xmove target has the original unindexed address "module.agent.r",
+	// but the plan shows "module.agent[0].r" as a destroy with PreviousAddress = "module.agent.r".
+	// The reclassification must match against PreviousAddress and succeed.
+	rs := RawStack{
+		Counts: model.Counts{Destroy: 1},
+		Changes: []RawChange{
+			{
+				Address:         "module.agent[0].r",
+				Action:          model.ActionDestroy,
+				Moved:           true,
+				PreviousAddress: "module.agent.r",
+			},
+		},
+	}
+	targets := statemoves.Set{
+		"module.agent.r": true,
+	}
+	n := rs.ApplyStateMoves(targets)
+	if n != 1 {
+		t.Fatalf("reclassified = %d, want 1", n)
+	}
+	if rs.Counts.Destroy != 0 || rs.Counts.Move != 1 {
+		t.Fatalf("counts = Destroy:%d Move:%d, want Destroy:0 Move:1", rs.Counts.Destroy, rs.Counts.Move)
+	}
+	if c := rs.Changes[0]; c.Action != model.ActionNoop || !c.Moved {
+		t.Fatalf("change must be noop+moved, got Action=%q Moved=%v", c.Action, c.Moved)
+	}
+}

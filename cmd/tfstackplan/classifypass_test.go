@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
@@ -238,5 +239,57 @@ classification {
 	want := events.Counts{Add: 1}
 	if got != want {
 		t.Errorf("res.Counts[%q] = %+v, want %+v", stack, got, want)
+	}
+}
+
+func TestValidateXMoveManifest_warnsForMissingAddresses(t *testing.T) {
+	dir := t.TempDir()
+	const (
+		srcStack = "stacks/nonprod/service-projects/fh-dev-svc"
+		dstStack = "stacks/nonprod/workloads/cms/fh-dev-svc"
+	)
+
+	write := func(rel, body string) {
+		p := filepath.Join(dir, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Source plan does NOT contain the address we move.
+	write(srcStack+"/tfplan.json", `{"format_version":"1.2","resource_changes":[
+	  {"address":"module.other.r","type":"google_project_iam_member","name":"a",
+	   "change":{"actions":["delete"],"before":{"project":"p1","role":"roles/viewer"},"after":null}}]}`)
+
+	// XMove manifest references a From address not found in the plan.
+	write(dstStack+"/_tfsp_xmove.PR-1.hcl", `# tfstackplan:key=PR-1
+xmove {
+  source_stack = "`+srcStack+`"
+  moves = {
+    "module.main.module.cms[0]" = "module.cms"
+  }
+}
+`)
+
+	// Capture Stderr
+	oldStderr := os.Stderr
+	r, w, _ := os.Pipe()
+	os.Stderr = w
+
+	validateXMoveManifest(dir, dir)
+
+	w.Close()
+	os.Stderr = oldStderr
+
+	var buf [1024]byte
+	n, _ := r.Read(buf[:])
+	out := string(buf[:n])
+
+	expected := "⚠️  xmove PR-1: address \"module.main.module.cms[0]\" not found in stacks/nonprod/service-projects/fh-dev-svc plan"
+	if !strings.Contains(out, "⚠️") || !strings.Contains(out, "not found") {
+		t.Fatalf("expected warning message to contain %q, got: %q", expected, out)
 	}
 }

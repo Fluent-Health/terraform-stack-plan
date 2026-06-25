@@ -234,6 +234,30 @@ func TestClassify_skipsModuleLevelMoveTarget(t *testing.T) {
 	}
 }
 
+func TestClassify_skipsPreviousAddressMatches(t *testing.T) {
+	// A planned create / destroy that has PreviousAddress matching an unindexed
+	// move target (e.g. because of a same-plan moved{} block module.agent -> module.agent[0])
+	// must be skipped during classification.
+	rules := []Rule{{
+		Name: "iam", Icon: "🔐",
+		TypePattern: regexp.MustCompile("^google_project_iam_member$"),
+		MinCount:    1,
+	}}
+	s := stack(
+		plan.RawChange{
+			Address:         "module.agent[0].google_project_iam_member.x",
+			Type:            "google_project_iam_member",
+			Action:          model.ActionAdd,
+			Actions:         []string{"create"},
+			PreviousAddress: "module.agent.google_project_iam_member.x",
+		},
+	)
+	moveTargets := statemoves.Set{"module.agent.google_project_iam_member.x": true}
+	if got := Classify(s, rules, moveTargets); len(got) != 0 {
+		t.Fatalf("a move-target matched via PreviousAddress must be skipped, got %+v", got)
+	}
+}
+
 // TestMutatingChangeStillClassifiesWhenAlsoMoved confirms the move annotation
 // does not suppress a real mutation: an updated-and-moved IAM binding still
 // needs the grant, so it must classify.
