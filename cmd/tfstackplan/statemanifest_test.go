@@ -102,6 +102,33 @@ func TestMovesManifestXMoveBothStacks(t *testing.T) {
 	}
 }
 
+// TestMovesManifestXMoveRelativeSource covers the case where the xmove manifest
+// was generated with `state move --via mv --dir <subdir>`, so source_stack is
+// relative to --dir rather than the repo root. resolveSourceStack must walk up
+// destStack's ancestors to find the real full path.
+func TestMovesManifestXMoveRelativeSource(t *testing.T) {
+	root := t.TempDir()
+	// Layout mimics a real monorepo: stacks/tier/src and stacks/tier/workloads/dst.
+	// The xmove was generated with --dir stacks/tier, so source_stack = "src"
+	// even though the real path from root is "stacks/tier/src".
+	mustMkdir(t, filepath.Join(root, "stacks", "tier", "src"))
+	mustMkdir(t, filepath.Join(root, "stacks", "tier", "workloads", "dst"))
+	writeXMove(t, root, "stacks/tier/workloads/dst", "PR-42", statemove.XMove{
+		SourceStack: "src", // relative to --dir stacks/tier, NOT to root
+		Pairs:       []statemove.Move{{From: "module.x.google_y.z", To: "module.x.google_y.z"}},
+	})
+	out := captureStdout(t, func() int { return runStateMovesManifest([]string{"--dir", root}) })
+	var got map[string][]string
+	_ = json.Unmarshal([]byte(out), &got)
+	// source side must be resolved to the full root-relative path
+	if !reflect.DeepEqual(got["stacks/tier/src"], []string{"module.x.google_y.z"}) {
+		t.Errorf("xmove source addr missing or wrong key: %v", got)
+	}
+	if !reflect.DeepEqual(got["stacks/tier/workloads/dst"], []string{"module.x.google_y.z"}) {
+		t.Errorf("xmove dest addr missing: %v", got)
+	}
+}
+
 func TestMovesManifestPRFilter(t *testing.T) {
 	root := t.TempDir()
 	mustMkdir(t, filepath.Join(root, "s"))
