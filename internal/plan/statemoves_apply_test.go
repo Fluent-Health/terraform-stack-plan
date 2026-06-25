@@ -59,3 +59,43 @@ func TestApplyStateMoves_leavesInStackMovesAlone(t *testing.T) {
 		t.Fatalf("Move count must stay 1, got %d", rs.Counts.Move)
 	}
 }
+
+func TestApplyStateMoves_reclassifiesDestroyWithPreviousAddress(t *testing.T) {
+	// A `moved {}` block in the same plan renames module.agent → module.agent[0],
+	// setting PreviousAddress and Moved=true on the resource. count=0 then
+	// destroys it. The source-side cross-state move must still be reclassified
+	// even though Moved is already true — only ActionNoop means "pure in-stack
+	// rename with nothing left to reclassify".
+	rs := RawStack{
+		Counts: model.Counts{Destroy: 2, Move: 1},
+		Changes: []RawChange{
+			// Pure in-stack rename (no-op): must NOT be reclassified.
+			{Address: "module.agent[0].r", Action: model.ActionNoop, Moved: true, PreviousAddress: "module.agent.r"},
+			// Destroy with PreviousAddress: IS a cross-state move target — must be reclassified.
+			{Address: "module.agent[0].google_project_iam_member.x", Action: model.ActionDestroy, Moved: true, PreviousAddress: "module.agent.google_project_iam_member.x"},
+			// Another destroy, same pattern.
+			{Address: "module.agent[0].google_service_account.main", Action: model.ActionDestroy, Moved: true, PreviousAddress: "module.agent.google_service_account.main"},
+		},
+	}
+	targets := statemoves.Set{
+		"module.agent[0].google_project_iam_member.x": true,
+		"module.agent[0].google_service_account.main": true,
+	}
+	n := rs.ApplyStateMoves(targets)
+	if n != 2 {
+		t.Fatalf("reclassified = %d, want 2", n)
+	}
+	if rs.Counts.Destroy != 0 || rs.Counts.Move != 3 {
+		t.Fatalf("counts = Destroy:%d Move:%d, want Destroy:0 Move:3", rs.Counts.Destroy, rs.Counts.Move)
+	}
+	// The pure in-stack rename must be untouched.
+	if c := rs.Changes[0]; c.Action != model.ActionNoop || c.PreviousAddress != "module.agent.r" {
+		t.Fatalf("in-stack noop must be unchanged: Action=%q PreviousAddress=%q", c.Action, c.PreviousAddress)
+	}
+	// The destroys must now be noop+moved with no attrs.
+	for _, c := range rs.Changes[1:] {
+		if c.Action != model.ActionNoop || !c.Moved || c.Attrs != nil {
+			t.Fatalf("%s: Action=%q Moved=%v Attrs=%v, want noop+moved+nil-attrs", c.Address, c.Action, c.Moved, c.Attrs)
+		}
+	}
+}
