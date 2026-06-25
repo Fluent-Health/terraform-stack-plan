@@ -65,7 +65,7 @@ jobs:
           badge-file-name: coverage.svg
 
       - name: Update coverage badge
-        if: github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/main' && matrix.go == 'stable'
         run: |
           cp coverage.svg /tmp/coverage.svg
           git fetch origin
