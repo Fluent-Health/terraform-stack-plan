@@ -52,8 +52,13 @@ The UI has two levels:
 Navigation: an execution index at `/` (most recent first) and a per-PR timeline
 at `/pr/{n}`.
 
-Screenshots showing the DAG and log viewer will land in a follow-up; the text
-here describes what you'll see.
+Here is the live DAG view of an active run showing completed, gated, and running stacks:
+
+![The dependency-DAG view mid-run, with a mix of done, in-flight, and blocked stacks](../images/serve-dag.png)
+
+And here is the gated environment view showing required approvals that must be granted to run:
+
+![An environment with a pending approval gate requiring human approval](../images/serve-gate.png)
 
 ## Approval gates
 

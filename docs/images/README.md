@@ -11,8 +11,8 @@ them so they stay consistent over time.
 | `hero-reviewer.jpg` | ✅ done | README hero | Nano-Banana / Gemini (prompt below); downscaled to ~1600px JPG |
 | `aside-this-is-fine.jpg` | ✅ done | [guide/07 (serve)](../guide/07-serve.md) | Nano-Banana / Gemini (prompt below); downscaled to ~1400px JPG |
 | `aside-the-adults.jpg` | ✅ done | [guide/01 (the gaps)](../guide/01-the-gaps.md) | Nano-Banana / Gemini (prompt below); downscaled to ~1400px JPG |
-| `serve-dag.png` | ⏳ to capture | README + [guide/07](../guide/07-serve.md) | screenshot of a live `serve` run (see below) |
-| `serve-gate.png` | ⏳ to capture | [guide/07](../guide/07-serve.md) | screenshot — an approval gate |
+| `serve-dag.png` | ✅ done | README + [guide/07](../guide/07-serve.md) | `make screenshots` (automated chromedp capture) |
+| `serve-gate.png` | ✅ done | [guide/07](../guide/07-serve.md) | `make screenshots` (automated chromedp capture) |
 | `run.gif` | ⏳ to capture | [guide/06](../guide/06-run.md) | screen / asciinema cast of a `run` (see below) |
 
 > Until an asset exists, **do not** add its `![…](…)` embed to a doc — a
@@ -57,14 +57,19 @@ Caption to place under it in the README: *"He's reviewing the networking stack."
 
 ## Screenshots — capturing the live `serve` UI
 
-Build the current binary and run `serve` locally against a seeded scenario, then
-screenshot the browser. Keep captures at a consistent width (~1400px) and trim
-to the relevant panel.
+Screenshots are automatically captured using ChromeDP via the `screenshots` target in the Makefile:
 
 ```bash
-go build -o tfstackplan ./cmd/tfstackplan
-# run serve locally per docs/reference/install-and-deploy.md (db_path, addr, config)
-./tfstackplan serve --addr :8080 --config examples/serve.tfstackplan.hcl
+make screenshots
+```
+
+This runs the automated end-to-end tests in `e2e/screenshots_test.go` that boot the server with a seeded demo scenario and capture the relevant pages.
+
+If you need to capture or adjust them manually, build the current binary and run `serve` locally against a seeded scenario, then screenshot the browser. Keep captures at a consistent width (~1400px) and trim to the relevant panel.
+
+```bash
+# Start serve in demo mode
+go run ./cmd/tfstackplan serve --demo --addr :8080
 ```
 
 - `serve-dag.png` — the dependency-DAG view mid-run, with a mix of
