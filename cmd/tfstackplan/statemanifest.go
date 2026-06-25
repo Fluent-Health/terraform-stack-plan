@@ -5,7 +5,9 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/statemove"
 )
@@ -56,6 +58,29 @@ func runStateMovesManifest(args []string) int {
 	return 0
 }
 
+// resolveSourceStack resolves an xmove source_stack path to a canonical slash
+// path relative to root. When the xmove was generated with a --dir sub-tree
+// (e.g. "stacks/nonprod"), source_stack is relative to that sub-tree rather than
+// root. Walk destStack's ancestor prefixes from root downward until joining that
+// prefix with source gives an existing directory; return that full path. If no
+// ancestor resolves to a real directory, return source as-is (handles absolute
+// paths or non-standard layouts).
+func resolveSourceStack(root, destStack, source string) string {
+	parts := strings.Split(destStack, "/")
+	for i := 0; i < len(parts); i++ {
+		var candidate string
+		if i == 0 {
+			candidate = source
+		} else {
+			candidate = strings.Join(parts[:i], "/") + "/" + source
+		}
+		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(candidate))); err == nil {
+			return candidate
+		}
+	}
+	return source
+}
+
 // collectStateMoves discovers every pending move shim + xmove manifest under dir
 // and returns the two-sided state-moves map ({"<stack>":["<addr>",…]}): per stack,
 // the destination move-ins (which plan as creates) AND the source move-outs (which
@@ -104,9 +129,16 @@ func collectStateMoves(dir, want string) (map[string][]string, error) {
 		if want != "" && fx.Key != want {
 			continue
 		}
+		// source_stack in the xmove file may be relative to the --dir used when
+		// generating it (e.g. "service-projects/fh-dev-svc" written by
+		// `state move --via mv --dir stacks/nonprod`). plandir.Scan returns full
+		// paths relative to root (e.g. "stacks/nonprod/service-projects/fh-dev-svc").
+		// Resolve by walking DestStack's ancestor prefixes until the candidate
+		// exists as a directory under dir.
+		resolvedSource := resolveSourceStack(dir, fx.DestStack, fx.XMove.SourceStack)
 		for _, p := range fx.XMove.Pairs {
-			add(fx.XMove.SourceStack, p.From) // source move-out → destroy
-			add(fx.DestStack, p.To)           // dest move-in → create
+			add(resolvedSource, p.From) // source move-out → destroy
+			add(fx.DestStack, p.To)     // dest move-in → create
 		}
 	}
 
