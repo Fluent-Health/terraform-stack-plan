@@ -39,16 +39,23 @@ func (rs *RawStack) ApplyStateMoves(targets statemoves.Set) int {
 		switch c.Action {
 		case model.ActionAdd:
 			rs.Counts.Add--
+			c.MoveDirection = "in"
+			c.Attrs = nil // a pure relocation shows no attribute diff
 		case model.ActionChange:
 			rs.Counts.Change--
+			c.MoveDirection = "in-update"
+			// Keep c.Attrs so we render the attribute updates!
 		case model.ActionDestroy:
 			rs.Counts.Destroy--
+			c.MoveDirection = "out"
+			c.Attrs = nil // a pure relocation shows no attribute diff
 		case model.ActionReplace:
 			rs.Counts.Replace--
+			c.MoveDirection = "in-update"
+			// Keep c.Attrs so we render the attribute updates!
 		}
 		c.Action = model.ActionNoop
 		c.Moved = true
-		c.Attrs = nil // a relocation shows no attribute diff
 		rs.Counts.Move++
 		n++
 	}

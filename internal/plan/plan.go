@@ -46,6 +46,7 @@ type RawChange struct {
 	Raw map[string]any
 
 	Moved           bool
+	MoveDirection   string
 	PreviousAddress string
 	Imported        bool
 	ImportID        string

@@ -148,6 +148,7 @@ type Change struct {
 	// State operations (annotations on top of Action; Action may be ActionNoop
 	// when the only change is a move or import).
 	Moved           bool
+	MoveDirection   string
 	PreviousAddress string // old address when Moved
 	Imported        bool
 	ImportID        string // import id when Imported

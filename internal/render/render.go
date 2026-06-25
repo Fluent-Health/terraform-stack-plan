@@ -315,6 +315,9 @@ const (
 	glyphDestroy  = "➖"
 	glyphReplace  = "🔁"
 	glyphMoved    = "↪️"
+	glyphMoveOut  = "↗️"
+	glyphMoveIn   = "↙️"
+	glyphMoveUpd  = "🚚✏️"
 	glyphImported = "📥"
 	glyphForget   = "⏏️"
 )
@@ -337,14 +340,23 @@ func resourceSummary(c model.Change) string {
 	case c.Action == model.ActionForget:
 		glyph, meta = glyphForget, fmt.Sprintf("forgotten · %d attrs", n)
 	case c.Moved:
-		// In-stack moves carry the old address; a cross-state move (--state-moves)
-		// adopts the resource from another state file and has none.
-		if c.PreviousAddress != "" {
-			glyph, meta = glyphMoved, "moved from "+c.PreviousAddress
-		} else {
-			glyph, meta = glyphMoved, "moved in (cross-state)"
+		switch c.MoveDirection {
+		case "out":
+			glyph, meta = glyphMoveOut, "moved out (relocating)"
+		case "in-update":
+			glyph, meta = glyphMoveUpd, "moved in and updated"
+		case "in":
+			glyph, meta = glyphMoveIn, "moved in (cross-state)"
+		default:
+			// In-stack moves carry the old address; a cross-state move (--state-moves)
+			// adopts the resource from another state file and has none.
+			if c.PreviousAddress != "" {
+				glyph, meta = glyphMoved, "moved from "+c.PreviousAddress
+			} else {
+				glyph, meta = glyphMoved, "moved in (cross-state)"
+			}
 		}
-		if n > 0 {
+		if n > 0 && c.MoveDirection != "in-update" {
 			meta += fmt.Sprintf(", %d changed", n)
 		}
 	case c.Imported:
