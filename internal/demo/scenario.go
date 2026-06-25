@@ -23,25 +23,39 @@ func SeedScenario(ctx context.Context, baseURL string, bearerToken string) (stri
 	// Wait for the server to be ready before starting
 	readyURL := baseURL + "/ready"
 	var ready bool
+	var lastErr error
 	for i := 0; i < 20; i++ {
 		req, err := http.NewRequestWithContext(ctx, "GET", readyURL, nil)
 		if err == nil {
 			resp, err := hc.Do(req)
 			if err == nil {
-				resp.Body.Close()
 				if resp.StatusCode == http.StatusOK {
+					resp.Body.Close()
 					ready = true
 					break
 				}
+				respBody, _ := io.ReadAll(resp.Body)
+				resp.Body.Close()
+				lastErr = fmt.Errorf("status %d: %s", resp.StatusCode, string(respBody))
+			} else {
+				lastErr = err
 			}
+		} else {
+			lastErr = err
 		}
 		select {
 		case <-ctx.Done():
+			if lastErr != nil {
+				return "", "", fmt.Errorf("context cancelled or timed out: %w (last error: %v)", ctx.Err(), lastErr)
+			}
 			return "", "", ctx.Err()
 		case <-time.After(100 * time.Millisecond):
 		}
 	}
 	if !ready {
+		if lastErr != nil {
+			return "", "", fmt.Errorf("server at %s not ready after timeout: %w", baseURL, lastErr)
+		}
 		return "", "", fmt.Errorf("server at %s not ready after timeout", baseURL)
 	}
 
