@@ -1,0 +1,7 @@
+# Release image: bakes the pre-compiled binary built natively in GHA.
+# Eliminates QEMU emulation overhead, reducing build time from ~8m to <1m.
+FROM gcr.io/distroless/static-debian12:nonroot
+ARG TARGETARCH
+COPY bin/linux/${TARGETARCH}/tfstackplan /usr/local/bin/tfstackplan
+EXPOSE 8080
+ENTRYPOINT ["tfstackplan", "serve"]
