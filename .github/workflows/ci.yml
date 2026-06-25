@@ -67,10 +67,12 @@ jobs:
       - name: Update coverage badge
         if: github.ref == 'refs/heads/main' && matrix.go == 'stable'
         run: |
+          sudo chown $USER:$USER coverage.svg || true
           cp coverage.svg /tmp/coverage.svg
           git fetch origin
           git checkout badges 2>/dev/null || git checkout --orphan badges
           git rm -rf . || true
+          sudo rm -f coverage.svg || true
           cp /tmp/coverage.svg coverage.svg
           git add coverage.svg
           git config --global user.name "github-actions[bot]"
