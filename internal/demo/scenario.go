@@ -18,6 +18,31 @@ func SeedScenario(ctx context.Context, baseURL string, bearerToken string) (stri
 	hc := &http.Client{Timeout: 5 * time.Second}
 	execID := fmt.Sprintf("demo-run-%d", time.Now().UnixNano()%1000000)
 
+	// Wait for the server to be ready before starting
+	readyURL := baseURL + "/ready"
+	var ready bool
+	for i := 0; i < 20; i++ {
+		req, err := http.NewRequestWithContext(ctx, "GET", readyURL, nil)
+		if err == nil {
+			resp, err := hc.Do(req)
+			if err == nil {
+				resp.Body.Close()
+				if resp.StatusCode == http.StatusOK {
+					ready = true
+					break
+				}
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+	if !ready {
+		return "", fmt.Errorf("server at %s not ready after timeout", baseURL)
+	}
+
 	// 1. Send Init event with ~8 stacks and dependencies (edges)
 	initEv := events.Init{
 		ID:          execID,
@@ -102,7 +127,9 @@ func SeedScenario(ctx context.Context, baseURL string, bearerToken string) (stri
 
 	// 4. Force gate check to register awaiting state on fake backends
 	gateCheckEv := events.GateCheck{PR: 42, Environment: "destructive+iam"}
-	_ = postGateCheck(ctx, hc, baseURL+"/api/gate/check", bearerToken, gateCheckEv)
+	if err := postGateCheck(ctx, hc, baseURL+"/api/gate/check", bearerToken, gateCheckEv); err != nil {
+		return "", fmt.Errorf("gate check failed: %w", err)
+	}
 
 	// 5. Post some sample logs
 	logEv := events.LogChunk{
