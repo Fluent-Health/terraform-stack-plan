@@ -20,13 +20,13 @@ func TestSeedScenarioHitsEndpoints(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	execID, err := SeedScenario(ctx, srv.URL, "test-secret")
+	planID, applyID, err := SeedScenario(ctx, srv.URL, "test-secret")
 	if err != nil {
 		t.Fatalf("SeedScenario failed: %v", err)
 	}
 
-	if execID == "" {
-		t.Error("expected non-empty execution ID")
+	if planID == "" || applyID == "" {
+		t.Error("expected non-empty plan and apply execution IDs")
 	}
 
 	expectedPaths := []string{"/api/init", "/api/update", "/api/finalize", "/api/logs"}
