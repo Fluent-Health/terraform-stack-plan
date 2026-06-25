@@ -3,12 +3,16 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/config"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
+	"github.com/Fluent-Health/terraform-stack-plan/internal/plan"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/runner"
+	"github.com/Fluent-Health/terraform-stack-plan/internal/statemove"
 )
 
 // classifyForGate runs the terramate plan script over the changed stacks, renders
@@ -140,6 +144,10 @@ func writeStateMovesManifest(dir, outDir string) (string, error) {
 	if len(manifest) == 0 {
 		return "", nil
 	}
+
+	// Validate xmove From addresses against plans
+	validateXMoveManifest(dir, outDir)
+
 	b, err := json.Marshal(manifest)
 	if err != nil {
 		return "", err
@@ -149,4 +157,55 @@ func writeStateMovesManifest(dir, outDir string) (string, error) {
 		return "", err
 	}
 	return path, nil
+}
+
+var indexRegex = regexp.MustCompile(`\[\d+\]`)
+
+func stripIndices(addr string) string {
+	return indexRegex.ReplaceAllString(addr, "")
+}
+
+func validateXMoveManifest(dir, outDir string) {
+	xmoves, err := statemove.DiscoverXMoves(dir)
+	if err != nil {
+		return
+	}
+	for _, fx := range xmoves {
+		resolvedSource := resolveSourceStack(dir, fx.DestStack, fx.XMove.SourceStack)
+
+		// Load the tfplan.json for the resolvedSource stack
+		planPath := filepath.Join(outDir, filepath.FromSlash(resolvedSource), "tfplan.json")
+		planBytes, err := os.ReadFile(planPath)
+		if err != nil {
+			continue // if no plan exists for this stack, skip validation
+		}
+
+		rs, err := plan.Parse(resolvedSource, planBytes)
+		if err != nil {
+			continue // malformed plan, skip validation
+		}
+
+		// Build the set of all plan addresses (both raw and stripped)
+		planAddrs := map[string]bool{}
+		for _, c := range rs.Changes {
+			planAddrs[c.Address] = true
+			planAddrs[stripIndices(c.Address)] = true
+			if c.PreviousAddress != "" {
+				planAddrs[c.PreviousAddress] = true
+				planAddrs[stripIndices(c.PreviousAddress)] = true
+			}
+		}
+
+		// Check each Pair.From against the plan
+		for _, p := range fx.XMove.Pairs {
+			fromAddr := p.From
+			if planAddrs[fromAddr] || planAddrs[stripIndices(fromAddr)] {
+				continue // address found, valid!
+			}
+
+			// Warning! Address not found in plan
+			fmt.Fprintf(os.Stderr, "⚠️  xmove %s: address %q not found in %s plan — manifest may be stale or address has been renamed\n",
+				fx.Key, fromAddr, resolvedSource)
+		}
+	}
 }

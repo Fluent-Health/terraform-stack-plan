@@ -32,7 +32,8 @@ func (rs *RawStack) ApplyStateMoves(targets statemoves.Set) int {
 	n := 0
 	for i := range rs.Changes {
 		c := &rs.Changes[i]
-		if c.Action == model.ActionNoop || c.Imported || !targets.Covers(c.Address) {
+		if c.Action == model.ActionNoop || c.Imported ||
+			!(targets.Covers(c.Address) || (c.PreviousAddress != "" && targets.Covers(c.PreviousAddress))) {
 			continue // already a pure state op (in-stack move/import) or not a target
 		}
 		switch c.Action {
