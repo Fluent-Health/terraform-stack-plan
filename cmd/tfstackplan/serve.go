@@ -13,6 +13,7 @@ import (
 	"github.com/Fluent-Health/terraform-stack-plan/internal/approval"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/approval/gcppam"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/config"
+	"github.com/Fluent-Health/terraform-stack-plan/internal/demo"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/server"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
@@ -154,27 +155,70 @@ func runServe(args []string) int {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	cfgPath := fs.String("config", config.DefaultFilename, "HCL config file")
 	addr := fs.String("addr", ":8080", "listen address")
+	demoFlag := fs.Bool("demo", false, "boot in credential-free demo mode with seeded data")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	cfg, err := config.Load(*cfgPath)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "tfstackplan serve:", err)
-		return 1
-	}
-	secret := ""
-	if cfg.Serve != nil && cfg.Serve.WebhookSecretEnv != "" {
-		secret = os.Getenv(cfg.Serve.WebhookSecretEnv)
-	}
-	ghWebhookSecret := ""
-	if cfg.Serve != nil && cfg.Serve.GitHubWebhookSecretEnv != "" {
-		ghWebhookSecret = os.Getenv(cfg.Serve.GitHubWebhookSecretEnv)
-	}
+
+	var app *server.App
+	var cleanup func()
+	var err error
 	ctx := context.Background()
-	app, cleanup, err := buildServeApp(ctx, cfg, secret, ghWebhookSecret, gcpCreds)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "tfstackplan serve:", err)
-		return 1
+
+	if *demoFlag {
+		fmt.Fprintln(os.Stderr, "tfstackplan serve: starting in credential-free demo mode...")
+		var tempDir string
+		tempDir, err = os.MkdirTemp("", "tfstackplan-demo-*")
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "tfstackplan serve: create temp dir:", err)
+			return 1
+		}
+		dbPath := filepath.Join(tempDir, "demo.db")
+		app, cleanup, err = buildDemoApp(ctx, dbPath)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "tfstackplan serve demo:", err)
+			return 1
+		}
+
+		// Run a background task to seed the scenario after a brief server startup delay
+		go func() {
+			time.Sleep(150 * time.Millisecond)
+			hostPort := *addr
+			if strings.HasPrefix(hostPort, ":") {
+				hostPort = "127.0.0.1" + hostPort
+			}
+			execID, err := demo.SeedScenario(ctx, "http://"+hostPort, "demo-secret")
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "demo: seed scenario failed: %v\n", err)
+				return
+			}
+			fmt.Fprintf(os.Stderr, "\n=================================================================\n")
+			fmt.Fprintf(os.Stderr, "DEMO MODE READY!\n")
+			fmt.Fprintf(os.Stderr, "Seeded Execution ID: %s\n", execID)
+			fmt.Fprintf(os.Stderr, "Webhook URL:         http://%s/webhook\n", hostPort)
+			fmt.Fprintf(os.Stderr, "Ready URL:           http://%s/ready\n", hostPort)
+			fmt.Fprintf(os.Stderr, "=================================================================\n\n")
+		}()
+	} else {
+		var cfg *config.Config
+		cfg, err = config.Load(*cfgPath)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "tfstackplan serve:", err)
+			return 1
+		}
+		secret := ""
+		if cfg.Serve != nil && cfg.Serve.WebhookSecretEnv != "" {
+			secret = os.Getenv(cfg.Serve.WebhookSecretEnv)
+		}
+		ghWebhookSecret := ""
+		if cfg.Serve != nil && cfg.Serve.GitHubWebhookSecretEnv != "" {
+			ghWebhookSecret = os.Getenv(cfg.Serve.GitHubWebhookSecretEnv)
+		}
+		app, cleanup, err = buildServeApp(ctx, cfg, secret, ghWebhookSecret, gcpCreds)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "tfstackplan serve:", err)
+			return 1
+		}
 	}
 	defer cleanup()
 
