@@ -35,7 +35,25 @@ jobs:
         run: go vet ./...
 
       - name: test
-        run: go test -race ./...
+        run: |
+          go test -race -coverprofile=coverage.out -covermode=atomic ./... | tee test_output.log
+
+      - name: Code Coverage Summary
+        run: |
+          TOTAL_COVERAGE=$(go tool cover -func=coverage.out | grep "total:" | awk '{print $3}')
+          echo "### 📊 Code Coverage Summary: **$TOTAL_COVERAGE**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Package | Coverage |" >> $GITHUB_STEP_SUMMARY
+          echo "| --- | --- |" >> $GITHUB_STEP_SUMMARY
+          grep "coverage:" test_output.log | grep -v "no statements" | awk '{gsub("github.com/Fluent-Health/terraform-stack-plan/", "", $2); print "| " $2 " | " $5 " |"}' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "#### 🔍 Detailed Function Coverage" >> $GITHUB_STEP_SUMMARY
+          echo "<details><summary>Click to expand detailed function-by-function coverage report</summary>" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "```" >> $GITHUB_STEP_SUMMARY
+          go tool cover -func=coverage.out >> $GITHUB_STEP_SUMMARY
+          echo "```" >> $GITHUB_STEP_SUMMARY
+          echo "</details>" >> $GITHUB_STEP_SUMMARY
 
       - name: build
         run: go build ./...
