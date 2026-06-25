@@ -74,6 +74,22 @@ links {
   }
 }
 
+# Optional native provider caching: pre-warm the local Terraform plugin cache
+# from GCS before terraform init runs. Providers not yet in GCS are downloaded
+# directly from the registry. After the script completes, newly installed providers
+# are uploaded to GCS for subsequent runs. Omit this block to disable caching.
+#
+# Fields:
+#   bucket  — GCS bucket name; also TFSTACKPLAN_CACHE_BUCKET env var
+#   prefix  — GCS object key prefix (default: "infra/tf-plugins")
+#   version — cache key namespace (default: "0"); bump to bust the cache
+#
+# cache {
+#   bucket  = "my-tf-plugins-cache"
+#   prefix  = "infra/tf-plugins"
+#   version = "v1"
+# }
+
 # Optional full-progress phase model (serve >= v0.16.0): the ordered lifecycle
 # phases each operation's CI emits, rendered as one progress bar. Keep in sync with
 # the phases your plan/apply pipelines actually emit (`run phase`).

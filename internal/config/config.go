@@ -32,6 +32,7 @@ type Config struct {
 	Serve          *ServeConfig    // nil when no serve block (added in a later task)
 	Classes        []ClassBinding  // class "<name>" {} bindings
 	Progress       *ProgressConfig // nil when no progress block (falls back to built-in fracs)
+	Cache          *CacheConfig    // nil when no cache block present
 }
 
 // Classification holds the resolved, ordered rules and the fallback class.
@@ -153,6 +154,12 @@ func Load(path string) (*Config, error) {
 				return nil, err
 			}
 			cfg.Progress = p
+		case "cache":
+			c, err := decodeCache(blk)
+			if err != nil {
+				return nil, err
+			}
+			cfg.Cache = c
 		default:
 			return nil, fmt.Errorf("%s: unknown top-level block %q", path, blk.Type)
 		}
@@ -493,4 +500,48 @@ func decodeProgressPhases(op *hclsyntax.Block) ([]PhaseWeight, error) {
 		out = append(out, PhaseWeight{Phase: ph, Weight: w})
 	}
 	return out, nil
+}
+
+// --- cache ---
+
+// CacheConfig holds the resolved caching fallback settings.
+type CacheConfig struct {
+	Bucket  string
+	Prefix  string
+	Version string
+}
+
+type cacheBody struct {
+	Bucket  string `hcl:"bucket,optional"`
+	Prefix  string `hcl:"prefix,optional"`
+	Version string `hcl:"version,optional"`
+}
+
+func decodeCache(blk *hclsyntax.Block) (*CacheConfig, error) {
+	var body cacheBody
+	diags := gohcl.DecodeBody(blk.Body, nil, &body)
+	if diags.HasErrors() {
+		return nil, diags
+	}
+	// Fallback to env vars if fields are empty
+	bucket := body.Bucket
+	if bucket == "" {
+		bucket = os.Getenv("TFSTACKPLAN_CACHE_BUCKET")
+	}
+	prefix := body.Prefix
+	if prefix == "" {
+		prefix = "infra/tf-plugins"
+	}
+	version := body.Version
+	if version == "" {
+		version = os.Getenv("TFSTACKPLAN_CACHE_VERSION")
+	}
+	if version == "" {
+		version = "0"
+	}
+	return &CacheConfig{
+		Bucket:  bucket,
+		Prefix:  prefix,
+		Version: version,
+	}, nil
 }

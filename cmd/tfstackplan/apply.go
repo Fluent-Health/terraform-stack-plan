@@ -6,9 +6,12 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/Fluent-Health/terraform-stack-plan/internal/cache"
+	"github.com/Fluent-Health/terraform-stack-plan/internal/config"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/runner"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/statemove"
@@ -118,6 +121,22 @@ func runApply(args []string) int {
 		return 0
 	}
 
+	// 3. Load cache config for warming (executed after the gate check passes).
+	pPath := *cfgPath
+	if pPath == "" {
+		if d, ok := config.Discover(*dir); ok {
+			pPath = d
+		}
+	}
+	var cfg *config.Config
+	if pPath != "" {
+		var loadErr error
+		cfg, loadErr = config.Load(pPath)
+		if loadErr != nil {
+			fmt.Fprintf(os.Stderr, "tfstackplan run apply: cache config: %v\n", loadErr)
+		}
+	}
+
 	// 4. Classify pass (self-sufficient): re-run the plan classification keyed to
 	//    the same (pr, env) and submit it as a Finalize{Gates}. The server's
 	//    RunnerFinalize transition re-marks the run classified and issues the grant
@@ -165,6 +184,27 @@ func runApply(args []string) int {
 		return 1
 	}
 	requester := verdict.Requester
+
+	// 5.5. Pre-Warming Cache: now that the gate is satisfied, warm providers
+	// before the apply script runs so terraform init can use the local cache.
+	var pc *cache.ProviderCache
+	if cfg != nil && cfg.Cache != nil {
+		_ = client.Phase(ctx, events.PhaseEvent{ID: execID, Phase: events.PhaseWarming})
+		tokenFunc, _, credErr := gcpCreds(ctx)
+		if credErr != nil {
+			fmt.Fprintf(os.Stderr, "tfstackplan run apply: cache warming: no GCP credentials: %v\n", credErr)
+		} else {
+			gcsStore := cache.NewGCSStorage(tokenFunc, cfg.Cache.Bucket, cfg.Cache.Prefix)
+			pc = cache.NewProviderCache(gcsStore, "", cfg.Cache.Version)
+			absStacks := make([]string, len(stacks))
+			for i, s := range stacks {
+				absStacks[i] = filepath.Join(*dir, s)
+			}
+			if err := pc.Warm(ctx, absStacks); err != nil {
+				fmt.Fprintf(os.Stderr, "tfstackplan run apply: warming cache warning: %v\n", err)
+			}
+		}
+	}
 
 	// 6. Optionally run AS the leased requester SA.
 	if *impersonateRequester && requester != "" {
@@ -224,6 +264,12 @@ func runApply(args []string) int {
 	applyErr := tm.ScriptRun(ctx, os.Stderr, runner.ScriptRunOptions{Script: *script, Changed: *changed, Parallel: *parallel, Base: *base})
 	if stop != nil {
 		stop()
+	}
+
+	if pc != nil {
+		if err := pc.Save(ctx); err != nil {
+			fmt.Fprintf(os.Stderr, "tfstackplan run apply: cache save: %v\n", err)
+		}
 	}
 
 	// 9. Always emit a terminal Finalize. On failure the server marks any

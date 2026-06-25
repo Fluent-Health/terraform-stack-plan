@@ -227,3 +227,80 @@ func TestLoadEmitAttributes(t *testing.T) {
 		t.Fatalf("destructive EmitAttributes = %v, want [name id]", rules[1].EmitAttributes)
 	}
 }
+
+func ParseString(filename, src string) (*Config, error) {
+	p := filepath.Join(os.TempDir(), filename)
+	if err := os.WriteFile(p, []byte(src), 0o644); err != nil {
+		return nil, err
+	}
+	defer os.Remove(p)
+	return Load(p)
+}
+
+func TestParseCacheConfig(t *testing.T) {
+	src := `
+cache {
+	bucket  = "my-custom-bucket"
+	prefix  = "custom/prefix"
+	version = "v3"
+}
+`
+	cfg, err := ParseString(".tfstackplan.hcl", src)
+	if err != nil {
+		t.Fatalf("failed to parse config: %v", err)
+	}
+	if cfg.Cache == nil {
+		t.Fatal("expected Cache block to be parsed")
+	}
+	if cfg.Cache.Bucket != "my-custom-bucket" || cfg.Cache.Prefix != "custom/prefix" || cfg.Cache.Version != "v3" {
+		t.Errorf("unexpected parsed values: %+v", cfg.Cache)
+	}
+}
+
+func TestParseCacheConfigDefaultsAndEnv(t *testing.T) {
+	// Test default fallbacks with empty cache block
+	src := `
+cache {}
+`
+	// Clear environments first
+	os.Unsetenv("TFSTACKPLAN_CACHE_BUCKET")
+	os.Unsetenv("TFSTACKPLAN_CACHE_VERSION")
+
+	cfg, err := ParseString(".tfstackplan.hcl", src)
+	if err != nil {
+		t.Fatalf("failed to parse config: %v", err)
+	}
+	if cfg.Cache == nil {
+		t.Fatal("expected Cache block to be parsed")
+	}
+	// Prefix should default to "infra/tf-plugins"
+	if cfg.Cache.Prefix != "infra/tf-plugins" {
+		t.Errorf("expected default prefix 'infra/tf-plugins', got %q", cfg.Cache.Prefix)
+	}
+	// Version should default to "0"
+	if cfg.Cache.Version != "0" {
+		t.Errorf("expected default version '0', got %q", cfg.Cache.Version)
+	}
+	// Bucket has no default, should be empty
+	if cfg.Cache.Bucket != "" {
+		t.Errorf("expected empty bucket, got %q", cfg.Cache.Bucket)
+	}
+
+	// Test environment variable fallbacks
+	os.Setenv("TFSTACKPLAN_CACHE_BUCKET", "env-bucket")
+	os.Setenv("TFSTACKPLAN_CACHE_VERSION", "env-version")
+	defer os.Unsetenv("TFSTACKPLAN_CACHE_BUCKET")
+	defer os.Unsetenv("TFSTACKPLAN_CACHE_VERSION")
+
+	cfgEnv, err := ParseString(".tfstackplan.hcl", src)
+	if err != nil {
+		t.Fatalf("failed to parse config: %v", err)
+	}
+	if cfgEnv.Cache.Bucket != "env-bucket" {
+		t.Errorf("expected bucket 'env-bucket' from env, got %q", cfgEnv.Cache.Bucket)
+	}
+	if cfgEnv.Cache.Version != "env-version" {
+		t.Errorf("expected version 'env-version' from env, got %q", cfgEnv.Cache.Version)
+	}
+
+}
