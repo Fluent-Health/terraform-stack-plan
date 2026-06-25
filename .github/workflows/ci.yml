@@ -6,7 +6,8 @@ on:
     branches: [main]
 
 permissions:
-  contents: read
+  contents: write
+  pull-requests: write
 
 jobs:
   test:
@@ -54,6 +55,23 @@ jobs:
           go tool cover -func=coverage.out >> $GITHUB_STEP_SUMMARY
           echo "```" >> $GITHUB_STEP_SUMMARY
           echo "</details>" >> $GITHUB_STEP_SUMMARY
+
+      - name: Check test coverage
+        uses: vladopajic/go-test-coverage@v2
+        with:
+          config: ./.testcoverage.yml
+          profile: coverage.out
+          comment-report: true
+          badge-file-name: coverage.svg
+
+      - name: Update coverage badge
+        if: github.ref == 'refs/heads/main'
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add coverage.svg
+          git commit -m "chore: update coverage badge [skip ci]" || exit 0
+          git push
 
       - name: build
         run: go build ./...

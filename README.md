@@ -1,5 +1,7 @@
 # tfstackplan
 
+[![Coverage](https://raw.githubusercontent.com/Fluent-Health/terraform-stack-plan/main/coverage.svg)](https://github.com/Fluent-Health/terraform-stack-plan/actions)
+
 > Your monorepo just opened **8 Terraform plans** on this one PR.
 > Your reviewer has gone very quiet.
 
