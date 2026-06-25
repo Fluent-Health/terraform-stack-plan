@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/Fluent-Health/terraform-stack-plan/internal/cache"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/config"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/runner"
@@ -63,6 +64,34 @@ func runPlan(args []string) int {
 		initStacks = append(initStacks, events.StackState{Path: s, Status: events.StatusPending})
 	}
 	_ = client.Init(ctx, events.Init{ID: execID, Repo: repo, SHA: sha, PR: pr, Environment: env, Stacks: initStacks, Edges: edges})
+
+	// Pre-Warming Cache: resolve from config block if defined
+	pPath := *cfgPath
+	if pPath == "" {
+		if d, ok := config.Discover(*dir); ok {
+			pPath = d
+		}
+	}
+	var cfg *config.Config
+	if pPath != "" {
+		cfg, _ = config.Load(pPath)
+	}
+
+	if cfg != nil && cfg.Cache != nil {
+		_ = client.Phase(ctx, events.PhaseEvent{ID: execID, Phase: events.PhaseWarming})
+		tokenFunc, _, _ := gcpCreds(ctx)
+		gcsStore := cache.NewGCSStorage(tokenFunc, cfg.Cache.Bucket, cfg.Cache.Prefix)
+		pc := cache.NewProviderCache(gcsStore, "", cfg.Cache.Version)
+		// Gather absolute stack paths for ParseLockFile matching
+		absStacks := make([]string, len(stacks))
+		for i, s := range stacks {
+			absStacks[i] = filepath.Join(*dir, s)
+		}
+		if err := pc.Warm(ctx, absStacks); err != nil {
+			fmt.Fprintf(os.Stderr, "tfstackplan run plan: warming cache warning: %v\n", err)
+		}
+	}
+
 	_ = client.Phase(ctx, events.PhaseEvent{ID: execID, Phase: events.PhasePlanning})
 
 	var scriptErr error

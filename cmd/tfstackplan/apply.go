@@ -6,9 +6,12 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/Fluent-Health/terraform-stack-plan/internal/cache"
+	"github.com/Fluent-Health/terraform-stack-plan/internal/config"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/runner"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/statemove"
@@ -116,6 +119,33 @@ func runApply(args []string) int {
 		_ = client.Finalize(ctx, events.Finalize{ID: execID})
 		fmt.Fprintln(os.Stderr, "tfstackplan run apply: no changed stacks — nothing to apply")
 		return 0
+	}
+
+	// 3. Pre-Warming Cache: resolve from config block if defined
+	pPath := *cfgPath
+	if pPath == "" {
+		if d, ok := config.Discover(*dir); ok {
+			pPath = d
+		}
+	}
+	var cfg *config.Config
+	if pPath != "" {
+		cfg, _ = config.Load(pPath)
+	}
+
+	if cfg != nil && cfg.Cache != nil {
+		_ = client.Phase(ctx, events.PhaseEvent{ID: execID, Phase: events.PhaseWarming})
+		tokenFunc, _, _ := gcpCreds(ctx)
+		gcsStore := cache.NewGCSStorage(tokenFunc, cfg.Cache.Bucket, cfg.Cache.Prefix)
+		pc := cache.NewProviderCache(gcsStore, "", cfg.Cache.Version)
+		// Gather absolute stack paths for ParseLockFile matching
+		absStacks := make([]string, len(stacks))
+		for i, s := range stacks {
+			absStacks[i] = filepath.Join(*dir, s)
+		}
+		if err := pc.Warm(ctx, absStacks); err != nil {
+			fmt.Fprintf(os.Stderr, "tfstackplan run apply: warming cache warning: %v\n", err)
+		}
 	}
 
 	// 4. Classify pass (self-sufficient): re-run the plan classification keyed to
