@@ -31,7 +31,7 @@ jobs:
 
       # --- Coverage generation (the only language-specific part) ---
       - name: Run tests with coverage
-        run: go test -covermode=atomic -coverprofile=coverage.out ./...
+        run: go test -covermode=atomic -coverprofile=coverage.out -coverpkg=./... ./...
 
       - name: Convert coverprofile to Cobertura XML
         run: |
