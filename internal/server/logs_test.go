@@ -556,3 +556,37 @@ func TestStreamLogConcludesOnFinalize(t *testing.T) {
 		t.Errorf("streamLog did not terminate with event: done: %q", body)
 	}
 }
+
+func TestStreamLogAlreadyFinishedAtStart(t *testing.T) {
+	db := newServerTestDB(t)
+	app := New(db, &MockGitHub{}, Config{})
+
+	execID := "e-test-already-done"
+	stackPath := "stacks/a"
+
+	// Seed an already finished execution (status = success, apply context)
+	err := store.UpsertInit(db, events.Init{
+		ID:          execID,
+		PR:          42,
+		Environment: "prod",
+		Repo:        "owner/repo",
+		Context:     "apply",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = store.SetExecutionStatus(db, execID, "success")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rec := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/logs/"+execID+"/"+stackPath+"?follow=1", nil)
+
+	app.streamLog(rec, req, execID, stackPath)
+
+	body := rec.Body.String()
+	if !strings.Contains(body, "event: done") {
+		t.Errorf("streamLog did not immediately write done event for already finished run: %q", body)
+	}
+}
