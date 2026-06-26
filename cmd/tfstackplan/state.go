@@ -154,7 +154,7 @@ func runStateMove(args []string) int {
 			return 1
 		}
 		if *via == "mv" {
-			pairs, err := statemove.CrossStackPairs(srcPlan, dstPlan, fromAddr, toAddr)
+			pairs, err := statemove.CrossStackPairsFromState(srcPlan, dstPlan, fromAddr, toAddr)
 			if err != nil {
 				fmt.Fprintln(os.Stderr, "state move:", err)
 				return 1
