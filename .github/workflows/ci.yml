@@ -75,7 +75,8 @@ jobs:
           echo '```' >> comment_body.txt
           
           # Find existing comment from github-actions[bot]
-          comment_id=$(gh pr view ${{ github.event.pull_request.number }} --json comments --jq '.comments[] | select((.author.login | contains("github-actions")) and (.body | contains("Go Test Coverage Report"))) | .id' | head -n 1)
+          comment_url=$(gh pr view ${{ github.event.pull_request.number }} --json comments --jq '.comments[] | select((.author.login | contains("github-actions")) and (.body | contains("Go Test Coverage Report"))) | .url' | head -n 1)
+          comment_id=${comment_url##*-}
           
           if [ -n "$comment_id" ]; then
             # Update existing comment
