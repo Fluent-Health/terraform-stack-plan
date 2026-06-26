@@ -163,7 +163,6 @@ func TestRenderGroupSVGSwimlanes(t *testing.T) {
 	}
 }
 
-
 func TestRenderSVGAnchorsAndIDs(t *testing.T) {
 	g := sampleGraph()
 	out := string(renderSVG(g))
