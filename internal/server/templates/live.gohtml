@@ -43,8 +43,7 @@
         <h1 class="font-display text-xl font-bold flex items-center gap-3 flex-wrap w-full">
           {{ .Title }}
           <span class="badge badge-sm font-mono tracking-wide {{ if eq .PhaseAccent "apply" }}badge-primary{{ else }}badge-secondary{{ end }}">{{ .PhaseLabel }}{{ if .Elapsed }} · {{ .Elapsed }}{{ end }}</span>
-          {{ if .SupersededBy }}
-          {{ else if and .Finished (gt .CheckRunID 0) }}
+          {{ if and (not .SupersededBy) .Finished (gt .CheckRunID 0) }}
           <button id="rerun-btn" class="ml-auto btn btn-xs btn-secondary font-mono" onclick="triggerRerun()">Re-run</button>
           <span id="rerun-error" class="text-xs text-error font-mono hidden ml-2"></span>
           {{ end }}
