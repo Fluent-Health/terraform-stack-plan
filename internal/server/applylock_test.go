@@ -94,6 +94,10 @@ func (r *recordingGitHub) MergeGroupPRs(_ context.Context, _, _ string) ([]int, 
 	return r.mergeGroupPRs, nil
 }
 
+func (r *recordingGitHub) ReRequestCheckRun(_ context.Context, _ string, _ int64) error {
+	return nil
+}
+
 func TestClaimsEndpoints(t *testing.T) {
 	a, _ := newApplyLockTestApp(t)
 	// Seed through the ledger (the source of truth) so adminReleaseClaims —

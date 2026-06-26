@@ -1272,8 +1272,15 @@ before `terraform init` runs. Providers found in GCS are restored directly from
 the archive; providers missing from the cache are downloaded from the Terraform
 registry (or the provider's own registry host for non-public providers) and
 installed. After the script completes, any newly installed providers are uploaded to
-GCS so subsequent runs hit the cache. In `run apply` the warm pass runs **after**
-the gate pre-check so a gate-rejected apply never emits a `PhaseWarming` event.
+GCS so subsequent runs hit the cache. In `run apply` the warm pass runs **before
+the classify pass** (the pre-apply re-plan) — not merely before the apply script.
+The classify pass itself runs the terramate `plan` script: parallel `terraform
+init`+plan across stacks. Since terraform's shared plugin cache is not
+concurrency-safe to *populate* (see Known limitations), warming must complete
+before any parallel init, or those inits race on a cold cache. Warm therefore
+runs ahead of the gate pre-check too — it only downloads providers to a local
+directory (never mutates state), so it is safe before the gate, and a
+`PhaseWarming` event is emitted at that point.
 
 Configuration in `.tfstackplan.hcl`:
 
@@ -1311,6 +1318,22 @@ archives.
   the binary is present before returning success. The `Save` path has a TOCTOU
   window on the GCS `Exists` check, so a provider may be uploaded twice in a tight
   race; this is harmless (idempotent PUT).
+- Terraform's shared plugin cache (`TF_PLUGIN_CACHE_DIR`) is **not concurrency-safe
+  to populate**. Parallel `terraform init` over a *cold* cache lets N inits race to
+  download the same provider into the same directory, and one stack ends up with a
+  package whose `h1:` dir-hash matches no lock entry (`Failed to install provider
+  from shared cache … doesn't match any of the checksums recorded in the dependency
+  lock file`). The warm pass exists to avoid this: once warm, every parallel init is
+  a pure cache read (hardlink). This is why warm must precede *every* parallel init,
+  including `run apply`'s classify pass — not just the apply script (v0.18.1, PR
+  #145). The failure signature is plan-green / apply-red on an identical commit,
+  lock, and cache, failing on one of N parallel stacks.
+- Cached provider packages include the provider's `LICENSE.txt` alongside the
+  binary, so the package `h1:` dir-hash legitimately differs from the registry-zip
+  hash. A lock file generated purely from the registry (`terraform providers lock`)
+  still validates against the cache as long as it records the cache's `h1:`; do not
+  try to "fix" a cache-hash mismatch by clearing the cache — re-downloading yields
+  the same package.
 
 **Phase 3: logs + UI v2 (in progress).** The first increment landed the
 **server-side log pipeline foundation**: `POST /api/logs` (bearer-authed)

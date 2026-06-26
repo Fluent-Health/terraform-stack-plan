@@ -68,6 +68,16 @@ func (a *App) handleInit(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "store init", http.StatusInternalServerError)
 		return
 	}
+	if in.PR > 0 {
+		oldID, found, err := store.FindNonSupersededExecution(a.db, in.PR, in.Environment, in.SHA, in.Context, in.ID)
+		if err == nil && found {
+			if err := store.SupersedeExecution(a.db, oldID, in.ID); err == nil {
+				if a.hub != nil {
+					a.hub.publish("exec:"+oldID, "superseded:"+in.ID)
+				}
+			}
+		}
+	}
 	base := a.baseURL(r)
 	if isGate(in.Context, in.Environment) {
 		if err := a.ensureCheckRun(r.Context(), in.ID, in.Repo, in.SHA, checkRunName(in.Environment), a.liveURL(base, in.ID)); err != nil {

@@ -2,6 +2,7 @@ package server
 
 import (
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -65,24 +66,28 @@ func (a *App) handleLive(w http.ResponseWriter, r *http.Request) {
 			logs[s.Path] = ex
 		}
 	}
+	token := r.URL.Query().Get("token")
 	verifyExec, _ := store.LatestVerifyExecutionID(a.db, e.PR, e.Environment)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Write([]byte(a.livePage(liveView{
-		Exec:        e.ID,
-		Repo:        e.Repo,
-		Environment: e.Environment,
-		Report:      report,
-		PR:          e.PR,
-		SHA:         e.SHA,
-		Context:     e.StatusContext,
-		Status:      e.Status,
-		Phase:       events.Phase(e.Phase),
-		CreatedAt:   e.CreatedAt,
-		Stacks:      g.Stacks,
-		StackLogs:   logs,
-		VerifyExec:  verifyExec,
-		SVG:         string(a.dagSVG(g)),
-		Panel:       panel,
+		Exec:         e.ID,
+		Repo:         e.Repo,
+		Environment:  e.Environment,
+		Report:       report,
+		PR:           e.PR,
+		SHA:          e.SHA,
+		Context:      e.StatusContext,
+		Status:       e.Status,
+		Phase:        events.Phase(e.Phase),
+		CreatedAt:    e.CreatedAt,
+		Stacks:       g.Stacks,
+		StackLogs:    logs,
+		VerifyExec:   verifyExec,
+		SVG:          string(a.dagSVG(g)),
+		Panel:        panel,
+		Token:        token,
+		SupersededBy: e.SupersededBy,
+		CheckRunID:   e.CheckRunID.Int64,
 	})))
 }
 
@@ -113,12 +118,37 @@ func (a *App) handleLiveEvents(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-r.Context().Done():
 			return
-		case <-ch:
-			writeSSE(w, "changed")
+		case msg := <-ch:
+			if strings.HasPrefix(msg, "superseded:") {
+				newID := strings.TrimPrefix(msg, "superseded:")
+				fmt.Fprintf(w, "event: superseded\ndata: %s\n\n", newID)
+			} else {
+				writeSSE(w, "changed")
+			}
 			flusher.Flush()
 		case <-tick.C:
 			fmt.Fprint(w, ": ping\n\n")
 			flusher.Flush()
 		}
 	}
+}
+
+// handleRerun handles triggering a check run re-request from the live page.
+func (a *App) handleRerun(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	e, err := store.GetExecution(a.db, id)
+	if err != nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	if !e.CheckRunID.Valid {
+		http.Error(w, "check run id not set", http.StatusUnprocessableEntity)
+		return
+	}
+	if err := a.gh.ReRequestCheckRun(r.Context(), e.Repo, e.CheckRunID.Int64); err != nil {
+		log.Printf("rerequest check run for %s failed: %v", id, err)
+		http.Error(w, "rerequest failed", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
