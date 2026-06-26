@@ -171,11 +171,18 @@ func validateXMoveManifest(dir, outDir string) error {
 	for _, fx := range xmoves {
 		resolvedSource := resolveSourceStack(dir, fx.DestStack, fx.XMove.SourceStack)
 
-		// Build Source AddressSet
+		// Build Source AddressSet.
+		// Prefer prior_state over ResourceChanges: Terraform applies moved{} blocks
+		// before writing ResourceChanges, so module-level renames produce post-rename
+		// addresses in the plan (e.g. module.foo[0].*) without per-resource
+		// PreviousAddress entries. prior_state holds the unprocessed addresses —
+		// the same ones apply-time validation will see in the live state.
 		srcAddrs := statemove.AddressSet{}
 		srcPlanPath := filepath.Join(outDir, filepath.FromSlash(resolvedSource), "tfplan.json")
 		if srcPlanBytes, err := os.ReadFile(srcPlanPath); err == nil {
-			if rs, err := plan.Parse(resolvedSource, srcPlanBytes); err == nil {
+			if priorAddrs := statemove.PriorStateAddrs(srcPlanBytes); len(priorAddrs) > 0 {
+				srcAddrs = priorAddrs
+			} else if rs, err := plan.Parse(resolvedSource, srcPlanBytes); err == nil {
 				for _, c := range rs.Changes {
 					srcAddrs[c.Address] = c.ProviderName
 					if c.PreviousAddress != "" {
