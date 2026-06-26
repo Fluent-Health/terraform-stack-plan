@@ -151,7 +151,7 @@ check run will not appear until the first `run tick` fires from within a stack.
 ## Check-run title: progress bar vs action-count summary
 
 While a run is **in-progress** the per-environment check title shows a live
-progress bar (`Plan · ⠿⠿⠿⠿⠇⠀⠀⠀ · 3/5 stacks`). Once the run is **terminal**
+progress bar (`Plan · ⠿⠿⠿⠿⠇⠀⠀⠀⠀⠀ · 3/5 stacks`). Once the run is **terminal**
 (all stacks done, or plan/apply exited) the title switches to an action-count
 summary:
 

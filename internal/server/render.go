@@ -198,6 +198,8 @@ func phaseLabel(phase events.Phase, planned, initialized, total int) string {
 	}
 }
 
+var brailleSubBlocks = []string{"⠄", "⠆", "⠇", "⠧", "⠷"}
+
 // progressBar renders the unicode fill bar + integer percentage for a 0..1 fraction.
 // It uses 6-dot Braille characters to fill columns bottom-to-top, left-to-right.
 func progressBar(frac float64) (bar string, pct int) {
@@ -226,13 +228,7 @@ func progressBar(frac float64) (bar string, pct int) {
 
 	// Write fractional cell if any
 	if index > 0 && fullCells < progressCells {
-		// 1: bottom-left (⠄)
-		// 2: bottom-left + middle-left (⠆)
-		// 3: left column full (⠇)
-		// 4: left column full + bottom-right (⠧)
-		// 5: left column full + bottom-right + middle-right (⠷)
-		subBlocks := []string{"⠄", "⠆", "⠇", "⠧", "⠷"}
-		b.WriteString(subBlocks[index-1])
+		b.WriteString(brailleSubBlocks[index-1])
 	}
 
 	// Calculate remaining empty cells to maintain exact length of progressCells
