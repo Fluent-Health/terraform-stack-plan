@@ -7,6 +7,25 @@ import (
 	tfjson "github.com/hashicorp/terraform-json"
 )
 
+// AddressSet maps resource addresses to their corresponding ProviderName.
+type AddressSet map[string]string
+
+// DestProviders represents a set of destination providers.
+type DestProviders map[string]bool
+
+type Severity string
+
+const (
+	SeverityError   Severity = "error"
+	SeverityWarning Severity = "warning"
+)
+
+type Diagnostic struct {
+	Code     string
+	Severity Severity
+	Message  string
+}
+
 // expandPairs resolves each declared move pair against the live source/dest state
 // addresses. A module-/prefix-level pair (e.g. module.x[0] -> module.y) fans out
 // to the concrete per-resource pairs it covers (module.x[0].r -> module.y.r),
@@ -17,7 +36,7 @@ import (
 // returns Skip (idempotent re-run). A pair matching neither side is kept verbatim
 // so decide() fails closed. matches() is the same exact-or-child ("."/"[" boundary)
 // relation classify uses, keeping plan-time and apply-time semantics aligned.
-func expandPairs(srcAddrs, dstAddrs map[string]bool, pairs []Move) []Move {
+func expandPairs(srcAddrs, dstAddrs AddressSet, pairs []Move) []Move {
 	var out []Move
 	for _, p := range pairs {
 		var src, dst []string
@@ -59,8 +78,9 @@ const (
 
 // decide is the fail-closed idempotency table for one (from in source, to in
 // dest) pair, given the address sets of both live states.
-func decide(srcAddrs, dstAddrs map[string]bool, from, to string) (Decision, error) {
-	inSrc, inDst := srcAddrs[from], dstAddrs[to]
+func decide(srcAddrs, dstAddrs AddressSet, from, to string) (Decision, error) {
+	_, inSrc := srcAddrs[from]
+	_, inDst := dstAddrs[to]
 	switch {
 	case inSrc && !inDst:
 		return DecisionMove, nil
@@ -74,8 +94,8 @@ func decide(srcAddrs, dstAddrs map[string]bool, from, to string) (Decision, erro
 }
 
 // stateAddresses collects every resource address in a state (root + child modules).
-func stateAddresses(s *tfjson.State) map[string]bool {
-	out := map[string]bool{}
+func stateAddresses(s *tfjson.State) AddressSet {
+	out := AddressSet{}
 	if s == nil || s.Values == nil {
 		return out
 	}
@@ -85,7 +105,7 @@ func stateAddresses(s *tfjson.State) map[string]bool {
 			return
 		}
 		for _, r := range m.Resources {
-			out[r.Address] = true
+			out[r.Address] = r.ProviderName
 		}
 		for _, c := range m.ChildModules {
 			walk(c)

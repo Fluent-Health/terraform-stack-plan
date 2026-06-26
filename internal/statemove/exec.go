@@ -183,9 +183,9 @@ func rollbackSource(ctx context.Context, srcTF Runner, srcState, tmp string) err
 // addressesOf returns the resource addresses in a pulled state. An empty/blank
 // state (e.g. a brand-new, never-applied stack) yields an empty set and is NOT
 // written to disk — so `terraform state mv -state-out` creates the out file.
-func addressesOf(ctx context.Context, tf Runner, state, file string) (map[string]bool, error) {
+func addressesOf(ctx context.Context, tf Runner, state, file string) (AddressSet, error) {
 	if strings.TrimSpace(state) == "" {
-		return map[string]bool{}, nil
+		return AddressSet{}, nil
 	}
 	if err := os.WriteFile(file, []byte(state), 0o600); err != nil {
 		return nil, err
