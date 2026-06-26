@@ -131,6 +131,48 @@ func TestDecideFinalizeCarryForwardSkipsRequest(t *testing.T) {
 	t.Fatalf("expected GateTargetRequested for p2, got %#v", got)
 }
 
+func TestDecideFinalizeCarryForwardAllActiveSatisfies(t *testing.T) {
+	// A new build re-finalizes the same plan while the PRIOR build's grants are
+	// all still ACTIVE. Every target carries forward (no request), so without an
+	// explicit GateSatisfied the gate would fold to Pending{all-ACTIVE} and render
+	// in_progress forever — PendingGates excludes fully-ACTIVE gates, so the
+	// ReconcileLoop never heals it. decideFinalize must emit GateSatisfied here.
+	cs := ChangeSet{PR: 7, Environment: "prod", Gate: Satisfied{
+		Lease: Lease{Requester: "tf-applier-0@x"},
+		Targets: []Target{
+			{Class: "iam", Target: "p1", GrantName: "g-p1", Grant: approval.StateActive},
+			{Class: "iam", Target: "p2", GrantName: "g-p2", Grant: approval.StateActive},
+		},
+	}}
+	got := Decide(cs, RunnerFinalize{Gates: []events.GateTarget{
+		{Class: "iam", Target: "p1"},
+		{Class: "iam", Target: "p2"},
+	}})
+	if len(eventsOf[GateTargetRequested](got)) != 0 {
+		t.Fatalf("all targets carried forward ACTIVE, none must be requested, got %#v", got)
+	}
+	if _, ok := lastOf[GateSatisfied](got); !ok {
+		t.Fatalf("want trailing GateSatisfied for all-ACTIVE carry-forward, got %#v", got)
+	}
+}
+
+func TestDecideFinalizeCarryForwardAllAwaitingNoSatisfy(t *testing.T) {
+	// All targets carry forward OPEN but AWAITING (not ACTIVE): no request (all
+	// open) and no GateSatisfied (not all ACTIVE). The gate stays Pending and the
+	// ReconcileLoop re-settles it (it remains in PendingGates since not all-ACTIVE).
+	cs := ChangeSet{PR: 7, Environment: "staging", Gate: Pending{
+		Lease:   Lease{Requester: "sa1"},
+		Targets: []Target{{Class: "iam", Target: "p1", GrantName: "g-p1", Grant: approval.StateAwaiting}},
+	}}
+	got := Decide(cs, RunnerFinalize{Gates: []events.GateTarget{{Class: "iam", Target: "p1"}}})
+	if _, ok := lastOf[GateSatisfied](got); ok {
+		t.Fatalf("AWAITING is not ACTIVE, must not emit GateSatisfied, got %#v", got)
+	}
+	if len(eventsOf[GateTargetRequested](got)) != 0 {
+		t.Fatalf("open AWAITING target must not be re-requested, got %#v", got)
+	}
+}
+
 func TestDecideRunnerInitEmitsExecutionStarted(t *testing.T) {
 	exec := Execution{ID: "e1"}
 	got := Decide(ChangeSet{}, RunnerInit{Exec: exec})
