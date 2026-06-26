@@ -1,6 +1,10 @@
 package statemove
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestDecide(t *testing.T) {
 	if d, err := decide(AddressSet{"aws_s3_bucket.x": "registry.terraform.io/hashicorp/aws"}, AddressSet{}, "aws_s3_bucket.x", "aws_s3_bucket.x"); err != nil || d != DecisionMove {
@@ -56,5 +60,57 @@ func TestExpandPairs(t *testing.T) {
 	got = expandPairs(AddressSet{}, AddressSet{}, []Move{{From: "module.a[0]", To: "module.b"}})
 	if len(got) != 1 || got[0] != (Move{From: "module.a[0]", To: "module.b"}) {
 		t.Errorf("missing pair = %+v", got)
+	}
+}
+
+func TestValidateMovePlan(t *testing.T) {
+	src := AddressSet{"google_artifact_registry_repository.main": "registry.terraform.io/hashicorp/google"}
+	dst := AddressSet{}
+	providers := DestProviders{"google": true}
+
+	// 1. Success case
+	m := XMove{Pairs: []Move{{From: "google_artifact_registry_repository.main", To: "google_artifact_registry_repository.main"}}}
+	diags := ValidateMovePlan(src, dst, providers, m)
+	if len(diags) != 0 {
+		t.Errorf("expected 0 diags, got: %+v", diags)
+	}
+
+	// 2. Missing provider case
+	diags = ValidateMovePlan(src, dst, DestProviders{}, m)
+	if len(diags) != 1 || diags[0].Code != "xmove/provider-missing" {
+		t.Errorf("expected provider-missing, got: %+v", diags)
+	}
+
+	// 3. Phantom index mismatch case
+	mWrong := XMove{Pairs: []Move{{From: "google_artifact_registry_repository.main[0]", To: "google_artifact_registry_repository.main"}}}
+	diags = ValidateMovePlan(src, dst, providers, mWrong)
+	if len(diags) != 1 || diags[0].Code != "xmove/source-missing" {
+		t.Errorf("expected source-missing due to phantom index, got: %+v", diags)
+	}
+
+	// 4. Occupied destination case
+	dstOccupied := AddressSet{"google_artifact_registry_repository.main": "registry.terraform.io/hashicorp/google"}
+	diags = ValidateMovePlan(src, dstOccupied, providers, m)
+	if len(diags) != 1 || diags[0].Code != "xmove/dest-occupied" {
+		t.Errorf("expected dest-occupied, got: %+v", diags)
+	}
+}
+
+func TestDiscoverDestProviders(t *testing.T) {
+	tmp := t.TempDir()
+	tfFile := filepath.Join(tmp, "main.tf")
+	hclContent := `
+provider "google" {
+  project = "my-project"
+}
+provider "postgresql" {}
+`
+	if err := os.WriteFile(tfFile, []byte(hclContent), 0644); err != nil {
+		t.Fatalf("failed to write tf file: %v", err)
+	}
+
+	providers := DiscoverDestProviders(tmp)
+	if !providers["google"] || !providers["postgresql"] || len(providers) != 2 {
+		t.Errorf("expected google and postgresql, got: %+v", providers)
 	}
 }

@@ -2,7 +2,11 @@ package statemove
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
+	"regexp"
 	"sort"
+	"strings"
 
 	tfjson "github.com/hashicorp/terraform-json"
 )
@@ -113,4 +117,99 @@ func stateAddresses(s *tfjson.State) AddressSet {
 	}
 	walk(s.Values.RootModule)
 	return out
+}
+
+var implicitProviders = map[string]bool{
+	"random":   true,
+	"null":     true,
+	"local":    true,
+	"tls":      true,
+	"archive":  true,
+	"template": true,
+	"time":     true,
+}
+
+// ValidateMovePlan validates a cross-state move manifest against source and destination AddressSets and configured providers.
+func ValidateMovePlan(src, dst AddressSet, providers DestProviders, m XMove) []Diagnostic {
+	var diags []Diagnostic
+
+	getShortName := func(fullName string) string {
+		parts := strings.Split(fullName, "/")
+		return parts[len(parts)-1]
+	}
+
+	// Expand the pairs against src and dst
+	expanded := expandPairs(src, dst, m.Pairs)
+
+	for _, p := range expanded {
+		prov, inSrc := src[p.From]
+		_, inDst := dst[p.To]
+
+		switch {
+		case inSrc && !inDst:
+			// Valid move to be executed.
+			// Verify destination provider configuration
+			if prov != "" {
+				shortProv := getShortName(prov)
+				if !implicitProviders[shortProv] && shortProv != "module" && !providers[shortProv] {
+					diags = append(diags, Diagnostic{
+						Code:     "xmove/provider-missing",
+						Severity: SeverityError,
+						Message:  fmt.Sprintf("destination stack has no %q provider configured, but will receive resource %q requiring it", shortProv, p.To),
+					})
+				}
+			}
+
+		case !inSrc && inDst:
+			// Valid skip (already moved)
+
+		case inSrc && inDst:
+			// Duplicate/occupied error
+			diags = append(diags, Diagnostic{
+				Code:     "xmove/dest-occupied",
+				Severity: SeverityError,
+				Message:  fmt.Sprintf("ambiguous: %q is in the source state/plan AND %q is in the destination state/plan (would duplicate)", p.From, p.To),
+			})
+
+		default:
+			// Missing error (neither has it)
+			diags = append(diags, Diagnostic{
+				Code:     "xmove/source-missing",
+				Severity: SeverityError,
+				Message:  fmt.Sprintf("missing: %q is not in the source state/plan and %q is not in the destination state/plan (manifest wrong or already pruned)", p.From, p.To),
+			})
+		}
+	}
+
+	return diags
+}
+
+// DiscoverDestProviders scans a stack directory for defined providers in HCL config.
+func DiscoverDestProviders(stackDir string) DestProviders {
+	providers := DestProviders{}
+	entries, err := os.ReadDir(stackDir)
+	if err != nil {
+		return providers
+	}
+
+	re := regexp.MustCompile(`provider\s+"([^"]+)"\s*\{`)
+
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".tf") {
+			continue
+		}
+
+		content, err := os.ReadFile(filepath.Join(stackDir, entry.Name()))
+		if err != nil {
+			continue
+		}
+
+		matches := re.FindAllSubmatch(content, -1)
+		for _, m := range matches {
+			if len(m) > 1 {
+				providers[string(m[1])] = true
+			}
+		}
+	}
+	return providers
 }
