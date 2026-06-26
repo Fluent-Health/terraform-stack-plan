@@ -116,6 +116,17 @@ func Execute(ctx context.Context, deps ExecDeps, root, destStack string, xm XMov
 		return nil, fmt.Errorf("read dest state: %w", err)
 	}
 
+	// Discover destination providers
+	destProviders := DiscoverDestProviders(dstDir)
+
+	// Validate move plan against live state
+	diags := ValidateMovePlan(srcAddrs, dstAddrs, destProviders, xm, true)
+	for _, diag := range diags {
+		if diag.Severity == SeverityError {
+			return nil, fmt.Errorf("validation error: %s", diag.Message)
+		}
+	}
+
 	// Resolve declared pairs against the live states: a whole-module / prefix pair
 	// fans out to its concrete per-resource children, so the manifest can name a
 	// module (module.x[0] -> module.y) and the move still works (decide/state mv
