@@ -235,7 +235,39 @@
           }).catch(function (){});
         });
       }
-      function onHash(){ var h = location.hash.slice(1); stream(h); staticFill(h); planFill(h); }
+      function highlight(id) {
+        // Clear old menu active class
+        document.querySelectorAll('.menu li a.active').forEach(function(a) {
+          a.classList.remove('active');
+        });
+        // Clear old SVG highlights
+        document.querySelectorAll('g.svg-node').forEach(function(g) {
+          var rect = g.querySelector('rect.svg-border');
+          if (rect) {
+            rect.setAttribute('stroke-width', '2');
+            rect.setAttribute('fill', '#ffffff');
+          }
+        });
+
+        if (!id) return;
+        
+        // Highlight active row in the menu/list
+        var activeLink = document.querySelector('.menu li a[href="#' + id + '"]');
+        if (activeLink) {
+          activeLink.classList.add('active');
+        }
+
+        // Highlight matching node in SVG DAG
+        var svgNode = document.getElementById('svg-' + id);
+        if (svgNode) {
+          var rect = svgNode.querySelector('rect.svg-border');
+          if (rect) {
+            rect.setAttribute('stroke-width', '4');
+            rect.setAttribute('fill', '#f1f5f9'); // translucent background / light gray visual pop
+          }
+        }
+      }
+      function onHash(){ var h = location.hash.slice(1); stream(h); staticFill(h); planFill(h); highlight(h); }
       window.addEventListener('hashchange', onHash);
       if (location.hash) onHash();
     })();
