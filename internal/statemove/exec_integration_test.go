@@ -34,7 +34,7 @@ func tfStack(t *testing.T, tfPath, dir, config string) *tfexec.Terraform {
 	return tf
 }
 
-func addrSet(t *testing.T, tf *tfexec.Terraform) map[string]bool {
+func addrSet(t *testing.T, tf *tfexec.Terraform) AddressSet {
 	t.Helper()
 	st, err := tf.Show(context.Background())
 	if err != nil {

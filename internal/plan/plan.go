@@ -39,6 +39,7 @@ type RawChange struct {
 
 	Name          string
 	ModuleAddress string
+	ProviderName  string
 
 	// Raw holds top-level scalar attributes (string/number/bool), after over
 	// before, sensitive values skipped. Retained for classification attribute
@@ -119,6 +120,7 @@ func Parse(name string, data []byte) (RawStack, error) {
 			Imported:      imported,
 			Name:          rc.Name,
 			ModuleAddress: rc.ModuleAddress,
+			ProviderName:  rc.ProviderName,
 			Raw:           rawScalars(rc.Change),
 		}
 		if moved {

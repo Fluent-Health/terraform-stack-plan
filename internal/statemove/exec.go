@@ -116,6 +116,17 @@ func Execute(ctx context.Context, deps ExecDeps, root, destStack string, xm XMov
 		return nil, fmt.Errorf("read dest state: %w", err)
 	}
 
+	// Discover destination providers
+	destProviders := DiscoverDestProviders(dstDir)
+
+	// Validate move plan against live state
+	diags := ValidateMovePlan(srcAddrs, dstAddrs, destProviders, xm, true)
+	for _, diag := range diags {
+		if diag.Severity == SeverityError {
+			return nil, fmt.Errorf("validation error: %s", diag.Message)
+		}
+	}
+
 	// Resolve declared pairs against the live states: a whole-module / prefix pair
 	// fans out to its concrete per-resource children, so the manifest can name a
 	// module (module.x[0] -> module.y) and the move still works (decide/state mv
@@ -183,9 +194,9 @@ func rollbackSource(ctx context.Context, srcTF Runner, srcState, tmp string) err
 // addressesOf returns the resource addresses in a pulled state. An empty/blank
 // state (e.g. a brand-new, never-applied stack) yields an empty set and is NOT
 // written to disk — so `terraform state mv -state-out` creates the out file.
-func addressesOf(ctx context.Context, tf Runner, state, file string) (map[string]bool, error) {
+func addressesOf(ctx context.Context, tf Runner, state, file string) (AddressSet, error) {
 	if strings.TrimSpace(state) == "" {
-		return map[string]bool{}, nil
+		return AddressSet{}, nil
 	}
 	if err := os.WriteFile(file, []byte(state), 0o600); err != nil {
 		return nil, err

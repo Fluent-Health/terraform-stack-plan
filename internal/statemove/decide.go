@@ -2,10 +2,33 @@ package statemove
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
+	"regexp"
 	"sort"
+	"strings"
 
 	tfjson "github.com/hashicorp/terraform-json"
 )
+
+// AddressSet maps resource addresses to their corresponding ProviderName.
+type AddressSet map[string]string
+
+// DestProviders represents a set of destination providers.
+type DestProviders map[string]bool
+
+type Severity string
+
+const (
+	SeverityError   Severity = "error"
+	SeverityWarning Severity = "warning"
+)
+
+type Diagnostic struct {
+	Code     string
+	Severity Severity
+	Message  string
+}
 
 // expandPairs resolves each declared move pair against the live source/dest state
 // addresses. A module-/prefix-level pair (e.g. module.x[0] -> module.y) fans out
@@ -17,7 +40,7 @@ import (
 // returns Skip (idempotent re-run). A pair matching neither side is kept verbatim
 // so decide() fails closed. matches() is the same exact-or-child ("."/"[" boundary)
 // relation classify uses, keeping plan-time and apply-time semantics aligned.
-func expandPairs(srcAddrs, dstAddrs map[string]bool, pairs []Move) []Move {
+func expandPairs(srcAddrs, dstAddrs AddressSet, pairs []Move) []Move {
 	var out []Move
 	for _, p := range pairs {
 		var src, dst []string
@@ -59,8 +82,9 @@ const (
 
 // decide is the fail-closed idempotency table for one (from in source, to in
 // dest) pair, given the address sets of both live states.
-func decide(srcAddrs, dstAddrs map[string]bool, from, to string) (Decision, error) {
-	inSrc, inDst := srcAddrs[from], dstAddrs[to]
+func decide(srcAddrs, dstAddrs AddressSet, from, to string) (Decision, error) {
+	_, inSrc := srcAddrs[from]
+	_, inDst := dstAddrs[to]
 	switch {
 	case inSrc && !inDst:
 		return DecisionMove, nil
@@ -74,8 +98,8 @@ func decide(srcAddrs, dstAddrs map[string]bool, from, to string) (Decision, erro
 }
 
 // stateAddresses collects every resource address in a state (root + child modules).
-func stateAddresses(s *tfjson.State) map[string]bool {
-	out := map[string]bool{}
+func stateAddresses(s *tfjson.State) AddressSet {
+	out := AddressSet{}
 	if s == nil || s.Values == nil {
 		return out
 	}
@@ -85,7 +109,7 @@ func stateAddresses(s *tfjson.State) map[string]bool {
 			return
 		}
 		for _, r := range m.Resources {
-			out[r.Address] = true
+			out[r.Address] = r.ProviderName
 		}
 		for _, c := range m.ChildModules {
 			walk(c)
@@ -93,4 +117,133 @@ func stateAddresses(s *tfjson.State) map[string]bool {
 	}
 	walk(s.Values.RootModule)
 	return out
+}
+
+var implicitProviders = map[string]bool{
+	"random":   true,
+	"null":     true,
+	"local":    true,
+	"tls":      true,
+	"archive":  true,
+	"template": true,
+	"time":     true,
+}
+
+// ValidateMovePlan validates a cross-state move manifest against source and destination AddressSets and configured providers.
+func ValidateMovePlan(src, dst AddressSet, providers DestProviders, m XMove, isApply bool) []Diagnostic {
+	var diags []Diagnostic
+
+	getShortName := func(fullName string) string {
+		parts := strings.Split(fullName, "/")
+		return parts[len(parts)-1]
+	}
+
+	// Expand the pairs against src and dst
+	expanded := expandPairs(src, dst, m.Pairs)
+
+	for _, p := range expanded {
+		prov, inSrc := src[p.From]
+		_, inDst := dst[p.To]
+
+		if isApply {
+			// Apply-time validation against live states
+			switch {
+			case inSrc && !inDst:
+				// Valid move to be executed.
+				// Verify destination provider configuration
+				if prov != "" {
+					shortProv := getShortName(prov)
+					if !implicitProviders[shortProv] && shortProv != "module" && !providers[shortProv] {
+						diags = append(diags, Diagnostic{
+							Code:     "xmove/provider-missing",
+							Severity: SeverityError,
+							Message:  fmt.Sprintf("destination stack has no %q provider configured, but will receive resource %q requiring it", shortProv, p.To),
+						})
+					}
+				}
+
+			case !inSrc && inDst:
+				// Valid skip (already moved)
+
+			case inSrc && inDst:
+				// Duplicate/occupied error
+				diags = append(diags, Diagnostic{
+					Code:     "xmove/dest-occupied",
+					Severity: SeverityError,
+					Message:  fmt.Sprintf("ambiguous: %q is in the source state AND %q is in the destination state (would duplicate)", p.From, p.To),
+				})
+
+			default:
+				// Missing error (neither has it)
+				diags = append(diags, Diagnostic{
+					Code:     "xmove/source-missing",
+					Severity: SeverityError,
+					Message:  fmt.Sprintf("missing: %q is not in the source state and %q is not in the destination state (manifest wrong or already pruned)", p.From, p.To),
+				})
+			}
+		} else {
+			// Plan-time validation against planned changes
+			// 1. Source address check: must be present in the source plan as a change
+			if !inSrc {
+				diags = append(diags, Diagnostic{
+					Code:     "xmove/source-missing",
+					Severity: SeverityError,
+					Message:  fmt.Sprintf("address %q not found in source plan (manifest stale or address renamed)", p.From),
+				})
+			} else {
+				// Verify destination provider configuration
+				if prov != "" {
+					shortProv := getShortName(prov)
+					if !implicitProviders[shortProv] && shortProv != "module" && !providers[shortProv] {
+						diags = append(diags, Diagnostic{
+							Code:     "xmove/provider-missing",
+							Severity: SeverityError,
+							Message:  fmt.Sprintf("destination stack has no %q provider configured, but will receive resource %q requiring it", shortProv, p.To),
+						})
+					}
+				}
+			}
+
+			// 2. Destination check (if destination plan changes are available)
+			if len(dst) > 0 && !inDst {
+				diags = append(diags, Diagnostic{
+					Code:     "xmove/dest-missing",
+					Severity: SeverityError,
+					Message:  fmt.Sprintf("address %q not found in destination plan changes (manifest stale or target address incorrect)", p.To),
+				})
+			}
+		}
+	}
+
+	return diags
+}
+
+// DiscoverDestProviders scans a stack directory for defined providers in HCL config.
+func DiscoverDestProviders(stackDir string) DestProviders {
+	providers := DestProviders{}
+	entries, err := os.ReadDir(stackDir)
+	if err != nil {
+		return providers
+	}
+
+	re := regexp.MustCompile(`provider\s+"([^"]+)"\s*\{`)
+
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".tf") {
+			continue
+		}
+
+		content, err := os.ReadFile(filepath.Join(stackDir, entry.Name()))
+		if err != nil {
+			continue
+		}
+
+		matches := re.FindAllSubmatch(content, -1)
+		for _, m := range matches {
+			if len(m) > 1 {
+				providers[string(m[1])] = true
+			}
+		}
+	}
+	return providers
 }
