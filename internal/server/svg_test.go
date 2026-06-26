@@ -162,3 +162,24 @@ func TestRenderGroupSVGSwimlanes(t *testing.T) {
 		t.Errorf("edges = %d, want 1", n)
 	}
 }
+
+func TestRenderSVGAnchorsAndIDs(t *testing.T) {
+	g := sampleGraph()
+	out := string(renderSVG(g))
+	coords := map[string]string{
+		"stacks/a": "translate(24,24)",
+		"stacks/b": "translate(284,24)",
+		"stacks/c": "translate(284,88)",
+	}
+	for _, s := range g.Stacks {
+		anchor := anchorSlug(s.Path)
+		wantAnchor := fmt.Sprintf(`<a href="#%s">`, anchor)
+		if !strings.Contains(out, wantAnchor) {
+			t.Errorf("missing anchor link %q in SVG:\n%s", wantAnchor, out)
+		}
+		wantG := fmt.Sprintf(`<g transform="%s" id="svg-%s" class="svg-node">`, coords[s.Path], anchor)
+		if !strings.Contains(out, wantG) {
+			t.Errorf("missing styled group tag %q in SVG:\n%s", wantG, out)
+		}
+	}
+}

@@ -169,11 +169,14 @@ func renderSVG(g events.Graph) []byte {
 	for _, s := range g.Stacks {
 		p := at[s.Path]
 		color := statusColor(s.Status)
-		fmt.Fprintf(&b, `<g transform="translate(%d,%d)">`, p.x, p.y)
-		fmt.Fprintf(&b, `<rect width="%d" height="%d" rx="8" fill="#ffffff" stroke="%s" stroke-width="2"/>`, boxW, boxH, color)
-		fmt.Fprintf(&b, `<rect width="6" height="%d" rx="3" fill="%s"/>`, boxH, color)
+		anchor := anchorSlug(s.Path)
+		fmt.Fprintf(&b, `<a href="#%s">`, anchor)
+		fmt.Fprintf(&b, `<g transform="translate(%d,%d)" id="svg-%s" class="svg-node">`, p.x, p.y, anchor)
+		fmt.Fprintf(&b, `<rect class="svg-border" width="%d" height="%d" rx="8" fill="#ffffff" stroke="%s" stroke-width="2"/>`, boxW, boxH, color)
+		fmt.Fprintf(&b, `<rect class="svg-bar" width="6" height="%d" rx="3" fill="%s"/>`, boxH, color)
 		fmt.Fprintf(&b, `<text x="14" y="%d" fill="#1f2328">%s</text>`, boxH/2+4, svgEscape(shortLabel(s.Path)))
 		b.WriteString(`</g>`)
+		b.WriteString(`</a>`)
 	}
 	b.WriteString(`</svg>`)
 	return []byte(b.String())

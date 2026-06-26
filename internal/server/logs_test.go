@@ -494,3 +494,99 @@ func TestHandlePlanServe(t *testing.T) {
 		t.Errorf("missing plan should be empty, got %q", rec2.Body.String())
 	}
 }
+
+func TestStreamLogConcludesOnFinalize(t *testing.T) {
+	db := newServerTestDB(t)
+	app := New(db, &MockGitHub{}, Config{})
+
+	execID := "e-test-1"
+	stackPath := "stacks/a"
+
+	// Seed initial active execution as an apply context
+	err := store.UpsertInit(db, events.Init{
+		ID:          execID,
+		PR:          42,
+		Environment: "prod",
+		Repo:        "owner/repo",
+		Context:     "apply",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a recorder to capture SSE stream output
+	rec := httptest.NewRecorder()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	req, _ := http.NewRequestWithContext(ctx, "GET", "/logs/"+execID+"/"+stackPath+"?follow=1", nil)
+
+	// Run streamLog in a separate goroutine
+	doneCh := make(chan struct{})
+	go func() {
+		app.streamLog(rec, req, execID, stackPath)
+		close(doneCh)
+	}()
+
+	// Publish some log chunk
+	time.Sleep(10 * time.Millisecond)
+	app.hub.publish(execID+"|"+stackPath, "starting apply\n")
+
+	// Transition execution to finished status by finalizing
+	err = store.SetExecutionStatus(db, execID, "success")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Notify execution changed
+	app.hub.publish("exec:"+execID, "changed")
+
+	// Wait for streamLog to return
+	select {
+	case <-doneCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("streamLog did not terminate after execution finalized")
+	}
+
+	body := rec.Body.String()
+	if !strings.Contains(body, "starting apply") {
+		t.Errorf("streamLog did not output replayed log data: %q", body)
+	}
+	if !strings.Contains(body, "event: done") {
+		t.Errorf("streamLog did not terminate with event: done: %q", body)
+	}
+}
+
+func TestStreamLogAlreadyFinishedAtStart(t *testing.T) {
+	db := newServerTestDB(t)
+	app := New(db, &MockGitHub{}, Config{})
+
+	execID := "e-test-already-done"
+	stackPath := "stacks/a"
+
+	// Seed an already finished execution (status = success, apply context)
+	err := store.UpsertInit(db, events.Init{
+		ID:          execID,
+		PR:          42,
+		Environment: "prod",
+		Repo:        "owner/repo",
+		Context:     "apply",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = store.SetExecutionStatus(db, execID, "success")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rec := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/logs/"+execID+"/"+stackPath+"?follow=1", nil)
+
+	app.streamLog(rec, req, execID, stackPath)
+
+	body := rec.Body.String()
+	if !strings.Contains(body, "event: done") {
+		t.Errorf("streamLog did not immediately write done event for already finished run: %q", body)
+	}
+}

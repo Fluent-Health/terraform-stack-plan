@@ -237,15 +237,32 @@ func (a *App) streamLog(w http.ResponseWriter, r *http.Request, exec, stack stri
 	w.Header().Set("Connection", "keep-alive")
 	flusher.Flush()
 
-	ch, unsub := a.hub.subscribe(exec + "|" + stack)
-	defer unsub()
-
 	var offset int64
 	if id := strings.TrimSpace(r.Header.Get("Last-Event-ID")); id != "" {
 		if n, err := strconv.ParseInt(id, 10, 64); err == nil && n >= 0 {
 			offset = n
 		}
 	}
+
+	// 1. Initial check: is the execution already finished?
+	if execRecord, err := store.GetExecution(a.db, exec); err == nil {
+		kind := execKind(execRecord.StatusContext)
+		if isFinished(kind, execRecord.ReportMarkdown, execRecord.Status) {
+			// Serve any remainder from offloaded logs if present, then finish
+			_ = a.streamOffloaded(r.Context(), w, flusher, exec, stack, &offset)
+			writeSSEDone(w)
+			flusher.Flush()
+			return
+		}
+	}
+
+	ch, unsub := a.hub.subscribe(exec + "|" + stack)
+	defer unsub()
+
+	// Subscribe to overall execution state changes
+	execCh, execUnsub := a.hub.subscribe("exec:" + exec)
+	defer execUnsub()
+
 	servedBuffer := false
 	if p, ok := logFilePath(a.cfg.LogsDir, exec, stack); ok {
 		if f, err := os.Open(p); err == nil {
@@ -291,6 +308,17 @@ func (a *App) streamLog(w http.ResponseWriter, r *http.Request, exec, stack stri
 			offset += int64(len(chunk))
 			writeSSEEvent(w, offset, chunk)
 			flusher.Flush()
+		case <-execCh:
+			if execRecord, err := store.GetExecution(a.db, exec); err == nil {
+				kind := execKind(execRecord.StatusContext)
+				if isFinished(kind, execRecord.ReportMarkdown, execRecord.Status) {
+					// Stream any final offloaded bytes just in case, then terminate
+					_ = a.streamOffloaded(r.Context(), w, flusher, exec, stack, &offset)
+					writeSSEDone(w)
+					flusher.Flush()
+					return
+				}
+			}
 		case <-tick.C:
 			fmt.Fprint(w, ": ping\n\n")
 			flusher.Flush()
