@@ -116,8 +116,13 @@ func (a *App) handleLiveEvents(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-r.Context().Done():
 			return
-		case <-ch:
-			writeSSE(w, "changed")
+		case msg := <-ch:
+			if strings.HasPrefix(msg, "superseded:") {
+				newID := strings.TrimPrefix(msg, "superseded:")
+				fmt.Fprintf(w, "event: superseded\ndata: %s\n\n", newID)
+			} else {
+				writeSSE(w, "changed")
+			}
 			flusher.Flush()
 		case <-tick.C:
 			fmt.Fprint(w, ": ping\n\n")

@@ -181,3 +181,61 @@ func TestLiveEventsSSE(t *testing.T) {
 	        t.Errorf("rerunCheckRunID = %d; want 98765", rerunCheckRunID)
 	}
 	}
+
+
+func TestAutoSupersedeAndSSE(t *testing.T) {
+	db := newServerTestDB(t)
+	a := New(db, &MockGitHub{}, Config{})
+	srv := httptest.NewServer(a.Routes())
+	defer srv.Close()
+
+	// First run
+	init1 := events.Init{
+		ID: "e1", Repo: "o/r", SHA: "sha", PR: 100, Environment: "dev", Context: "plan/dev",
+		Stacks: []events.StackState{{Path: "s/a"}},
+	}
+	if err := store.UpsertInit(db, init1); err != nil {
+		t.Fatal(err)
+	}
+
+	// Connect SSE to e1
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, "GET", srv.URL+"/live/e1/events", nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	// Second run (Init2) triggers superseding of e1
+	init2 := init1
+	init2.ID = "e2"
+
+	// In parallel, issue Init2
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		if err := store.UpsertInit(db, init2); err != nil {
+			t.Error(err)
+		}
+		// Manually invoke handleInit endpoint to simulate Webhook trigger
+		a.handleInit(httptest.NewRecorder(), httptest.NewRequest("POST", "/api/init", strings.NewReader(`{"id": "e2", "repo": "o/r", "sha": "sha", "pr": 100, "environment": "dev", "context": "plan/dev", "stacks": [{"path": "s/a"}]}`)))
+	}()
+
+	sc := bufio.NewScanner(resp.Body)
+	supersededFound := false
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if !sc.Scan() {
+			break
+		}
+		line := sc.Text()
+		if strings.Contains(line, "event: superseded") {
+			supersededFound = true
+		}
+		if supersededFound && strings.Contains(line, "data: e2") {
+			return // Success!
+		}
+	}
+	t.Fatal("did not receive the superseded SSE event with target ID e2")
+}
