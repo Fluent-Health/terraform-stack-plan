@@ -1,0 +1,49 @@
+# Runs the test suite, produces a Cobertura XML coverage report, and uploads it to
+# GitHub. Coverage results then appear automatically on every pull request.
+name: Code Coverage
+
+# Push to main establishes the baseline; pull_request compares against it.
+# Both triggers are required for the up/down delta to work.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# code-quality: write is the only elevated permission needed. No PAT, no secrets.
+permissions:
+  contents: read
+  code-quality: write
+
+jobs:
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+      # Check out the PR HEAD commit (not the merge commit) so coverage line
+      # numbers map correctly onto the diff.
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      # --- Coverage generation (the only language-specific part) ---
+      - name: Run tests with coverage
+        run: go test -covermode=atomic -coverprofile=coverage.out ./...
+
+      - name: Convert coverprofile to Cobertura XML
+        run: |
+          go install github.com/boumenot/gocover-cobertura@v1.4.0
+          gocover-cobertura < coverage.out > coverage.xml
+      # --- end language-specific part ---
+
+      # Upload to GitHub. The `if` guard skips fork PRs, which can't upload.
+      - name: Upload coverage report
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        uses: actions/upload-code-coverage@v1
+        with:
+          file: coverage.xml
+          language: Go
+          label: code-coverage/go
