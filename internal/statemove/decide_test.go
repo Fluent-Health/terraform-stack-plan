@@ -68,31 +68,45 @@ func TestValidateMovePlan(t *testing.T) {
 	dst := AddressSet{}
 	providers := DestProviders{"google": true}
 
-	// 1. Success case
+	// 1. Success case (apply-time)
 	m := XMove{Pairs: []Move{{From: "google_artifact_registry_repository.main", To: "google_artifact_registry_repository.main"}}}
-	diags := ValidateMovePlan(src, dst, providers, m)
+	diags := ValidateMovePlan(src, dst, providers, m, true)
 	if len(diags) != 0 {
 		t.Errorf("expected 0 diags, got: %+v", diags)
 	}
 
-	// 2. Missing provider case
-	diags = ValidateMovePlan(src, dst, DestProviders{}, m)
+	// 2. Missing provider case (apply-time)
+	diags = ValidateMovePlan(src, dst, DestProviders{}, m, true)
 	if len(diags) != 1 || diags[0].Code != "xmove/provider-missing" {
 		t.Errorf("expected provider-missing, got: %+v", diags)
 	}
 
-	// 3. Phantom index mismatch case
+	// 3. Phantom index mismatch case (apply-time)
 	mWrong := XMove{Pairs: []Move{{From: "google_artifact_registry_repository.main[0]", To: "google_artifact_registry_repository.main"}}}
-	diags = ValidateMovePlan(src, dst, providers, mWrong)
+	diags = ValidateMovePlan(src, dst, providers, mWrong, true)
 	if len(diags) != 1 || diags[0].Code != "xmove/source-missing" {
 		t.Errorf("expected source-missing due to phantom index, got: %+v", diags)
 	}
 
-	// 4. Occupied destination case
+	// 4. Occupied destination case (apply-time)
 	dstOccupied := AddressSet{"google_artifact_registry_repository.main": "registry.terraform.io/hashicorp/google"}
-	diags = ValidateMovePlan(src, dstOccupied, providers, m)
+	diags = ValidateMovePlan(src, dstOccupied, providers, m, true)
 	if len(diags) != 1 || diags[0].Code != "xmove/dest-occupied" {
 		t.Errorf("expected dest-occupied, got: %+v", diags)
+	}
+
+	// 5. Success case (plan-time)
+	dstPlan := AddressSet{"google_artifact_registry_repository.main": "registry.terraform.io/hashicorp/google"}
+	diagsPlan := ValidateMovePlan(src, dstPlan, providers, m, false)
+	if len(diagsPlan) != 0 {
+		t.Errorf("expected 0 plan-time diags, got: %+v", diagsPlan)
+	}
+
+	// 6. Missing source case (plan-time)
+	srcEmpty := AddressSet{}
+	diagsPlan = ValidateMovePlan(srcEmpty, dstPlan, providers, m, false)
+	if len(diagsPlan) != 1 || diagsPlan[0].Code != "xmove/source-missing" {
+		t.Errorf("expected source-missing at plan-time, got: %+v", diagsPlan)
 	}
 }
 

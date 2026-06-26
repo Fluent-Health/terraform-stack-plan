@@ -130,7 +130,7 @@ var implicitProviders = map[string]bool{
 }
 
 // ValidateMovePlan validates a cross-state move manifest against source and destination AddressSets and configured providers.
-func ValidateMovePlan(src, dst AddressSet, providers DestProviders, m XMove) []Diagnostic {
+func ValidateMovePlan(src, dst AddressSet, providers DestProviders, m XMove, isApply bool) []Diagnostic {
 	var diags []Diagnostic
 
 	getShortName := func(fullName string) string {
@@ -145,39 +145,73 @@ func ValidateMovePlan(src, dst AddressSet, providers DestProviders, m XMove) []D
 		prov, inSrc := src[p.From]
 		_, inDst := dst[p.To]
 
-		switch {
-		case inSrc && !inDst:
-			// Valid move to be executed.
-			// Verify destination provider configuration
-			if prov != "" {
-				shortProv := getShortName(prov)
-				if !implicitProviders[shortProv] && shortProv != "module" && !providers[shortProv] {
-					diags = append(diags, Diagnostic{
-						Code:     "xmove/provider-missing",
-						Severity: SeverityError,
-						Message:  fmt.Sprintf("destination stack has no %q provider configured, but will receive resource %q requiring it", shortProv, p.To),
-					})
+		if isApply {
+			// Apply-time validation against live states
+			switch {
+			case inSrc && !inDst:
+				// Valid move to be executed.
+				// Verify destination provider configuration
+				if prov != "" {
+					shortProv := getShortName(prov)
+					if !implicitProviders[shortProv] && shortProv != "module" && !providers[shortProv] {
+						diags = append(diags, Diagnostic{
+							Code:     "xmove/provider-missing",
+							Severity: SeverityError,
+							Message:  fmt.Sprintf("destination stack has no %q provider configured, but will receive resource %q requiring it", shortProv, p.To),
+						})
+					}
+				}
+
+			case !inSrc && inDst:
+				// Valid skip (already moved)
+
+			case inSrc && inDst:
+				// Duplicate/occupied error
+				diags = append(diags, Diagnostic{
+					Code:     "xmove/dest-occupied",
+					Severity: SeverityError,
+					Message:  fmt.Sprintf("ambiguous: %q is in the source state AND %q is in the destination state (would duplicate)", p.From, p.To),
+				})
+
+			default:
+				// Missing error (neither has it)
+				diags = append(diags, Diagnostic{
+					Code:     "xmove/source-missing",
+					Severity: SeverityError,
+					Message:  fmt.Sprintf("missing: %q is not in the source state and %q is not in the destination state (manifest wrong or already pruned)", p.From, p.To),
+				})
+			}
+		} else {
+			// Plan-time validation against planned changes
+			// 1. Source address check: must be present in the source plan as a change
+			if !inSrc {
+				diags = append(diags, Diagnostic{
+					Code:     "xmove/source-missing",
+					Severity: SeverityError,
+					Message:  fmt.Sprintf("address %q not found in source plan (manifest stale or address renamed)", p.From),
+				})
+			} else {
+				// Verify destination provider configuration
+				if prov != "" {
+					shortProv := getShortName(prov)
+					if !implicitProviders[shortProv] && shortProv != "module" && !providers[shortProv] {
+						diags = append(diags, Diagnostic{
+							Code:     "xmove/provider-missing",
+							Severity: SeverityError,
+							Message:  fmt.Sprintf("destination stack has no %q provider configured, but will receive resource %q requiring it", shortProv, p.To),
+						})
+					}
 				}
 			}
 
-		case !inSrc && inDst:
-			// Valid skip (already moved)
-
-		case inSrc && inDst:
-			// Duplicate/occupied error
-			diags = append(diags, Diagnostic{
-				Code:     "xmove/dest-occupied",
-				Severity: SeverityError,
-				Message:  fmt.Sprintf("ambiguous: %q is in the source state/plan AND %q is in the destination state/plan (would duplicate)", p.From, p.To),
-			})
-
-		default:
-			// Missing error (neither has it)
-			diags = append(diags, Diagnostic{
-				Code:     "xmove/source-missing",
-				Severity: SeverityError,
-				Message:  fmt.Sprintf("missing: %q is not in the source state/plan and %q is not in the destination state/plan (manifest wrong or already pruned)", p.From, p.To),
-			})
+			// 2. Destination check (if destination plan changes are available)
+			if len(dst) > 0 && !inDst {
+				diags = append(diags, Diagnostic{
+					Code:     "xmove/dest-missing",
+					Severity: SeverityError,
+					Message:  fmt.Sprintf("address %q not found in destination plan changes (manifest stale or target address incorrect)", p.To),
+				})
+			}
 		}
 	}
 

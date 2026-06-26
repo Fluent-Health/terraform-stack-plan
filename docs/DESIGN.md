@@ -1604,6 +1604,10 @@ import/removed; SP3 adds the faithful `terraform state mv` executor.** Verbs:
   (prints "would move" / "skip"); `--execute` performs the moves. Requires
   `terraform` on `PATH`. The discover→execute→print core is the package-level
   `applyPendingMoves`, shared with the `run apply` pre-phase (below).
+- **Unified fail-closed validation.** Cross-state moves (`_tfsp_xmove.*.hcl`) are validated by a single pure validator `ValidateMovePlan` in `internal/statemove`:
+  - *Exact matching:* Lenient index-stripping is eliminated. Manifest addresses must match plan or live state addresses exactly. Mismatches are treated as critical error diagnostics, blocking execution.
+  - *Plan-time enforcement:* Running `run plan` validates manifests against parsed `tfplan.json` files and destination stack provider configurations, failing the classify pass (exit 1) on any `error`-severity diagnostic.
+  - *Apply-time pre-flight:* Right before executing moves, the same validator runs against live pulled state addresses and destination stack provider configurations as a final fail-closed guard, aborting state surgery on errors.
 - **Dest-push-failure rollback.** If a move's dest `StatePush` fails after the
   source push already succeeded (resources removed from the source's live state
   but not yet in the dest's), `Execute` **rolls the source back** to its
