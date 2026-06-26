@@ -31,15 +31,15 @@ type RawAttr struct {
 // RawChange is one resource change with its raw Terraform actions retained
 // (classify needs them) alongside the reduced bucket.
 type RawChange struct {
-        Address string
-        Type    string
-        Actions []string // raw tf actions, e.g. ["update"] or ["delete","create"]
-        Action  model.Action
-        Attrs   []RawAttr // populated for create/delete/update/replace/forget
+	Address string
+	Type    string
+	Actions []string // raw tf actions, e.g. ["update"] or ["delete","create"]
+	Action  model.Action
+	Attrs   []RawAttr // populated for create/delete/update/replace/forget
 
-        Name          string
-        ModuleAddress string
-        ProviderName  string
+	Name          string
+	ModuleAddress string
+	ProviderName  string
 
 	// Raw holds top-level scalar attributes (string/number/bool), after over
 	// before, sensitive values skipped. Retained for classification attribute
@@ -112,16 +112,16 @@ func Parse(name string, data []byte) (RawStack, error) {
 		}
 
 		ch := RawChange{
-		        Address:       rc.Address,
-		        Type:          rc.Type,
-		        Actions:       toStrings(act),
-		        Action:        bucket,
-		        Moved:         moved,
-		        Imported:      imported,
-		        Name:          rc.Name,
-		        ModuleAddress: rc.ModuleAddress,
-		        ProviderName:  rc.ProviderName,
-		        Raw:           rawScalars(rc.Change),
+			Address:       rc.Address,
+			Type:          rc.Type,
+			Actions:       toStrings(act),
+			Action:        bucket,
+			Moved:         moved,
+			Imported:      imported,
+			Name:          rc.Name,
+			ModuleAddress: rc.ModuleAddress,
+			ProviderName:  rc.ProviderName,
+			Raw:           rawScalars(rc.Change),
 		}
 		if moved {
 			ch.PreviousAddress = rc.PreviousAddress

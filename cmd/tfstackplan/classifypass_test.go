@@ -285,7 +285,7 @@ xmove {
 	os.Stderr = oldStderr
 
 	if err == nil {
-	        t.Fatal("expected error from validateXMoveManifest, got nil")
+		t.Fatal("expected error from validateXMoveManifest, got nil")
 	}
 
 	var buf [1024]byte
@@ -294,7 +294,7 @@ xmove {
 
 	expected := "❌ xmove PR-1: address \"module.main.module.cms[0]\" not found in source plan (manifest stale or address renamed)"
 	if !strings.Contains(out, "❌") || !strings.Contains(out, "not found in source plan") {
-	        t.Fatalf("expected warning message to contain %q, got: %q", expected, out)
+		t.Fatalf("expected warning message to contain %q, got: %q", expected, out)
 	}
 }
 
@@ -344,7 +344,7 @@ xmove {
 	os.Stderr = oldStderr
 
 	if err == nil {
-	        t.Fatal("expected error from validateXMoveManifest, got nil")
+		t.Fatal("expected error from validateXMoveManifest, got nil")
 	}
 
 	var buf [1024]byte
@@ -352,7 +352,7 @@ xmove {
 	out := string(buf[:n])
 
 	if !strings.Contains(out, "❌") || !strings.Contains(out, "provider") {
-	        t.Fatalf("expected error message to contain '❌' and 'provider', got: %q", out)
+		t.Fatalf("expected error message to contain '❌' and 'provider', got: %q", out)
 	}
 
 	// Now write provider block and verify NO warning!
@@ -372,7 +372,7 @@ xmove {
 	os.Stderr = oldStderr
 
 	if err2 != nil {
-	        t.Fatalf("expected no validation error after adding provider block, got: %v", err2)
+		t.Fatalf("expected no validation error after adding provider block, got: %v", err2)
 	}
 
 	var buf2 [1024]byte
@@ -380,6 +380,6 @@ xmove {
 	out2 := string(buf2[:n2])
 
 	if strings.Contains(out2, "provider") {
-	        t.Fatalf("expected NO provider config warning when postgresql provider block is configured, got: %q", out2)
+		t.Fatalf("expected NO provider config warning when postgresql provider block is configured, got: %q", out2)
 	}
 }
