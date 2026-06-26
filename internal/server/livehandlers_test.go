@@ -137,12 +137,47 @@ func TestLiveEventsSSE(t *testing.T) {
 	sc := bufio.NewScanner(resp.Body)
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
-		if !sc.Scan() {
-			break
-		}
-		if strings.Contains(sc.Text(), "changed") {
-			return
-		}
+	        if !sc.Scan() {
+	                break
+	        }
+	        if strings.Contains(sc.Text(), "changed") {
+	                return
+	        }
 	}
 	t.Fatal("did not receive a 'changed' SSE event")
-}
+	}
+
+	func TestHandleRerun(t *testing.T) {
+	db := newServerTestDB(t)
+	if err := store.UpsertInit(db, events.Init{
+	        ID: "e1", Repo: "owner/repo", SHA: "sha", PR: 7, Environment: "staging",
+	        Stacks: []events.StackState{{Path: "stacks/a"}},
+	}); err != nil {
+	        t.Fatal(err)
+	}
+	_ = store.SetCheckRunID(db, "e1", 98765)
+
+	var rerunCheckRunID int64
+	gh := &MockGitHub{
+	        ReRequestCheckRunFn: func(ctx context.Context, repo string, checkRunID int64) error {
+	                rerunCheckRunID = checkRunID
+	                return nil
+	        },
+	}
+	a := New(db, gh, Config{})
+	srv := httptest.NewServer(a.Routes())
+	defer srv.Close()
+
+	req, _ := http.NewRequest("POST", srv.URL+"/live/e1/rerun", nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+	        t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent {
+	        t.Fatalf("POST /live/e1/rerun status = %d, want 204", resp.StatusCode)
+	}
+	if rerunCheckRunID != 98765 {
+	        t.Errorf("rerunCheckRunID = %d; want 98765", rerunCheckRunID)
+	}
+	}

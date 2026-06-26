@@ -116,6 +116,7 @@ type liveView struct {
 	StackLogs                 map[string]string // stack path → recent log excerpt
 	VerifyExec                string            // latest verify run id for this PR/env ("" if none)
 	SVG, Panel                string
+	Token                     string
 }
 
 // livePage renders the auto-refreshing execution page via the Briefing template.
@@ -200,6 +201,7 @@ type liveModel struct {
 	Finished                                  bool   // concluded ⇒ static log fetch instead of SSE follow
 	VerifyExec                                string // verify run id (apply only) for the Validation tab
 	SVG, Panel                                template.HTML
+	Token                                     string
 }
 
 // buildLiveModel assembles the Briefing payload from a liveView. kind is
@@ -327,6 +329,7 @@ func buildLiveModel(v liveView, kind string, finished bool, prog *config.Progres
 		VerifyExec: v.VerifyExec,
 		SVG:        template.HTML(v.SVG),
 		Panel:      template.HTML(v.Panel),
+		Token:      v.Token,
 	}
 }
 
