@@ -11,20 +11,20 @@ import (
 
 // Execution is a row of the executions table.
 type Execution struct {
-        ID             string
-        Repo           string
-        SHA            string
-        PR             int
-        Environment    string
-        CheckRunID     sql.NullInt64
-        Rev            int
-        ReportMarkdown string
-        LogURL         string
-        Status         string // execution-level commit status (e.g. "in_progress"/"success"/"failure"); written by the serve handler, distinct from per-stack events.Status
-        StatusContext  string
-        Phase          string
-        CreatedAt      time.Time
-        SupersededBy   string
+	ID             string
+	Repo           string
+	SHA            string
+	PR             int
+	Environment    string
+	CheckRunID     sql.NullInt64
+	Rev            int
+	ReportMarkdown string
+	LogURL         string
+	Status         string // execution-level commit status (e.g. "in_progress"/"success"/"failure"); written by the serve handler, distinct from per-stack events.Status
+	StatusContext  string
+	Phase          string
+	CreatedAt      time.Time
+	SupersededBy   string
 }
 
 // UpsertInit records an execution and its changed subgraph from an Init event.
@@ -91,20 +91,20 @@ func UpsertPhase(db *sql.DB, p events.PhaseEvent) error {
 
 // GetExecution loads one execution row.
 func GetExecution(db *sql.DB, id string) (Execution, error) {
-        var e Execution
-        err := db.QueryRow(
-                `SELECT id, repo, sha, COALESCE(pr,0), COALESCE(environment,''), check_run_id,
+	var e Execution
+	err := db.QueryRow(
+		`SELECT id, repo, sha, COALESCE(pr,0), COALESCE(environment,''), check_run_id,
                         rev, COALESCE(report_markdown,''), COALESCE(log_url,''),
                         COALESCE(status,''), COALESCE(status_context,''), COALESCE(phase,''), created_at,
                         COALESCE(superseded_by, '')
                  FROM executions WHERE id = ?`, id).
-                Scan(&e.ID, &e.Repo, &e.SHA, &e.PR, &e.Environment, &e.CheckRunID,
-                        &e.Rev, &e.ReportMarkdown, &e.LogURL, &e.Status, &e.StatusContext, &e.Phase, &e.CreatedAt,
-                        &e.SupersededBy)
-        if err != nil {
-                return Execution{}, err
-        }
-        return e, nil
+		Scan(&e.ID, &e.Repo, &e.SHA, &e.PR, &e.Environment, &e.CheckRunID,
+			&e.Rev, &e.ReportMarkdown, &e.LogURL, &e.Status, &e.StatusContext, &e.Phase, &e.CreatedAt,
+			&e.SupersededBy)
+	if err != nil {
+		return Execution{}, err
+	}
+	return e, nil
 }
 
 // UpdateStack ticks one stack's status (and optional failure detail).
@@ -265,45 +265,45 @@ func EnvironmentsForPR(db *sql.DB, pr int) ([]string, error) {
 // (pr, environment) — i.e. a run whose status_context begins with "verify". ok is
 // false when none exists.
 func LatestVerifyExecutionID(db *sql.DB, pr int, environment string) (string, bool) {
-        var id string
-        err := db.QueryRow(
-                `SELECT id FROM executions
+	var id string
+	err := db.QueryRow(
+		`SELECT id FROM executions
                  WHERE pr = ? AND environment = ? AND status_context LIKE 'verify%'
                  ORDER BY created_at DESC, id DESC LIMIT 1`, pr, environment).Scan(&id)
-        if err != nil {
-                return "", false
-        }
-        return id, true
+	if err != nil {
+		return "", false
+	}
+	return id, true
 }
 
 // FindNonSupersededExecution looks up the most recent non-superseded execution for
 // the given (pr, environment, sha, status_context) where pr > 0 and id != incoming id.
 func FindNonSupersededExecution(db *sql.DB, pr int, environment, sha, statusContext, incomingID string) (string, bool, error) {
-        if pr <= 0 {
-                return "", false, nil
-        }
-        var id string
-        err := db.QueryRow(
-                `SELECT id FROM executions
+	if pr <= 0 {
+		return "", false, nil
+	}
+	var id string
+	err := db.QueryRow(
+		`SELECT id FROM executions
                  WHERE pr = ? AND environment = ? AND sha = ? AND status_context = ?
                    AND id != ? AND (superseded_by IS NULL OR superseded_by = '')
                  ORDER BY created_at DESC, id DESC LIMIT 1`,
-                pr, environment, sha, statusContext, incomingID,
-        ).Scan(&id)
-        if err == sql.ErrNoRows {
-                return "", false, nil
-        }
-        if err != nil {
-                return "", false, err
-        }
-        return id, true, nil
+		pr, environment, sha, statusContext, incomingID,
+	).Scan(&id)
+	if err == sql.ErrNoRows {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	return id, true, nil
 }
 
 // SupersedeExecution links an old execution ID to its replacing execution ID.
 func SupersedeExecution(db *sql.DB, oldID, newID string) error {
-        _, err := db.Exec(
-                `UPDATE executions SET superseded_by = ? WHERE id = ?`,
-                newID, oldID,
-        )
-        return err
+	_, err := db.Exec(
+		`UPDATE executions SET superseded_by = ? WHERE id = ?`,
+		newID, oldID,
+	)
+	return err
 }

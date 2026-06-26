@@ -254,84 +254,84 @@ func TestSetExecutionStatus(t *testing.T) {
 }
 
 func TestUpdateStackAndReportAndRev(t *testing.T) {
-        db := newTestDB(t)
-        if err := UpsertInit(db, sampleInit()); err != nil {
-                t.Fatal(err)
-        }
-        if err := UpdateStack(db, "exec-1", "stacks/a", events.StatusFailed, "boom"); err != nil {
-                t.Fatalf("UpdateStack: %v", err)
-        }
-        g, _ := LoadGraph(db, "exec-1")
-        if g.Stacks[0].Status != events.StatusFailed || g.Stacks[0].Detail != "boom" {
-                t.Errorf("stack a = %+v; want failed/boom", g.Stacks[0])
-        }
-        if err := SetReport(db, "exec-1", "# report"); err != nil {
-                t.Fatal(err)
-        }
-        if err := BumpRev(db, "exec-1"); err != nil {
-                t.Fatal(err)
-        }
-        if err := SetCheckRunID(db, "exec-1", 12345); err != nil {
-                t.Fatal(err)
-        }
-        e, _ := GetExecution(db, "exec-1")
-        if e.ReportMarkdown != "# report" || e.Rev != 1 || !e.CheckRunID.Valid || e.CheckRunID.Int64 != 12345 {
-                t.Errorf("execution after writes = %+v", e)
-        }
+	db := newTestDB(t)
+	if err := UpsertInit(db, sampleInit()); err != nil {
+		t.Fatal(err)
+	}
+	if err := UpdateStack(db, "exec-1", "stacks/a", events.StatusFailed, "boom"); err != nil {
+		t.Fatalf("UpdateStack: %v", err)
+	}
+	g, _ := LoadGraph(db, "exec-1")
+	if g.Stacks[0].Status != events.StatusFailed || g.Stacks[0].Detail != "boom" {
+		t.Errorf("stack a = %+v; want failed/boom", g.Stacks[0])
+	}
+	if err := SetReport(db, "exec-1", "# report"); err != nil {
+		t.Fatal(err)
+	}
+	if err := BumpRev(db, "exec-1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetCheckRunID(db, "exec-1", 12345); err != nil {
+		t.Fatal(err)
+	}
+	e, _ := GetExecution(db, "exec-1")
+	if e.ReportMarkdown != "# report" || e.Rev != 1 || !e.CheckRunID.Valid || e.CheckRunID.Int64 != 12345 {
+		t.Errorf("execution after writes = %+v", e)
+	}
 }
 
 func TestFindAndSupersedeExecution(t *testing.T) {
-        db := newTestDB(t)
-        exec1 := sampleInit()
-        exec1.ID = "exec-1"
-        if err := UpsertInit(db, exec1); err != nil {
-                t.Fatalf("UpsertInit exec1: %v", err)
-        }
+	db := newTestDB(t)
+	exec1 := sampleInit()
+	exec1.ID = "exec-1"
+	if err := UpsertInit(db, exec1); err != nil {
+		t.Fatalf("UpsertInit exec1: %v", err)
+	}
 
-        // Lookup should find nothing yet (same incoming ID)
-        _, found, err := FindNonSupersededExecution(db, exec1.PR, exec1.Environment, exec1.SHA, exec1.Context, "exec-1")
-        if err != nil {
-                t.Fatalf("FindNonSupersededExecution: %v", err)
-        }
-        if found {
-                t.Errorf("found non-superseded execution prematurely")
-        }
+	// Lookup should find nothing yet (same incoming ID)
+	_, found, err := FindNonSupersededExecution(db, exec1.PR, exec1.Environment, exec1.SHA, exec1.Context, "exec-1")
+	if err != nil {
+		t.Fatalf("FindNonSupersededExecution: %v", err)
+	}
+	if found {
+		t.Errorf("found non-superseded execution prematurely")
+	}
 
-        exec2 := sampleInit()
-        exec2.ID = "exec-2"
-        if err := UpsertInit(db, exec2); err != nil {
-                t.Fatalf("UpsertInit exec2: %v", err)
-        }
+	exec2 := sampleInit()
+	exec2.ID = "exec-2"
+	if err := UpsertInit(db, exec2); err != nil {
+		t.Fatalf("UpsertInit exec2: %v", err)
+	}
 
-        // Lookup from exec-2 perspective should find exec-1
-        oldID, found, err := FindNonSupersededExecution(db, exec2.PR, exec2.Environment, exec2.SHA, exec2.Context, exec2.ID)
-        if err != nil {
-                t.Fatalf("FindNonSupersededExecution: %v", err)
-        }
-        if !found || oldID != "exec-1" {
-                t.Errorf("FindNonSupersededExecution = %q, %t; want exec-1, true", oldID, found)
-        }
+	// Lookup from exec-2 perspective should find exec-1
+	oldID, found, err := FindNonSupersededExecution(db, exec2.PR, exec2.Environment, exec2.SHA, exec2.Context, exec2.ID)
+	if err != nil {
+		t.Fatalf("FindNonSupersededExecution: %v", err)
+	}
+	if !found || oldID != "exec-1" {
+		t.Errorf("FindNonSupersededExecution = %q, %t; want exec-1, true", oldID, found)
+	}
 
-        // Supersede old
-        if err := SupersedeExecution(db, "exec-1", "exec-2"); err != nil {
-                t.Fatalf("SupersedeExecution: %v", err)
-        }
+	// Supersede old
+	if err := SupersedeExecution(db, "exec-1", "exec-2"); err != nil {
+		t.Fatalf("SupersedeExecution: %v", err)
+	}
 
-        // Verify it was marked
-        e1, err := GetExecution(db, "exec-1")
-        if err != nil {
-                t.Fatalf("GetExecution: %v", err)
-        }
-        if e1.SupersededBy != "exec-2" {
-                t.Errorf("e1.SupersededBy = %q; want exec-2", e1.SupersededBy)
-        }
+	// Verify it was marked
+	e1, err := GetExecution(db, "exec-1")
+	if err != nil {
+		t.Fatalf("GetExecution: %v", err)
+	}
+	if e1.SupersededBy != "exec-2" {
+		t.Errorf("e1.SupersededBy = %q; want exec-2", e1.SupersededBy)
+	}
 
-        // Lookup should now be empty (since exec-1 is superseded, and exec-2 is the incoming ID)
-        _, found, err = FindNonSupersededExecution(db, exec2.PR, exec2.Environment, exec2.SHA, exec2.Context, "exec-2")
-        if err != nil {
-                t.Fatalf("FindNonSupersededExecution: %v", err)
-        }
-        if found {
-                t.Errorf("should not find superseded execution")
-        }
+	// Lookup should now be empty (since exec-1 is superseded, and exec-2 is the incoming ID)
+	_, found, err = FindNonSupersededExecution(db, exec2.PR, exec2.Environment, exec2.SHA, exec2.Context, "exec-2")
+	if err != nil {
+		t.Fatalf("FindNonSupersededExecution: %v", err)
+	}
+	if found {
+		t.Errorf("should not find superseded execution")
+	}
 }

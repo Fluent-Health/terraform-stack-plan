@@ -35,21 +35,21 @@ type GitHub interface {
 	MergeGroupPRs(ctx context.Context, repo, headSHA string) ([]int, error)
 	// ReRequestCheckRun re-requests a GitHub check-run.
 	ReRequestCheckRun(ctx context.Context, repo string, checkRunID int64) error
-	}
+}
 
-	// MockGitHub is a test double for GitHub. Unset funcs are no-ops.
-	type MockGitHub struct {
-	CreateCheckRunFn func(ctx context.Context, repo, sha, name, detailsURL string) (int64, error)
-	UpdateCheckRunFn func(ctx context.Context, repo string, checkRunID int64, u CheckRunUpdate) error
-	PostStatusFn     func(ctx context.Context, repo, sha, context_, state, description, targetURL string) error
-	PRHeadSHAFn      func(ctx context.Context, repo string, pr int) (string, error)
-	PRAbandonedFn    func(ctx context.Context, repo string, pr int) (bool, error)
-	MergeGroupPRsFn  func(ctx context.Context, repo, headSHA string) ([]int, error)
+// MockGitHub is a test double for GitHub. Unset funcs are no-ops.
+type MockGitHub struct {
+	CreateCheckRunFn    func(ctx context.Context, repo, sha, name, detailsURL string) (int64, error)
+	UpdateCheckRunFn    func(ctx context.Context, repo string, checkRunID int64, u CheckRunUpdate) error
+	PostStatusFn        func(ctx context.Context, repo, sha, context_, state, description, targetURL string) error
+	PRHeadSHAFn         func(ctx context.Context, repo string, pr int) (string, error)
+	PRAbandonedFn       func(ctx context.Context, repo string, pr int) (bool, error)
+	MergeGroupPRsFn     func(ctx context.Context, repo, headSHA string) ([]int, error)
 	ReRequestCheckRunFn func(ctx context.Context, repo string, checkRunID int64) error
 	// CreateCheckRunCalls counts CreateCheckRun invocations so tests can assert
 	// the check run is created exactly once (idempotency).
 	CreateCheckRunCalls int
-	}
+}
 
 func (m *MockGitHub) CreateCheckRun(ctx context.Context, repo, sha, name, detailsURL string) (int64, error) {
 	m.CreateCheckRunCalls++
@@ -88,16 +88,16 @@ func (m *MockGitHub) PRAbandoned(ctx context.Context, repo string, pr int) (bool
 }
 
 func (m *MockGitHub) MergeGroupPRs(ctx context.Context, repo, headSHA string) ([]int, error) {
-        if m.MergeGroupPRsFn != nil {
-                return m.MergeGroupPRsFn(ctx, repo, headSHA)
-        }
-        return nil, nil
+	if m.MergeGroupPRsFn != nil {
+		return m.MergeGroupPRsFn(ctx, repo, headSHA)
+	}
+	return nil, nil
 }
 
 // ReRequestCheckRun re-requests a GitHub check-run.
 func (m *MockGitHub) ReRequestCheckRun(ctx context.Context, repo string, checkRunID int64) error {
-        if m.ReRequestCheckRunFn != nil {
-                return m.ReRequestCheckRunFn(ctx, repo, checkRunID)
-        }
-        return nil
+	if m.ReRequestCheckRunFn != nil {
+		return m.ReRequestCheckRunFn(ctx, repo, checkRunID)
+	}
+	return nil
 }

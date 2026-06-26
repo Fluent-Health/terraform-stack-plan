@@ -278,10 +278,10 @@ func (c *RealClient) MergeGroupPRs(ctx context.Context, repo, headSHA string) ([
 // applyLockName is the per-environment apply-lock check name (the merge gate
 // that branch protection / the merge queue require): "apply-lock/<env>".
 func applyLockName(environment string) string {
-        if environment == "" {
-                return "apply-lock"
-        }
-        return "apply-lock/" + environment
+	if environment == "" {
+		return "apply-lock"
+	}
+	return "apply-lock/" + environment
 }
 
 // ReRequestCheckRun triggers a check-run re-request.
