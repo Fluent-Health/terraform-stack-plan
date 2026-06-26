@@ -58,7 +58,8 @@ func Decide(state ChangeSet, s Signal) []Event {
 //   - clean (effective gate empty): emit StacksClassified + GatePassed.
 //   - gated: emit StacksClassified + Classified{effective} + TargetRevoked for
 //     each pruned dropped target (plan-authoritative only) + GateTargetRequested
-//     for the first target lacking a carried-forward live grant.
+//     for the first target lacking a carried-forward live grant, OR GateSatisfied
+//     when every target is already ACTIVE (carried-forward all-ACTIVE path).
 //
 // decideFinalize computes the gate/exec events for a RunnerFinalize signal.
 func decideFinalize(state ChangeSet, f RunnerFinalize) []Event {
@@ -104,6 +105,7 @@ func decideFinalize(state ChangeSet, f RunnerFinalize) []Event {
 	// the target will be carried forward (GrantName retained); otherwise it
 	// starts fresh and must be requested (step.go:127-131, 88-101).
 	lease := priorLease(state.Gate)
+	anyRequested := false
 	for _, g := range gates {
 		key := g.Class + "|" + g.Target
 		if pt, ok := prior[key]; ok && pt.Grant.Open() {
@@ -114,8 +116,30 @@ func decideFinalize(state ChangeSet, f RunnerFinalize) []Event {
 			Target:    g.Target,
 			Requester: lease.Requester,
 		})
+		anyRequested = true
 		break
 	}
+
+	// Carried-forward all-ACTIVE path: if every target was carried forward with
+	// an ACTIVE grant, the gate is already satisfied. Emit GateSatisfied so the
+	// check run closes immediately. Without this, PendingGates excludes
+	// fully-ACTIVE gates and the ReconcileLoop never heals the stuck in_progress
+	// check run when a superseding build re-finalizes a plan whose grant is still
+	// live from a prior build of the same PR/env.
+	if !anyRequested {
+		allActive := true
+		for _, g := range gates {
+			key := g.Class + "|" + g.Target
+			if pt, ok := prior[key]; !ok || pt.Grant != approval.StateActive {
+				allActive = false
+				break
+			}
+		}
+		if allActive {
+			evs = append(evs, GateSatisfied{})
+		}
+	}
+
 	return evs
 }
 
