@@ -13,6 +13,16 @@
 </head>
 <body class="min-h-screen bg-base-200">
   <main class="mx-auto w-full max-w-4xl px-4 py-6">
+    {{ if .SupersededBy }}
+    <div class="mb-4 bg-warning/15 border border-warning/30 text-warning px-4 py-3 rounded-lg text-sm flex items-center justify-between">
+      <div class="flex items-center gap-2">
+        <span>⚠</span>
+        <span>This run was superseded</span>
+      </div>
+      <a class="text-primary hover:underline font-semibold" href="/live/{{ .SupersededBy }}{{ if .Token }}?token={{ .Token }}{{ end }}">view new run →</a>
+    </div>
+    {{ end }}
+
     <div class="card bg-base-100 border border-base-300 shadow-sm">
 
       <!-- header -->
@@ -30,9 +40,13 @@
             {{ end }}
           </span>
         </div>
-        <h1 class="font-display text-xl font-bold flex items-center gap-3 flex-wrap">
+        <h1 class="font-display text-xl font-bold flex items-center gap-3 flex-wrap w-full">
           {{ .Title }}
           <span class="badge badge-sm font-mono tracking-wide {{ if eq .PhaseAccent "apply" }}badge-primary{{ else }}badge-secondary{{ end }}">{{ .PhaseLabel }}{{ if .Elapsed }} · {{ .Elapsed }}{{ end }}</span>
+          {{ if and (not .SupersededBy) .Finished (gt .CheckRunID 0) }}
+          <button id="rerun-btn" class="ml-auto btn btn-xs btn-secondary font-mono" onclick="triggerRerun()">Re-run</button>
+          <span id="rerun-error" class="text-xs text-error font-mono hidden ml-2"></span>
+          {{ end }}
         </h1>
       </div>
 
@@ -176,6 +190,12 @@
         var es = new EventSource(location.pathname.replace(/\/$/, "") + "/events");
         var t;
         es.onmessage = function () { clearTimeout(t); t = setTimeout(reload, 1500); };
+        es.addEventListener('superseded', function (e) {
+          var params = new URLSearchParams(location.search);
+          var token = params.get('token');
+          var target = "/live/" + e.data + (token ? "?token=" + encodeURIComponent(token) : "");
+          location.href = target;
+        });
       } catch (e) { /* no EventSource → the noscript meta-refresh covers it */ }
     })();
   </script>
@@ -271,6 +291,28 @@
       window.addEventListener('hashchange', onHash);
       if (location.hash) onHash();
     })();
+  </script>
+  <script>
+    function triggerRerun() {
+      var btn = document.getElementById('rerun-btn');
+      var errSpan = document.getElementById('rerun-error');
+      if (!btn) return;
+      btn.disabled = true;
+      btn.textContent = "Triggering...";
+      errSpan.classList.add('hidden');
+      
+      fetch(location.pathname.replace(/\/$/, "") + "/rerun", { method: 'POST' })
+        .then(function (r) {
+          if (!r.ok) throw new Error("HTTP " + r.status);
+          btn.textContent = "Triggered";
+        })
+        .catch(function (err) {
+          btn.disabled = false;
+          btn.textContent = "Re-run";
+          errSpan.textContent = "Failed: " + err.message;
+          errSpan.classList.remove('hidden');
+        });
+    }
   </script>
 </body>
 </html>

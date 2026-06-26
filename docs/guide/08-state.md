@@ -80,9 +80,10 @@ it up automatically.
 
 **`state apply`** is the `--via mv` executor. It discovers every
 `_tfsp_xmove.*.hcl` manifest under `--dir`, then for each pair: pulls both
-states, backs them up under `.tfsp-state-backups`, checks which side already
-holds the resource (idempotent if it's already at the destination, error if
-it's in neither), and runs `terraform state mv` against the pulled local
+states, backs them up under `.tfsp-state-backups`, runs our unified exact-match
+validator to verify resource presence, destination absence, and configured destination
+providers (idempotent if already moved, error on duplicates or missing source/provider),
+and runs `terraform state mv` against the pulled local
 files. It never passes `--force` on forward pushes. Dry-run by default;
 `--execute` performs the actual moves. `--lock` acquires the pessimistic GCS
 lock before each move (see [Concurrency](#concurrency) below). Requires

@@ -64,7 +64,27 @@ script invocations work without a server.
 tfstackplan run <subcommand> [flags]
 ```
 
-Subcommands: `plan`, `apply`, `verify`, `tick`, `step`, `phase`, `register`.
+Subcommands: `lint`, `plan`, `apply`, `verify`, `tick`, `step`, `phase`, `register`.
+
+### `run lint`
+
+Registers the execution on the server, transitions to the `PhaseLinting` phase,
+and executes the Terramate lint script across stacks. If linting fails, it cleanly
+finalizes the execution with `Failed=true` so CI pipelines and check runs don't hang,
+and exits with code `1`. On success, it exits `0` without finalizing (leaving the global
+execution active for subsequent plan/apply steps).
+
+```
+tfstackplan run lint --dir DIR [flags]
+```
+
+| Flag | Type | Default | Meaning |
+|---|---|---|---|
+| `--dir` | string | _(required)_ | Terramate project root. |
+| `--changed` | bool | `true` | Only lint changed stacks (terramate `--changed`). |
+| `--parallel` | int | `0` | Parallel lint jobs. `0` uses the terramate default. |
+| `--base` | string | `""` | Git base ref for change detection. |
+| `--script` | string | `"lint"` | Terramate script name to run. |
 
 ### `run plan`
 

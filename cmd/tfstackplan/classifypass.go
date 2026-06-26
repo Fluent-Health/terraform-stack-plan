@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
-	"strings"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/config"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
@@ -147,7 +145,9 @@ func writeStateMovesManifest(dir, outDir string) (string, error) {
 	}
 
 	// Validate xmove From addresses against plans
-	validateXMoveManifest(dir, outDir)
+	if err := validateXMoveManifest(dir, outDir); err != nil {
+		return "", err
+	}
 
 	b, err := json.Marshal(manifest)
 	if err != nil {
@@ -160,119 +160,65 @@ func writeStateMovesManifest(dir, outDir string) (string, error) {
 	return path, nil
 }
 
-var indexRegex = regexp.MustCompile(`\[\d+\]`)
-
-func stripIndices(addr string) string {
-	return indexRegex.ReplaceAllString(addr, "")
-}
-
-func validateXMoveManifest(dir, outDir string) {
+func validateXMoveManifest(dir, outDir string) error {
 	xmoves, err := statemove.DiscoverXMoves(dir)
 	if err != nil {
-		return
+		return err
 	}
+
+	var hasErrors bool
+
 	for _, fx := range xmoves {
 		resolvedSource := resolveSourceStack(dir, fx.DestStack, fx.XMove.SourceStack)
 
-		// Load the tfplan.json for the resolvedSource stack
-		planPath := filepath.Join(outDir, filepath.FromSlash(resolvedSource), "tfplan.json")
-		planBytes, err := os.ReadFile(planPath)
-		if err != nil {
-			continue // if no plan exists for this stack, skip validation
-		}
-
-		rs, err := plan.Parse(resolvedSource, planBytes)
-		if err != nil {
-			continue // malformed plan, skip validation
-		}
-
-		// Build the set of all plan addresses (both raw and stripped)
-		planAddrs := map[string]bool{}
-		for _, c := range rs.Changes {
-			planAddrs[c.Address] = true
-			planAddrs[stripIndices(c.Address)] = true
-			if c.PreviousAddress != "" {
-				planAddrs[c.PreviousAddress] = true
-				planAddrs[stripIndices(c.PreviousAddress)] = true
-			}
-		}
-
-		// Check each Pair.From against the plan
-		for _, p := range fx.XMove.Pairs {
-			fromAddr := p.From
-			if planAddrs[fromAddr] || planAddrs[stripIndices(fromAddr)] {
-				continue // address found, valid!
-			}
-
-			// Warning! Address not found in plan
-			fmt.Fprintf(os.Stderr, "⚠️  xmove %s: address %q not found in %s plan — manifest may be stale or address has been renamed\n",
-				fx.Key, fromAddr, resolvedSource)
-		}
-
-		// Validate Destination Stack Provider Config
-		destStackDir := filepath.Join(dir, filepath.FromSlash(fx.DestStack))
-
-		// Collect unique providers needed by the moved-in resources
-		neededProviders := map[string]string{} // providerName -> resourceType
-		for _, p := range fx.XMove.Pairs {
-			parts := strings.Split(p.To, ".")
-			if len(parts) >= 2 {
-				resType := parts[len(parts)-2]
-				provParts := strings.Split(resType, "_")
-				if len(provParts) > 0 {
-					prov := provParts[0]
-					if !implicitProviders[prov] && prov != "module" {
-						neededProviders[prov] = resType
+		// Build Source AddressSet
+		srcAddrs := statemove.AddressSet{}
+		srcPlanPath := filepath.Join(outDir, filepath.FromSlash(resolvedSource), "tfplan.json")
+		if srcPlanBytes, err := os.ReadFile(srcPlanPath); err == nil {
+			if rs, err := plan.Parse(resolvedSource, srcPlanBytes); err == nil {
+				for _, c := range rs.Changes {
+					srcAddrs[c.Address] = c.ProviderName
+					if c.PreviousAddress != "" {
+						srcAddrs[c.PreviousAddress] = c.ProviderName
 					}
 				}
 			}
 		}
 
-		// Check if each needed provider has an explicit config block in the dest stack directory
-		for prov, resType := range neededProviders {
-			if !hasProviderConfig(destStackDir, prov) {
-				fmt.Fprintf(os.Stderr, "⚠️  xmove %s: %s will receive %s resources but has no `provider %q {}` block configured — apply will fail after state move\n",
-					fx.Key, fx.DestStack, resType, prov)
+		// Build Destination AddressSet
+		dstAddrs := statemove.AddressSet{}
+		dstPlanPath := filepath.Join(outDir, filepath.FromSlash(fx.DestStack), "tfplan.json")
+		if dstPlanBytes, err := os.ReadFile(dstPlanPath); err == nil {
+			if rs, err := plan.Parse(fx.DestStack, dstPlanBytes); err == nil {
+				for _, c := range rs.Changes {
+					dstAddrs[c.Address] = c.ProviderName
+					if c.PreviousAddress != "" {
+						dstAddrs[c.PreviousAddress] = c.ProviderName
+					}
+				}
+			}
+		}
+
+		// Discover Destination Providers
+		destStackDir := filepath.Join(dir, filepath.FromSlash(fx.DestStack))
+		destProviders := statemove.DiscoverDestProviders(destStackDir)
+
+		// Run ValidateMovePlan
+		diags := statemove.ValidateMovePlan(srcAddrs, dstAddrs, destProviders, fx.XMove, false)
+
+		// Process and Print Diagnostics
+		for _, diag := range diags {
+			if diag.Severity == statemove.SeverityError {
+				fmt.Fprintf(os.Stderr, "❌ xmove %s: %s\n", fx.Key, diag.Message)
+				hasErrors = true
+			} else {
+				fmt.Fprintf(os.Stderr, "⚠️  xmove %s: %s\n", fx.Key, diag.Message)
 			}
 		}
 	}
-}
 
-var implicitProviders = map[string]bool{
-	"random":   true,
-	"null":     true,
-	"local":    true,
-	"tls":      true,
-	"archive":  true,
-	"template": true,
-	"time":     true,
-}
-
-func hasProviderConfig(stackDir, providerName string) bool {
-	entries, err := os.ReadDir(stackDir)
-	if err != nil {
-		return false
+	if hasErrors {
+		return fmt.Errorf("xmove manifest validation failed")
 	}
-
-	pattern := fmt.Sprintf(`provider\s+"%s"\s*\{`, regexp.QuoteMeta(providerName))
-	re, err := regexp.Compile(pattern)
-	if err != nil {
-		return false
-	}
-
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".tf") {
-			continue
-		}
-
-		content, err := os.ReadFile(filepath.Join(stackDir, entry.Name()))
-		if err != nil {
-			continue
-		}
-
-		if re.Match(content) {
-			return true
-		}
-	}
-	return false
+	return nil
 }

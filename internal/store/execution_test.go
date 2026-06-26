@@ -279,3 +279,59 @@ func TestUpdateStackAndReportAndRev(t *testing.T) {
 		t.Errorf("execution after writes = %+v", e)
 	}
 }
+
+func TestFindAndSupersedeExecution(t *testing.T) {
+	db := newTestDB(t)
+	exec1 := sampleInit()
+	exec1.ID = "exec-1"
+	if err := UpsertInit(db, exec1); err != nil {
+		t.Fatalf("UpsertInit exec1: %v", err)
+	}
+
+	// Lookup should find nothing yet (same incoming ID)
+	_, found, err := FindNonSupersededExecution(db, exec1.PR, exec1.Environment, exec1.SHA, exec1.Context, "exec-1")
+	if err != nil {
+		t.Fatalf("FindNonSupersededExecution: %v", err)
+	}
+	if found {
+		t.Errorf("found non-superseded execution prematurely")
+	}
+
+	exec2 := sampleInit()
+	exec2.ID = "exec-2"
+	if err := UpsertInit(db, exec2); err != nil {
+		t.Fatalf("UpsertInit exec2: %v", err)
+	}
+
+	// Lookup from exec-2 perspective should find exec-1
+	oldID, found, err := FindNonSupersededExecution(db, exec2.PR, exec2.Environment, exec2.SHA, exec2.Context, exec2.ID)
+	if err != nil {
+		t.Fatalf("FindNonSupersededExecution: %v", err)
+	}
+	if !found || oldID != "exec-1" {
+		t.Errorf("FindNonSupersededExecution = %q, %t; want exec-1, true", oldID, found)
+	}
+
+	// Supersede old
+	if err := SupersedeExecution(db, "exec-1", "exec-2"); err != nil {
+		t.Fatalf("SupersedeExecution: %v", err)
+	}
+
+	// Verify it was marked
+	e1, err := GetExecution(db, "exec-1")
+	if err != nil {
+		t.Fatalf("GetExecution: %v", err)
+	}
+	if e1.SupersededBy != "exec-2" {
+		t.Errorf("e1.SupersededBy = %q; want exec-2", e1.SupersededBy)
+	}
+
+	// Lookup should now be empty (since exec-1 is superseded, and exec-2 is the incoming ID)
+	_, found, err = FindNonSupersededExecution(db, exec2.PR, exec2.Environment, exec2.SHA, exec2.Context, "exec-2")
+	if err != nil {
+		t.Fatalf("FindNonSupersededExecution: %v", err)
+	}
+	if found {
+		t.Errorf("should not find superseded execution")
+	}
+}

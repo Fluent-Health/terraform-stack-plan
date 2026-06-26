@@ -147,6 +147,7 @@ func (a *App) Routes() http.Handler {
 	mux.HandleFunc("GET /assets/{file}", a.handleAsset)
 	mux.Handle("GET /live/{id}", a.viewAuth(http.HandlerFunc(a.handleLive)))
 	mux.Handle("GET /live/{id}/events", a.viewAuth(http.HandlerFunc(a.handleLiveEvents)))
+	mux.Handle("POST /live/{id}/rerun", a.viewAuth(http.HandlerFunc(a.handleRerun)))
 	mux.HandleFunc("GET /logs/{exec}/{stack...}", a.handleLogServe)
 	mux.HandleFunc("GET /plan/{exec}/{stack...}", a.handlePlanServe)
 	mux.HandleFunc("POST /pubsub/push", a.handlePushEvent)

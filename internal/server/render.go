@@ -199,6 +199,7 @@ func phaseLabel(phase events.Phase, planned, initialized, total int) string {
 }
 
 // progressBar renders the unicode fill bar + integer percentage for a 0..1 fraction.
+// It uses horizontal fractional sub-blocks for a smoother visual transition.
 func progressBar(frac float64) (bar string, pct int) {
 	if frac < 0 {
 		frac = 0
@@ -206,8 +207,37 @@ func progressBar(frac float64) (bar string, pct int) {
 	if frac > 1 {
 		frac = 1
 	}
-	filled := int(frac*float64(progressCells) + 0.5)
-	return strings.Repeat("▰", filled) + strings.Repeat("▱", progressCells-filled), int(frac*100 + 0.5)
+
+	const progressCells = 10
+	val := frac * float64(progressCells)
+	fullCells := int(val)
+	rem := val - float64(fullCells)
+
+	// Map remainder to 8 sub-states (0 to 8)
+	index := int(rem*8.0 + 0.5)
+	if index == 8 {
+		fullCells++
+		index = 0
+	}
+
+	var b strings.Builder
+	b.WriteString(strings.Repeat("█", fullCells))
+
+	if index > 0 && fullCells < progressCells {
+		subBlocks := []string{"▏", "▎", "▍", "▌", "▋", "▊", "▉"}
+		b.WriteString(subBlocks[index-1])
+	}
+
+	// Calculate remaining empty cells to maintain exact length of progressCells
+	emptyCells := progressCells - fullCells
+	if index > 0 {
+		emptyCells--
+	}
+	if emptyCells > 0 {
+		b.WriteString(strings.Repeat("░", emptyCells))
+	}
+
+	return b.String(), int(frac*100 + 0.5)
 }
 
 // checkSummary builds the check-run summary body for a plan or apply: verdict
