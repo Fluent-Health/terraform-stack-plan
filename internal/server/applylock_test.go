@@ -88,10 +88,14 @@ func (r *recordingGitHub) PRAbandoned(_ context.Context, _ string, _ int) (bool,
 }
 
 func (r *recordingGitHub) MergeGroupPRs(_ context.Context, _, _ string) ([]int, error) {
-	if r.mergeGroupPRsErr != nil {
-		return nil, r.mergeGroupPRsErr
-	}
-	return r.mergeGroupPRs, nil
+        if r.mergeGroupPRsErr != nil {
+                return nil, r.mergeGroupPRsErr
+        }
+        return r.mergeGroupPRs, nil
+}
+
+func (r *recordingGitHub) ReRequestCheckRun(_ context.Context, _ string, _ int64) error {
+        return nil
 }
 
 func TestClaimsEndpoints(t *testing.T) {

@@ -310,3 +310,29 @@ func TestPRAbandoned(t *testing.T) {
 		})
 	}
 }
+
+func TestReRequestCheckRun(t *testing.T) {
+	var hit bool
+	srv := fakeGitHub(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/app/installations/67890/access_tokens" {
+			w.Write([]byte(`{"token":"ghs_test"}`))
+			return
+		}
+		if r.Method == "POST" && r.URL.Path == "/repos/owner/repo/check-runs/4567/rerequest" {
+			hit = true
+			w.WriteHeader(http.StatusCreated)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	})
+	defer srv.Close()
+
+	c := newTestRealClient(t)
+	err := c.ReRequestCheckRun(context.Background(), "owner/repo", 4567)
+	if err != nil {
+		t.Fatalf("ReRequestCheckRun: %v", err)
+	}
+	if !hit {
+		t.Error("ReRequestCheckRun endpoint was not called")
+	}
+}

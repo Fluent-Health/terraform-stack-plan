@@ -278,8 +278,19 @@ func (c *RealClient) MergeGroupPRs(ctx context.Context, repo, headSHA string) ([
 // applyLockName is the per-environment apply-lock check name (the merge gate
 // that branch protection / the merge queue require): "apply-lock/<env>".
 func applyLockName(environment string) string {
-	if environment == "" {
-		return "apply-lock"
+        if environment == "" {
+                return "apply-lock"
+        }
+        return "apply-lock/" + environment
+}
+
+// ReRequestCheckRun triggers a check-run re-request.
+func (c *RealClient) ReRequestCheckRun(ctx context.Context, repo string, checkRunID int64) error {
+	owner, repoName, err := splitRepo(repo)
+	if err != nil {
+		return err
 	}
-	return "apply-lock/" + environment
+	url := fmt.Sprintf("%s/repos/%s/%s/check-runs/%d/rerequest", apiBase, owner, repoName, checkRunID)
+	_, err = c.do(ctx, http.MethodPost, url, nil)
+	return err
 }
