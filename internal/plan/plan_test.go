@@ -363,9 +363,42 @@ func TestParseRawDoesNotOverrideKnownProjectOrFabricate(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got := rs.Changes[0].Raw["project"]; got != "real-proj" {
-		t.Errorf("Raw[project] = %v, want real-proj (explicit value must not be overridden)", got)
+	        t.Errorf("Raw[project] = %v, want real-proj (explicit value must not be overridden)", got)
 	}
 	if _, ok := rs.Changes[1].Raw["project"]; ok {
-		t.Error("must not fabricate a project when no projects/<id>/ parent path exists")
+	        t.Error("must not fabricate a project when no projects/<id>/ parent path exists")
 	}
-}
+	}
+
+	func TestParseProviderName(t *testing.T) {
+	data := []byte(`{
+	  "format_version": "1.2",
+	  "resource_changes": [
+	    {
+	      "address": "a.b",
+	      "type": "t",
+	      "name": "b",
+	      "provider_name": "registry.terraform.io/hashicorp/google",
+	      "change": {
+	        "actions": ["create"],
+	        "before": null,
+	        "after": {"x": "1"},
+	        "after_unknown": {},
+	        "before_sensitive": {},
+	        "after_sensitive": {}
+	      }
+	    }
+	  ]
+	}`)
+	rs, err := Parse("s", data)
+	if err != nil {
+	        t.Fatal(err)
+	}
+	if len(rs.Changes) != 1 {
+	        t.Fatalf("want 1 change, got %d", len(rs.Changes))
+	}
+	c := rs.Changes[0]
+	if c.ProviderName != "registry.terraform.io/hashicorp/google" {
+	        t.Fatalf("provider_name = %q, want registry.terraform.io/hashicorp/google", c.ProviderName)
+	}
+	}
