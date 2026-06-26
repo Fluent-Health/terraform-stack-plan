@@ -408,3 +408,62 @@ func TestFinalizeFailedMarksInitStatusesAborted(t *testing.T) {
 		t.Errorf("stack c (planned) = %q, want planned (unchanged)", got["c"])
 	}
 }
+
+func TestClaimsReleaseHandler(t *testing.T) {
+	db := newServerTestDB(t)
+	a := New(db, &MockGitHub{}, Config{})
+	srv := httptest.NewServer(a.Routes())
+	defer srv.Close()
+
+	// Seed a claim for env "prod", PR 42.
+	expires := time.Now().Add(time.Hour).UTC().Truncate(time.Second)
+	if err := store.ReplaceClaims(db, "prod", map[string]store.Claim{
+		"stacks/core": {OwnerPR: 42, ExpiresAt: expires},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify claims are present
+	got, _ := store.ListClaims(db, "prod")
+	if len(got) != 1 {
+		t.Fatalf("expected 1 claim, got %d", len(got))
+	}
+
+	// Release claims via POST /api/claims/release
+	body, _ := json.Marshal(map[string]any{
+		"environment": "prod",
+		"pr":          42,
+		"stack":       "",
+	})
+	resp, err := http.Post(srv.URL+"/api/claims/release", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+
+	// Verify claims are gone
+	got2, _ := store.ListClaims(db, "prod")
+	if len(got2) != 0 {
+		t.Fatalf("expected 0 claims after release, got %d", len(got2))
+	}
+}
+
+func TestClaimsReleaseHandlerBadRequest(t *testing.T) {
+	db := newServerTestDB(t)
+	a := New(db, &MockGitHub{}, Config{})
+	srv := httptest.NewServer(a.Routes())
+	defer srv.Close()
+
+	// Send invalid JSON body
+	resp, err := http.Post(srv.URL+"/api/claims/release", "application/json", bytes.NewReader([]byte("{invalid-json}")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400 on invalid JSON", resp.StatusCode)
+	}
+}

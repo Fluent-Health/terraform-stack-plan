@@ -69,7 +69,7 @@ func (sh *Shell) observeError(ctx context.Context, cs reconcile.ChangeSet, repo 
 	b := col.BlockingGrant.Request
 	bySelf := b.PR == cs.PR
 	abandoned := false
-	if !bySelf {
+	if !bySelf && b.PR > 0 {
 		if c, cerr := sh.app.gh.PRAbandoned(ctx, repo, b.PR); cerr == nil {
 			abandoned = c
 		} else {

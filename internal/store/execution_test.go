@@ -335,3 +335,69 @@ func TestFindAndSupersedeExecution(t *testing.T) {
 		t.Errorf("should not find superseded execution")
 	}
 }
+
+func TestLatestExecutionID(t *testing.T) {
+	db := newTestDB(t)
+
+	// Verify on empty DB
+	if _, ok := LatestExecutionID(db, 7, "prod"); ok {
+		t.Errorf("expected ok = false on empty DB")
+	}
+
+	// Insert one execution
+	exec1 := sampleInit()
+	exec1.ID = "exec-latest-1"
+	exec1.PR = 7
+	exec1.Environment = "prod"
+	if err := UpsertInit(db, exec1); err != nil {
+		t.Fatal(err)
+	}
+
+	id, ok := LatestExecutionID(db, 7, "prod")
+	if !ok || id != "exec-latest-1" {
+		t.Errorf("LatestExecutionID = %q, ok=%t, want exec-latest-1, true", id, ok)
+	}
+}
+
+func TestEnvironmentsForPR(t *testing.T) {
+	db := newTestDB(t)
+
+	// Insert two executions for the same PR with different environments
+	exec1 := sampleInit()
+	exec1.ID = "exec-env-1"
+	exec1.PR = 12
+	exec1.Environment = "prod"
+	if err := UpsertInit(db, exec1); err != nil {
+		t.Fatal(err)
+	}
+
+	exec2 := sampleInit()
+	exec2.ID = "exec-env-2"
+	exec2.PR = 12
+	exec2.Environment = "staging"
+	if err := UpsertInit(db, exec2); err != nil {
+		t.Fatal(err)
+	}
+
+	envs, err := EnvironmentsForPR(db, 12)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(envs) != 2 {
+		t.Fatalf("expected 2 environments, got %v", envs)
+	}
+	
+	// Check content
+	foundProd, foundStaging := false, false
+	for _, env := range envs {
+		if env == "prod" {
+			foundProd = true
+		}
+		if env == "staging" {
+			foundStaging = true
+		}
+	}
+	if !foundProd || !foundStaging {
+		t.Errorf("expected environments to contain both prod and staging, got %v", envs)
+	}
+}
