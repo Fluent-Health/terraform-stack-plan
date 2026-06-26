@@ -283,3 +283,14 @@ func applyLockName(environment string) string {
 	}
 	return "apply-lock/" + environment
 }
+
+// ReRequestCheckRun triggers a check-run re-request.
+func (c *RealClient) ReRequestCheckRun(ctx context.Context, repo string, checkRunID int64) error {
+	owner, repoName, err := splitRepo(repo)
+	if err != nil {
+		return err
+	}
+	url := fmt.Sprintf("%s/repos/%s/%s/check-runs/%d/rerequest", apiBase, owner, repoName, checkRunID)
+	_, err = c.do(ctx, http.MethodPost, url, nil)
+	return err
+}
