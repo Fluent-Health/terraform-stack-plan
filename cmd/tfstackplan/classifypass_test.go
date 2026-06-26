@@ -279,18 +279,22 @@ xmove {
 	r, w, _ := os.Pipe()
 	os.Stderr = w
 
-	validateXMoveManifest(dir, dir)
+	err := validateXMoveManifest(dir, dir)
 
 	w.Close()
 	os.Stderr = oldStderr
+
+	if err == nil {
+	        t.Fatal("expected error from validateXMoveManifest, got nil")
+	}
 
 	var buf [1024]byte
 	n, _ := r.Read(buf[:])
 	out := string(buf[:n])
 
-	expected := "⚠️  xmove PR-1: address \"module.main.module.cms[0]\" not found in stacks/nonprod/service-projects/fh-dev-svc plan"
-	if !strings.Contains(out, "⚠️") || !strings.Contains(out, "not found") {
-		t.Fatalf("expected warning message to contain %q, got: %q", expected, out)
+	expected := "❌ xmove PR-1: address \"module.main.module.cms[0]\" not found in source plan (manifest stale or address renamed)"
+	if !strings.Contains(out, "❌") || !strings.Contains(out, "not found in source plan") {
+	        t.Fatalf("expected warning message to contain %q, got: %q", expected, out)
 	}
 }
 
@@ -313,7 +317,7 @@ func TestValidateXMoveManifest_warnsForMissingProviders(t *testing.T) {
 
 	// Source plan has valid resource delete.
 	write(srcStack+"/tfplan.json", `{"format_version":"1.2","resource_changes":[
-	  {"address":"module.main.module.cms[0].postgresql_grant.a","type":"postgresql_grant","name":"a",
+	  {"address":"module.main.module.cms[0].postgresql_grant.a","type":"postgresql_grant","name":"a","provider_name":"registry.terraform.io/cyrilgdn/postgresql",
 	   "change":{"actions":["delete"],"before":{"id":"abc"},"after":null}}]}`)
 
 	// XMove manifest moves "postgresql_grant" to dstStack.
@@ -334,41 +338,48 @@ xmove {
 	r, w, _ := os.Pipe()
 	os.Stderr = w
 
-	validateXMoveManifest(dir, dir)
+	err := validateXMoveManifest(dir, dir)
 
 	w.Close()
 	os.Stderr = oldStderr
+
+	if err == nil {
+	        t.Fatal("expected error from validateXMoveManifest, got nil")
+	}
 
 	var buf [1024]byte
 	n, _ := r.Read(buf[:])
 	out := string(buf[:n])
 
-	expected := "⚠️  xmove PR-1: " + dstStack + " will receive postgresql_grant resources but has no `provider \"postgresql\" {}` block configured"
-	if !strings.Contains(out, "⚠️") || !strings.Contains(out, "has no `provider") {
-		t.Fatalf("expected warning message to contain %q, got: %q", expected, out)
+	if !strings.Contains(out, "❌") || !strings.Contains(out, "provider") {
+	        t.Fatalf("expected error message to contain '❌' and 'provider', got: %q", out)
 	}
 
 	// Now write provider block and verify NO warning!
 	write(dstStack+"/providers.tf", `
-provider "postgresql" {
-  host = "localhost"
-}
-`)
+	provider "postgresql" {
+	host = "localhost"
+	}
+	`)
 
 	// Capture Stderr again
 	r2, w2, _ := os.Pipe()
 	os.Stderr = w2
 
-	validateXMoveManifest(dir, dir)
+	err2 := validateXMoveManifest(dir, dir)
 
 	w2.Close()
 	os.Stderr = oldStderr
+
+	if err2 != nil {
+	        t.Fatalf("expected no validation error after adding provider block, got: %v", err2)
+	}
 
 	var buf2 [1024]byte
 	n2, _ := r2.Read(buf2[:])
 	out2 := string(buf2[:n2])
 
-	if strings.Contains(out2, "has no `provider") {
-		t.Fatalf("expected NO provider config warning when postgresql provider block is configured, got: %q", out2)
+	if strings.Contains(out2, "provider") {
+	        t.Fatalf("expected NO provider config warning when postgresql provider block is configured, got: %q", out2)
 	}
 }
