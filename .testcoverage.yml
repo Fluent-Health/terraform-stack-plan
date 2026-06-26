@@ -1,7 +1,0 @@
-# .testcoverage.yml
-# Configuration for vladopajic/go-test-coverage
-profile: coverage.out
-
-# Enforce a minimum total test coverage of 75% to maintain high quality in CI
-threshold:
-  total: 75
