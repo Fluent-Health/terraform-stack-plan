@@ -35,7 +35,7 @@ jobs:
 
       - name: Convert coverprofile to Cobertura XML
         run: |
-          go install github.com/boumenot/gocover-cobertura@v1.3.0
+          go install github.com/boumenot/gocover-cobertura@v1.4.0
           gocover-cobertura < coverage.out > coverage.xml
       # --- end language-specific part ---
 
