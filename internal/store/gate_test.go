@@ -97,3 +97,41 @@ func TestPRTargets(t *testing.T) {
 		t.Fatalf("PRTargets(8) = %+v, want one row for proj-a", ts8)
 	}
 }
+
+func TestTargetsForAndDeleteTarget(t *testing.T) {
+	db := newTestDB(t)
+
+	// Seed some gate targets
+	seedGateTargetSQL(t, db, 7, "nonprod", "iam", "proj-a", "g1", "AWAITING", "requester-bob")
+
+	// Test TargetsFor
+	ts, err := TargetsFor(db, 7, "nonprod")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ts) != 1 {
+		t.Fatalf("expected 1 target, got %d", len(ts))
+	}
+	if ts[0].Class != "iam" || ts[0].Target != "proj-a" || ts[0].GrantName != "g1" || ts[0].State != "AWAITING" || ts[0].Requester != "requester-bob" {
+		t.Errorf("unexpected target data: %+v", ts[0])
+	}
+
+	// Test DeleteTarget
+	tx, err := db.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := DeleteTarget(tx, 7, "nonprod", "iam", "proj-a"); err != nil {
+		tx.Rollback()
+		t.Fatalf("DeleteTarget failed: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify target was deleted
+	ts2, _ := TargetsFor(db, 7, "nonprod")
+	if len(ts2) != 0 {
+		t.Fatalf("expected target to be deleted, but found: %+v", ts2)
+	}
+}

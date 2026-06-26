@@ -269,3 +269,34 @@ func TestPostPlanApplyLockOnFinalize(t *testing.T) {
 		t.Fatalf("overlapping plan-finalize should be held (empty conclusion), got %q", gh.lastUpdate.Conclusion)
 	}
 }
+
+func TestPRApplyLockUnverifiable(t *testing.T) {
+	a, gh := newApplyLockTestApp(t)
+	gh.prHeadSHA = "unplanned_sha"
+	// Invoke PR lock check without seeding any plan in the database
+	a.handlePRApplyLock(ctx(), "o/r", 123, false)
+	if gh.lastUpdate.Conclusion != "" {
+		t.Fatalf("unverifiable PR check should leave check-run in_progress (empty conclusion), got %q", gh.lastUpdate.Conclusion)
+	}
+}
+
+func TestMergeGroupUnverifiable(t *testing.T) {
+	a, gh := newApplyLockTestApp(t)
+	gh.mergeGroupPRs = []int{123}
+	// No plan seeded for PR 123
+	err := a.handleMergeGroup(ctx(), "o/r", "mgsha", "checks_requested")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gh.lastUpdate.Conclusion != "" {
+		t.Fatalf("unverifiable merge group check should leave check-run in_progress, got %q", gh.lastUpdate.Conclusion)
+	}
+}
+
+func TestPostApplyLockUnverifiableDirect(t *testing.T) {
+	a, gh := newApplyLockTestApp(t)
+	a.postApplyLockUnverifiable(ctx(), "o/r", "prod", "sha", 123, "pr_head", "reason-text")
+	if gh.lastUpdate.Conclusion != "" {
+		t.Fatalf("direct unverifiable check should be in_progress, got %q", gh.lastUpdate.Conclusion)
+	}
+}
