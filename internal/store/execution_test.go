@@ -386,7 +386,7 @@ func TestEnvironmentsForPR(t *testing.T) {
 	if len(envs) != 2 {
 		t.Fatalf("expected 2 environments, got %v", envs)
 	}
-	
+
 	// Check content
 	foundProd, foundStaging := false, false
 	for _, env := range envs {
