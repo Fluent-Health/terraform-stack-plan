@@ -139,7 +139,7 @@ id (`TFSTACKPLAN_EXECUTION=$BUILD_ID` in the job env) so all events correlate
 to the same run. Emit `--phase warming` before the plugin cache warm and
 `--phase initializing` before the sequential terraform init; the server creates
 the per-environment check run on the first phase event. The check-run title and
-summary headline carry a phase-weighted progress bar (█░ block cells,
+summary headline carry a phase-weighted progress bar (⠿⠀ Braille cells,
 `warming → initializing → planning k/N → done`), updated in real time.
 
 The same early-phase sequence applies to **apply**: emit `--phase warming` and
@@ -151,7 +151,7 @@ check run will not appear until the first `run tick` fires from within a stack.
 ## Check-run title: progress bar vs action-count summary
 
 While a run is **in-progress** the per-environment check title shows a live
-progress bar (`Plan · ████▌░░░░░ · 3/5 stacks`). Once the run is **terminal**
+progress bar (`Plan · ⠿⠿⠿⠿⠇⠀⠀⠀⠀⠀ · 3/5 stacks`). Once the run is **terminal**
 (all stacks done, or plan/apply exited) the title switches to an action-count
 summary:
 

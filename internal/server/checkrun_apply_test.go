@@ -91,7 +91,7 @@ func TestApplyDriveUpdatesCheckRun(t *testing.T) {
 		t.Fatalf("UpdateCheckRun not called with ID 99 (got %d)", updatedID)
 	}
 	// Terminal apply: title shows count summary, not a frozen progress bar.
-	if strings.Contains(updatedTitle, "█") || strings.Contains(updatedTitle, "░") {
+	if strings.Contains(updatedTitle, "⠿") || strings.Contains(updatedTitle, "⠀") {
 		t.Errorf("terminal apply title must not contain the progress bar: %q", updatedTitle)
 	}
 	if !strings.Contains(updatedTitle, "applied") {
