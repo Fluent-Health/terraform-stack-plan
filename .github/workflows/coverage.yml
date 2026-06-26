@@ -31,12 +31,12 @@ jobs:
 
       # --- Coverage generation (the only language-specific part) ---
       - name: Run tests with coverage
-        run: go test -covermode=atomic -coverprofile=coverage.out ./...
+        run: go test -covermode=atomic -coverprofile=coverage.out -coverpkg=./... ./...
 
       - name: Convert coverprofile to Cobertura XML
         run: |
           go install github.com/boumenot/gocover-cobertura@v1.4.0
-          gocover-cobertura < coverage.out > coverage.xml
+          gocover-cobertura -by-files < coverage.out > coverage.xml
       # --- end language-specific part ---
 
       # Upload to GitHub. The `if` guard skips fork PRs, which can't upload.
