@@ -71,3 +71,40 @@ func TestSweepExpiredClaims(t *testing.T) {
 		t.Fatalf("swept a live claim: %v", got2)
 	}
 }
+
+func TestAssociateClaimExecution(t *testing.T) {
+	db := newTestDB(t)
+	now := time.Now()
+	exp := now.Add(time.Hour)
+
+	_ = ReplaceClaims(db, "prod", map[string]Claim{
+		"a": {OwnerPR: 7, ExpiresAt: exp},
+		"b": {OwnerPR: 7, ExpiresAt: exp},
+	})
+
+	if err := AssociateClaimExecution(db, "prod", 7, "exec-456"); err != nil {
+		t.Fatalf("AssociateClaimExecution failed: %v", err)
+	}
+
+	// Verify that the execution ID was associated correctly
+	rows, err := db.Query("SELECT execution_id FROM apply_claims WHERE environment = 'prod' AND owner_pr = 7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+
+	count := 0
+	for rows.Next() {
+		var execID string
+		if err := rows.Scan(&execID); err != nil {
+			t.Fatal(err)
+		}
+		if execID != "exec-456" {
+			t.Errorf("execID = %q, want exec-456", execID)
+		}
+		count++
+	}
+	if count != 2 {
+		t.Errorf("expected 2 claims associated, got %d", count)
+	}
+}

@@ -253,6 +253,9 @@ func (c *RealClient) PRAbandoned(ctx context.Context, repo string, pr int) (bool
 // MergeGroupPRs returns the PR numbers whose commits compose the merge group at
 // headSHA, via the commit→PRs association API.
 func (c *RealClient) MergeGroupPRs(ctx context.Context, repo, headSHA string) ([]int, error) {
+	if headSHA == "" {
+		return nil, errors.New("headSHA is required")
+	}
 	owner, name, err := splitRepo(repo)
 	if err != nil {
 		return nil, err
