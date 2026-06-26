@@ -117,6 +117,8 @@ type liveView struct {
 	VerifyExec                string            // latest verify run id for this PR/env ("" if none)
 	SVG, Panel                string
 	Token                     string
+	SupersededBy              string
+	CheckRunID                int64
 }
 
 // livePage renders the auto-refreshing execution page via the Briefing template.
@@ -202,6 +204,8 @@ type liveModel struct {
 	VerifyExec                                string // verify run id (apply only) for the Validation tab
 	SVG, Panel                                template.HTML
 	Token                                     string
+	SupersededBy                              string
+	CheckRunID                                int64
 }
 
 // buildLiveModel assembles the Briefing payload from a liveView. kind is
@@ -330,6 +334,8 @@ func buildLiveModel(v liveView, kind string, finished bool, prog *config.Progres
 		SVG:        template.HTML(v.SVG),
 		Panel:      template.HTML(v.Panel),
 		Token:      v.Token,
+		SupersededBy: v.SupersededBy,
+		CheckRunID:   v.CheckRunID,
 	}
 }
 
