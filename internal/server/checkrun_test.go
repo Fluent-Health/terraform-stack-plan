@@ -46,7 +46,7 @@ func TestPlanCheckRunSummaryAndTitle(t *testing.T) {
 		t.Fatalf("update: %d", rec.Code)
 	}
 
-	for _, want := range []string{"█", "planned"} {
+	for _, want := range []string{"⠿", "planned"} {
 		if !strings.Contains(title, want) {
 			t.Errorf("title missing %q in: %q", want, title)
 		}
@@ -73,7 +73,7 @@ func TestProgressTitleTerminalShowsCounts(t *testing.T) {
 			t.Errorf("terminal title %q missing %q", got, want)
 		}
 	}
-	if strings.Contains(got, "█") || strings.Contains(got, "░") {
+	if strings.Contains(got, "⠿") || strings.Contains(got, "⠀") {
 		t.Errorf("terminal title must not contain the progress bar: %q", got)
 	}
 }
@@ -86,7 +86,7 @@ func TestProgressTitleTerminalNoChanges(t *testing.T) {
 
 func TestProgressTitleRunningStillHasBar(t *testing.T) {
 	stacks := []events.StackState{{Path: "a", Status: events.StatusRunning}}
-	if got := progressTitle(nil, events.PhasePlanning, stacks, false, "plan"); !strings.Contains(got, "█") {
+	if got := progressTitle(nil, events.PhasePlanning, stacks, false, "plan"); !strings.Contains(got, "⠿") {
 		t.Errorf("running title %q must keep the bar", got)
 	}
 }
