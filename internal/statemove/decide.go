@@ -149,6 +149,24 @@ func modulePrefix(addr string) string {
 	return strings.Join(parts[:end], ".")
 }
 
+// DataSourceOrphans returns the data-source addresses from dataSources that
+// fall under any declared pair's From prefix. These remain in the source stack
+// after the move because stateAddresses filters data sources out of the move
+// set — the operator may need to forget them (terraform state rm) before the
+// source stack can be retired.
+func DataSourceOrphans(pairs []Move, dataSources []string) []string {
+	var orphans []string
+	for _, ds := range dataSources {
+		for _, p := range pairs {
+			if matches(ds, p.From) {
+				orphans = append(orphans, ds)
+				break
+			}
+		}
+	}
+	return orphans
+}
+
 // IsSpent reports whether all declared moves have already been applied: every
 // pair's To-prefix has at least one address present in dstPriorAddrs. Returns
 // false when dstPriorAddrs is empty (indeterminate) or pairs is empty.
