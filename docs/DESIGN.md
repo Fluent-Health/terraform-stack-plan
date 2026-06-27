@@ -1606,16 +1606,17 @@ import/removed; SP3 adds the faithful `terraform state mv` executor.** Verbs:
   or all `_tfsp_move.*.tf` in the tree).
 - `state apply --dir DIR [--execute] [--lock]` discovers every
   `_tfsp_xmove.*.hcl` manifest and runs it via terraform-exec: pull both states
-  → back up each (`<dir>/.tfsp-state-backups`) → per-pair fail-closed
+  → back up each (temp dir via `os.MkdirTemp`, path printed to stderr so it is
+  findable for recovery but never inside the repo tree) → per-pair fail-closed
   decision table (source-only → **move**, dest-only → **skip** (idempotent),
   both/neither → **error**) → `terraform state mv -state/-state-out` against the
   pulled local files → push both, **never** `--force`. **Dry-run by default**
   (prints "would move" / "skip"); `--execute` performs the moves. Requires
   `terraform` on `PATH`. The discover→execute→print core is the package-level
   `applyPendingMoves`, shared with the `run apply` pre-phase (below).
-- **Unified fail-closed validation.** Cross-state moves (`_tfsp_xmove.*.hcl`) are validated by a single pure validator `ValidateMovePlan` in `internal/statemove`. The canonical address namespace across all three stages is `prior_state` (the pre-`moved{}` snapshot embedded in plan JSON), which equals live state at xmove time because xmove runs as a pre-phase before source apply:
+- **Unified fail-closed validation.** Cross-state moves (`_tfsp_xmove.*.hcl`) are validated by a single pure validator `ValidateMovePlan` in `internal/statemove`. The canonical address namespace across all three stages is `prior_state` (the pre-`moved{}` snapshot embedded in plan JSON), which equals live state at xmove time because xmove runs as a pre-phase before source apply. **Data sources (`mode=data`) are filtered out of all address walks** — wildcards never sweep `data.*` into the move set, since data sources are re-read at the destination and cannot be `state mv`'d.
   - *Generation-time:* `--via mv` calls `CheckXMoveSource` — hard error if `prior_state` is absent or contains nothing under `from`. No ResourceChanges fallback.
-  - *Plan-time enforcement:* `validateXMoveManifest` in the classify pass reads only `prior_state` for source addresses — hard error if absent (no ResourceChanges fallback). It then runs `ValidateMovePlan(isApply=false)` against those addresses and the destination plan's provider config, failing exit 1 on any `error`-severity diagnostic (including `xmove/provider-mismatch` when source and destination use different providers).
+  - *Plan-time enforcement:* `validateXMoveManifest` in the classify pass reads only `prior_state` for source addresses — hard error if absent (no ResourceChanges fallback). It then runs `ValidateMovePlan(isApply=false)` against those addresses and the destination plan's provider config, failing exit 1 on any `error`-severity diagnostic (including `xmove/provider-mismatch` when source and destination use different providers). When the source plan file is absent entirely (source stack not in the changed set), the `xmove/source-not-planned` diagnostic is emitted with an actionable fix hint instead of a raw OS error.
   - *Apply-time pre-flight:* `ValidateMovePlan(isApply=true)` runs against live pulled state addresses as the final fail-closed guard before any state surgery; `expandPairs` fans intent pairs out against live state at this point.
 - **Dest-push-failure rollback.** If a move's dest `StatePush` fails after the
   source push already succeeded (resources removed from the source's live state
@@ -1623,9 +1624,9 @@ import/removed; SP3 adds the faithful `terraform state mv` executor.** Verbs:
   pre-move state — re-pushing the in-memory pre-move state with a recovery-only
   `--force` (the forward pushes stay `Force(false)`), on a non-cancellable
   context so an aborted request still recovers. If even the rollback push fails,
-  the error is loud and points at the `.tfsp-state-backups` dir for manual
-  restore. (Previously the moved resources were left lost from both states and
-  the backups were never restored.)
+  the error is loud and points at the temp backup dir (printed to stderr at
+  apply start) for manual restore. (Previously the moved resources were left
+  lost from both states and the backups were never restored.)
 - **`run apply` cross-state move pre-phase.** After the gate check and before
   terramate runs, `run apply` executes any pending `_tfsp_xmove.*.hcl` manifests
   (via the same `applyPendingMoves`, always `--execute`). It is **fail-closed**:
@@ -1671,13 +1672,15 @@ now two-sided (source move-outs AND dest move-ins), produced entirely from the
 project's own move declarations.
 
 State-move discovery is **fail-closed**: a file in the reserved `_tfsp_move.*` /
-`_tfsp_xmove.*` namespace that cannot be parsed, or whose `# tfstackplan:key=`
-header disagrees with its filename, errors the read path (the classify pass,
-`state apply`, `state list`, `moves-manifest`) rather than being silently
-skipped — a silently dropped manifest would let a relocation classify as (and
-apply as) a real destroy+create. The filename is the authoritative key; `state
-cleanup` matches by filename and does not parse, so a corrupt or key-mismatched
-file is always removable.
+`_tfsp_xmove.*` namespace that cannot be parsed errors the read path (the
+classify pass, `state apply`, `state list`, `moves-manifest`) rather than being
+silently skipped — a silently dropped manifest would let a relocation classify
+as (and apply as) a real destroy+create. The filename is the authoritative key:
+the `# tfstackplan:key=` header comment is optional and used only as a
+consistency check when present (mismatch → error); hand-authored manifests
+without the header are accepted and keyed by filename. `state cleanup` matches
+by filename and does not parse, so a corrupt or key-mismatched file is always
+removable.
 
 ### Apply serialization — merge-lock
 

@@ -109,7 +109,9 @@ func stateAddresses(s *tfjson.State) AddressSet {
 			return
 		}
 		for _, r := range m.Resources {
-			out[r.Address] = r.ProviderName
+			if r.Mode != tfjson.DataResourceMode {
+				out[r.Address] = r.ProviderName
+			}
 		}
 		for _, c := range m.ChildModules {
 			walk(c)

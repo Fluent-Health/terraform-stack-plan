@@ -182,7 +182,10 @@ func validateXMoveManifest(dir, outDir string) error {
 		srcPlanPath := filepath.Join(outDir, filepath.FromSlash(resolvedSource), "tfplan.json")
 		srcPlanBytes, rerr := os.ReadFile(srcPlanPath)
 		if rerr != nil {
-			fmt.Fprintf(os.Stderr, "❌ xmove %s: source plan not found for %q: %v\n", fx.Key, resolvedSource, rerr)
+			// xmove/source-not-planned: the source stack is not in the changed set
+			// for this PR. Touch the source stack to include it, or remove this
+			// manifest if the cross-state move has already been applied.
+			fmt.Fprintf(os.Stderr, "❌ xmove %s: xmove/source-not-planned — source stack %q is not in the changed set; touch it so Terramate plans it, or remove this manifest if the move is already complete\n", fx.Key, resolvedSource)
 			hasErrors = true
 			continue
 		}

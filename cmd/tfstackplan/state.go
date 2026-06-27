@@ -108,6 +108,8 @@ Cross-stack modes:
              stack. The manifest stores the from/to addresses you provide
              (module-level or resource-level). Concrete per-resource pairs are
              resolved at apply time from live state via 'terraform state mv'.
+             Data sources (mode=data) are filtered out of all address walks —
+             wildcards never sweep data.* into the move set.
 
              Use --via mv for module extractions, especially when the source
              stack contains a 'moved {}' block that renames the module (e.g.
@@ -118,6 +120,10 @@ Cross-stack modes:
              (verifying the from address exists in source state). Full
              validation — type compatibility, destination provider config —
              runs at classify time (the plan CI step) via 'run plan --classify'.
+
+             The generated manifest includes a '# tfstackplan:key=<key>' header.
+             Hand-authored manifests without the header are accepted; the key is
+             derived from the filename (_tfsp_xmove.<key>.hcl).
 
 Flags:
 `)
@@ -360,9 +366,16 @@ var buildExecDeps = func(dir string, locker statemove.Locker) (statemove.ExecDep
 	if err != nil {
 		return statemove.ExecDeps{}, fmt.Errorf("terraform not found on PATH: %w", err)
 	}
+	// Create the backup dir in the OS temp space so tooling artifacts never
+	// land inside the repo and trip the Terramate clean-repo check.
+	backupDir, err := os.MkdirTemp("", "tfsp-state-backups-")
+	if err != nil {
+		return statemove.ExecDeps{}, fmt.Errorf("create backup dir: %w", err)
+	}
+	fmt.Fprintf(os.Stderr, "state backups: %s\n", backupDir)
 	return statemove.ExecDeps{
 		NewTF:     func(wd string) (statemove.Runner, error) { return statemove.NewTerraform(tfPath, wd) },
-		BackupDir: filepath.Join(dir, ".tfsp-state-backups"),
+		BackupDir: backupDir,
 		Locker:    locker,
 	}, nil
 }
