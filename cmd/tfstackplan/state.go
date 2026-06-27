@@ -89,6 +89,40 @@ func runStateMove(args []string) int {
 	stack := fs.String("stack", "", "default stack for unqualified addresses (same-stack moves)")
 	pr := fs.String("pr", "", "PR number for the shim key (default: $TFSTACKPLAN_PR or git branch)")
 	via := fs.String("via", "", "cross-stack mechanism: \"\" (native import/removed) or \"mv\" (faithful terraform state mv)")
+	fs.Usage = func() {
+		fmt.Fprint(os.Stderr, `Usage: tfstackplan state move --dir DIR [--stack STACK] [--pr N] [--via mv] <from> <to> ...
+
+Declares resource moves between stacks by writing manifest files into the
+affected stack directories. The manifests are checked in alongside Terraform
+code and executed automatically by 'run apply'.
+
+Each <from> <to> pair is a resource or module address, optionally prefixed
+with a stack name (stack:addr). --stack sets the default stack for unqualified
+addresses.
+
+Cross-stack modes:
+  (default)  Emits native import{}/removed{} shims (--via import).
+             Validated against tfplan.json at generation time.
+
+  --via mv   Writes a _tfsp_xmove.<key>.hcl intent manifest in the destination
+             stack. The manifest stores the from/to addresses you provide
+             (module-level or resource-level). Concrete per-resource pairs are
+             resolved at apply time from live state via 'terraform state mv'.
+
+             Use --via mv for module extractions, especially when the source
+             stack contains a 'moved {}' block that renames the module (e.g.
+             module.foo -> module.foo[0]) — the manifest's intent-level address
+             matches the live state regardless of plan-time renames.
+
+             Validation: a lightweight prior_state check runs at generation
+             (verifying the from address exists in source state). Full
+             validation — type compatibility, destination provider config —
+             runs at classify time (the plan CI step) via 'run plan --classify'.
+
+Flags:
+`)
+		fs.PrintDefaults()
+	}
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}

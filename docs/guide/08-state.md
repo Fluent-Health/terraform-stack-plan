@@ -52,10 +52,13 @@ whether its sides land in the same stack or different ones:
   shim. The `id` for the import is read from the `before.id` field in the
   source plan, so the resource is adopted into the new state and dropped from
   the old without being destroyed.
-- **`--via mv`** (cross-stack only) — instead writes a `_tfsp_xmove.<key>.hcl`
-  manifest in the destination stack, executed by `state apply` (and by the
-  `run apply` pre-phase) via `terraform state mv` rather than through the
-  native `import`/`removed` mechanism.
+- **`--via mv`** (cross-stack only) — writes a `_tfsp_xmove.<key>.hcl` manifest
+  in the destination stack. The manifest stores your `<from>` and `<to>`
+  addresses as-given (intent form). Concrete per-resource pairs are resolved at
+  apply time from live state, so the manifest survives source-stack module
+  renames (the `module → module[0]` extraction pattern). Executed by `state
+  apply` and the `run apply` pre-phase via `terraform state mv`. See [Module
+  extraction with `--via mv`](#module-extraction-with---via-mv) below.
 
 Shims are keyed by PR (`PR-<n>` from `--pr` or `$TFSTACKPLAN_PR`), then by
 branch (`branch-<name>`), then `local`. Multiple `state move` invocations
@@ -118,6 +121,106 @@ For the detailed mechanics — the two-sided JSON shape, the `Covers` address
 matching, and what happens when live plan instances drift from the recorded
 addresses — see [`../DESIGN.md`](../DESIGN.md) (the `tfstackplan state`
 section).
+
+## Module extraction with `--via mv`
+
+The `--via mv` path is designed for the specific shape of refactor where you
+pull a module out of one stack and into its own home. The wrinkle: Terraform
+requires provider configuration to exist wherever a resource is referenced —
+including in `removed {}` blocks. Deleting a module from a stack's config
+without a workaround would produce a plan error.
+
+### The `moved {}` trick
+
+Add a `moved {}` block in the source stack to make Terraform treat the module
+as *renamed* rather than deleted:
+
+```hcl
+# In the source stack — prevents the planned destroy from requiring provider config.
+moved {
+  from = module.perms
+  to   = module.perms[0]   # any change that makes Terraform think it is still managed
+}
+```
+
+With this block, the source plan shows a rename (`module.perms.*` →
+`module.perms[0].*`) rather than a destroy. No provider is needed for a rename.
+The actual removal from source state happens via `terraform state mv` in the
+xmove pre-phase — before source apply runs — leaving the `moved {}` block with
+nothing to rename, making it a no-op.
+
+### Address form and why it matters
+
+When the source plan contains `moved { from = module.perms to = module.perms[0] }`:
+
+- **`ResourceChanges`** in the plan shows `module.perms[0].*` (post-rename)
+- **`prior_state`** (embedded in the plan JSON) shows `module.perms.*` (pre-rename)
+- **Live state** at xmove time shows `module.perms.*` (pre-rename — source hasn't applied yet)
+
+The manifest stores the address prefix you pass to `--via mv` as-is (intent
+form). Pass the **pre-rename** form:
+
+```bash
+# from = module.main.module.perms  (matches prior_state and live state)
+# NOT module.main.module.perms[0]  (ResourceChanges form — wrong)
+
+tfstackplan state move \
+  --dir stacks/nonprod \
+  --via mv \
+  service-projects/fh-dev-svc:module.main.module.perms \
+  workloads/perms/fh-dev-svc:module.perms
+```
+
+This writes:
+
+```hcl
+# stacks/nonprod/workloads/perms/fh-dev-svc/_tfsp_xmove.PR-<n>.hcl
+xmove {
+  source_stack = "service-projects/fh-dev-svc"
+  moves = {
+    "module.main.module.perms" = "module.perms"
+  }
+}
+```
+
+At apply time, `expandPairs` resolves `module.main.module.perms` against the
+live source state (which still has `module.perms.*` — source hasn't applied its
+`moved {}` block yet) and fans out to the concrete per-resource pairs.
+
+### Full workflow
+
+```
+1. In the source stack:
+   - Remove the module from config (or mark it count=0).
+   - Add: moved { from = module.perms to = module.perms[0] }
+
+2. In the destination stack:
+   - Add the module config; configure its providers.
+
+3. Generate both plans (run plan / run plan --classify).
+
+4. Generate the xmove manifest:
+   tfstackplan state move --dir <plans-dir> --via mv \
+     <src-stack>:<from-prefix> <dst-stack>:<to-prefix>
+
+5. Commit the manifest alongside the Terraform changes.
+
+6. PR → plan → classify → approve → run apply.
+   apply pre-phase: executes the xmove (state mv).
+   source apply:    moved{} block is a no-op (resources already gone).
+   dest apply:      creates the module config (no provider error).
+```
+
+### Validation model
+
+| Step | What runs | What it checks |
+|---|---|---|
+| `state move --via mv` | `CheckXMoveSource` | `prior_state` present; something under `from` |
+| `run plan --classify` | `validateXMoveManifest` | provider config; provider match; `prior_state` present |
+| `run apply` pre-phase | `Execute` → `ValidateMovePlan` | live state presence; idempotency; provider config |
+
+If classify passes, apply will pass (modulo unrelated out-of-band state changes
+between plan and apply, caught fail-closed by the apply-time validator).
 
 ## How `run apply` picks up the moves
 
