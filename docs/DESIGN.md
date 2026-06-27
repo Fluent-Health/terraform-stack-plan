@@ -1583,8 +1583,17 @@ import/removed; SP3 adds the faithful `terraform state mv` executor.** Verbs:
     state and dropped from the old without being destroyed.
     - With `--via mv`, the cross-stack pair is instead recorded as a
       `_tfsp_xmove.<key>.hcl` manifest in the **destination** stack
-      (`source_stack` + `from`/`to` address pairs, one manifest per dest+source),
-      executed later by `state apply` (see below) rather than by `run apply`.
+      (`source_stack` + the `from`/`to` intent pair verbatim — no fan-out to
+      concrete per-resource addresses at generation time). A lightweight
+      `CheckXMoveSource` validates that the source plan's `prior_state` is
+      present and contains at least one resource under `from`; no destination
+      plan is loaded. Fan-out to concrete addresses happens at apply time via
+      `expandPairs` against live state. This keeps the manifest in the same
+      address form as live state (pre-`moved{}` processing), preventing the
+      plan/apply split that occurred when addresses were derived from
+      `ResourceChanges`. See `docs/guide/08-state.md` § "Module extraction
+      with `--via mv`" for the `moved { from = module.foo to = module.foo[0] }`
+      pattern and its full workflow. See [PR #159](https://github.com/Fluent-Health/terraform-stack-plan/pull/159) for the root-cause analysis.
 
   Blocks are written to a PR-keyed shim `_tfsp_move.<key>.tf` in each affected
   stack dir; the normal `run apply` (backend-locked, no state surgery) applies
@@ -1604,10 +1613,10 @@ import/removed; SP3 adds the faithful `terraform state mv` executor.** Verbs:
   (prints "would move" / "skip"); `--execute` performs the moves. Requires
   `terraform` on `PATH`. The discover→execute→print core is the package-level
   `applyPendingMoves`, shared with the `run apply` pre-phase (below).
-- **Unified fail-closed validation.** Cross-state moves (`_tfsp_xmove.*.hcl`) are validated by a single pure validator `ValidateMovePlan` in `internal/statemove`:
-  - *Exact matching:* Lenient index-stripping is eliminated. Manifest addresses must match plan or live state addresses exactly. Mismatches are treated as critical error diagnostics, blocking execution.
-  - *Plan-time enforcement:* Running `run plan` validates manifests against parsed `tfplan.json` files and destination stack provider configurations, failing the classify pass (exit 1) on any `error`-severity diagnostic.
-  - *Apply-time pre-flight:* Right before executing moves, the same validator runs against live pulled state addresses and destination stack provider configurations as a final fail-closed guard, aborting state surgery on errors.
+- **Unified fail-closed validation.** Cross-state moves (`_tfsp_xmove.*.hcl`) are validated by a single pure validator `ValidateMovePlan` in `internal/statemove`. The canonical address namespace across all three stages is `prior_state` (the pre-`moved{}` snapshot embedded in plan JSON), which equals live state at xmove time because xmove runs as a pre-phase before source apply:
+  - *Generation-time:* `--via mv` calls `CheckXMoveSource` — hard error if `prior_state` is absent or contains nothing under `from`. No ResourceChanges fallback.
+  - *Plan-time enforcement:* `validateXMoveManifest` in the classify pass reads only `prior_state` for source addresses — hard error if absent (no ResourceChanges fallback). It then runs `ValidateMovePlan(isApply=false)` against those addresses and the destination plan's provider config, failing exit 1 on any `error`-severity diagnostic (including `xmove/provider-mismatch` when source and destination use different providers).
+  - *Apply-time pre-flight:* `ValidateMovePlan(isApply=true)` runs against live pulled state addresses as the final fail-closed guard before any state surgery; `expandPairs` fans intent pairs out against live state at this point.
 - **Dest-push-failure rollback.** If a move's dest `StatePush` fails after the
   source push already succeeded (resources removed from the source's live state
   but not yet in the dest's), `Execute` **rolls the source back** to its
