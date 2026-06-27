@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
+	"github.com/Fluent-Health/terraform-stack-plan/internal/statemove"
 )
 
 // TestRenderClassificationReconcilesXMove proves the gate auto-reconciles a
@@ -39,9 +40,17 @@ func TestRenderClassificationReconcilesXMove(t *testing.T) {
 	}
 
 	// Source: the cms module leaving — an IAM member DELETE (project p1).
-	write(srcStack+"/tfplan.json", `{"format_version":"1.2","resource_changes":[
-	  {"address":"module.main.module.cms[0].google_project_iam_member.a","type":"google_project_iam_member","name":"a",
-	   "change":{"actions":["delete"],"before":{"project":"p1","role":"roles/viewer"},"after":null}}]}`)
+	// prior_state carries the unprocessed live-state addresses; resource_changes
+	// would have post-moved{} addresses and must NOT be used as the source set.
+	write(srcStack+"/tfplan.json", `{"format_version":"1.2",`+
+		`"prior_state":{"format_version":"0.1","values":{"root_module":{"child_modules":[`+
+		`{"address":"module.main","child_modules":[`+
+		`{"address":"module.main.module.cms[0]","resources":[`+
+		`{"address":"module.main.module.cms[0].google_project_iam_member.a",`+
+		`"type":"google_project_iam_member","provider_name":"registry.terraform.io/hashicorp/google"}]}]}]}}},`+
+		`"resource_changes":[`+
+		`{"address":"module.main.module.cms[0].google_project_iam_member.a","type":"google_project_iam_member","name":"a",`+
+		`"change":{"actions":["delete"],"before":{"project":"p1","role":"roles/viewer"},"after":null}}]}`)
 	// Destination: the same member arriving — an IAM member CREATE (project p1).
 	write(dstStack+"/tfplan.json", `{"format_version":"1.2","resource_changes":[
 	  {"address":"module.cms.google_project_iam_member.a","type":"google_project_iam_member","name":"a",
@@ -55,6 +64,8 @@ xmove {
   }
 }
 `)
+	// Provider block so DiscoverDestProviders finds "google" in the dest stack dir.
+	write(dstStack+"/providers.tf", `provider "google" {}`)
 	cfgPath := filepath.Join(dir, ".tfstackplan.hcl")
 	write(".tfstackplan.hcl", `
 classification {
@@ -259,10 +270,18 @@ func TestValidateXMoveManifest_warnsForMissingAddresses(t *testing.T) {
 		}
 	}
 
-	// Source plan does NOT contain the address we move.
-	write(srcStack+"/tfplan.json", `{"format_version":"1.2","resource_changes":[
-	  {"address":"module.other.r","type":"google_project_iam_member","name":"a",
-	   "change":{"actions":["delete"],"before":{"project":"p1","role":"roles/viewer"},"after":null}}]}`)
+	// Source plan does NOT contain the xmove From address in prior_state.
+	// prior_state has module.other.r (not module.main.module.cms[0]), so the
+	// validator must report "not found in source plan" rather than falling through
+	// to ResourceChanges.
+	write(srcStack+"/tfplan.json", `{"format_version":"1.2",`+
+		`"prior_state":{"values":{"root_module":{"child_modules":[`+
+		`{"address":"module.other","resources":[`+
+		`{"address":"module.other.r","type":"google_project_iam_member",`+
+		`"provider_name":"registry.terraform.io/hashicorp/google"}]}]}}},`+
+		`"resource_changes":[`+
+		`{"address":"module.other.r","type":"google_project_iam_member","name":"a",`+
+		`"change":{"actions":["delete"],"before":{"project":"p1","role":"roles/viewer"},"after":null}}]}`)
 
 	// XMove manifest references a From address not found in the plan.
 	write(dstStack+"/_tfsp_xmove.PR-1.hcl", `# tfstackplan:key=PR-1
@@ -315,10 +334,18 @@ func TestValidateXMoveManifest_warnsForMissingProviders(t *testing.T) {
 		}
 	}
 
-	// Source plan has valid resource delete.
-	write(srcStack+"/tfplan.json", `{"format_version":"1.2","resource_changes":[
-	  {"address":"module.main.module.cms[0].postgresql_grant.a","type":"postgresql_grant","name":"a","provider_name":"registry.terraform.io/cyrilgdn/postgresql",
-	   "change":{"actions":["delete"],"before":{"id":"abc"},"after":null}}]}`)
+	// Source plan has valid resource delete. prior_state carries the live-state
+	// address so prior_state-based validation finds it; resource_changes is
+	// supplementary only and must NOT be used as the source address set.
+	write(srcStack+"/tfplan.json", `{"format_version":"1.2",`+
+		`"prior_state":{"values":{"root_module":{"child_modules":[`+
+		`{"address":"module.main","child_modules":[`+
+		`{"address":"module.main.module.cms[0]","resources":[`+
+		`{"address":"module.main.module.cms[0].postgresql_grant.a",`+
+		`"type":"postgresql_grant","provider_name":"registry.terraform.io/cyrilgdn/postgresql"}]}]}]}}},`+
+		`"resource_changes":[`+
+		`{"address":"module.main.module.cms[0].postgresql_grant.a","type":"postgresql_grant","name":"a","provider_name":"registry.terraform.io/cyrilgdn/postgresql",`+
+		`"change":{"actions":["delete"],"before":{"id":"abc"},"after":null}}]}`)
 
 	// XMove manifest moves "postgresql_grant" to dstStack.
 	write(dstStack+"/_tfsp_xmove.PR-1.hcl", `# tfstackplan:key=PR-1
@@ -381,5 +408,52 @@ xmove {
 
 	if strings.Contains(out2, "provider") {
 		t.Fatalf("expected NO provider config warning when postgresql provider block is configured, got: %q", out2)
+	}
+}
+
+// TestValidateXMoveManifest_HardErrorWhenNoPriorState verifies that
+// validateXMoveManifest hard-errors rather than silently falling back to
+// ResourceChanges when the source plan has no prior_state. A plan without
+// prior_state means the source stack is new — there is nothing to move out.
+// The old fallback produced post-moved{}-processing addresses, which diverge
+// from the live-state addresses apply-time validation sees, causing false-safe
+// classifications on plan while failing on apply.
+func TestValidateXMoveManifest_HardErrorWhenNoPriorState(t *testing.T) {
+	// Create a dest stack with an xmove manifest and a source plan that has
+	// no prior_state (only ResourceChanges). The validator must hard-error
+	// rather than silently falling back to ResourceChanges.
+	root := t.TempDir()
+	plansDir := t.TempDir()
+
+	const srcStack = "src"
+	const dstStack = "dst"
+	const key = "PR-99"
+
+	// Write xmove manifest in dest stack (under root)
+	dstDir := filepath.Join(root, dstStack)
+	if err := os.MkdirAll(dstDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := statemove.RenderXMove(key, statemove.XMove{
+		SourceStack: srcStack,
+		Pairs:       []statemove.Move{{From: "module.perms", To: "module.dest"}},
+	})
+	if err := os.WriteFile(filepath.Join(dstDir, statemove.XMoveFileName(key)), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Write source plan with ResourceChanges only (no prior_state)
+	srcPlanDir := filepath.Join(plansDir, srcStack)
+	if err := os.MkdirAll(srcPlanDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	srcPlan := `{"format_version":"1.2","resource_changes":[{"address":"module.perms.google_project_iam_member.x","type":"google_project_iam_member","change":{"actions":["delete"]}}]}`
+	if err := os.WriteFile(filepath.Join(srcPlanDir, "tfplan.json"), []byte(srcPlan), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	err := validateXMoveManifest(root, plansDir)
+	if err == nil {
+		t.Fatal("expected error when source plan has no prior_state, got nil")
 	}
 }
