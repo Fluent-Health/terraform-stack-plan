@@ -147,15 +147,15 @@ func runStateMove(args []string) int {
 			opsByStack[fromStack] = append(opsByStack[fromStack], statemove.Op{Kind: "moved", From: fromAddr, To: toAddr})
 			continue
 		}
+		// Cross-stack path: load source plan first.
 		srcPlan, e3 := loadFor(fromStack)
-		dstPlan, e4 := loadFor(toStack)
-		if e3 != nil || e4 != nil {
-			fmt.Fprintln(os.Stderr, "state move:", cmp.Or(e3, e4))
+		if e3 != nil {
+			fmt.Fprintln(os.Stderr, "state move:", e3)
 			return 1
 		}
+
 		if *via == "mv" {
-			pairs, err := statemove.CrossStackPairsFromState(srcPlan, dstPlan, fromAddr, toAddr)
-			if err != nil {
+			if err := statemove.CheckXMoveSource(srcPlan, fromAddr); err != nil {
 				fmt.Fprintln(os.Stderr, "state move:", err)
 				return 1
 			}
@@ -165,9 +165,16 @@ func runStateMove(args []string) int {
 				return 1
 			}
 			existing.SourceStack = fromStack
-			existing.Pairs = append(existing.Pairs, pairs...)
+			existing.Pairs = append(existing.Pairs, statemove.Move{From: fromAddr, To: toAddr})
 			xmoveByDest[toStack] = existing
 			continue
+		}
+
+		// Non-mv cross-stack: also load dest plan for ClassifyCrossStack.
+		dstPlan, e4 := loadFor(toStack)
+		if e4 != nil {
+			fmt.Fprintln(os.Stderr, "state move:", e4)
+			return 1
 		}
 		srcOps, dstOps, err := statemove.ClassifyCrossStack(srcPlan, dstPlan, fromAddr, toAddr)
 		if err != nil {

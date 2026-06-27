@@ -2,6 +2,7 @@ package statemove
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	tfjson "github.com/hashicorp/terraform-json"
@@ -162,5 +163,43 @@ func TestClassifyCrossStackFailsClosed(t *testing.T) {
 	dst3 := &tfjson.Plan{ResourceChanges: nil}
 	if _, _, err := ClassifyCrossStack(src3, dst3, "a.x", "a.y"); err == nil {
 		t.Error("expected not-created-at-dest error")
+	}
+}
+
+func TestCheckXMoveSource_OkWhenFromPresentInPriorState(t *testing.T) {
+	plan := &tfjson.Plan{
+		PriorState: &tfjson.State{Values: &tfjson.StateValues{RootModule: &tfjson.StateModule{
+			Resources: []*tfjson.StateResource{
+				stateResource("module.perms.google_project_iam_member.x", "google_project_iam_member", "registry.terraform.io/hashicorp/google"),
+			},
+		}}},
+	}
+	if err := CheckXMoveSource(plan, "module.perms"); err != nil {
+		t.Errorf("expected nil, got: %v", err)
+	}
+}
+
+func TestCheckXMoveSource_ErrorWhenNoPriorState(t *testing.T) {
+	plan := &tfjson.Plan{} // no prior_state
+	err := CheckXMoveSource(plan, "module.perms")
+	if err == nil {
+		t.Fatal("expected error for missing prior_state, got nil")
+	}
+	if !strings.Contains(err.Error(), "no prior state") {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
+func TestCheckXMoveSource_ErrorWhenFromNotInPriorState(t *testing.T) {
+	plan := &tfjson.Plan{
+		PriorState: &tfjson.State{Values: &tfjson.StateValues{RootModule: &tfjson.StateModule{
+			Resources: []*tfjson.StateResource{
+				stateResource("module.other.google_project_iam_member.x", "google_project_iam_member", "registry.terraform.io/hashicorp/google"),
+			},
+		}}},
+	}
+	err := CheckXMoveSource(plan, "module.perms")
+	if err == nil {
+		t.Fatal("expected error when from address not in prior_state, got nil")
 	}
 }

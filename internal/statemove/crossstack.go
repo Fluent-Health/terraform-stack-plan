@@ -137,6 +137,23 @@ func CrossStackPairsFromState(src, dst *tfjson.Plan, from, to string) ([]Move, e
 	return pairs, nil
 }
 
+// CheckXMoveSource verifies that src has a prior_state containing at least one
+// resource under from. Returns an error when prior_state is absent (source stack
+// has no state — nothing to move) or when nothing under from is found (wrong
+// address prefix or wrong stack).
+func CheckXMoveSource(src *tfjson.Plan, from string) error {
+	if src.PriorState == nil || src.PriorState.Values == nil {
+		return fmt.Errorf("source stack has no prior state — nothing to move")
+	}
+	addrs := stateAddresses(src.PriorState)
+	for a := range addrs {
+		if matches(a, from) {
+			return nil
+		}
+	}
+	return fmt.Errorf("nothing under %q in source prior state (wrong from address or stack?)", from)
+}
+
 // ClassifyCrossStack validates a cross-stack move from `from` (in src's plan) to
 // `to` (in dst's plan) and returns the ops to write: `removed` ops in the source
 // shim and `import` ops (id from src's before.id) in the destination shim. Fail-
