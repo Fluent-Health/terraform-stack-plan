@@ -425,7 +425,8 @@ func runStateCleanup(args []string) int {
 	fs := flag.NewFlagSet("state cleanup", flag.ContinueOnError)
 	dir := fs.String("dir", "", "terramate project root (required)")
 	pr := fs.String("pr", "", "remove only this PR's shims")
-	all := fs.Bool("all", false, "remove ALL tfstackplan move shims in the tree")
+	all := fs.Bool("all", false, "remove ALL tfstackplan move shims and xmove manifests in the tree")
+	applied := fs.Bool("applied", false, "remove all xmove manifests (cross-state move manifests whose apply has been verified); same-stack shims are left intact")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -433,8 +434,20 @@ func runStateCleanup(args []string) int {
 		fmt.Fprintln(os.Stderr, "state cleanup: --dir is required")
 		return 2
 	}
+
+	// --applied: remove xmove manifests only, leave same-stack shims intact.
+	if *applied {
+		nx, err := statemove.CleanupXMoves(*dir, "")
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "state cleanup xmoves:", err)
+			return 1
+		}
+		fmt.Printf("removed %d xmove manifest(s)\n", nx)
+		return 0
+	}
+
 	if (*pr == "") == (!*all) {
-		fmt.Fprintln(os.Stderr, "state cleanup: pass exactly one of --pr <n> or --all")
+		fmt.Fprintln(os.Stderr, "state cleanup: pass exactly one of --pr <n>, --all, or --applied")
 		return 2
 	}
 	key := ""

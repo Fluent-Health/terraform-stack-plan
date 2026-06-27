@@ -411,6 +411,62 @@ xmove {
 	}
 }
 
+// D3: when the source plan is absent AND the dest prior_state already contains
+// the to-addresses, validateXMoveManifest must emit xmove/spent (info, no error)
+// instead of xmove/source-not-planned (error). A spent manifest is a green no-op.
+func TestValidateXMoveManifest_SpentIsGreen(t *testing.T) {
+	root := t.TempDir()
+	plansDir := t.TempDir()
+
+	const srcStack = "stacks/src"
+	const dstStack = "stacks/dst"
+
+	dstDir := filepath.Join(root, dstStack)
+	if err := os.MkdirAll(dstDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := statemove.RenderXMove("PR-20", statemove.XMove{
+		SourceStack: srcStack,
+		Pairs:       []statemove.Move{{From: "module.x", To: "module.y"}},
+	})
+	if err := os.WriteFile(filepath.Join(dstDir, statemove.XMoveFileName("PR-20")), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// No source plan → source not in changed set.
+	// Dest plan has prior_state containing module.y.* → move already applied.
+	dstPlanDir := filepath.Join(plansDir, dstStack)
+	if err := os.MkdirAll(dstPlanDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	dstPlan := `{"format_version":"1.2","prior_state":{"values":{"root_module":{"child_modules":[` +
+		`{"address":"module.y","resources":[` +
+		`{"address":"module.y.google_project.p","type":"google_project","mode":"managed","provider_name":"registry.terraform.io/hashicorp/google"}` +
+		`]}]}}}}`
+	if err := os.WriteFile(filepath.Join(dstPlanDir, "tfplan.json"), []byte(dstPlan), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	oldStderr := os.Stderr
+	r, w, _ := os.Pipe()
+	os.Stderr = w
+
+	err := validateXMoveManifest(root, plansDir)
+
+	w.Close()
+	os.Stderr = oldStderr
+
+	// Spent manifest must NOT error — it plans green.
+	if err != nil {
+		t.Fatalf("spent manifest must not error validateXMoveManifest, got: %v", err)
+	}
+	var buf [2048]byte
+	n, _ := r.Read(buf[:])
+	out := string(buf[:n])
+	if !strings.Contains(out, "spent") {
+		t.Errorf("output must mention 'spent'; got:\n%s", out)
+	}
+}
+
 // TestValidateXMoveManifest_HardErrorWhenNoPriorState verifies that
 // validateXMoveManifest hard-errors rather than silently falling back to
 // ResourceChanges when the source plan has no prior_state. A plan without

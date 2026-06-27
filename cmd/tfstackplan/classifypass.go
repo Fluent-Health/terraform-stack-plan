@@ -180,13 +180,22 @@ func validateXMoveManifest(dir, outDir string) error {
 		// nothing to move out, and we hard-error rather than silently producing
 		// a false-safe classification.
 		srcPlanPath := filepath.Join(outDir, filepath.FromSlash(resolvedSource), "tfplan.json")
+		dstPlanPath := filepath.Join(outDir, filepath.FromSlash(fx.DestStack), "tfplan.json")
 		srcPlanBytes, rerr := os.ReadFile(srcPlanPath)
 		if rerr != nil {
-			// xmove/source-not-planned: the source stack is not in the changed set
-			// for this PR. Touch the source stack to include it, or remove this
-			// manifest if the cross-state move has already been applied.
-			fmt.Fprintf(os.Stderr, "❌ xmove %s: xmove/source-not-planned — source stack %q is not in the changed set; touch it so Terramate plans it, or remove this manifest if the move is already complete\n", fx.Key, resolvedSource)
-			hasErrors = true
+			// Source plan absent — check dest prior_state to distinguish:
+			//   spent:           move already applied → green info, no error
+			//   source-not-planned: source omitted from PR → red error
+			var dstPriorAddrs statemove.AddressSet
+			if dstPlanBytes, derr := os.ReadFile(dstPlanPath); derr == nil {
+				dstPriorAddrs = statemove.PriorStateAddrs(dstPlanBytes)
+			}
+			if statemove.IsSpent(fx.XMove.Pairs, dstPriorAddrs) {
+				fmt.Fprintf(os.Stderr, "ℹ️  xmove %s: xmove/spent — all declared moves already applied; run 'state cleanup --applied' to remove this manifest\n", fx.Key)
+			} else {
+				fmt.Fprintf(os.Stderr, "❌ xmove %s: xmove/source-not-planned — source stack %q is not in the changed set; touch it so Terramate plans it, or remove this manifest if the move is already complete\n", fx.Key, resolvedSource)
+				hasErrors = true
+			}
 			continue
 		}
 		priorAddrs := statemove.PriorStateAddrs(srcPlanBytes)
@@ -199,7 +208,6 @@ func validateXMoveManifest(dir, outDir string) error {
 
 		// Build Destination AddressSet
 		dstAddrs := statemove.AddressSet{}
-		dstPlanPath := filepath.Join(outDir, filepath.FromSlash(fx.DestStack), "tfplan.json")
 		if dstPlanBytes, err := os.ReadFile(dstPlanPath); err == nil {
 			if rs, err := plan.Parse(fx.DestStack, dstPlanBytes); err == nil {
 				for _, c := range rs.Changes {

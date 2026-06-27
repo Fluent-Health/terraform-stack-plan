@@ -145,6 +145,50 @@ func TestStateListAndCleanup(t *testing.T) {
 	}
 }
 
+// D3: state cleanup --applied removes all xmove manifests (the operator
+// has verified the apply succeeded). Same-stack shims are left intact.
+func TestStateCleanupApplied(t *testing.T) {
+	root := t.TempDir()
+
+	// Write a same-stack shim (must NOT be removed by --applied).
+	shimDir := filepath.Join(root, "stacks/a")
+	if err := os.MkdirAll(shimDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	shimFile := filepath.Join(shimDir, statemove.ShimFileName("PR-5"))
+	if err := os.WriteFile(shimFile, []byte(`# tfstackplan:key=PR-5`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Write two xmove manifests (must be removed by --applied).
+	for _, dst := range []string{"stacks/b", "stacks/c"} {
+		d := filepath.Join(root, dst)
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		xm := statemove.XMove{SourceStack: "stacks/a", Pairs: []statemove.Move{{From: "r.x", To: "r.x"}}}
+		content := statemove.RenderXMove("PR-5", xm)
+		if err := os.WriteFile(filepath.Join(d, statemove.XMoveFileName("PR-5")), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if code := runState([]string{"cleanup", "--dir", root, "--applied"}); code != 0 {
+		t.Fatalf("cleanup --applied = %d, want 0", code)
+	}
+	// Shim untouched.
+	if _, err := os.Stat(shimFile); err != nil {
+		t.Error("cleanup --applied must not remove same-stack shims")
+	}
+	// Both xmove manifests gone.
+	for _, dst := range []string{"stacks/b", "stacks/c"} {
+		f := filepath.Join(root, dst, statemove.XMoveFileName("PR-5"))
+		if _, err := os.Stat(f); err == nil {
+			t.Errorf("cleanup --applied must remove xmove manifest in %s", dst)
+		}
+	}
+}
+
 // writeSrcPlanWithPriorState writes <root>/<stack>/tfplan.json with prior_state
 // containing one resource at addr of the given type.
 func writeSrcPlanWithPriorState(t *testing.T, root, stack, addr, resourceType string) {
