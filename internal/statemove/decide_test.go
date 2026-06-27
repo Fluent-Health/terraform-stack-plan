@@ -147,6 +147,40 @@ provider "postgresql" {}
 	}
 }
 
+// D3: IsSpent reports true when all declared To-addresses are already present in
+// the destination prior_state (move has been applied), false when any are absent.
+func TestIsSpent(t *testing.T) {
+	pairs := []Move{{From: "module.x", To: "module.y"}}
+
+	dstHas := AddressSet{
+		"module.y.google_project.p": "registry.terraform.io/hashicorp/google",
+		"module.y.aws_s3_bucket.b":  "registry.terraform.io/hashicorp/aws",
+	}
+	if !IsSpent(pairs, dstHas) {
+		t.Error("IsSpent must be true when dest prior_state has to-addresses")
+	}
+	if IsSpent(pairs, AddressSet{}) {
+		t.Error("IsSpent must be false when dest prior_state is empty")
+	}
+	if IsSpent(pairs, AddressSet{"module.z.google_project.p": "p"}) {
+		t.Error("IsSpent must be false when dest has different module")
+	}
+
+	// Exact resource pair.
+	if !IsSpent([]Move{{From: "a.x", To: "a.x"}}, AddressSet{"a.x": "p"}) {
+		t.Error("IsSpent must be true for exact pair in dest")
+	}
+
+	// Multi-pair: all must be present.
+	multi := []Move{{From: "module.a", To: "module.b"}, {From: "module.c", To: "module.d"}}
+	if IsSpent(multi, AddressSet{"module.b.r.x": "p"}) {
+		t.Error("IsSpent must be false when only one of two pairs is in dest")
+	}
+	if !IsSpent(multi, AddressSet{"module.b.r.x": "p", "module.d.r.y": "p"}) {
+		t.Error("IsSpent must be true when all pairs are in dest")
+	}
+}
+
 // D2: stateAddresses must exclude data sources so module-level wildcards never
 // sweep data.* addresses into the move set (failure #1 and #2 from tsp#165).
 func TestStateAddressesSkipsDataSources(t *testing.T) {

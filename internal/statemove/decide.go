@@ -149,6 +149,28 @@ func modulePrefix(addr string) string {
 	return strings.Join(parts[:end], ".")
 }
 
+// IsSpent reports whether all declared moves have already been applied: every
+// pair's To-prefix has at least one address present in dstPriorAddrs. Returns
+// false when dstPriorAddrs is empty (indeterminate) or pairs is empty.
+func IsSpent(pairs []Move, dstPriorAddrs AddressSet) bool {
+	if len(dstPriorAddrs) == 0 || len(pairs) == 0 {
+		return false
+	}
+	for _, p := range pairs {
+		found := false
+		for a := range dstPriorAddrs {
+			if matches(a, p.To) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
+}
+
 // ValidateMovePlan validates a cross-state move manifest against source and destination AddressSets and configured providers.
 func ValidateMovePlan(src, dst AddressSet, providers DestProviders, m XMove, isApply bool) []Diagnostic {
 	var diags []Diagnostic
