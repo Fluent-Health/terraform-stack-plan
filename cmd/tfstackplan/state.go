@@ -108,6 +108,8 @@ Cross-stack modes:
              stack. The manifest stores the from/to addresses you provide
              (module-level or resource-level). Concrete per-resource pairs are
              resolved at apply time from live state via 'terraform state mv'.
+             Data sources (mode=data) are filtered out of all address walks —
+             wildcards never sweep data.* into the move set.
 
              Use --via mv for module extractions, especially when the source
              stack contains a 'moved {}' block that renames the module (e.g.
@@ -118,6 +120,10 @@ Cross-stack modes:
              (verifying the from address exists in source state). Full
              validation — type compatibility, destination provider config —
              runs at classify time (the plan CI step) via 'run plan --classify'.
+
+             The generated manifest includes a '# tfstackplan:key=<key>' header.
+             Hand-authored manifests without the header are accepted; the key is
+             derived from the filename (_tfsp_xmove.<key>.hcl).
 
 Flags:
 `)
