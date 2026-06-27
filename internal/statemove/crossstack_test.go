@@ -2,6 +2,7 @@ package statemove
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	tfjson "github.com/hashicorp/terraform-json"
@@ -45,67 +46,6 @@ func TestClassifyCrossStack(t *testing.T) {
 	}
 	if len(dstOps) != 1 || dstOps[0] != (Op{Kind: "import", To: "module.d.aws_s3_bucket.new", ID: "my-bucket"}) {
 		t.Errorf("dstOps = %+v", dstOps)
-	}
-}
-
-// TestCrossStackPairsFromState_priorStatePreventsModuleLevelRenameAddresses tests
-// the core bug: a module-level moved{} block renames resources in ResourceChanges
-// (module.console → module.console[0]) but does NOT set PreviousAddress per
-// resource. CrossStackPairsFromState must use prior_state instead, producing
-// manifests with the unindexed source addresses that apply-time validation expects.
-func TestCrossStackPairsFromState_priorStatePreventsModuleLevelRenameAddresses(t *testing.T) {
-	const p = "registry.terraform.io/hashicorp/google"
-	src := &tfjson.Plan{
-		// prior_state has the raw (unindexed) addresses from live state.
-		PriorState: &tfjson.State{Values: &tfjson.StateValues{RootModule: &tfjson.StateModule{
-			Resources: []*tfjson.StateResource{
-				stateResource("module.main.module.console.google_service_account.runner", "google_service_account", p),
-				stateResource("module.main.module.console.google_project_iam_member.runner_ai", "google_project_iam_member", p),
-			},
-		}}},
-		// ResourceChanges has [0] addresses due to moved{} block — should NOT be used.
-		ResourceChanges: []*tfjson.ResourceChange{
-			delWithID("module.main.module.console[0].google_service_account.runner", "google_service_account", "sa-id"),
-			delWithID("module.main.module.console[0].google_project_iam_member.runner_ai", "google_project_iam_member", "proj/roles/AI"),
-		},
-	}
-	dst := &tfjson.Plan{ResourceChanges: []*tfjson.ResourceChange{
-		create("module.console.google_service_account.runner", "google_service_account"),
-		create("module.console.google_project_iam_member.runner_ai", "google_project_iam_member"),
-	}}
-
-	pairs, err := CrossStackPairsFromState(src, dst, "module.main.module.console", "module.console")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(pairs) != 2 {
-		t.Fatalf("want 2 pairs, got %d: %+v", len(pairs), pairs)
-	}
-	want := []Move{
-		{From: "module.main.module.console.google_project_iam_member.runner_ai", To: "module.console.google_project_iam_member.runner_ai"},
-		{From: "module.main.module.console.google_service_account.runner", To: "module.console.google_service_account.runner"},
-	}
-	for i, p := range pairs {
-		if p != want[i] {
-			t.Errorf("pair[%d] = %+v, want %+v", i, p, want[i])
-		}
-	}
-}
-
-func TestCrossStackPairsFromState_fallsBackWhenNoPriorState(t *testing.T) {
-	// Without prior_state, behaves identically to CrossStackPairs.
-	src := &tfjson.Plan{ResourceChanges: []*tfjson.ResourceChange{
-		delWithID("aws_s3_bucket.old", "aws_s3_bucket", "my-bucket"),
-	}}
-	dst := &tfjson.Plan{ResourceChanges: []*tfjson.ResourceChange{
-		create("module.d.aws_s3_bucket.new", "aws_s3_bucket"),
-	}}
-	pairs, err := CrossStackPairsFromState(src, dst, "aws_s3_bucket.old", "module.d.aws_s3_bucket.new")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(pairs) != 1 || pairs[0] != (Move{From: "aws_s3_bucket.old", To: "module.d.aws_s3_bucket.new"}) {
-		t.Errorf("pairs = %+v", pairs)
 	}
 }
 
@@ -162,5 +102,43 @@ func TestClassifyCrossStackFailsClosed(t *testing.T) {
 	dst3 := &tfjson.Plan{ResourceChanges: nil}
 	if _, _, err := ClassifyCrossStack(src3, dst3, "a.x", "a.y"); err == nil {
 		t.Error("expected not-created-at-dest error")
+	}
+}
+
+func TestCheckXMoveSource_OkWhenFromPresentInPriorState(t *testing.T) {
+	plan := &tfjson.Plan{
+		PriorState: &tfjson.State{Values: &tfjson.StateValues{RootModule: &tfjson.StateModule{
+			Resources: []*tfjson.StateResource{
+				stateResource("module.perms.google_project_iam_member.x", "google_project_iam_member", "registry.terraform.io/hashicorp/google"),
+			},
+		}}},
+	}
+	if err := CheckXMoveSource(plan, "module.perms"); err != nil {
+		t.Errorf("expected nil, got: %v", err)
+	}
+}
+
+func TestCheckXMoveSource_ErrorWhenNoPriorState(t *testing.T) {
+	plan := &tfjson.Plan{} // no prior_state
+	err := CheckXMoveSource(plan, "module.perms")
+	if err == nil {
+		t.Fatal("expected error for missing prior_state, got nil")
+	}
+	if !strings.Contains(err.Error(), "no prior state") {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
+
+func TestCheckXMoveSource_ErrorWhenFromNotInPriorState(t *testing.T) {
+	plan := &tfjson.Plan{
+		PriorState: &tfjson.State{Values: &tfjson.StateValues{RootModule: &tfjson.StateModule{
+			Resources: []*tfjson.StateResource{
+				stateResource("module.other.google_project_iam_member.x", "google_project_iam_member", "registry.terraform.io/hashicorp/google"),
+			},
+		}}},
+	}
+	err := CheckXMoveSource(plan, "module.perms")
+	if err == nil {
+		t.Fatal("expected error when from address not in prior_state, got nil")
 	}
 }

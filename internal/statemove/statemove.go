@@ -85,12 +85,3 @@ func sortedKeys(m map[string]*tfjson.ResourceChange) []string {
 	sort.Strings(ks)
 	return ks
 }
-
-func sortedKeys2(m map[string]string) []string {
-	ks := make([]string, 0, len(m))
-	for k := range m {
-		ks = append(ks, k)
-	}
-	sort.Strings(ks)
-	return ks
-}

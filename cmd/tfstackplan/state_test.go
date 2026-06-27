@@ -145,11 +145,35 @@ func TestStateListAndCleanup(t *testing.T) {
 	}
 }
 
+// writeSrcPlanWithPriorState writes <root>/<stack>/tfplan.json with prior_state
+// containing one resource at addr of the given type.
+func writeSrcPlanWithPriorState(t *testing.T, root, stack, addr, resourceType string) {
+	t.Helper()
+	dir := filepath.Join(root, filepath.FromSlash(stack))
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	plan := `{"format_version":"1.2","prior_state":{"format_version":"0.1","values":{"root_module":{"resources":[{"address":"` +
+		addr + `","type":"` + resourceType + `","provider_name":"registry.terraform.io/hashicorp/google"}]}}}}`
+	if err := os.WriteFile(filepath.Join(dir, "tfplan.json"), []byte(plan), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestStateMoveViaMv(t *testing.T) {
-	root := writeTwoStackPlans(t, "stacks/a", "aws_s3_bucket.x", "aws_s3_bucket", "id",
-		"stacks/b", "aws_s3_bucket.x", "aws_s3_bucket")
+	root := t.TempDir()
+	writeSrcPlanWithPriorState(t, root, "stacks/a", "module.main.module.perms.google_project_iam_member.x", "google_project_iam_member")
+	// Dest plan: create under module.perms (intent to= prefix)
+	dstDir := filepath.Join(root, "stacks/b")
+	if err := os.MkdirAll(dstDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dstDir, "tfplan.json"), []byte(`{"format_version":"1.2","resource_changes":[]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
 	code := runState([]string{"move", "--dir", root, "--pr", "5", "--via", "mv",
-		"stacks/a:aws_s3_bucket.x", "stacks/b:aws_s3_bucket.x"})
+		"stacks/a:module.main.module.perms", "stacks/b:module.perms"})
 	if code != 0 {
 		t.Fatalf("state move --via mv = %d, want 0", code)
 	}
@@ -157,11 +181,44 @@ func TestStateMoveViaMv(t *testing.T) {
 	if err != nil {
 		t.Fatalf("xmove manifest missing: %v", err)
 	}
-	if !strings.Contains(string(data), `source_stack = "stacks/a"`) || !strings.Contains(string(data), "xmove {") {
-		t.Errorf("manifest content:\n%s", data)
+	// Manifest must store the intent pair exactly — NOT concrete per-resource pairs.
+	if !strings.Contains(string(data), `"module.main.module.perms" = "module.perms"`) {
+		t.Errorf("manifest must store intent pair, got:\n%s", data)
+	}
+	if strings.Contains(string(data), "google_project_iam_member") {
+		t.Errorf("manifest must NOT contain concrete resource addresses, got:\n%s", data)
 	}
 	if _, err := os.Stat(filepath.Join(root, "stacks/b", statemove.ShimFileName("PR-5"))); err == nil {
 		t.Error("--via mv should not write a native import/removed shim")
+	}
+}
+
+func TestStateMoveViaMvFailsWhenNoPriorState(t *testing.T) {
+	root := t.TempDir()
+	// Source plan has NO prior_state (only ResourceChanges) — must fail.
+	srcDir := filepath.Join(root, "stacks/a")
+	if err := os.MkdirAll(srcDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	srcPlan := `{"format_version":"1.2","resource_changes":[{"address":"module.perms.google_project_iam_member.x","change":{"actions":["delete"]}}]}`
+	if err := os.WriteFile(filepath.Join(srcDir, "tfplan.json"), []byte(srcPlan), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	code := runState([]string{"move", "--dir", root, "--pr", "5", "--via", "mv",
+		"stacks/a:module.perms", "stacks/b:module.dest"})
+	if code == 0 {
+		t.Fatal("expected non-zero exit when source has no prior_state")
+	}
+}
+
+func TestStateMoveViaMvFailsWhenFromNotInPriorState(t *testing.T) {
+	root := t.TempDir()
+	// Source prior_state has "module.other.*" — "module.perms" is not present.
+	writeSrcPlanWithPriorState(t, root, "stacks/a", "module.other.google_project_iam_member.x", "google_project_iam_member")
+	code := runState([]string{"move", "--dir", root, "--pr", "5", "--via", "mv",
+		"stacks/a:module.perms", "stacks/b:module.dest"})
+	if code == 0 {
+		t.Fatal("expected non-zero exit when from address not in prior_state")
 	}
 }
 

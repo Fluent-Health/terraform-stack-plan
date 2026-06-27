@@ -129,6 +129,24 @@ var implicitProviders = map[string]bool{
 	"time":     true,
 }
 
+// modulePrefix strips the trailing resource-type.resource-name components from a
+// Terraform address, returning just the module path. For a root-module resource
+// like "aws_s3_bucket.x" it returns "". For "module.a.aws_s3_bucket.x" it
+// returns "module.a". For nested "module.a.module.b.res.x" it returns
+// "module.a.module.b".
+func modulePrefix(addr string) string {
+	parts := strings.Split(addr, ".")
+	// Walk backwards: skip the last two non-module components (type + name).
+	// Module components start with "module" and appear in pairs (module, name).
+	end := len(parts)
+	// The resource type and name are the last two segments that don't form a
+	// module call. Strip them.
+	if end >= 2 && parts[end-2] != "module" {
+		end -= 2
+	}
+	return strings.Join(parts[:end], ".")
+}
+
 // ValidateMovePlan validates a cross-state move manifest against source and destination AddressSets and configured providers.
 func ValidateMovePlan(src, dst AddressSet, providers DestProviders, m XMove, isApply bool) []Diagnostic {
 	var diags []Diagnostic
@@ -143,7 +161,7 @@ func ValidateMovePlan(src, dst AddressSet, providers DestProviders, m XMove, isA
 
 	for _, p := range expanded {
 		prov, inSrc := src[p.From]
-		_, inDst := dst[p.To]
+		dstProv, inDst := dst[p.To]
 
 		if isApply {
 			// Apply-time validation against live states
@@ -210,6 +228,35 @@ func ValidateMovePlan(src, dst AddressSet, providers DestProviders, m XMove, isA
 					Code:     "xmove/dest-missing",
 					Severity: SeverityError,
 					Message:  fmt.Sprintf("address %q not found in destination plan changes (manifest stale or target address incorrect)", p.To),
+				})
+			}
+
+			// Provider mismatch: both addresses present but different providers.
+			// When the exact dest address is present, compare directly. When the
+			// dest address isn't an exact match (e.g. different resource type across
+			// a module-level pair), find the actual provider for any address in dst
+			// that shares the same module prefix as p.To.
+			effectiveDstProv := dstProv
+			if !inDst && len(dst) > 0 {
+				toMod := modulePrefix(p.To)
+				for addr, ap := range dst {
+					if toMod == "" {
+						// root module: any address is a candidate
+						if !strings.Contains(addr, ".module.") && !strings.HasPrefix(addr, "module.") {
+							effectiveDstProv = ap
+							break
+						}
+					} else if matches(addr, toMod) {
+						effectiveDstProv = ap
+						break
+					}
+				}
+			}
+			if inSrc && len(dst) > 0 && prov != "" && effectiveDstProv != "" && prov != effectiveDstProv {
+				diags = append(diags, Diagnostic{
+					Code:     "xmove/provider-mismatch",
+					Severity: SeverityError,
+					Message:  fmt.Sprintf("provider mismatch: %q uses %s but destination %q uses %s", p.From, getShortName(prov), p.To, getShortName(effectiveDstProv)),
 				})
 			}
 		}

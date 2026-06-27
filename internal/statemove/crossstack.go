@@ -62,79 +62,21 @@ func CrossStackPairs(src, dst *tfjson.Plan, from, to string) ([]Move, error) {
 	return pairs, nil
 }
 
-// CrossStackPairsFromState is like CrossStackPairs but derives source addresses
-// from the plan's embedded prior_state (the raw Terraform state before the plan
-// ran) rather than from ResourceChanges.
-//
-// Terraform processes moved{} blocks before writing ResourceChanges, so a
-// module-level rename (e.g. moved { from = module.foo to = module.foo[0] })
-// makes all resources under that module appear with post-rename addresses in the
-// plan (module.foo[0].*) without per-resource PreviousAddress entries. The live
-// state — and apply-time xmove validation — still holds the pre-rename addresses
-// (module.foo.*). A manifest generated from ResourceChanges would encode the
-// post-rename form, passing plan-time validation but failing apply-time.
-//
-// Using prior_state produces manifests whose source addresses match raw state and
-// therefore agree with both validators.
-//
-// Falls back to CrossStackPairs (ResourceChanges deletes) when prior_state is
-// absent or contains no resources matching from.
-func CrossStackPairsFromState(src, dst *tfjson.Plan, from, to string) ([]Move, error) {
-	if from == "" || to == "" {
-		return nil, fmt.Errorf("cross-stack move: empty address (from=%q to=%q)", from, to)
+// CheckXMoveSource verifies that src has a prior_state containing at least one
+// resource under from. Returns an error when prior_state is absent (source stack
+// has no state — nothing to move) or when nothing under from is found (wrong
+// address prefix or wrong stack).
+func CheckXMoveSource(src *tfjson.Plan, from string) error {
+	if src.PriorState == nil || src.PriorState.Values == nil {
+		return fmt.Errorf("source stack has no prior state — nothing to move")
 	}
-
-	// Collect source addresses + types from prior_state.
-	srcTypes := map[string]string{} // addr → resource type
-	if src.PriorState != nil && src.PriorState.Values != nil {
-		var walk func(m *tfjson.StateModule)
-		walk = func(m *tfjson.StateModule) {
-			if m == nil {
-				return
-			}
-			for _, r := range m.Resources {
-				if matches(r.Address, from) {
-					srcTypes[r.Address] = r.Type
-				}
-			}
-			for _, c := range m.ChildModules {
-				walk(c)
-			}
-		}
-		walk(src.PriorState.Values.RootModule)
-	}
-	if len(srcTypes) == 0 {
-		// prior_state absent or nothing matched — fall back to ResourceChanges.
-		return CrossStackPairs(src, dst, from, to)
-	}
-
-	creates := map[string]*tfjson.ResourceChange{}
-	for _, rc := range dst.ResourceChanges {
-		if rc.Change != nil && rc.Change.Actions.Create() && matches(rc.Address, to) {
-			creates[rc.Address] = rc
+	addrs := stateAddresses(src.PriorState)
+	for a := range addrs {
+		if matches(a, from) {
+			return nil
 		}
 	}
-
-	var pairs []Move
-	matched := map[string]bool{}
-	for _, addr := range sortedKeys2(srcTypes) {
-		want := to + addr[len(from):]
-		c, ok := creates[want]
-		if !ok {
-			return nil, fmt.Errorf("cross-stack move %s → %s: %q is in source state but %q is not created at the destination", from, to, addr, want)
-		}
-		if c.Type != srcTypes[addr] {
-			return nil, fmt.Errorf("cross-stack move %s → %s: type mismatch %q (%s) vs %q (%s)", from, to, addr, srcTypes[addr], c.Address, c.Type)
-		}
-		pairs = append(pairs, Move{From: addr, To: want})
-		matched[want] = true
-	}
-	for _, caddr := range sortedKeys(creates) {
-		if !matched[caddr] {
-			return nil, fmt.Errorf("cross-stack move %s → %s: %q is created at the destination but has no counterpart under %q in source state", from, to, caddr, from)
-		}
-	}
-	return pairs, nil
+	return fmt.Errorf("nothing under %q in source prior state (wrong from address or stack?)", from)
 }
 
 // ClassifyCrossStack validates a cross-stack move from `from` (in src's plan) to
