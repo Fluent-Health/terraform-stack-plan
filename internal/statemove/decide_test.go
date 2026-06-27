@@ -3,6 +3,7 @@ package statemove
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 )
 
@@ -107,6 +108,21 @@ func TestValidateMovePlan(t *testing.T) {
 	diagsPlan = ValidateMovePlan(srcEmpty, dstPlan, providers, m, false)
 	if len(diagsPlan) != 1 || diagsPlan[0].Code != "xmove/source-missing" {
 		t.Errorf("expected source-missing at plan-time, got: %+v", diagsPlan)
+	}
+}
+
+func TestValidateMovePlan_ProviderMismatch(t *testing.T) {
+	src := AddressSet{"module.a.google_project_iam_member.x": "registry.terraform.io/hashicorp/google"}
+	dst := AddressSet{"module.b.aws_iam_role.x": "registry.terraform.io/hashicorp/aws"}
+	providers := DestProviders{"aws": true}
+	xm := XMove{Pairs: []Move{{From: "module.a", To: "module.b"}}}
+	diags := ValidateMovePlan(src, dst, providers, xm, false)
+	var got []string
+	for _, d := range diags {
+		got = append(got, d.Code)
+	}
+	if !slices.Contains(got, "xmove/provider-mismatch") {
+		t.Errorf("expected xmove/provider-mismatch, got %v", got)
 	}
 }
 
