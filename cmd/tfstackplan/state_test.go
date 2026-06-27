@@ -344,6 +344,78 @@ func TestApplyPendingMovesLogsPerStack(t *testing.T) {
 	}
 }
 
+// D4/Phase 3: state check validates xmove manifests against local plan files
+// without running terraform. It replaces the classify-time xmove validation
+// as a standalone operator diagnostic command.
+func TestStateCheck_NoManifests(t *testing.T) {
+	dir := t.TempDir()
+	code := runState([]string{"check", "--dir", dir})
+	if code != 0 {
+		t.Errorf("state check with no manifests = %d, want 0", code)
+	}
+}
+
+func TestStateCheck_ValidManifest(t *testing.T) {
+	root := t.TempDir()
+	writeSrcPlanWithPriorState(t, root, "stacks/src", "module.x.google_project.p", "google_project")
+	destDir := filepath.Join(root, "stacks/dest")
+	if err := os.MkdirAll(destDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Provider block so DiscoverDestProviders finds "google" and xmove/provider-missing is not emitted.
+	if err := os.WriteFile(filepath.Join(destDir, "providers.tf"), []byte(`provider "google" {}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	xm := statemove.XMove{SourceStack: "stacks/src", Pairs: []statemove.Move{{From: "module.x", To: "module.y"}}}
+	if err := os.WriteFile(filepath.Join(destDir, statemove.XMoveFileName("test")), []byte(statemove.RenderXMove("test", xm)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	code := runState([]string{"check", "--dir", root})
+	if code != 0 {
+		t.Errorf("state check with valid manifest = %d, want 0", code)
+	}
+}
+
+func TestStateCheck_SpentManifest(t *testing.T) {
+	root := t.TempDir()
+	// Dest plan has prior_state with the To-address (move already applied to dest).
+	destDir := filepath.Join(root, "stacks/dest")
+	if err := os.MkdirAll(destDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	destPlan := `{"format_version":"1.2","prior_state":{"format_version":"0.1","values":{"root_module":{"resources":[` +
+		`{"address":"module.y.google_project.p","type":"google_project","provider_name":"registry.terraform.io/hashicorp/google","values":{}}` +
+		`]}}}}`
+	if err := os.WriteFile(filepath.Join(destDir, "tfplan.json"), []byte(destPlan), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	xm := statemove.XMove{SourceStack: "stacks/src", Pairs: []statemove.Move{{From: "module.x", To: "module.y"}}}
+	if err := os.WriteFile(filepath.Join(destDir, statemove.XMoveFileName("test")), []byte(statemove.RenderXMove("test", xm)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	code := runState([]string{"check", "--dir", root})
+	if code != 0 {
+		t.Errorf("state check with spent manifest = %d, want 0 (spent is not an error)", code)
+	}
+}
+
+func TestStateCheck_SourceNotPlanned(t *testing.T) {
+	root := t.TempDir()
+	// No source plan, no dest prior_state → source-not-planned error.
+	destDir := filepath.Join(root, "stacks/dest")
+	if err := os.MkdirAll(destDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	xm := statemove.XMove{SourceStack: "stacks/src", Pairs: []statemove.Move{{From: "module.x", To: "module.y"}}}
+	if err := os.WriteFile(filepath.Join(destDir, statemove.XMoveFileName("test")), []byte(statemove.RenderXMove("test", xm)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	code := runState([]string{"check", "--dir", root})
+	if code == 0 {
+		t.Error("state check must return non-zero when source stack is not planned and move is not spent")
+	}
+}
+
 func TestStateApplyDiscoversManifests(t *testing.T) {
 	if _, err := exec.LookPath("terraform"); err != nil {
 		t.Skip("terraform not on PATH")

@@ -522,6 +522,72 @@ func TestValidateXMoveManifest_SourceNotPlanned(t *testing.T) {
 	}
 }
 
+// D4/Phase 3: when the source prior_state contains data sources under the From
+// prefix, validateXMoveManifest must emit a warning (xmove/data-source-orphan)
+// but NOT return an error — the classify pass continues green, only the warning
+// tells the operator those data sources will remain in the source stack.
+func TestValidateXMoveManifest_DataSourceOrphan(t *testing.T) {
+	root := t.TempDir()
+	plansDir := t.TempDir()
+
+	const srcStack = "stacks/src"
+	const dstStack = "stacks/dst"
+
+	dstDir := filepath.Join(root, dstStack)
+	if err := os.MkdirAll(dstDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := statemove.RenderXMove("PR-30", statemove.XMove{
+		SourceStack: srcStack,
+		Pairs:       []statemove.Move{{From: "module.x", To: "module.y"}},
+	})
+	if err := os.WriteFile(filepath.Join(dstDir, statemove.XMoveFileName("PR-30")), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Provider block so DiscoverDestProviders does not emit xmove/provider-missing.
+	if err := os.WriteFile(filepath.Join(dstDir, "providers.tf"), []byte(`provider "google" {}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Source plan: one managed resource AND one data source under module.x.
+	// The managed resource is the one being moved; the data source will be stranded.
+	srcPlanDir := filepath.Join(plansDir, srcStack)
+	if err := os.MkdirAll(srcPlanDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	srcPlan := `{"format_version":"1.2","prior_state":{"values":{"root_module":{"child_modules":[{"address":"module.x","resources":[` +
+		`{"address":"module.x.google_project.p","mode":"managed","type":"google_project","provider_name":"registry.terraform.io/hashicorp/google","values":{}},` +
+		`{"address":"module.x.data.google_secret_manager_secret_version.v","mode":"data","type":"google_secret_manager_secret_version","provider_name":"registry.terraform.io/hashicorp/google","values":{}}` +
+		`]}]}}}}`
+	if err := os.WriteFile(filepath.Join(srcPlanDir, "tfplan.json"), []byte(srcPlan), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	oldStderr := os.Stderr
+	r, w, _ := os.Pipe()
+	os.Stderr = w
+
+	err := validateXMoveManifest(root, plansDir)
+
+	w.Close()
+	os.Stderr = oldStderr
+
+	// Data-source orphan is a WARNING, not an error — classify pass must succeed.
+	if err != nil {
+		t.Fatalf("data-source orphan must be a warning, not an error; got: %v", err)
+	}
+	var buf [2048]byte
+	n, _ := r.Read(buf[:])
+	out := string(buf[:n])
+	// Warning must name the diagnostic and the orphaned address.
+	if !strings.Contains(out, "data-source-orphan") {
+		t.Errorf("warning must mention data-source-orphan; got:\n%s", out)
+	}
+	if !strings.Contains(out, "module.x.data.google_secret_manager_secret_version.v") {
+		t.Errorf("warning must name the orphaned data source; got:\n%s", out)
+	}
+}
+
 func TestValidateXMoveManifest_HardErrorWhenNoPriorState(t *testing.T) {
 	// Create a dest stack with an xmove manifest and a source plan that has
 	// no prior_state (only ResourceChanges). The validator must hard-error

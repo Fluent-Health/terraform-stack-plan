@@ -21,7 +21,7 @@ import (
 // machinery. SP1 implements same-stack moves (native `moved {}` shims).
 func runState(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "tfstackplan state: expected a subcommand (move|list|moves-manifest|cleanup|apply)")
+		fmt.Fprintln(os.Stderr, "tfstackplan state: expected a subcommand (move|list|moves-manifest|cleanup|apply|check)")
 		return 2
 	}
 	switch args[0] {
@@ -35,6 +35,8 @@ func runState(args []string) int {
 		return runStateCleanup(args[1:])
 	case "apply":
 		return runStateApply(args[1:])
+	case "check":
+		return runStateCheck(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "tfstackplan state: unknown subcommand %q\n", args[0])
 		return 2
@@ -120,6 +122,14 @@ Cross-stack modes:
              (verifying the from address exists in source state). Full
              validation — type compatibility, destination provider config —
              runs at classify time (the plan CI step) via 'run plan --classify'.
+             Use 'state check --dir DIR' to validate manifests against local
+             plan files at any time without re-running the classify pass.
+
+             Data sources (mode=data) that fall under the from prefix will NOT
+             be moved — they remain in the source stack. The classify pass emits
+             a 'xmove/data-source-orphan' warning for each; run
+             'terraform state rm <addr>' in the source stack to clean them up
+             before retiring the source.
 
              The generated manifest includes a '# tfstackplan:key=<key>' header.
              Hand-authored manifests without the header are accepted; the key is
@@ -465,5 +475,116 @@ func runStateCleanup(args []string) int {
 		return 1
 	}
 	fmt.Printf("removed %d shim file(s), %d xmove manifest(s)\n", n, nx)
+	return 0
+}
+
+// runStateCheck validates all pending xmove manifests under --dir against the
+// local tfplan.json files (written by 'run plan'). It is a read-only diagnostic
+// command — it does not run terraform and does not mutate any files.
+//
+// For each manifest it reports one of:
+//   - xmove/spent: all declared moves already applied (dest prior_state has the To-addresses)
+//   - xmove/valid: source plan is present and ValidateMovePlan returns no errors
+//   - xmove/source-not-planned: source stack has no tfplan.json and the manifest is not spent
+//   - one or more xmove/* errors from ValidateMovePlan
+//
+// Exit 0 when all manifests are valid or spent; non-zero when any error is found.
+func runStateCheck(args []string) int {
+	fs := flag.NewFlagSet("state check", flag.ContinueOnError)
+	dir := fs.String("dir", "", "terramate project root (required)")
+	fs.Usage = func() {
+		fmt.Fprint(os.Stderr, `Usage: tfstackplan state check --dir DIR
+
+Validates all pending xmove manifests against the local tfplan.json files
+produced by 'run plan'. Read-only: does not run terraform, does not mutate files.
+
+For each manifest reports: spent | valid | xmove/<error-code>
+Exit 0 when all manifests are valid or spent.
+
+Flags:
+`)
+		fs.PrintDefaults()
+	}
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if *dir == "" {
+		fmt.Fprintln(os.Stderr, "state check: --dir is required")
+		return 2
+	}
+
+	xmoves, err := statemove.DiscoverXMoves(*dir)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "state check:", err)
+		return 1
+	}
+	if len(xmoves) == 0 {
+		return 0
+	}
+
+	var hasErrors bool
+	for _, fx := range xmoves {
+		resolvedSource := resolveSourceStack(*dir, fx.DestStack, fx.XMove.SourceStack)
+		srcPlanPath := filepath.Join(*dir, filepath.FromSlash(resolvedSource), "tfplan.json")
+		dstPlanPath := filepath.Join(*dir, filepath.FromSlash(fx.DestStack), "tfplan.json")
+
+		srcPlanBytes, rerr := os.ReadFile(srcPlanPath)
+		if rerr != nil {
+			// Source plan absent — check dest prior_state for spent detection.
+			var dstPriorAddrs statemove.AddressSet
+			if dstPlanBytes, derr := os.ReadFile(dstPlanPath); derr == nil {
+				dstPriorAddrs = statemove.PriorStateAddrs(dstPlanBytes)
+			}
+			if statemove.IsSpent(fx.XMove.Pairs, dstPriorAddrs) {
+				fmt.Fprintf(os.Stderr, "ℹ️  xmove %s: xmove/spent — all declared moves already applied; run 'state cleanup --applied' to remove this manifest\n", fx.Key)
+			} else {
+				fmt.Fprintf(os.Stderr, "❌ xmove %s: xmove/source-not-planned — source stack %q has no tfplan.json; run 'run plan' first, or remove this manifest if the move is already complete\n", fx.Key, resolvedSource)
+				hasErrors = true
+			}
+			continue
+		}
+
+		priorAddrs := statemove.PriorStateAddrs(srcPlanBytes)
+		if priorAddrs == nil {
+			fmt.Fprintf(os.Stderr, "❌ xmove %s: source stack %q has no prior_state (stack is new — nothing to move)\n", fx.Key, resolvedSource)
+			hasErrors = true
+			continue
+		}
+
+		// Warn about data sources stranded in the source.
+		if orphans := statemove.DataSourceOrphans(fx.XMove.Pairs, statemove.PriorStateDataSources(srcPlanBytes)); len(orphans) > 0 {
+			for _, ds := range orphans {
+				fmt.Fprintf(os.Stderr, "⚠️  xmove %s: xmove/data-source-orphan — %q will remain in the source stack (run 'terraform state rm %s' to clean up)\n", fx.Key, ds, ds)
+			}
+		}
+
+		dstAddrs := statemove.AddressSet{}
+		if dstPlanBytes, err := os.ReadFile(dstPlanPath); err == nil {
+			if dstPriorAddrs := statemove.PriorStateAddrs(dstPlanBytes); dstPriorAddrs != nil {
+				for a, p := range dstPriorAddrs {
+					dstAddrs[a] = p
+				}
+			}
+		}
+		destStackDir := filepath.Join(*dir, filepath.FromSlash(fx.DestStack))
+		destProviders := statemove.DiscoverDestProviders(destStackDir)
+		diags := statemove.ValidateMovePlan(priorAddrs, dstAddrs, destProviders, fx.XMove, false)
+
+		if len(diags) == 0 {
+			fmt.Fprintf(os.Stderr, "✅ xmove %s: valid\n", fx.Key)
+			continue
+		}
+		for _, diag := range diags {
+			if diag.Severity == statemove.SeverityError {
+				fmt.Fprintf(os.Stderr, "❌ xmove %s: %s — %s\n", fx.Key, diag.Code, diag.Message)
+				hasErrors = true
+			} else {
+				fmt.Fprintf(os.Stderr, "⚠️  xmove %s: %s — %s\n", fx.Key, diag.Code, diag.Message)
+			}
+		}
+	}
+	if hasErrors {
+		return 1
+	}
 	return 0
 }

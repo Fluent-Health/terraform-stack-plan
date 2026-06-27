@@ -206,6 +206,15 @@ func validateXMoveManifest(dir, outDir string) error {
 		}
 		srcAddrs := priorAddrs
 
+		// Warn about data sources stranded in the source — they fall under the
+		// From prefix but are filtered out of the move set, so they remain in
+		// the source stack and may prevent it from being retired cleanly.
+		if orphans := statemove.DataSourceOrphans(fx.XMove.Pairs, statemove.PriorStateDataSources(srcPlanBytes)); len(orphans) > 0 {
+			for _, ds := range orphans {
+				fmt.Fprintf(os.Stderr, "⚠️  xmove %s: xmove/data-source-orphan — %q falls under the from prefix but data sources cannot be moved; it will remain in the source stack (run 'terraform state rm %s' in the source to clean up)\n", fx.Key, ds, ds)
+			}
+		}
+
 		// Build Destination AddressSet
 		dstAddrs := statemove.AddressSet{}
 		if dstPlanBytes, err := os.ReadFile(dstPlanPath); err == nil {

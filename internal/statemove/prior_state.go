@@ -40,3 +40,46 @@ func PriorStateAddrs(planJSON []byte) AddressSet {
 	}
 	return addrs
 }
+
+// PriorStateDataSources parses prior_state from a raw Terraform plan JSON and
+// returns the addresses of data sources (Mode==data). These are excluded from
+// stateAddresses but may be stranded in the source stack after a move if they
+// fall under the declared From prefix — use DataSourceOrphans to find them.
+// Returns nil when there is no prior_state or the JSON is unparseable.
+func PriorStateDataSources(planJSON []byte) []string {
+	var raw struct {
+		PriorState *struct {
+			Values *tfjson.StateValues `json:"values,omitempty"`
+		} `json:"prior_state,omitempty"`
+	}
+	if err := json.Unmarshal(planJSON, &raw); err != nil || raw.PriorState == nil {
+		return nil
+	}
+	synth := new(tfjson.State)
+	synth.Values = raw.PriorState.Values
+	return stateDataSources(synth)
+}
+
+// stateDataSources collects data-source addresses (Mode==data) from a state.
+func stateDataSources(s *tfjson.State) []string {
+	var out []string
+	if s == nil || s.Values == nil {
+		return out
+	}
+	var walk func(m *tfjson.StateModule)
+	walk = func(m *tfjson.StateModule) {
+		if m == nil {
+			return
+		}
+		for _, r := range m.Resources {
+			if r.Mode == tfjson.DataResourceMode {
+				out = append(out, r.Address)
+			}
+		}
+		for _, c := range m.ChildModules {
+			walk(c)
+		}
+	}
+	walk(s.Values.RootModule)
+	return out
+}
