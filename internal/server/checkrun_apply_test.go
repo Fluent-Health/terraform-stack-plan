@@ -292,6 +292,11 @@ func TestDriveApplyVerdict(t *testing.T) {
 		{"all applied/nochange", "", []events.Status{events.StatusSafe, events.StatusNochange}, "success"},
 		{"failure flag, none failed-per-stack", "failure", []events.Status{events.StatusAborted, events.StatusAborted}, "failure"},
 		{"one failed", "", []events.Status{events.StatusFailed, events.StatusSafe}, "failure"},
+		// D6: a cross-state move apply completes with all stacks in StatusMoving —
+		// they adopted resources but have no new apply-time changes. driveApply
+		// must count them as applied so the check run reaches a success conclusion
+		// instead of hanging at pending forever (tsp#163).
+		{"all moving", "", []events.Status{events.StatusMoving, events.StatusMoving}, "success"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

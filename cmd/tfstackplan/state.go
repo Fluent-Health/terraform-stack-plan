@@ -360,9 +360,16 @@ var buildExecDeps = func(dir string, locker statemove.Locker) (statemove.ExecDep
 	if err != nil {
 		return statemove.ExecDeps{}, fmt.Errorf("terraform not found on PATH: %w", err)
 	}
+	// Create the backup dir in the OS temp space so tooling artifacts never
+	// land inside the repo and trip the Terramate clean-repo check.
+	backupDir, err := os.MkdirTemp("", "tfsp-state-backups-")
+	if err != nil {
+		return statemove.ExecDeps{}, fmt.Errorf("create backup dir: %w", err)
+	}
+	fmt.Fprintf(os.Stderr, "state backups: %s\n", backupDir)
 	return statemove.ExecDeps{
 		NewTF:     func(wd string) (statemove.Runner, error) { return statemove.NewTerraform(tfPath, wd) },
-		BackupDir: filepath.Join(dir, ".tfsp-state-backups"),
+		BackupDir: backupDir,
 		Locker:    locker,
 	}, nil
 }

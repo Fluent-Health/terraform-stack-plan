@@ -418,6 +418,54 @@ xmove {
 // The old fallback produced post-moved{}-processing addresses, which diverge
 // from the live-state addresses apply-time validation sees, causing false-safe
 // classifications on plan while failing on apply.
+// D1: when the source plan file is absent (source stack not in the changed set),
+// the error message must name the diagnostic code xmove/source-not-planned and
+// suggest the fix — not emit a raw file-not-found OS error.
+func TestValidateXMoveManifest_SourceNotPlanned(t *testing.T) {
+	root := t.TempDir()
+	plansDir := t.TempDir()
+
+	const srcStack = "stacks/src"
+	const dstStack = "stacks/dst"
+
+	dstDir := filepath.Join(root, dstStack)
+	if err := os.MkdirAll(dstDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := statemove.RenderXMove("PR-42", statemove.XMove{
+		SourceStack: srcStack,
+		Pairs:       []statemove.Move{{From: "module.x", To: "module.x"}},
+	})
+	if err := os.WriteFile(filepath.Join(dstDir, statemove.XMoveFileName("PR-42")), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// No source plan written — simulates source stack absent from changed set.
+
+	oldStderr := os.Stderr
+	r, w, _ := os.Pipe()
+	os.Stderr = w
+
+	err := validateXMoveManifest(root, plansDir)
+
+	w.Close()
+	os.Stderr = oldStderr
+
+	if err == nil {
+		t.Fatal("expected error when source plan is absent, got nil")
+	}
+	var buf [2048]byte
+	n, _ := r.Read(buf[:])
+	out := string(buf[:n])
+
+	// Must mention the diagnostic and suggest the fix — not dump a raw OS error.
+	if strings.Contains(out, "no such file or directory") {
+		t.Errorf("message must not expose raw OS error; got:\n%s", out)
+	}
+	if !strings.Contains(out, "source-not-planned") {
+		t.Errorf("message must mention source-not-planned; got:\n%s", out)
+	}
+}
+
 func TestValidateXMoveManifest_HardErrorWhenNoPriorState(t *testing.T) {
 	// Create a dest stack with an xmove manifest and a source plan that has
 	// no prior_state (only ResourceChanges). The validator must hard-error

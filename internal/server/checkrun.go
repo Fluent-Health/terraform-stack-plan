@@ -235,7 +235,7 @@ func (a *App) driveApply(ctx context.Context, e store.Execution, base string) {
 	applied, failed := 0, 0
 	for _, s := range g.Stacks {
 		switch s.Status {
-		case events.StatusSafe, events.StatusNochange:
+		case events.StatusSafe, events.StatusNochange, events.StatusMoving:
 			applied++
 		case events.StatusFailed:
 			failed++

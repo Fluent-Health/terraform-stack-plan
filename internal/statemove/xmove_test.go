@@ -74,3 +74,39 @@ func TestDiscoverXMoves(t *testing.T) {
 		t.Fatalf("found = %+v", found)
 	}
 }
+
+// D4: a hand-written manifest without the "# tfstackplan:key=" comment must
+// parse successfully — ParseXMove returns key="" and DiscoverXMoves fills it
+// from the filename, so the operator doesn't have to craft the header by hand.
+func TestParseXMoveMissingKeyHeaderReturnsEmpty(t *testing.T) {
+	content := "xmove {\n  source_stack = \"stacks/a\"\n  moves = {\n    \"aws_s3_bucket.x\" = \"aws_s3_bucket.x\"\n  }\n}\n"
+	key, xm, err := ParseXMove(content)
+	if err != nil {
+		t.Fatalf("ParseXMove without key header must not error: %v", err)
+	}
+	if key != "" {
+		t.Errorf("key must be empty when header is absent, got %q", key)
+	}
+	if xm.SourceStack != "stacks/a" {
+		t.Errorf("source_stack = %q, want stacks/a", xm.SourceStack)
+	}
+}
+
+func TestDiscoverXMovesAcceptsManifestWithoutKeyHeader(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "stacks/dst")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content := "xmove {\n  source_stack = \"stacks/a\"\n  moves = {\n    \"aws_s3_bucket.x\" = \"aws_s3_bucket.x\"\n  }\n}\n"
+	if err := os.WriteFile(filepath.Join(dir, XMoveFileName("PR-7")), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	found, err := DiscoverXMoves(root)
+	if err != nil {
+		t.Fatalf("DiscoverXMoves must accept manifests without key header: %v", err)
+	}
+	if len(found) != 1 || found[0].Key != "PR-7" || found[0].XMove.SourceStack != "stacks/a" {
+		t.Fatalf("found = %+v, want key=PR-7 source=stacks/a", found)
+	}
+}

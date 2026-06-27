@@ -65,9 +65,8 @@ func ParseXMove(content string) (key string, xm XMove, err error) {
 			key = strings.TrimSpace(strings.TrimPrefix(ln, "# tfstackplan:key="))
 		}
 	}
-	if key == "" {
-		return "", XMove{}, fmt.Errorf("xmove manifest missing key header")
-	}
+	// key may be empty when the header comment is absent; callers that know the
+	// filename (e.g. DiscoverXMoves) fill it in from there.
 	p := hclparse.NewParser()
 	f, diags := p.ParseHCL([]byte(content), "xmove.hcl")
 	if diags.HasErrors() {
@@ -115,7 +114,9 @@ func DiscoverXMoves(root string) ([]FoundXMove, error) {
 		if perr != nil {
 			return fmt.Errorf("xmove manifest %s: %w", path, perr)
 		}
-		if key != fileKey {
+		if key == "" {
+			key = fileKey // header absent: derive key from filename (hand-authored manifests)
+		} else if key != fileKey {
 			return fmt.Errorf("xmove manifest %s: key mismatch (filename %q != header %q)", path, fileKey, key)
 		}
 		rel, _ := filepath.Rel(root, filepath.Dir(path))

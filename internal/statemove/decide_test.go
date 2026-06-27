@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"slices"
 	"testing"
+
+	tfjson "github.com/hashicorp/terraform-json"
 )
 
 func TestDecide(t *testing.T) {
@@ -142,5 +144,57 @@ provider "postgresql" {}
 	providers := DiscoverDestProviders(tmp)
 	if !providers["google"] || !providers["postgresql"] || len(providers) != 2 {
 		t.Errorf("expected google and postgresql, got: %+v", providers)
+	}
+}
+
+// D2: stateAddresses must exclude data sources so module-level wildcards never
+// sweep data.* addresses into the move set (failure #1 and #2 from tsp#165).
+func TestStateAddressesSkipsDataSources(t *testing.T) {
+	s := &tfjson.State{
+		Values: &tfjson.StateValues{
+			RootModule: &tfjson.StateModule{
+				Resources: []*tfjson.StateResource{
+					{
+						Address:      "google_project.p",
+						Mode:         tfjson.ManagedResourceMode,
+						ProviderName: "registry.terraform.io/hashicorp/google",
+					},
+					{
+						Address:      "data.google_secret_manager_secret_version.x",
+						Mode:         tfjson.DataResourceMode,
+						ProviderName: "registry.terraform.io/hashicorp/google",
+					},
+				},
+				ChildModules: []*tfjson.StateModule{
+					{
+						Resources: []*tfjson.StateResource{
+							{
+								Address:      "module.m.aws_s3_bucket.b",
+								Mode:         tfjson.ManagedResourceMode,
+								ProviderName: "registry.terraform.io/hashicorp/aws",
+							},
+							{
+								Address:      "module.m.data.aws_caller_identity.current",
+								Mode:         tfjson.DataResourceMode,
+								ProviderName: "registry.terraform.io/hashicorp/aws",
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	addrs := stateAddresses(s)
+	if _, ok := addrs["google_project.p"]; !ok {
+		t.Error("managed root resource must be included")
+	}
+	if _, ok := addrs["module.m.aws_s3_bucket.b"]; !ok {
+		t.Error("managed child resource must be included")
+	}
+	if _, ok := addrs["data.google_secret_manager_secret_version.x"]; ok {
+		t.Error("data source in root module must be excluded")
+	}
+	if _, ok := addrs["module.m.data.aws_caller_identity.current"]; ok {
+		t.Error("data source in child module must be excluded")
 	}
 }
