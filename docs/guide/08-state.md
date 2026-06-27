@@ -68,7 +68,8 @@ accumulate into the same shim — existing blocks are merged, not clobbered.
 
 ```
 tfstackplan state list    --dir DIR [--pr N]
-tfstackplan state cleanup --dir DIR (--pr N | --all)
+tfstackplan state cleanup --dir DIR (--pr N | --all | --applied)
+tfstackplan state check   --dir DIR
 tfstackplan state apply   --dir DIR [--execute] [--lock]
 tfstackplan state moves-manifest --dir DIR [--pr N] [-o FILE]
 ```
@@ -77,20 +78,34 @@ tfstackplan state moves-manifest --dir DIR [--pr N] [-o FILE]
 stack, and a human-readable op line (`moved from → to`, `import to (id=…)`,
 `removed from`). Useful for a quick audit before applying.
 
-**`state cleanup`** removes the keyed shim files — either one PR's shims or
-every `_tfsp_move.*` shim in the tree. Run it after a PR merges; CI can wire
-it up automatically.
+**`state cleanup`** removes shim files:
+- `--pr N` removes one PR's same-stack shims and its xmove manifests.
+- `--all` removes every `_tfsp_move.*` shim in the tree.
+- `--applied` removes all xmove manifests (cross-state move manifests whose
+  apply has been verified) while leaving same-stack shims intact. Use this
+  after a successful cross-state move apply to clean up.
+
+**`state check`** reads the local `tfplan.json` files (written by `run plan`)
+and validates all pending xmove manifests without running terraform or mutating
+anything. For each manifest it reports one of:
+- `xmove/spent` — move already applied (all To-addresses in dest `prior_state`);
+  suggest `state cleanup --applied`.
+- `valid` — source plan present, no validation errors.
+- `xmove/source-not-planned` — source stack has no `tfplan.json` and the
+  manifest is not spent; run `run plan` first.
+- `xmove/<error-code>` — a specific validation failure.
+
+Exit 0 when all manifests are valid or spent. Use this for mid-migration
+debugging without re-running the full CI classify pass.
 
 **`state apply`** is the `--via mv` executor. It discovers every
 `_tfsp_xmove.*.hcl` manifest under `--dir`, then for each pair: pulls both
-states, backs them up under `.tfsp-state-backups`, runs our unified exact-match
-validator to verify resource presence, destination absence, and configured destination
-providers (idempotent if already moved, error on duplicates or missing source/provider),
-and runs `terraform state mv` against the pulled local
-files. It never passes `--force` on forward pushes. Dry-run by default;
-`--execute` performs the actual moves. `--lock` acquires the pessimistic GCS
-lock before each move (see [Concurrency](#concurrency) below). Requires
-`terraform` on `PATH`.
+states, backs them up to a temp directory (path printed to stderr), runs our
+unified fail-closed validator, and runs `terraform state mv` against the
+pulled local files. Never passes `--force` on forward pushes. Dry-run by
+default; `--execute` performs the actual moves. `--lock` acquires the
+pessimistic GCS lock before each move (see [Concurrency](#concurrency) below).
+Requires `terraform` on `PATH`.
 
 **`state moves-manifest`** scans all shims and xmove manifests under `--dir`
 and emits a two-sided JSON file: source move-outs (the planned destroys on the
@@ -203,12 +218,19 @@ live source state (which still has `module.perms.*` — source hasn't applied it
    tfstackplan state move --dir <plans-dir> --via mv \
      <src-stack>:<from-prefix> <dst-stack>:<to-prefix>
 
-5. Commit the manifest alongside the Terraform changes.
+5. Validate locally (optional, no CI round-trip needed):
+   tfstackplan state check --dir <plans-dir>
 
-6. PR → plan → classify → approve → run apply.
+6. Commit the manifest alongside the Terraform changes.
+
+7. PR → plan → classify → approve → run apply.
    apply pre-phase: executes the xmove (state mv).
    source apply:    moved{} block is a no-op (resources already gone).
    dest apply:      creates the module config (no provider error).
+
+8. Post-merge cleanup:
+   tfstackplan state cleanup --dir <plans-dir> --applied
+   (Removes the xmove manifest; same-stack shims cleaned up separately with --pr.)
 ```
 
 ### Validation model
@@ -216,11 +238,68 @@ live source state (which still has `module.perms.*` — source hasn't applied it
 | Step | What runs | What it checks |
 |---|---|---|
 | `state move --via mv` | `CheckXMoveSource` | `prior_state` present; something under `from` |
-| `run plan --classify` | `validateXMoveManifest` | provider config; provider match; `prior_state` present |
+| `state check` | `ValidateMovePlan` (plan-time) | source `prior_state`; provider config; spent detection |
+| `run plan --classify` | `validateXMoveManifest` | provider config; provider match; `prior_state` present; data-source orphans |
 | `run apply` pre-phase | `Execute` → `ValidateMovePlan` | live state presence; idempotency; provider config |
 
-If classify passes, apply will pass (modulo unrelated out-of-band state changes
-between plan and apply, caught fail-closed by the apply-time validator).
+`state check` gives you the classify-pass verdict locally — useful for
+checking a manifest mid-PR without triggering a full CI run. If classify
+passes, apply will pass (modulo out-of-band state changes between plan and
+apply, caught fail-closed by the apply-time validator).
+
+### Data sources and orphans
+
+Data sources (`mode = data`) are always **excluded** from the xmove move set.
+A wildcard like `"module.x" = "module.y"` sweeps managed resources only;
+`data.*` addresses under `module.x` are left in the source stack. This is
+intentional — data sources are re-fetched at the destination, not moved.
+
+However, data sources that remain in the source stack **keep it alive** and
+may prevent it from being cleanly retired (e.g., if the source stack uses a
+provider that no longer has credentials or the data source's object no longer
+exists). The classify pass emits a `xmove/data-source-orphan` warning for
+each stranded data source:
+
+```
+⚠️  xmove PR-42: xmove/data-source-orphan — "module.x.data.google_secret_manager_secret_version.v"
+    falls under the from prefix but data sources cannot be moved; it will remain
+    in the source stack (run 'terraform state rm <addr>' to clean up)
+```
+
+To remove a stranded data source from the source stack's state:
+
+```bash
+# First, remove it from the source stack's Terraform config (or it will be re-created).
+# Then forget it from state:
+terraform -chdir=<source-stack-dir> state rm \
+  'module.x.data.google_secret_manager_secret_version.v'
+```
+
+### Retiring the source stack
+
+After the cross-state move is applied and verified, the source stack is
+typically either kept (empty of the moved resources) or retired entirely.
+Full retirement requires clearing everything from its state:
+
+1. **Verify the move is applied** — run `state check --dir DIR` or let the
+   next `run plan` confirm the manifest is spent (`xmove/spent`).
+
+2. **Forget orphaned data sources** — for each `xmove/data-source-orphan`
+   warning: remove the data source from the source stack's Terraform config
+   and run `terraform state rm '<addr>'` in the source stack directory.
+
+3. **Remove the manifest** — once spent:
+   ```bash
+   tfstackplan state cleanup --dir DIR --applied
+   ```
+
+4. **Delete the source stack** — remove the stack from Terramate's config
+   and the Terraform files. The next `run plan` will show an empty changeset.
+
+**Watch out:** if the source stack contains provider config blocks that are
+*only* referenced by the moved resources (and the stranded data sources),
+removing both leaves the source with an empty `required_providers` — Terraform
+may still error until the `provider {}` block is removed too.
 
 ## How `run apply` picks up the moves
 
