@@ -16,26 +16,25 @@ import (
 
 // RawAttr is one changed attribute, pre-rendering.
 type RawAttr struct {
-	Name      string
-	Before    any
-	After     any
-	Sensitive bool // the WHOLE attribute is sensitive (marker is a bare `true`)
-	Unknown   bool // known after apply
-	// BeforeSensitive/AfterSensitive carry Terraform's per-path sensitivity tree
-	// for this attribute when it is a nested map/list (not a bare bool), so the
-	// differ can redact only the sensitive sub-paths instead of the whole value.
+	Name            string
+	Before          any
+	After           any
+	Sensitive       bool // the WHOLE attribute is sensitive (marker is a bare `true`)
+	Unknown         bool // known after apply
 	BeforeSensitive any
 	AfterSensitive  any
+	SensitivityOnly bool
 }
 
 // RawChange is one resource change with its raw Terraform actions retained
 // (classify needs them) alongside the reduced bucket.
 type RawChange struct {
-	Address string
-	Type    string
-	Actions []string // raw tf actions, e.g. ["update"] or ["delete","create"]
-	Action  model.Action
-	Attrs   []RawAttr // populated for create/delete/update/replace/forget
+	Address         string
+	Type            string
+	Actions         []string // raw tf actions, e.g. ["update"] or ["delete","create"]
+	Action          model.Action
+	Attrs           []RawAttr // populated for create/delete/update/replace/forget
+	SensitivityOnly bool
 
 	Name          string
 	ModuleAddress string
@@ -95,11 +94,32 @@ func Parse(name string, data []byte) (RawStack, error) {
 			bucket = bucketOf(act)
 		}
 
+		var attrs []RawAttr
+		switch bucket {
+		case model.ActionChange, model.ActionReplace:
+			attrs = changedAttrs(rc.Change)
+		case model.ActionAdd:
+			attrs = sideAttrs(rc.Change, true)
+		case model.ActionDestroy, model.ActionForget:
+			attrs = sideAttrs(rc.Change, false)
+		}
+
+		var sensOnly = len(attrs) > 0
+		for _, attr := range attrs {
+			if !attr.SensitivityOnly {
+				sensOnly = false
+				break
+			}
+		}
+
 		switch bucket {
 		case model.ActionAdd:
 			rs.Counts.Add++
 		case model.ActionChange:
 			rs.Counts.Change++
+			if sensOnly {
+				rs.Counts.SensitivityOnly++
+			}
 		case model.ActionDestroy:
 			rs.Counts.Destroy++
 		case model.ActionReplace:
@@ -115,30 +135,24 @@ func Parse(name string, data []byte) (RawStack, error) {
 		}
 
 		ch := RawChange{
-			Address:       rc.Address,
-			Type:          rc.Type,
-			Actions:       toStrings(act),
-			Action:        bucket,
-			Moved:         moved,
-			Imported:      imported,
-			Name:          rc.Name,
-			ModuleAddress: rc.ModuleAddress,
-			ProviderName:  rc.ProviderName,
-			Raw:           rawScalars(rc.Change),
+			Address:         rc.Address,
+			Type:            rc.Type,
+			Actions:         toStrings(act),
+			Action:          bucket,
+			Attrs:           attrs,
+			SensitivityOnly: sensOnly,
+			Moved:           moved,
+			Imported:        imported,
+			Name:            rc.Name,
+			ModuleAddress:   rc.ModuleAddress,
+			ProviderName:    rc.ProviderName,
+			Raw:             rawScalars(rc.Change),
 		}
 		if moved {
 			ch.PreviousAddress = rc.PreviousAddress
 		}
 		if imported {
 			ch.ImportID = rc.Change.Importing.ID
-		}
-		switch bucket {
-		case model.ActionChange, model.ActionReplace:
-			ch.Attrs = changedAttrs(rc.Change)
-		case model.ActionAdd:
-			ch.Attrs = sideAttrs(rc.Change, true)
-		case model.ActionDestroy, model.ActionForget:
-			ch.Attrs = sideAttrs(rc.Change, false)
 		}
 		rs.Changes = append(rs.Changes, ch)
 	}
@@ -190,7 +204,8 @@ func changedAttrs(c *tfjson.Change) []RawAttr {
 	for k := range keys {
 		b, a := before[k], after[k]
 		isUnknown := truthy(unknown[k])
-		if !isUnknown && reflect.DeepEqual(b, a) {
+		sensChanged := !reflect.DeepEqual(beforeSens[k], afterSens[k])
+		if !isUnknown && reflect.DeepEqual(b, a) && !sensChanged {
 			continue
 		}
 		attrs = append(attrs, RawAttr{
@@ -201,6 +216,7 @@ func changedAttrs(c *tfjson.Change) []RawAttr {
 			Unknown:         isUnknown,
 			BeforeSensitive: beforeSens[k],
 			AfterSensitive:  afterSens[k],
+			SensitivityOnly: !isUnknown && reflect.DeepEqual(b, a) && sensChanged,
 		})
 	}
 	sort.Slice(attrs, func(i, j int) bool { return attrs[i].Name < attrs[j].Name })

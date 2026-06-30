@@ -440,3 +440,47 @@ func TestParseSkipsDataSources(t *testing.T) {
 		t.Errorf("expected aws_s3_bucket.main, got %s", rs.Changes[0].Address)
 	}
 }
+
+func TestParseSensitivityOnlyChange(t *testing.T) {
+	data := []byte(`{
+	  "format_version": "1.2",
+	  "resource_changes": [
+		{
+		  "address": "aws_ssm_parameter.foo",
+		  "mode": "managed",
+		  "type": "aws_ssm_parameter",
+		  "name": "foo",
+		  "provider_name": "registry.terraform.io/hashicorp/aws",
+		  "change": {
+			"actions": ["update"],
+			"before": { "value": "my-secret-val" },
+			"after": { "value": "my-secret-val" },
+			"before_sensitive": { "value": false },
+			"after_sensitive": { "value": true }
+		  }
+		}
+	  ]
+	}`)
+	rs, err := Parse("stack", data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rs.Changes) != 1 {
+		t.Fatalf("expected 1 change, got %d", len(rs.Changes))
+	}
+	ch := rs.Changes[0]
+	if !ch.SensitivityOnly {
+		t.Error("resource change should be marked SensitivityOnly")
+	}
+	if len(ch.Attrs) != 1 {
+		t.Fatalf("expected 1 changed attribute, got %d", len(ch.Attrs))
+	}
+	attr := ch.Attrs[0]
+	if attr.Name != "value" || !attr.SensitivityOnly {
+		t.Errorf("expected value attribute to be SensitivityOnly, got %+v", attr)
+	}
+	if rs.Counts.SensitivityOnly != 1 || rs.Counts.Change != 1 {
+		t.Errorf("expected counts 1 Change & 1 SensitivityOnly, got %+v", rs.Counts)
+	}
+}
+
