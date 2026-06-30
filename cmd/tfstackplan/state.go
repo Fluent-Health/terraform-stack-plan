@@ -21,12 +21,16 @@ import (
 // machinery. SP1 implements same-stack moves (native `moved {}` shims).
 func runState(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "tfstackplan state: expected a subcommand (move|list|moves-manifest|cleanup|apply|check)")
+		fmt.Fprintln(os.Stderr, "tfstackplan state: expected a subcommand (move|import|remove|removed|list|moves-manifest|cleanup|apply|check)")
 		return 2
 	}
 	switch args[0] {
 	case "move":
 		return runStateMove(args[1:])
+	case "import":
+		return runStateImport(args[1:])
+	case "remove", "removed":
+		return runStateRemove(args[1:])
 	case "list":
 		return runStateList(args[1:])
 	case "moves-manifest":
@@ -237,19 +241,10 @@ Flags:
 
 	key := moveKey(*pr, *dir)
 	for s, ops := range opsByStack {
-		shimPath := filepath.Join(*dir, filepath.FromSlash(s), statemove.ShimFileName(key))
-		var existing []statemove.Op
-		if data, rerr := os.ReadFile(shimPath); rerr == nil {
-			if _, ex, perr := statemove.ParseShim(string(data)); perr == nil {
-				existing = ex
-			}
-		}
-		merged := statemove.MergeOps(existing, ops)
-		if werr := os.WriteFile(shimPath, []byte(statemove.RenderShim(key, merged)), 0o644); werr != nil {
-			fmt.Fprintln(os.Stderr, "state move: write shim:", werr)
+		if err := writeShimFile(*dir, s, key, ops); err != nil {
+			fmt.Fprintln(os.Stderr, "state move:", err)
 			return 1
 		}
-		fmt.Printf("wrote %s (%d op(s))\n", shimPath, len(merged))
 	}
 	for destStack, xm := range xmoveByDest {
 		manifestPath := filepath.Join(*dir, filepath.FromSlash(destStack), statemove.XMoveFileName(key))
@@ -288,6 +283,24 @@ func mergeMoves(existing, add []statemove.Move) []statemove.Move {
 		out = append(out, m)
 	}
 	return out
+}
+
+func writeShimFile(dir, stack, key string, ops []statemove.Op) error {
+	shimPath := filepath.Join(dir, filepath.FromSlash(stack), statemove.ShimFileName(key))
+	var existing []statemove.Op
+	if data, rerr := os.ReadFile(shimPath); rerr == nil {
+		if _, ex, perr := statemove.ParseShim(string(data)); perr == nil {
+			existing = ex
+		} else {
+			return fmt.Errorf("parse existing shim %s: %w", shimPath, perr)
+		}
+	}
+	merged := statemove.MergeOps(existing, ops)
+	if werr := os.WriteFile(shimPath, []byte(statemove.RenderShim(key, merged)), 0o644); werr != nil {
+		return fmt.Errorf("write shim: %w", werr)
+	}
+	fmt.Printf("wrote %s (%d op(s))\n", shimPath, len(merged))
+	return nil
 }
 
 func runStateList(args []string) int {
@@ -584,6 +597,64 @@ Flags:
 		}
 	}
 	if hasErrors {
+		return 1
+	}
+	return 0
+}
+
+func runStateImport(args []string) int {
+	fs := flag.NewFlagSet("state import", flag.ContinueOnError)
+	dir := fs.String("dir", "", "terramate project root (required)")
+	stack := fs.String("stack", "", "destination stack for import block (required)")
+	pr := fs.String("pr", "", "PR number for the shim key")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if *dir == "" || *stack == "" {
+		fmt.Fprintln(os.Stderr, "state import: --dir and --stack are required")
+		return 2
+	}
+	rest := fs.Args()
+	if len(rest) == 0 || len(rest)%2 != 0 {
+		fmt.Fprintln(os.Stderr, "state import: expected <to-addr> <import-id> pairs")
+		return 2
+	}
+	var ops []statemove.Op
+	for i := 0; i < len(rest); i += 2 {
+		ops = append(ops, statemove.Op{Kind: "import", To: rest[i], ID: rest[i+1]})
+	}
+	key := moveKey(*pr, *dir)
+	if err := writeShimFile(*dir, *stack, key, ops); err != nil {
+		fmt.Fprintln(os.Stderr, "state import:", err)
+		return 1
+	}
+	return 0
+}
+
+func runStateRemove(args []string) int {
+	fs := flag.NewFlagSet("state remove", flag.ContinueOnError)
+	dir := fs.String("dir", "", "terramate project root (required)")
+	stack := fs.String("stack", "", "source stack for removed block (required)")
+	pr := fs.String("pr", "", "PR number for the shim key")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if *dir == "" || *stack == "" {
+		fmt.Fprintln(os.Stderr, "state remove: --dir and --stack are required")
+		return 2
+	}
+	rest := fs.Args()
+	if len(rest) == 0 {
+		fmt.Fprintln(os.Stderr, "state remove: expected at least one resource address")
+		return 2
+	}
+	var ops []statemove.Op
+	for _, addr := range rest {
+		ops = append(ops, statemove.Op{Kind: "removed", From: addr})
+	}
+	key := moveKey(*pr, *dir)
+	if err := writeShimFile(*dir, *stack, key, ops); err != nil {
+		fmt.Fprintln(os.Stderr, "state remove:", err)
 		return 1
 	}
 	return 0

@@ -202,6 +202,53 @@ Full install detail — toolchain notes, container, deployment — is in
 
 ---
 
+## Agentic Workflows, Extensions & Workspace Skills
+
+`tfstackplan` publishes a comprehensive, cross-runtime **Workspace Agent Skill** directly in this repository under `skills/tfstackplan/SKILL.md`. This skill governs the entire lifecycle and CLI surface of `tfstackplan` (lint, plan, state refactoring, watch status, claims, and applies), instructing future coding agents on how to operate this codebase with maximum safety and TDD discipline.
+
+### Loading in Claude Code (Marketplace & Plugins)
+
+We package `tfstackplan` as a standard Claude Code plugin. You can load this plugin directly from GitHub or subscribe to our marketplace feed:
+
+1. **Install directly as a Claude Plugin:**
+   ```bash
+   /plugin add https://github.com/Fluent-Health/terraform-stack-plan
+   ```
+2. **Add as a Marketplace Catalog:**
+   ```bash
+   /plugin marketplace add https://raw.githubusercontent.com/Fluent-Health/terraform-stack-plan/main/.claude-plugin/marketplace.json
+   ```
+*Claude Code will automatically detect `.claude-plugin/plugin.json` and load the configured `./skills` on demand when your session context matches the skill's frontmatter description, executing these instructions natively via the Claude `Skill` tool.*
+
+### Loading in Gemini CLI
+
+You can install this repository's agent skill and extensions globally or link them locally during development:
+
+1. **Install globally as a Gemini Extension:**
+   ```bash
+   gemini extensions install https://github.com/Fluent-Health/terraform-stack-plan
+   ```
+2. **Link the skill locally:**
+   ```bash
+   gemini skills link ./skills/tfstackplan
+   ```
+*Once loaded, Gemini CLI will automatically trigger and follow this skill whenever you ask the model to validate, plan, or restructure Terraform state.*
+
+### Manual / Cross-Runtime Loading
+
+Both Claude Code and Gemini CLI support the open [Agent Skills](https://agentskills.io) standard, enabling cross-runtime interoperability:
+
+1. **Create the global skill directory:**
+   ```bash
+   mkdir -p ~/.agents/skills/tfstackplan
+   ```
+2. **Symlink or copy the skill file:**
+   ```bash
+   ln -s "$(pwd)/skills/tfstackplan/SKILL.md" ~/.agents/skills/tfstackplan/SKILL.md
+   ```
+
+---
+
 ## When *not* to use this
 
 Honesty up front saves everyone a wasted afternoon:

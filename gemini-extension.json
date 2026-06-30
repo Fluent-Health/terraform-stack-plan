@@ -1,0 +1,6 @@
+{
+  "name": "tfstackplan",
+  "version": "0.19.0",
+  "description": "tfstackplan CLI helper extension for managing Terraform state operations, plan visibility, and agentic workflows",
+  "contextFileName": "GEMINI.md"
+}
