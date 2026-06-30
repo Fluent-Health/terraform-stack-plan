@@ -378,6 +378,9 @@ func resourceSummary(c model.Change) string {
 		glyph, meta = glyphReplace, "replace"
 	default:
 		glyph, meta = glyphChange, fmt.Sprintf("%d changed", n)
+		if c.SensitivityOnly {
+			meta = fmt.Sprintf("sensitivity change · %d attrs", n)
+		}
 	}
 
 	return fmt.Sprintf("%s&nbsp;%s<br>%s%s", glyph, addr, metaIndent, meta)
@@ -437,9 +440,13 @@ func renderMinimal(b *strings.Builder, r model.Report) {
 		total.Import += s.Counts.Import
 		total.Move += s.Counts.Move
 		total.Forget += s.Counts.Forget
+		total.SensitivityOnly += s.Counts.SensitivityOnly
 	}
-	line := fmt.Sprintf("%d stacks · %d adds · %d changes · %d destroys · %d replaces",
-		len(r.Stacks), total.Add, total.Change, total.Destroy, total.Replace)
+	line := fmt.Sprintf("%d stacks · %d adds · %d changes", len(r.Stacks), total.Add, total.Change)
+	if total.SensitivityOnly > 0 {
+		line += fmt.Sprintf(" (%d sensitivity-only)", total.SensitivityOnly)
+	}
+	line += fmt.Sprintf(" · %d destroys · %d replaces", total.Destroy, total.Replace)
 	if total.Import+total.Move+total.Forget > 0 {
 		line += fmt.Sprintf(" · %d imports · %d moves · %d forgets", total.Import, total.Move, total.Forget)
 	}
@@ -455,7 +462,11 @@ func changeWord(c model.Counts) string {
 		parts = append(parts, fmt.Sprintf("%d add", c.Add))
 	}
 	if c.Change > 0 {
-		parts = append(parts, fmt.Sprintf("%d change", c.Change))
+		if c.SensitivityOnly > 0 {
+			parts = append(parts, fmt.Sprintf("%d change (%d sensitivity-only)", c.Change, c.SensitivityOnly))
+		} else {
+			parts = append(parts, fmt.Sprintf("%d change", c.Change))
+		}
 	}
 	if c.Destroy > 0 {
 		parts = append(parts, fmt.Sprintf("%d destroy", c.Destroy))

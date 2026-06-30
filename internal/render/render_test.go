@@ -461,3 +461,58 @@ func TestRenderEmptyReport(t *testing.T) {
 		t.Fatalf("header links should still render:\n%s", out)
 	}
 }
+
+func TestRenderSensitivityOnly(t *testing.T) {
+	// 1. Verify renderMinimal formatting containing "7 changes (7 sensitivity-only)"
+	rMinimal := model.Report{
+		Title:  "Terraform plan — nonprod",
+		Marker: "tfstackplan:nonprod",
+		Mode:   model.ModeMinimal,
+		Stacks: []model.Stack{
+			{
+				Name:   "platform/nonprod",
+				Counts: model.Counts{Change: 7, SensitivityOnly: 7},
+			},
+		},
+	}
+	outMinimal := Render(rMinimal)
+	wantMinimal := "7 changes (7 sensitivity-only)"
+	if !strings.Contains(outMinimal, wantMinimal) {
+		t.Errorf("expected minimal output to contain %q, got:\n%s", wantMinimal, outMinimal)
+	}
+
+	// 2. Verify changeWord formatting containing "7 change (7 sensitivity-only)"
+	rDetails := model.Report{
+		Title:  "Terraform plan — nonprod",
+		Marker: "tfstackplan:nonprod",
+		Stacks: []model.Stack{
+			{
+				Name:   "platform/nonprod",
+				Counts: model.Counts{Change: 7, SensitivityOnly: 7},
+				Changes: []model.Change{
+					{
+						Address:         "google_storage_bucket.tfstate",
+						Type:            "google_storage_bucket",
+						Action:          model.ActionChange,
+						SensitivityOnly: true,
+						Fields: []model.Field{
+							{Name: "labels", Leaves: []model.Leaf{{Op: model.OpAdd, Path: "labels.team", New: `"platform"`}}},
+						},
+					},
+				},
+			},
+		},
+	}
+	outDetails := Render(rDetails)
+	wantChangeWord := "7 change (7 sensitivity-only)"
+	if !strings.Contains(outDetails, wantChangeWord) {
+		t.Errorf("expected changeWord output to contain %q, got:\n%s", wantChangeWord, outDetails)
+	}
+
+	// 3. Verify resourceSummary rendering "sensitivity change · 1 attrs"
+	wantResourceSummary := "sensitivity change · 1 attrs"
+	if !strings.Contains(outDetails, wantResourceSummary) {
+		t.Errorf("expected resourceSummary output to contain %q, got:\n%s", wantResourceSummary, outDetails)
+	}
+}
+
