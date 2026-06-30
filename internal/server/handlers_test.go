@@ -386,6 +386,7 @@ func TestFinalizeFailedMarksInitStatusesAborted(t *testing.T) {
 			{Path: "a", Status: events.StatusInitializing},
 			{Path: "b", Status: events.StatusInitialized},
 			{Path: "c", Status: events.StatusPlanned}, // already terminal — must not change
+			{Path: "d", Status: events.StatusMoving},  // should be swept to aborted on failure!
 		},
 	})
 	post(t, srv, "/api/finalize", events.Finalize{ID: "exec-init-sweep", Failed: true})
@@ -406,6 +407,9 @@ func TestFinalizeFailedMarksInitStatusesAborted(t *testing.T) {
 	}
 	if got["c"] != events.StatusPlanned {
 		t.Errorf("stack c (planned) = %q, want planned (unchanged)", got["c"])
+	}
+	if got["d"] != events.StatusAborted {
+		t.Errorf("stack d (moving) = %q, want aborted", got["d"])
 	}
 }
 

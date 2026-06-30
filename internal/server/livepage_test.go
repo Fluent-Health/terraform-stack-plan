@@ -342,6 +342,23 @@ func TestLivePageTriageSection(t *testing.T) {
 	if len(m2.Failures) != 0 {
 		t.Fatalf("failed stack with empty Detail must produce no triage card, got %+v", m2.Failures)
 	}
+
+	// Synthesized execution-level triage card on overall run failure with report but no failed stacks:
+	m3 := buildLiveModel(liveView{
+		Exec:    "exec-abc",
+		Context: "apply/nonprod",
+		Status:  "failure",
+		Report:  "cross-state move failed: uncommitted changes left in the repository",
+		Stacks: []events.StackState{
+			{Path: "stacks/api", Status: events.StatusAborted},
+		},
+	}, "apply", true, nil, time.Now())
+	if len(m3.Failures) != 1 || m3.Failures[0].Path != "Execution Failure" {
+		t.Fatalf("expected synthesized execution failure triage card, got %+v", m3.Failures)
+	}
+	if !strings.Contains(m3.Failures[0].Cause, "Cross-state move") && !strings.Contains(m3.Failures[0].StateImpact, "Cross-state move") {
+		t.Errorf("expected cross-state move cause/impact, got: %+v", m3.Failures[0])
+	}
 }
 
 func TestBuildLiveModelPlanFinished(t *testing.T) {
