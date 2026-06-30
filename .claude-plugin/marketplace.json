@@ -1,0 +1,16 @@
+{
+  "name": "Fluent Health Plugins",
+  "description": "Custom agentic and DevOps workflows for Fluent Health",
+  "owner": {
+    "name": "Fluent Health",
+    "url": "https://github.com/Fluent-Health"
+  },
+  "plugins": [
+    {
+      "name": "tfstackplan",
+      "source": "https://github.com/Fluent-Health/terraform-stack-plan",
+      "category": "development",
+      "tags": ["terraform", "devops", "agentic"]
+    }
+  ]
+}
