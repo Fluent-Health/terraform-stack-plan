@@ -21,8 +21,8 @@ type RawAttr struct {
 	After           any
 	Sensitive       bool // the WHOLE attribute is sensitive (marker is a bare `true`)
 	Unknown         bool // known after apply
-	BeforeSensitive any
-	AfterSensitive  any
+	BeforeSensitive any // carry Terraform's per-path sensitivity tree
+	AfterSensitive  any // for this attribute when it is a nested map/list (not a bare bool)
 	SensitivityOnly bool
 }
 
