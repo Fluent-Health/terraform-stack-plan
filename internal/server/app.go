@@ -161,6 +161,8 @@ func (a *App) Routes() http.Handler {
 	mux.Handle("POST /api/logs", a.auth(http.HandlerFunc(a.handleLogs)))
 	mux.Handle("POST /api/claims/list", a.auth(http.HandlerFunc(a.handleClaimsList)))
 	mux.Handle("POST /api/claims/release", a.auth(http.HandlerFunc(a.handleClaimsRelease)))
+	mux.Handle("GET /api/execution/{id}", a.auth(http.HandlerFunc(a.handleGetExecution)))
+	mux.Handle("GET /api/execution/{id}/events", a.auth(http.HandlerFunc(a.handleGetExecutionEvents)))
 	return mux
 }
 
