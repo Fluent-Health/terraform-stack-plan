@@ -22,6 +22,8 @@ type cliExecution struct {
 	Gates []store.GateTarget `json:"gates"`
 }
 
+var statusClient = &http.Client{Timeout: 10 * time.Second}
+
 func runStatus(args []string) int {
 	fs := flag.NewFlagSet("run status", flag.ContinueOnError)
 	serverURL := fs.String("server", "", "server base URL (defaults to $"+runner.EnvServer+")")
@@ -61,22 +63,23 @@ func runStatus(args []string) int {
 	}
 
 	if *watch && isExecutionTerminal(exec.Status) {
-		printExecution(exec, *format)
+		printExecution(exec, *format, false)
 		return exitCode(exec.Status)
 	}
 
 	if !*watch {
-		printExecution(exec, *format)
+		printExecution(exec, *format, false)
 		return exitCode(exec.Status)
 	}
 
 	// Watch Mode
-	printExecution(exec, *format)
-	if err := watchExecution(srv, tok, execID, *format); err != nil {
+	printExecution(exec, *format, false)
+	finalExec, err := watchExecution(srv, tok, execID, *format)
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "run status watch: %v\n", err)
 		return 1
 	}
-	return 0
+	return exitCode(finalExec.Status)
 }
 
 func isExecutionTerminal(status string) bool {
@@ -90,9 +93,8 @@ func exitCode(status string) int {
 	return 0
 }
 
-func makeJWT(secret string) string {
-	t, _ := jwtutil.Make(secret, "runner", "api", time.Hour)
-	return t
+func makeJWT(secret string) (string, error) {
+	return jwtutil.Make(secret, "runner", "api", time.Hour)
 }
 
 func fetchExecution(srv, tok, id string) (cliExecution, error) {
@@ -101,9 +103,13 @@ func fetchExecution(srv, tok, id string) (cliExecution, error) {
 		return cliExecution{}, err
 	}
 	if tok != "" {
-		req.Header.Set("Authorization", "Bearer "+makeJWT(tok))
+		jwt, err := makeJWT(tok)
+		if err != nil {
+			return cliExecution{}, fmt.Errorf("make JWT: %w", err)
+		}
+		req.Header.Set("Authorization", "Bearer "+jwt)
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := statusClient.Do(req)
 	if err != nil {
 		return cliExecution{}, err
 	}
@@ -116,13 +122,23 @@ func fetchExecution(srv, tok, id string) (cliExecution, error) {
 	return res, err
 }
 
-func printExecution(exec cliExecution, format string) {
+func isTTY() bool {
+	fi, err := os.Stdout.Stat()
+	if err != nil {
+		return false
+	}
+	return (fi.Mode() & os.ModeCharDevice) != 0
+}
+
+func printExecution(exec cliExecution, format string, clear bool) {
 	if format == "json" {
 		b, _ := json.MarshalIndent(exec, "", "  ")
 		fmt.Println(string(b))
 		return
 	}
-	// Clear screen if watch mode and TTY (not clearing here for unit tests)
+	if clear && isTTY() {
+		fmt.Print("\033[H\033[2J")
+	}
 	fmt.Printf("Execution ID: %s\n", exec.ID)
 	fmt.Printf("Repo/PR:      %s #%d\n", exec.Repo, exec.PR)
 	fmt.Printf("Status:       %s\n", strings.ToUpper(exec.Status))
@@ -145,21 +161,26 @@ func printExecution(exec cliExecution, format string) {
 	}
 }
 
-func watchExecution(srv, tok, id, format string) error {
+func watchExecution(srv, tok, id, format string) (cliExecution, error) {
 	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/execution/%s/events", srv, id), nil)
 	if err != nil {
-		return err
+		return cliExecution{}, err
 	}
 	if tok != "" {
-		req.Header.Set("Authorization", "Bearer "+makeJWT(tok))
+		jwt, err := makeJWT(tok)
+		if err != nil {
+			return cliExecution{}, fmt.Errorf("make JWT: %w", err)
+		}
+		req.Header.Set("Authorization", "Bearer "+jwt)
 	}
+	// events stream stays open, so do NOT use statusClient's 10s timeout
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return err
+		return cliExecution{}, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("events stream http %d", resp.StatusCode)
+		return cliExecution{}, fmt.Errorf("events stream http %d", resp.StatusCode)
 	}
 
 	scanner := bufio.NewScanner(resp.Body)
@@ -168,12 +189,24 @@ func watchExecution(srv, tok, id, format string) error {
 		if strings.HasPrefix(line, "data: changed") {
 			exec, err := fetchExecution(srv, tok, id)
 			if err == nil {
-				printExecution(exec, format)
+				printExecution(exec, format, true)
 				if isExecutionTerminal(exec.Status) {
-					return nil
+					return exec, nil
 				}
 			}
 		}
 	}
-	return scanner.Err()
+	if scanner.Err() != nil {
+		return cliExecution{}, scanner.Err()
+	}
+
+	// Scanner finished; do a final fetch to get the absolute current state
+	finalExec, err := fetchExecution(srv, tok, id)
+	if err != nil {
+		return finalExec, err
+	}
+	if !isExecutionTerminal(finalExec.Status) {
+		return finalExec, fmt.Errorf("events stream ended prematurely while execution was %s", finalExec.Status)
+	}
+	return finalExec, nil
 }
