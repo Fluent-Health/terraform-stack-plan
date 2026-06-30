@@ -13,8 +13,6 @@ import (
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
 
-
-
 func TestRunStatusText(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Just a simple route router

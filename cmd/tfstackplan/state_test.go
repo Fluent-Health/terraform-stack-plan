@@ -469,4 +469,3 @@ func TestStateImportAndRemove(t *testing.T) {
 		t.Errorf("missing removed block: %s", string(data))
 	}
 }
-
