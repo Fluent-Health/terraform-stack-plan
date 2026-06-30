@@ -12,13 +12,14 @@ package domain
 // Move/Import/Forget are tracked separately from the create/change/destroy/
 // replace buckets. All fields omitempty so a zero stack marshals compactly.
 type Counts struct {
-	Add     int `json:"add,omitempty"`
-	Change  int `json:"change,omitempty"`
-	Destroy int `json:"destroy,omitempty"`
-	Replace int `json:"replace,omitempty"`
-	Move    int `json:"move,omitempty"`
-	Import  int `json:"import,omitempty"`
-	Forget  int `json:"forget,omitempty"`
+	Add             int `json:"add,omitempty"`
+	Change          int `json:"change,omitempty"`
+	Destroy         int `json:"destroy,omitempty"`
+	Replace         int `json:"replace,omitempty"`
+	Move            int `json:"move,omitempty"`
+	Import          int `json:"import,omitempty"`
+	Forget          int `json:"forget,omitempty"`
+	SensitivityOnly int `json:"sensitivity_only,omitempty"`
 }
 
 // Total returns the sum of the create/change/destroy/replace buckets.

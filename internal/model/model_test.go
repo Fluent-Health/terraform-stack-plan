@@ -111,3 +111,20 @@ func TestFieldSelAndAtLast(t *testing.T) {
 		t.Errorf("AtLast() = false, want true (selected 1 out of 2)")
 	}
 }
+
+func TestSensitivityOnly(t *testing.T) {
+	c := Counts{SensitivityOnly: 3}
+	if c.SensitivityOnly != 3 {
+		t.Fatalf("Counts SensitivityOnly = %d, want 3", c.SensitivityOnly)
+	}
+
+	f := Field{SensitivityOnly: true}
+	if !f.SensitivityOnly {
+		t.Fatalf("Field SensitivityOnly = false, want true")
+	}
+
+	ch := Change{SensitivityOnly: true}
+	if !ch.SensitivityOnly {
+		t.Fatalf("Change SensitivityOnly = false, want true")
+	}
+}
