@@ -202,6 +202,40 @@ Full install detail — toolchain notes, container, deployment — is in
 
 ---
 
+## Agentic Workflows & Workspace Skill
+
+`tfstackplan` publishes a comprehensive, cross-runtime **Workspace Agent Skill** directly in this repository under `skills/tfstackplan/SKILL.md`. This skill governs the entire lifecycle and CLI surface of `tfstackplan` (lint, plan, state refactoring, watch status, claims, and applies), instructing future coding agents (such as Gemini CLI or Claude Code) on how to operate this codebase with maximum safety and TDD discipline.
+
+### Loading the Skill in Gemini CLI
+
+You can install this repository's agent skill and extensions globally or link them locally during development:
+
+1. **Install globally as an extension:**
+   ```bash
+   gemini extensions install https://github.com/Fluent-Health/terraform-stack-plan
+   ```
+2. **Link the skill locally:**
+   ```bash
+   gemini skills link ./skills/tfstackplan
+   ```
+*Once loaded, Gemini CLI will automatically trigger and follow this skill whenever you ask the model to validate, plan, or restructure Terraform state.*
+
+### Loading the Skill in Claude Code (or other Agent Skills runtimes)
+
+Both Claude Code and Gemini CLI support the open [Agent Skills](https://agentskills.io) standard, enabling cross-runtime interoperability:
+
+1. **Create the global skill directory:**
+   ```bash
+   mkdir -p ~/.agents/skills/tfstackplan
+   ```
+2. **Symlink or copy the skill file:**
+   ```bash
+   ln -s "$(pwd)/skills/tfstackplan/SKILL.md" ~/.agents/skills/tfstackplan/SKILL.md
+   ```
+*Claude Code will automatically detect the skill on-demand when your conversation context matches the skill's frontmatter description, using its native `Skill` tool to load these expert instructions into the session.*
+
+---
+
 ## When *not* to use this
 
 Honesty up front saves everyone a wasted afternoon:
