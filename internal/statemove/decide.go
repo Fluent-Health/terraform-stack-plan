@@ -46,12 +46,34 @@ func expandPairs(srcAddrs, dstAddrs AddressSet, pairs []Move) []Move {
 		var src, dst []string
 		for a := range srcAddrs {
 			if matches(a, p.From) {
-				src = append(src, a)
+				// Longest-prefix-wins: if a more specific (longer) From entry exists in pairs,
+				// do not expand this resource under the shorter wildcard.
+				moreSpecific := false
+				for _, other := range pairs {
+					if other.From != p.From && len(other.From) > len(p.From) && matches(a, other.From) {
+						moreSpecific = true
+						break
+					}
+				}
+				if !moreSpecific {
+					src = append(src, a)
+				}
 			}
 		}
 		for a := range dstAddrs {
 			if matches(a, p.To) {
-				dst = append(dst, a)
+				// Longest-prefix-wins: if a more specific (longer) To entry exists in pairs,
+				// do not expand this resource under the shorter wildcard.
+				moreSpecific := false
+				for _, other := range pairs {
+					if other.To != p.To && len(other.To) > len(p.To) && matches(a, other.To) {
+						moreSpecific = true
+						break
+					}
+				}
+				if !moreSpecific {
+					dst = append(dst, a)
+				}
 			}
 		}
 		switch {

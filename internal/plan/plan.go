@@ -71,6 +71,9 @@ func Parse(name string, data []byte) (RawStack, error) {
 		if rc.Change == nil {
 			continue
 		}
+		if rc.Mode == "data" {
+			continue
+		}
 		act := rc.Change.Actions
 		if act.Read() {
 			continue
