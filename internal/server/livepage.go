@@ -317,6 +317,22 @@ func buildLiveModel(v liveView, kind string, finished bool, prog *config.Progres
 		}
 	}
 
+	// Synthesize an execution-level triage card if the run failed overall but no
+	// individual stack failed (e.g. cross-state move pre-phase or check-run errors).
+	if finished && v.Status == "failure" && len(failures) == 0 && v.Report != "" {
+		tr := classifyFailure(v.Report, nil)
+		failures = append(failures, failureCard{
+			Path:        "Execution Failure",
+			Class:       tr.Class,
+			Cause:       tr.Cause,
+			Steps:       tr.Steps,
+			StateImpact: tr.StateImpact,
+			Detail:      v.Report,
+			LogURL:      "",
+			Anchor:      "execution-failure",
+		})
+	}
+
 	return liveModel{
 		Title: title, Repo: v.Repo, Exec: v.Exec, SHA: v.SHA, ShortSHA: shortSHA,
 		Context: v.Context, Environment: v.Environment, PR: v.PR,
