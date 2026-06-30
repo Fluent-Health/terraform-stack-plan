@@ -21,7 +21,7 @@ import (
 // machinery. SP1 implements same-stack moves (native `moved {}` shims).
 func runState(args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "tfstackplan state: expected a subcommand (move|list|moves-manifest|cleanup|apply|check)")
+		fmt.Fprintln(os.Stderr, "tfstackplan state: expected a subcommand (move|import|remove|removed|list|moves-manifest|cleanup|apply|check)")
 		return 2
 	}
 	switch args[0] {
@@ -291,6 +291,8 @@ func writeShimFile(dir, stack, key string, ops []statemove.Op) error {
 	if data, rerr := os.ReadFile(shimPath); rerr == nil {
 		if _, ex, perr := statemove.ParseShim(string(data)); perr == nil {
 			existing = ex
+		} else {
+			return fmt.Errorf("parse existing shim %s: %w", shimPath, perr)
 		}
 	}
 	merged := statemove.MergeOps(existing, ops)
