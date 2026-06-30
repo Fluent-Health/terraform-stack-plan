@@ -434,3 +434,39 @@ func TestStateApplyDiscoversManifests(t *testing.T) {
 	}
 	_ = runState([]string{"apply", "--dir", root}) // must not panic; exit code not asserted (no real backend)
 }
+
+func TestStateImportAndRemove(t *testing.T) {
+	root := t.TempDir()
+	err := os.MkdirAll(filepath.Join(root, "stacks/a"), 0o755)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 1. Run import command
+	args := []string{"import", "--dir", root, "--stack", "stacks/a", "--pr", "10", "aws_s3_bucket.main", "my-bucket"}
+	if code := runState(args); code != 0 {
+		t.Fatalf("import failed with code %d", code)
+	}
+	// Verify import file written
+	shimFile := filepath.Join(root, "stacks/a", statemove.ShimFileName("PR-10"))
+	data, err := os.ReadFile(shimFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "import {\n  to = aws_s3_bucket.main\n  id = \"my-bucket\"") {
+		t.Errorf("missing import block: %s", string(data))
+	}
+
+	// 2. Run remove command
+	args = []string{"remove", "--dir", root, "--stack", "stacks/a", "--pr", "10", "aws_s3_bucket.main"}
+	if code := runState(args); code != 0 {
+		t.Fatalf("remove failed with code %d", code)
+	}
+	data, err = os.ReadFile(shimFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "removed {\n  from = aws_s3_bucket.main") {
+		t.Errorf("missing removed block: %s", string(data))
+	}
+}
+

@@ -27,6 +27,10 @@ func runState(args []string) int {
 	switch args[0] {
 	case "move":
 		return runStateMove(args[1:])
+	case "import":
+		return runStateImport(args[1:])
+	case "remove", "removed":
+		return runStateRemove(args[1:])
 	case "list":
 		return runStateList(args[1:])
 	case "moves-manifest":
@@ -591,6 +595,64 @@ Flags:
 		}
 	}
 	if hasErrors {
+		return 1
+	}
+	return 0
+}
+
+func runStateImport(args []string) int {
+	fs := flag.NewFlagSet("state import", flag.ContinueOnError)
+	dir := fs.String("dir", "", "terramate project root (required)")
+	stack := fs.String("stack", "", "destination stack for import block (required)")
+	pr := fs.String("pr", "", "PR number for the shim key")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if *dir == "" || *stack == "" {
+		fmt.Fprintln(os.Stderr, "state import: --dir and --stack are required")
+		return 2
+	}
+	rest := fs.Args()
+	if len(rest) == 0 || len(rest)%2 != 0 {
+		fmt.Fprintln(os.Stderr, "state import: expected <to-addr> <import-id> pairs")
+		return 2
+	}
+	var ops []statemove.Op
+	for i := 0; i < len(rest); i += 2 {
+		ops = append(ops, statemove.Op{Kind: "import", To: rest[i], ID: rest[i+1]})
+	}
+	key := moveKey(*pr, *dir)
+	if err := writeShimFile(*dir, *stack, key, ops); err != nil {
+		fmt.Fprintln(os.Stderr, "state import:", err)
+		return 1
+	}
+	return 0
+}
+
+func runStateRemove(args []string) int {
+	fs := flag.NewFlagSet("state remove", flag.ContinueOnError)
+	dir := fs.String("dir", "", "terramate project root (required)")
+	stack := fs.String("stack", "", "source stack for removed block (required)")
+	pr := fs.String("pr", "", "PR number for the shim key")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if *dir == "" || *stack == "" {
+		fmt.Fprintln(os.Stderr, "state remove: --dir and --stack are required")
+		return 2
+	}
+	rest := fs.Args()
+	if len(rest) == 0 {
+		fmt.Fprintln(os.Stderr, "state remove: expected at least one resource address")
+		return 2
+	}
+	var ops []statemove.Op
+	for _, addr := range rest {
+		ops = append(ops, statemove.Op{Kind: "removed", From: addr})
+	}
+	key := moveKey(*pr, *dir)
+	if err := writeShimFile(*dir, *stack, key, ops); err != nil {
+		fmt.Fprintln(os.Stderr, "state remove:", err)
 		return 1
 	}
 	return 0
