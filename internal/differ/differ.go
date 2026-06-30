@@ -160,11 +160,11 @@ func summaryLine(attr, kind string, totalLines, changedLines int) string {
 
 // Input is everything Diff needs for one attribute.
 type Input struct {
-	ResourceType string
-	Attr         string
-	Before       any
-	After        any
-	Sensitive    bool
+	ResourceType    string
+	Attr            string
+	Before          any
+	After           any
+	Sensitive       bool
 	// BeforeSensitive/AfterSensitive carry Terraform's per-path sensitivity tree
 	// for this attribute (bool, or a nested map/list mirroring the value). A
 	// structural diff consults them to redact only the sensitive sub-paths, so a
@@ -175,10 +175,17 @@ type Input struct {
 	ForceDiffer     string // "" | auto | structural | json | yaml | line | summary | hide
 	MaxLines        int    // 0 = no cap
 	NoDetect        bool   // when true, skip type sniffing for string values (force line diff)
+	SensitivityOnly bool   // NEW!
 }
 
 // Diff builds the ordered variant ladder for one attribute.
 func Diff(in Input) model.Field {
+	f := diffInternal(in)
+	f.SensitivityOnly = in.SensitivityOnly
+	return f
+}
+
+func diffInternal(in Input) model.Field {
 	// Always-inline cases → single leaf.
 	switch {
 	case in.Unknown:

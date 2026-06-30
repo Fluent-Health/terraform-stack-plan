@@ -228,6 +228,7 @@ func run(o opts) (report, reportNoTable string, stackReports map[string]string, 
 				PreviousAddress: rc.PreviousAddress,
 				Imported:        rc.Imported,
 				ImportID:        rc.ImportID,
+				SensitivityOnly: rc.SensitivityOnly,
 			}
 			for _, ra := range rc.Attrs {
 				kind := cfg.Diff.Resolve(rc.Type, ra.Name)
@@ -243,6 +244,7 @@ func run(o opts) (report, reportNoTable string, stackReports map[string]string, 
 					ForceDiffer:     kind,
 					MaxLines:        cfg.Diff.MaxAttributeLines,
 					NoDetect:        !cfg.Diff.Detect,
+					SensitivityOnly: ra.SensitivityOnly,
 				})
 				ch.Fields = append(ch.Fields, f)
 			}
