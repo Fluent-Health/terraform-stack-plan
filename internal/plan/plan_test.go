@@ -402,3 +402,41 @@ func TestParseProviderName(t *testing.T) {
 		t.Fatalf("provider_name = %q, want registry.terraform.io/hashicorp/google", c.ProviderName)
 	}
 }
+
+func TestParseSkipsDataSources(t *testing.T) {
+	data := []byte(`{
+	  "format_version": "1.2",
+	  "resource_changes": [
+		{
+		  "address": "data.aws_caller_identity.current",
+		  "mode": "data",
+		  "type": "aws_caller_identity",
+		  "name": "current",
+		  "provider_name": "registry.terraform.io/hashicorp/aws",
+		  "change": {
+			"actions": ["noop"]
+		  }
+		},
+		{
+		  "address": "aws_s3_bucket.main",
+		  "mode": "managed",
+		  "type": "aws_s3_bucket",
+		  "name": "main",
+		  "provider_name": "registry.terraform.io/hashicorp/aws",
+		  "change": {
+			"actions": ["create"]
+		  }
+		}
+	  ]
+	}`)
+	rs, err := Parse("stack", data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rs.Changes) != 1 {
+		t.Fatalf("expected 1 change (data source skipped), got %d: %+v", len(rs.Changes), rs.Changes)
+	}
+	if rs.Changes[0].Address != "aws_s3_bucket.main" {
+		t.Errorf("expected aws_s3_bucket.main, got %s", rs.Changes[0].Address)
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"sort"
 	"testing"
 
 	tfjson "github.com/hashicorp/terraform-json"
@@ -63,6 +64,31 @@ func TestExpandPairs(t *testing.T) {
 	got = expandPairs(AddressSet{}, AddressSet{}, []Move{{From: "module.a[0]", To: "module.b"}})
 	if len(got) != 1 || got[0] != (Move{From: "module.a[0]", To: "module.b"}) {
 		t.Errorf("missing pair = %+v", got)
+	}
+
+	// Longest-prefix-wins: if a more specific explicit move exists, the broader wildcard must not expand it.
+	srcLongest := AddressSet{
+		"module.a[0].res.x": "registry.terraform.io/hashicorp/aws",
+		"module.a[0].res.y": "registry.terraform.io/hashicorp/aws",
+	}
+	pairsLongest := []Move{
+		{From: "module.a[0].res.y", To: "module.b.res.z"},
+		{From: "module.a[0]", To: "module.b"},
+	}
+	got = expandPairs(srcLongest, AddressSet{}, pairsLongest)
+	wantLongest := []Move{
+		{From: "module.a[0].res.y", To: "module.b.res.z"},
+		{From: "module.a[0].res.x", To: "module.b.res.x"},
+	}
+	if len(got) != len(wantLongest) {
+		t.Fatalf("longest-prefix-wins: got %d pairs, want %d: %+v", len(got), len(wantLongest), got)
+	}
+	sort.Slice(got, func(i, j int) bool { return got[i].From < got[j].From })
+	sort.Slice(wantLongest, func(i, j int) bool { return wantLongest[i].From < wantLongest[j].From })
+	for i := range wantLongest {
+		if got[i] != wantLongest[i] {
+			t.Errorf("longest-prefix-wins pair %d = %+v, want %+v", i, got[i], wantLongest[i])
+		}
 	}
 }
 
