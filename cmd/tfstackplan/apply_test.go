@@ -698,7 +698,7 @@ func TestPrintGateVerdictBuckets(t *testing.T) {
 	}
 }
 
-func TestRunApplyDeferredFinalizeOnFailure(t *testing.T) {
+func TestRunApplyAbortsDeferredFinalize(t *testing.T) {
 	dir := applyFixture(t)
 	t.Setenv("GOOGLE_OAUTH_ACCESS_TOKEN", "")
 

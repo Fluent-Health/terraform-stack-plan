@@ -140,7 +140,7 @@ func TestRunPlanE2E(t *testing.T) {
 	}
 }
 
-func TestRunPlanDeferredFinalizeOnFailure(t *testing.T) {
+func TestRunPlanAbortsDeferredFinalize(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.CopyFS(dir, os.DirFS("testdata/planfixture")); err != nil {
 		t.Fatal(err)
