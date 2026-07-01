@@ -515,4 +515,3 @@ func TestRenderSensitivityOnly(t *testing.T) {
 		t.Errorf("expected resourceSummary output to contain %q, got:\n%s", wantResourceSummary, outDetails)
 	}
 }
-

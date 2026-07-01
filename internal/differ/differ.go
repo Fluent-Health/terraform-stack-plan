@@ -160,11 +160,11 @@ func summaryLine(attr, kind string, totalLines, changedLines int) string {
 
 // Input is everything Diff needs for one attribute.
 type Input struct {
-	ResourceType    string
-	Attr            string
-	Before          any
-	After           any
-	Sensitive       bool
+	ResourceType string
+	Attr         string
+	Before       any
+	After        any
+	Sensitive    bool
 	// BeforeSensitive/AfterSensitive carry Terraform's per-path sensitivity tree
 	// for this attribute (bool, or a nested map/list mirroring the value). A
 	// structural diff consults them to redact only the sensitive sub-paths, so a

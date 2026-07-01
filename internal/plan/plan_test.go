@@ -483,4 +483,3 @@ func TestParseSensitivityOnlyChange(t *testing.T) {
 		t.Errorf("expected counts 1 Change & 1 SensitivityOnly, got %+v", rs.Counts)
 	}
 }
-
