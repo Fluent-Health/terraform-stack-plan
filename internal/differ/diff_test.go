@@ -247,3 +247,13 @@ func TestStructuralLadder(t *testing.T) {
 		t.Fatalf("structural ladder = %v, want %v", got, want)
 	}
 }
+
+func TestJSONSniffingOnCreate(t *testing.T) {
+	f := Diff(Input{Attr: "policy", After: `{"a": 1, "b": 2}`})
+	if f.Kind != "json" {
+		t.Fatalf("created json string kind = %q, want json", f.Kind)
+	}
+	if !f.IsBlock() {
+		t.Fatalf("created json change should be a block")
+	}
+}
