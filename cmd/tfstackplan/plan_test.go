@@ -139,3 +139,82 @@ func TestRunPlanE2E(t *testing.T) {
 		}
 	}
 }
+
+func TestRunPlanDeferredFinalizeOnFailure(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.CopyFS(dir, os.DirFS("testdata/planfixture")); err != nil {
+		t.Fatal(err)
+	}
+	probe := exec.Command("terramate", "version")
+	probe.Dir = dir
+	if out, err := probe.CombinedOutput(); err != nil {
+		t.Skipf("terramate not runnable: %v: %s", err, out)
+	}
+	for _, a := range [][]string{{"init", "-q", "-b", "main"}, {"config", "user.email", "t@t"}, {"config", "user.name", "t"}, {"config", "commit.gpgsign", "false"}, {"add", "-A"}, {"commit", "-qm", "init"}} {
+		c := exec.Command("git", a...)
+		c.Dir = dir
+		if out, err := c.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v: %s", a, err, out)
+		}
+	}
+	bin := filepath.Join(dir, "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	planJSON := `{"format_version":"1.2","resource_changes":[{"address":"google_project_iam_member.x","type":"google_project_iam_member","name":"x","change":{"actions":["create"],"before":null,"after":{"project":"proj-a"}}}]}`
+	stub := "#!/bin/sh\ncase \"$1 $2\" in\n  \"show -json\") cat <<'J'\n" + planJSON + "\nJ\n  ;;\n  *) : ;;\nesac\n"
+	if err := os.WriteFile(filepath.Join(bin, "terraform"), []byte(stub), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	// Create a malformed config file to force classification/render failure
+	badCfg := filepath.Join(dir, "bad.hcl")
+	if err := os.WriteFile(badCfg, []byte(`malformed_hcl_syntax {`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var mu sync.Mutex
+	var gotInit events.Init
+	var gotFinal events.Finalize
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		switch r.URL.Path {
+		case "/api/init":
+			_ = json.Unmarshal(b, &gotInit)
+		case "/api/finalize":
+			_ = json.Unmarshal(b, &gotFinal)
+		}
+		mu.Unlock()
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+	t.Setenv(runner.EnvServer, srv.URL)
+	t.Setenv(runner.EnvEnvironment, "staging")
+	t.Setenv(runner.EnvExecution, "")
+
+	// We pass the malformed config which will cause renderClassification to fail,
+	// returning exit code 1.
+	if code := runPlan([]string{"--dir", dir, "--changed=false", "--config", badCfg}); code != 1 {
+		t.Fatalf("run plan = %d, want 1 (failure due to bad config)", code)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	// Verify that Init was called first
+	if len(gotInit.Stacks) != 2 {
+		t.Errorf("init stacks = %d, want 2", len(gotInit.Stacks))
+	}
+
+	// Verify that the deferred Finalize block was executed and reported the failure properly
+	if !gotFinal.Failed {
+		t.Error("expected finalize to indicate Failed: true")
+	}
+	expectedMsg := "tfstackplan run plan: run aborted prematurely or failed during pre-flight validation."
+	if gotFinal.ReportMarkdown != expectedMsg {
+		t.Errorf("finalize report = %q, want %q", gotFinal.ReportMarkdown, expectedMsg)
+	}
+}
+
