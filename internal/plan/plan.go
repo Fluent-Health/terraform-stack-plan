@@ -204,7 +204,7 @@ func changedAttrs(c *tfjson.Change) []RawAttr {
 	for k := range keys {
 		b, a := before[k], after[k]
 		isUnknown := truthy(unknown[k])
-		sensChanged := !reflect.DeepEqual(beforeSens[k], afterSens[k])
+		sensChanged := !sensEqual(beforeSens[k], afterSens[k])
 		if !isUnknown && reflect.DeepEqual(b, a) && !sensChanged {
 			continue
 		}
@@ -360,4 +360,14 @@ func isScalar(v any) bool {
 	default:
 		return false
 	}
+}
+
+// sensEqual reports whether two sensitivity markings (from before_sensitive or
+// after_sensitive) are semantically equivalent, treating nil and explicit false
+// as equal.
+func sensEqual(a, b any) bool {
+	if (a == nil || a == false) && (b == nil || b == false) {
+		return true
+	}
+	return reflect.DeepEqual(a, b)
 }
