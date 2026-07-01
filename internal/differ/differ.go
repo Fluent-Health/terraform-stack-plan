@@ -199,7 +199,11 @@ func diffInternal(in Input) model.Field {
 
 	// Create-only / delete-only scalar (one side nil).
 	if in.Before == nil && in.After != nil && !isStructured(in.Before, in.After) {
-		return scalarLeaf(in.Attr, model.OpAdd, "", scalar(in.After))
+		isJSONOrYAML := aIsStr && (detect(as) == typeJSON || detect(as) == typeYAML)
+		hasOverride := in.ForceDiffer != "" && in.ForceDiffer != "auto"
+		if !isJSONOrYAML && !hasOverride {
+			return scalarLeaf(in.Attr, model.OpAdd, "", scalar(in.After))
+		}
 	}
 	if in.After == nil && in.Before != nil && !isStructured(in.Before, in.After) {
 		return scalarLeaf(in.Attr, model.OpRemove, scalar(in.Before), "")
