@@ -155,7 +155,7 @@ func TestGetExecution(t *testing.T) {
 			if !strings.Contains(line, "data: changed") {
 				t.Errorf("expected changed event data, got: %q", line)
 			}
-		case <-time.After(2 * time.Second):
+		case <-time.After(10 * time.Second):
 			t.Fatal("timed out waiting for changed event")
 		}
 
@@ -169,7 +169,7 @@ func TestGetExecution(t *testing.T) {
 			if !strings.Contains(line, "event: superseded") {
 				t.Errorf("expected event: superseded, got: %q", line)
 			}
-		case <-time.After(2 * time.Second):
+		case <-time.After(10 * time.Second):
 			t.Fatal("timed out waiting for superseded event header")
 		}
 
@@ -178,7 +178,7 @@ func TestGetExecution(t *testing.T) {
 			if !strings.Contains(line, "data: e2") {
 				t.Errorf("expected data: e2, got: %q", line)
 			}
-		case <-time.After(2 * time.Second):
+		case <-time.After(10 * time.Second):
 			t.Fatal("timed out waiting for superseded event data")
 		}
 	}

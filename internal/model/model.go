@@ -90,11 +90,12 @@ func (l Leaf) Value() string {
 // aligned Leaves (scalars, small structural diffs, sensitive/unknown) or, when
 // large, as a foldable block carrying the Variant ladder fit degrades.
 type Field struct {
-	Name     string
-	Kind     string    // "json"/"yaml" for structured blocks; "" otherwise
-	Leaves   []Leaf    // inline rows; empty when this is a block
-	Variants []Variant // block ladder; empty when this is leaves
-	Selected int       // chosen variant (block only); fit mutates
+	Name            string
+	Kind            string    // "json"/"yaml" for structured blocks; "" otherwise
+	Leaves          []Leaf    // inline rows; empty when this is a block
+	Variants        []Variant // block ladder; empty when this is leaves
+	Selected        int       // chosen variant (block only); fit mutates
+	SensitivityOnly bool
 }
 
 // IsBlock reports whether this field renders as a foldable block.
@@ -152,6 +153,7 @@ type Change struct {
 	PreviousAddress string // old address when Moved
 	Imported        bool
 	ImportID        string // import id when Imported
+	SensitivityOnly bool
 }
 
 // Stack is one stack's parsed, classified plan.
