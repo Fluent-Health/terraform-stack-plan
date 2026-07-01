@@ -65,6 +65,17 @@ func runPlan(args []string) int {
 	}
 	_ = client.Init(ctx, events.Init{ID: execID, Repo: repo, SHA: sha, PR: pr, Environment: env, Stacks: initStacks, Edges: edges})
 
+	var finalized bool
+	defer func() {
+		if !finalized && client.Enabled() {
+			_ = client.Finalize(ctx, events.Finalize{
+				ID:             execID,
+				Failed:         true,
+				ReportMarkdown: "tfstackplan run plan: run aborted prematurely or failed during pre-flight validation.",
+			})
+		}
+	}()
+
 	// Pre-Warming Cache: resolve from config block if defined
 	pPath := *cfgPath
 	if pPath == "" {
@@ -137,6 +148,7 @@ func runPlan(args []string) int {
 		ID: execID, ReportMarkdown: res.ReportNoTable, StackReports: res.StackReports, Gates: res.Gates, Moving: res.Moving, Failed: scriptErr != nil,
 		Categories: res.Categories, Counts: res.Counts,
 	})
+	finalized = true
 
 	if scriptErr != nil {
 		fmt.Fprintln(os.Stderr, "tfstackplan run plan: plan failed:", scriptErr)

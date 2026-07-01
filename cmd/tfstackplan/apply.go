@@ -111,12 +111,24 @@ func runApply(args []string) int {
 	}
 	_ = client.Init(ctx, events.Init{ID: execID, Repo: repo, SHA: sha, PR: pr, Environment: env, Context: applyCtx, Stacks: initStacks, Edges: edges})
 
+	var finalized bool
+	defer func() {
+		if !finalized && client.Enabled() {
+			_ = client.Finalize(ctx, events.Finalize{
+				ID:             execID,
+				Failed:         true,
+				ReportMarkdown: "tfstackplan run apply: run aborted prematurely or failed during pre-flight validation.",
+			})
+		}
+	}()
+
 	// 2. NOTHING_TO_APPLY: no changed stacks — a no-op apply (e.g. a
 	//    bootstrap-only / docs / cross-state-move-only merge). Finalize to a
 	//    terminal success (driveApply resolves total==0 → success) and exit 0
 	//    WITHOUT ever consulting the gate.
 	if len(stacks) == 0 {
 		_ = client.Finalize(ctx, events.Finalize{ID: execID})
+		finalized = true
 		fmt.Fprintln(os.Stderr, "tfstackplan run apply: no changed stacks — nothing to apply")
 		return 0
 	}
@@ -196,6 +208,7 @@ func runApply(args []string) int {
 				Failed:         true,
 				ReportMarkdown: "Classify pass failed before an elevated apply; refusing to proceed under the ambient identity (would 403 on gated resources despite an active grant). Retry this tier's apply — classify flakes are transient — or break-glass per docs/ci-cd.md. Cause: " + cerr.Error(),
 			})
+			finalized = true
 			return 1
 		}
 		fmt.Fprintln(os.Stderr, "tfstackplan run apply: classify pass failed (continuing to gate check):", cerr)
@@ -259,6 +272,7 @@ func runApply(args []string) int {
 			Failed:         true,
 			ReportMarkdown: "cross-state move failed: " + err.Error(),
 		})
+		finalized = true
 		_ = client.GateRevoke(ctx, events.GateRevoke{PR: pr, Environment: env})
 		return 1
 	}
@@ -289,6 +303,7 @@ func runApply(args []string) int {
 	//    on success it lets the check run conclude success terminally even if a
 	//    per-stack `safe` tick was missed.
 	_ = client.Finalize(ctx, events.Finalize{ID: execID, Failed: applyErr != nil})
+	finalized = true
 
 	// 10. Best-effort post-apply cleanup: revoke the PR's grants.
 	_ = client.GateRevoke(ctx, events.GateRevoke{PR: pr, Environment: env})
