@@ -216,7 +216,6 @@ func runApply(args []string) int {
 		_ = client.Finalize(ctx, events.Finalize{
 			ID: execID, ReportMarkdown: report, Gates: gates, Categories: categories, Counts: counts, Moving: moving,
 		})
-		finalized = true
 		// Diagnostic: record the apply-time classify gate set so a gating anomaly
 		// (e.g. an under-reported gate vs. the plan) is visible in the build log.
 		fmt.Fprintf(os.Stderr, "tfstackplan run apply: classify gates: %s\n", gateSummary(gates))

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -694,5 +695,61 @@ func TestPrintGateVerdictBuckets(t *testing.T) {
 		if !strings.Contains(b.String(), tc.want) {
 			t.Errorf("kind %v: output %q missing %q", tc.kind, b.String(), tc.want)
 		}
+	}
+}
+
+func TestRunApplyDeferredFinalizeOnFailure(t *testing.T) {
+	dir := applyFixture(t)
+	t.Setenv("GOOGLE_OAUTH_ACCESS_TOKEN", "")
+
+	var mu sync.Mutex
+	var gotInit events.Init
+	var gotFinal events.Finalize
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		switch r.URL.Path {
+		case "/api/init":
+			_ = json.Unmarshal(b, &gotInit)
+		case "/api/finalize":
+			_ = json.Unmarshal(b, &gotFinal)
+		case "/api/gate/check":
+			w.WriteHeader(http.StatusConflict) // 409
+			_, _ = w.Write([]byte(`{"code":"gate_not_satisfied","message":"gate not satisfied"}`))
+			mu.Unlock()
+			return
+		}
+		mu.Unlock()
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+	t.Setenv(runner.EnvServer, srv.URL)
+	t.Setenv(runner.EnvEnvironment, "staging")
+	t.Setenv("TFSTACKPLAN_PR", "10")
+
+	f := &fakeTM{changed: []string{"stacks/a"}}
+	withFakeTM(t, f, nil)
+
+	// Since the gate check returns disallowed, the apply command returns exit 1.
+	code := runApply([]string{"--dir", dir})
+	if code != 1 {
+		t.Fatalf("run apply = %d, want 1 (failure due to unsatisfied gate check)", code)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	// Verify that Init was called first
+	if len(gotInit.Stacks) != 1 {
+		t.Errorf("init stacks = %d, want 1", len(gotInit.Stacks))
+	}
+
+	// Verify that the deferred Finalize block was executed and reported the failure properly
+	if !gotFinal.Failed {
+		t.Error("expected finalize to indicate Failed: true")
+	}
+	expectedMsg := "tfstackplan run apply: run aborted prematurely or failed during pre-flight validation."
+	if gotFinal.ReportMarkdown != expectedMsg {
+		t.Errorf("finalize report = %q, want %q", gotFinal.ReportMarkdown, expectedMsg)
 	}
 }
