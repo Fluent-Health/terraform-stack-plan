@@ -217,4 +217,3 @@ func TestRunPlanAbortsDeferredFinalize(t *testing.T) {
 		t.Errorf("finalize report = %q, want %q", gotFinal.ReportMarkdown, expectedMsg)
 	}
 }
-
