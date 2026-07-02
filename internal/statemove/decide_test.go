@@ -139,6 +139,30 @@ func TestValidateMovePlan(t *testing.T) {
 	}
 }
 
+func TestValidateMovePlan_BuiltinTerraformProvider(t *testing.T) {
+	// terraform_data is backed by the built-in provider
+	// terraform.io/builtin/terraform, which cannot be declared in a
+	// required_providers or provider block. A move of such a resource must not
+	// trip the destination-provider check even though the destination has no
+	// "terraform" provider configured.
+	src := AddressSet{"module.analytics.terraform_data.loinc_csv_file": "terraform.io/builtin/terraform"}
+	m := XMove{Pairs: []Move{{From: "module.analytics.terraform_data.loinc_csv_file", To: "module.analytics.terraform_data.loinc_csv_file"}}}
+
+	// Apply-time: destination has no providers configured at all.
+	dstApply := AddressSet{}
+	diags := ValidateMovePlan(src, dstApply, DestProviders{}, m, true)
+	if len(diags) != 0 {
+		t.Errorf("apply-time: expected 0 diags for builtin terraform provider, got: %+v", diags)
+	}
+
+	// Plan-time: destination plan has the resource but no "terraform" provider.
+	dstPlan := AddressSet{"module.analytics.terraform_data.loinc_csv_file": "terraform.io/builtin/terraform"}
+	diags = ValidateMovePlan(src, dstPlan, DestProviders{}, m, false)
+	if len(diags) != 0 {
+		t.Errorf("plan-time: expected 0 diags for builtin terraform provider, got: %+v", diags)
+	}
+}
+
 func TestValidateMovePlan_ProviderMismatch(t *testing.T) {
 	src := AddressSet{"module.a.google_project_iam_member.x": "registry.terraform.io/hashicorp/google"}
 	dst := AddressSet{"module.b.aws_iam_role.x": "registry.terraform.io/hashicorp/aws"}
