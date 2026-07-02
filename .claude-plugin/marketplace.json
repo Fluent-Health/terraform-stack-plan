@@ -1,5 +1,5 @@
 {
-  "name": "Fluent Health Plugins",
+  "name": "fluent-health-plugins",
   "description": "Custom agentic and DevOps workflows for Fluent Health",
   "owner": {
     "name": "Fluent Health",
@@ -8,7 +8,8 @@
   "plugins": [
     {
       "name": "tfstackplan",
-      "source": "https://github.com/Fluent-Health/terraform-stack-plan",
+      "source": "./",
+      "description": "tfstackplan CLI helper: multi-stack Terraform plan visibility, state refactoring, and agentic apply workflows",
       "category": "development",
       "tags": ["terraform", "devops", "agentic"]
     }
