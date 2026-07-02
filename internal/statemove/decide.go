@@ -151,6 +151,11 @@ var implicitProviders = map[string]bool{
 	"archive":  true,
 	"template": true,
 	"time":     true,
+	// The built-in provider terraform.io/builtin/terraform backs terraform_data
+	// (and terraform_remote_state). It is always present and cannot be declared
+	// in required_providers or a provider block, so the destination-provider
+	// check can never find it — treat it as always-satisfied.
+	"terraform": true,
 }
 
 // modulePrefix strips the trailing resource-type.resource-name components from a
