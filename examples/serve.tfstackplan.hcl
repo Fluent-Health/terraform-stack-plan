@@ -106,4 +106,30 @@ serve {
     audience        = "https://tfstackplan.example.com/pubsub/push"
     service_account = "pubsub-pusher@example.iam.gserviceaccount.com"
   }
+
+  # Google OIDC bearer auth for /api/*: callers present ID tokens (service
+  # accounts mint them for `audience`; user ADC tokens carry the fixed gcloud
+  # client id — list it in extra_audiences to accept humans). Each principal
+  # maps a verified email to scopes: "report" (CI runner lifecycle/gate/claims),
+  # "read" (execution + claims reads), "admin" (claim release / surgery verbs).
+  # While webhook_secret_env is also set, the legacy shared-secret HS256 tokens
+  # stay accepted on /api/* (migration posture). Keep that secret for now: the
+  # live-viewer routes are gated only by its view JWTs — it retires with the
+  # viewer rework, not with this block.
+  api_auth {
+    audience        = "https://tfstackplan.example.com" # default: public_base_url
+    extra_audiences = [
+      # gcloud application-default user-credential client id, for humans on ADC.
+      "764086051850-6qr4p6gpi6hn506pt8ejuq83di341hur.apps.googleusercontent.com",
+    ]
+    principal "tf-planner@example.iam.gserviceaccount.com" {
+      scopes = ["report"]
+    }
+    principal "tf-applier@example.iam.gserviceaccount.com" {
+      scopes = ["report"]
+    }
+    principal "ops@example.com" {
+      scopes = ["read", "admin"]
+    }
+  }
 }

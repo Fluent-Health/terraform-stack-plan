@@ -339,6 +339,12 @@ serve {
   group   { depth = 2 }
   objects { backend = "gcs", bucket = "tfstackplan-logs", prefix = "executions" }
   pubsub  { audience = "…/pubsub/push", service_account = "…@….gserviceaccount.com" }
+
+  api_auth {
+    audience = "https://tfstackplan.example.com"
+    principal "tf-planner@example.iam.gserviceaccount.com" { scopes = ["report"] }
+    principal "ops@example.com"                            { scopes = ["read", "admin"] }
+  }
 }
 ```
 
@@ -348,7 +354,7 @@ serve {
 |---|---|---|---|
 | `db_path` | string | — (required) | Path to the SQLite database file (WAL mode; single writer by design) |
 | `public_base_url` | string | — (required) | Public base URL of the serve instance, used in check-run links and as the default Pub/Sub push audience |
-| `webhook_secret_env` | string | none | Name of the environment variable holding the bearer secret for `/api/*`. When unset or the variable is empty, authentication is disabled (local/dev only) |
+| `webhook_secret_env` | string | none | Name of the environment variable holding the **legacy** shared bearer secret for `/api/*` (HS256). Kept accepted alongside `api_auth {}` OIDC tokens while set. When neither this nor `api_auth {}` is configured, `/api/*` authentication is disabled (local/dev only) |
 | `github_webhook_secret_env` | string | none | Name of the environment variable holding the GitHub webhook HMAC secret used to verify inbound webhook signatures |
 | `logs_dir` | string | none | Directory for per-stack on-disk log buffers. When unset, log ingestion is disabled |
 
@@ -412,6 +418,34 @@ runner poll loop.
 |---|---|---|---|
 | `audience` | string | `<public_base_url>/pubsub/push` | OIDC token audience. Defaults to the push endpoint URL derived from `public_base_url` |
 | `service_account` | string | — (required) | Service account email the Pub/Sub push subscription authenticates as |
+
+### `api_auth {}` sub-block
+
+Google OIDC bearer auth for `/api/*`. Callers present Google-signed ID tokens;
+the verified email is mapped to scopes through `principal` blocks. Service
+accounts (the CI runner, a UI service) mint tokens for `audience` natively;
+human callers on user ADC present tokens whose audience is the fixed gcloud
+client id — list it in `extra_audiences` to accept them. While
+`webhook_secret_env` is also set, legacy HS256 shared-secret tokens remain
+accepted on `/api/*` (the migration posture).
+
+> ⚠️ Do **not** drop `webhook_secret_env` yet: the live-viewer routes (`/`,
+> `/pr/{n}`, `/live/*` and the rerun button) are authenticated only by the
+> view JWTs minted from that same secret. Removing it enforces OIDC on
+> `/api/*` but leaves the entire viewer unauthenticated. The secret can go
+> only when the viewer machinery is replaced (the planned central UI).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `audience` | string | `public_base_url` | Expected ID-token audience for service-account callers |
+| `extra_audiences` | list(string) | `[]` | Additional accepted audiences, e.g. `764086051850-….apps.googleusercontent.com` (the gcloud ADC user-credential client) |
+| `principal "<email>" {}` | block | — | One allowlisted identity; the label is the exact (case-insensitive) verified email |
+
+**`principal` fields:**
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `scopes` | list(string) | `[]` | Any of `report` (execution lifecycle events, logs, gate check/revoke, claims — the runner releases claims for the PRs it applies, so release is not ownership-checked; the verified actor is what gets audited), `read` (execution state/events, claims listing), `admin` (claim release and future admin verbs). Unknown scopes fail at config load. |
 
 ---
 

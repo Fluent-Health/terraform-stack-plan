@@ -84,15 +84,28 @@ func buildServeApp(ctx context.Context, cfg *config.Config, secret, ghWebhookSec
 		GroupPattern:        groupPattern(s),
 		LogsDir:             logsDir,
 		PushServiceAccount:  pubsubSA(s),
+		APIPrincipals:       apiPrincipals(s),
 		Progress:            cfg.Progress,
 	})
+
+	if s.APIAuth != nil {
+		aud := s.APIAuth.Audience
+		if aud == "" {
+			aud = strings.TrimRight(s.PublicBaseURL, "/")
+		}
+		if aud == "" {
+			cleanup()
+			return nil, nil, fmt.Errorf("serve: api_auth needs an audience (set api_auth.audience or public_base_url)")
+		}
+		app.APIVerifier = gcpIDTokenVerifier(append([]string{aud}, s.APIAuth.ExtraAudiences...))
+	}
 
 	if s.PubSub != nil {
 		aud := s.PubSub.Audience
 		if aud == "" {
 			aud = strings.TrimRight(s.PublicBaseURL, "/") + "/pubsub/push"
 		}
-		app.PushVerifier = gcpOIDCVerifier(aud)
+		app.PushVerifier = gcpIDTokenVerifier([]string{aud})
 	}
 
 	if s.Approval != nil && s.Approval.Backend == "gcp-pam" {
@@ -114,6 +127,19 @@ func buildServeApp(ctx context.Context, cfg *config.Config, secret, ghWebhookSec
 		app.Objects = newGCSObjectStore(token, s.Objects.Bucket, s.Objects.Prefix, "")
 	}
 	return app, cleanup, nil
+}
+
+// apiPrincipals flattens the api_auth principal blocks into the server's
+// email → scopes map (emails lowercased; nil when the block is absent).
+func apiPrincipals(s *config.ServeConfig) map[string][]string {
+	if s.APIAuth == nil {
+		return nil
+	}
+	m := make(map[string][]string, len(s.APIAuth.Principals))
+	for _, p := range s.APIAuth.Principals {
+		m[strings.ToLower(p.Email)] = p.Scopes
+	}
+	return m
 }
 
 // pubsubSA returns the configured Pub/Sub push service-account email ("" if unset).

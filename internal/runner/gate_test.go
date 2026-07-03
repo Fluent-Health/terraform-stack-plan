@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
@@ -44,6 +45,25 @@ func TestGateCheckVerdicts(t *testing.T) {
 				t.Fatalf("Allowed() = %v for kind %v", v.Allowed(), tc.wantKind)
 			}
 		})
+	}
+}
+
+// TestGateCheckAuthRejectionNamesTheCause: a plain-text 401/403 from the auth
+// middleware (no JSON code) must fail closed AND blame API auth, not the gate.
+func TestGateCheckAuthRejectionNamesTheCause(t *testing.T) {
+	for _, status := range []int{http.StatusUnauthorized, http.StatusForbidden} {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.Error(w, "forbidden", status)
+		}))
+		c := NewClient(srv.URL, "")
+		v := c.GateCheck(context.Background(), events.GateCheck{PR: 1, Environment: "nonprod"})
+		srv.Close()
+		if v.Allowed() {
+			t.Fatalf("status %d must fail closed", status)
+		}
+		if v.Err == nil || !strings.Contains(v.Err.Error(), "API auth rejected") {
+			t.Errorf("status %d err = %v, want an API-auth explanation", status, v.Err)
+		}
 	}
 }
 

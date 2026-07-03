@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -143,6 +144,67 @@ serve {
 	}
 	if cfg.Serve.PubSub == nil || cfg.Serve.PubSub.Audience != "https://h/pubsub/push" || cfg.Serve.PubSub.ServiceAccount != "pusher@x.iam.gserviceaccount.com" {
 		t.Errorf("pubsub = %+v", cfg.Serve.PubSub)
+	}
+}
+
+func TestLoadServeAPIAuth(t *testing.T) {
+	cfg, err := Load(writeCfg(t, `
+serve {
+  db_path = "x.db"
+  api_auth {
+    audience        = "https://srv.example"
+    extra_audiences = ["1234-abc.apps.googleusercontent.com"]
+    principal "tf-planner@x.iam.gserviceaccount.com" {
+      scopes = ["report"]
+    }
+    principal "ops@example.com" {
+      scopes = ["read", "admin"]
+    }
+  }
+}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	aa := cfg.Serve.APIAuth
+	if aa == nil {
+		t.Fatal("api_auth block not parsed")
+	}
+	if aa.Audience != "https://srv.example" || len(aa.ExtraAudiences) != 1 || aa.ExtraAudiences[0] != "1234-abc.apps.googleusercontent.com" {
+		t.Errorf("api_auth audiences = %+v", aa)
+	}
+	if len(aa.Principals) != 2 {
+		t.Fatalf("principals = %d, want 2", len(aa.Principals))
+	}
+	if aa.Principals[0].Email != "tf-planner@x.iam.gserviceaccount.com" || len(aa.Principals[0].Scopes) != 1 || aa.Principals[0].Scopes[0] != "report" {
+		t.Errorf("principal[0] = %+v", aa.Principals[0])
+	}
+	if aa.Principals[1].Email != "ops@example.com" || len(aa.Principals[1].Scopes) != 2 {
+		t.Errorf("principal[1] = %+v", aa.Principals[1])
+	}
+}
+
+func TestLoadServeAPIAuthRejectsUnknownScope(t *testing.T) {
+	_, err := Load(writeCfg(t, `
+serve {
+  api_auth {
+    principal "ops@example.com" { scopes = ["raed"] }
+  }
+}`))
+	if err == nil || !strings.Contains(err.Error(), `unknown scope "raed"`) {
+		t.Fatalf("unknown scope should fail at load, got err = %v", err)
+	}
+}
+
+func TestLoadServeAPIAuthRejectsDuplicatePrincipal(t *testing.T) {
+	_, err := Load(writeCfg(t, `
+serve {
+  api_auth {
+    principal "ops@example.com" { scopes = ["read"] }
+    principal "OPS@example.com" { scopes = ["admin"] }
+  }
+}`))
+	if err == nil || !strings.Contains(err.Error(), "duplicate principal") {
+		t.Fatalf("duplicate principal (case-insensitive) should fail at load, got err = %v", err)
 	}
 }
 

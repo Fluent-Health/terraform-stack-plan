@@ -20,25 +20,49 @@ import (
 	"time"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
-	"github.com/Fluent-Health/terraform-stack-plan/internal/jwtutil"
+	"github.com/Fluent-Health/terraform-stack-plan/internal/gauth"
 )
 
 // Client posts execution lifecycle events to the control-plane server.
 type Client struct {
 	baseURL string
-	secret  string
+	token   gauth.TokenFunc // nil = unauthenticated
 	hc      *http.Client
 }
 
 // NewClient builds a client for the server at baseURL (empty disables it) using
-// the given bearer secret. A short timeout keeps a slow/down server from
-// stalling the build.
+// the given shared bearer secret (legacy HS256 auth; empty sends no auth). A
+// short timeout keeps a slow/down server from stalling the build.
 func NewClient(baseURL, secret string) *Client {
+	tok, _ := APITokenFunc(context.Background(), secret, "") // secret-only: cannot error
+	return NewClientTokenSource(baseURL, tok)
+}
+
+// NewClientTokenSource builds a client whose requests carry bearer tokens from
+// token — the Google OIDC path (ID tokens minted from ambient credentials).
+func NewClientTokenSource(baseURL string, token gauth.TokenFunc) *Client {
 	return &Client{
 		baseURL: strings.TrimRight(baseURL, "/"),
-		secret:  secret,
+		token:   token,
 		hc:      &http.Client{Timeout: 10 * time.Second},
 	}
+}
+
+// authorize attaches the bearer token to req (a no-op when unauthenticated).
+// The fetch is bounded to the client's HTTP timeout so a hung credential
+// endpoint cannot stall a best-effort call indefinitely.
+func (c *Client) authorize(ctx context.Context, req *http.Request) error {
+	if c.token == nil {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, c.hc.Timeout)
+	defer cancel()
+	tok, err := c.token(ctx)
+	if err != nil {
+		return fmt.Errorf("api token: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+tok)
+	return nil
 }
 
 // Enabled reports whether a server is configured. When false, every call is a
@@ -58,12 +82,8 @@ func (c *Client) do(ctx context.Context, path string, payload any) (*http.Respon
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	if c.secret != "" {
-		tok, err := jwtutil.Make(c.secret, "runner", "api", time.Hour)
-		if err != nil {
-			return nil, fmt.Errorf("api jwt: %w", err)
-		}
-		req.Header.Set("Authorization", "Bearer "+tok)
+	if err := c.authorize(ctx, req); err != nil {
+		return nil, err
 	}
 	resp, err := c.hc.Do(req)
 	if err != nil {
@@ -91,12 +111,8 @@ func (c *Client) doRaw(ctx context.Context, path string, payload any) (int, []by
 		return 0, nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	if c.secret != "" {
-		tok, err := jwtutil.Make(c.secret, "runner", "api", time.Hour)
-		if err != nil {
-			return 0, nil, fmt.Errorf("api jwt: %w", err)
-		}
-		req.Header.Set("Authorization", "Bearer "+tok)
+	if err := c.authorize(ctx, req); err != nil {
+		return 0, nil, err
 	}
 	resp, err := c.hc.Do(req)
 	if err != nil {

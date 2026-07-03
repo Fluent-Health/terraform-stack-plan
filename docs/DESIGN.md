@@ -1795,6 +1795,56 @@ bypass directly via the GitHub Checks API, skipping the predicate entirely.
   release (it would drop the lock before the apply ran); the claim lease TTL is
   the crash backstop.
 
+### API auth — Google OIDC identity + scopes (dual-accept)
+
+`/api/*` auth is moving from one shared symmetric secret to **verified caller
+identity** (increment 1 of the CI/CD-driver evolution). Historically
+every caller — CI runner, human CLI, agent — locally minted an HS256 JWT
+(`sub="runner"`, `aud="api"`, 1 h) from the tier's `tfstackplan-token` secret:
+no real identity to audit, possession = full power, and any leak is a
+full-API credential until a global rotation.
+
+The replacement is **Google-signed OIDC ID tokens** — the same mechanism
+already verifying Pub/Sub pushes:
+
+- **Server**: the `serve { api_auth {} }` block declares the accepted token
+  audiences and an identity → scope allowlist (`principal "<email>" { scopes }`).
+  The injectable `App.APIVerifier` (shape-identical to `PushVerifier`;
+  `idtoken.Validate` under the hood) verifies signature + audience and returns
+  the email; the `auth` middleware maps it to scopes — `report` (execution
+  lifecycle, logs, gates, claims), `read` (execution/claims reads), `admin`
+  (claim release, future admin verbs) — each route listing the scopes that may
+  call it (any-of). The verified actor rides the request context (`Actor(r)`)
+  for audit use by the planned admin unstuck verbs.
+- **Audiences**: service-account callers mint tokens for the serve URL.
+  User-ADC callers can't mint custom audiences — their tokens carry the fixed
+  gcloud client id, accepted via `extra_audiences`. The audience check runs in
+  the verifier against this allowlist (not inside `idtoken.Validate`).
+- **Clients**: `internal/gauth` obtains ID tokens from Application Default
+  Credentials — `idtoken.NewTokenSource` for service accounts (Cloud Build /
+  GCE metadata, keys, impersonation), falling back to the `id_token` riding
+  the user-ADC refresh grant. OIDC is **opt-in via `TFSTACKPLAN_AUDIENCE`**
+  (with `TFSTACKPLAN_TOKEN` unset): a token-less environment never probes
+  ambient machine credentials, never hard-fails on a stale ADC file, and never
+  sends a replayable ID token to whatever host the server URL happens to name.
+  The CI flip is config-only: swap the injected token env for the audience
+  env, and builds authenticate as their build SA. Token minting is bounded by
+  the client's 10 s timeout (`gauth` honors the caller's context), so a hung
+  metadata server cannot stall a best-effort tick.
+- **Dual-accept (migration posture)**: while `webhook_secret_env` is set,
+  legacy HS256 tokens stay accepted with full access — the JOSE header `alg`
+  routes each bearer to the matching verifier, so a wrong-secret HS256 token
+  never falls through to OIDC. The secret cannot be dropped yet even after
+  all `/api/*` callers flip: the live-viewer routes are gated only by the
+  view JWTs minted from it. End state: the shared secret, client-side JWT
+  minting, and the 30-day view-JWT machinery are deleted together with the
+  viewer rework (the planned central UI), and rotation/revocation become IAM
+  operations. Claim release is deliberately not ownership-checked (the runner
+  releases claims for whichever PR it applies — an association the server
+  cannot verify); the verified actor is what gets audited.
+- Auth is disabled only when *neither* the secret nor `api_auth {}` is
+  configured (local/dev), preserving the old escape hatch.
+
 ### Delivery: binary + Cloud Run container
 
 The `serve` face is intended to run as a Cloud Run-class service, so a release

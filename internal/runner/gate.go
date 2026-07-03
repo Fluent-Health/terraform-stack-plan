@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/codes"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
@@ -58,6 +59,12 @@ func (c *Client) GateCheck(ctx context.Context, g events.GateCheck) GateVerdict 
 	}
 	_ = json.Unmarshal(body, &e)
 	v := GateVerdict{Code: codes.Code(e.Code), Err: fmt.Errorf("gate check: %d: %s", status, e.Message)}
+	if e.Code == "" && (status == http.StatusUnauthorized || status == http.StatusForbidden) {
+		// The auth middleware rejected the caller (plain-text 401/403), not the
+		// gate: name the real fix instead of "grant not active" guidance. Still
+		// fails closed below.
+		v.Err = fmt.Errorf("gate check: %d: API auth rejected — check %s/%s and the server's api_auth principals/scopes", status, EnvToken, EnvAudience)
+	}
 	switch codes.Code(e.Code) {
 	case codes.GateNotClassified:
 		v.Kind = VerdictNotClassified

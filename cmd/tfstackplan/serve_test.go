@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/approval/gcppam"
@@ -55,6 +56,68 @@ func TestBuildServeAppBootsReady(t *testing.T) {
 	resp.Body.Close()
 	if resp.StatusCode != 200 {
 		t.Fatalf("ready = %d", resp.StatusCode)
+	}
+}
+
+func TestAPIPrincipals(t *testing.T) {
+	if got := apiPrincipals(&config.ServeConfig{}); got != nil {
+		t.Errorf("no api_auth block → nil, got %v", got)
+	}
+	m := apiPrincipals(&config.ServeConfig{APIAuth: &config.APIAuthConfig{Principals: []config.APIAuthPrincipal{
+		{Email: "Runner@X.iam.gserviceaccount.com", Scopes: []string{"report"}},
+		{Email: "ops@example.com", Scopes: []string{"read", "admin"}},
+	}}})
+	if got := m["runner@x.iam.gserviceaccount.com"]; len(got) != 1 || got[0] != "report" {
+		t.Errorf("emails must be lowercased in the map: %v", m)
+	}
+	if got := m["ops@example.com"]; len(got) != 2 {
+		t.Errorf("ops scopes = %v", got)
+	}
+}
+
+// TestBuildServeAppAPIAuthNeedsAudience: api_auth with neither an audience nor
+// a public_base_url must fail at startup, not silently reject every caller.
+func TestBuildServeAppAPIAuthNeedsAudience(t *testing.T) {
+	cfg := &config.Config{
+		Serve: &config.ServeConfig{
+			DBPath:    filepath.Join(t.TempDir(), "s.db"),
+			GitHubApp: &config.GitHubAppConfig{AppID: "1", InstallationID: "2", PrivateKeyPath: writePEM(t)},
+			APIAuth:   &config.APIAuthConfig{Principals: []config.APIAuthPrincipal{{Email: "a@b.c", Scopes: []string{"report"}}}},
+		},
+	}
+	if _, _, err := buildServeApp(context.Background(), cfg, "", "", nil); err == nil || !strings.Contains(err.Error(), "audience") {
+		t.Fatalf("want audience startup error, got %v", err)
+	}
+}
+
+// TestBuildServeAppWiresAPIVerifier: an api_auth block must arm OIDC-only auth
+// (no shared secret): unauthenticated /api/* calls are rejected.
+func TestBuildServeAppWiresAPIVerifier(t *testing.T) {
+	cfg := &config.Config{
+		Serve: &config.ServeConfig{
+			DBPath:        filepath.Join(t.TempDir(), "s.db"),
+			PublicBaseURL: "https://srv",
+			GitHubApp:     &config.GitHubAppConfig{AppID: "1", InstallationID: "2", PrivateKeyPath: writePEM(t)},
+			APIAuth:       &config.APIAuthConfig{Principals: []config.APIAuthPrincipal{{Email: "a@b.c", Scopes: []string{"report"}}}},
+		},
+	}
+	app, cleanup, err := buildServeApp(context.Background(), cfg, "", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+	if app.APIVerifier == nil {
+		t.Fatal("APIVerifier should be wired from the api_auth block")
+	}
+	srv := httptest.NewServer(app.Routes())
+	defer srv.Close()
+	resp, err := http.Post(srv.URL+"/api/init", "application/json", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated /api/init with api_auth armed = %d, want 401", resp.StatusCode)
 	}
 }
 

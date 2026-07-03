@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -11,7 +12,7 @@ import (
 	"time"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
-	"github.com/Fluent-Health/terraform-stack-plan/internal/jwtutil"
+	"github.com/Fluent-Health/terraform-stack-plan/internal/gauth"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/runner"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
@@ -54,9 +55,10 @@ func runStatus(args []string) int {
 		return 2
 	}
 	srv = strings.TrimRight(srv, "/")
+	bearer := apiBearer(tok)
 
 	// Execute initial fetch
-	exec, err := fetchExecution(srv, tok, execID)
+	exec, err := fetchExecution(srv, bearer, execID)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "run status: fetch failed: %v\n", err)
 		return 1
@@ -74,7 +76,7 @@ func runStatus(args []string) int {
 
 	// Watch Mode
 	printExecution(exec, *format, false)
-	finalExec, err := watchExecution(srv, tok, execID, *format)
+	finalExec, err := watchExecution(srv, bearer, execID, *format)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "run status watch: %v\n", err)
 		return 1
@@ -93,21 +95,39 @@ func exitCode(status string) int {
 	return 0
 }
 
-func makeJWT(secret string) (string, error) {
-	return jwtutil.Make(secret, "runner", "api", time.Hour)
+// apiBearer returns the bearer-token source for /api/* calls — the same
+// credential selection as the runner client (runner.APITokenFunc): the shared
+// secret when tok is set (legacy HS256), else Google OIDC via ADC when
+// $TFSTACKPLAN_AUDIENCE is set, else nil (unauthenticated). An unavailable ADC
+// is warned about rather than silently degraded.
+func apiBearer(tok string) gauth.TokenFunc {
+	src, err := runner.APITokenFunc(context.Background(), tok, os.Getenv(runner.EnvAudience))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "run status: %s is set but Google ADC is unavailable (%v) — requests will be unauthenticated\n", runner.EnvAudience, err)
+	}
+	return src
 }
 
-func fetchExecution(srv, tok, id string) (cliExecution, error) {
+// setBearer attaches the bearer token to req (a no-op for a nil provider).
+func setBearer(req *http.Request, bearer gauth.TokenFunc) error {
+	if bearer == nil {
+		return nil
+	}
+	tok, err := bearer(req.Context())
+	if err != nil {
+		return fmt.Errorf("api token: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+tok)
+	return nil
+}
+
+func fetchExecution(srv string, bearer gauth.TokenFunc, id string) (cliExecution, error) {
 	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/execution/%s", srv, id), nil)
 	if err != nil {
 		return cliExecution{}, err
 	}
-	if tok != "" {
-		jwt, err := makeJWT(tok)
-		if err != nil {
-			return cliExecution{}, fmt.Errorf("make JWT: %w", err)
-		}
-		req.Header.Set("Authorization", "Bearer "+jwt)
+	if err := setBearer(req, bearer); err != nil {
+		return cliExecution{}, err
 	}
 	resp, err := statusClient.Do(req)
 	if err != nil {
@@ -161,17 +181,13 @@ func printExecution(exec cliExecution, format string, clear bool) {
 	}
 }
 
-func watchExecution(srv, tok, id, format string) (cliExecution, error) {
+func watchExecution(srv string, bearer gauth.TokenFunc, id, format string) (cliExecution, error) {
 	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/execution/%s/events", srv, id), nil)
 	if err != nil {
 		return cliExecution{}, err
 	}
-	if tok != "" {
-		jwt, err := makeJWT(tok)
-		if err != nil {
-			return cliExecution{}, fmt.Errorf("make JWT: %w", err)
-		}
-		req.Header.Set("Authorization", "Bearer "+jwt)
+	if err := setBearer(req, bearer); err != nil {
+		return cliExecution{}, err
 	}
 	// events stream stays open, so do NOT use statusClient's 10s timeout
 	resp, err := http.DefaultClient.Do(req)
@@ -187,7 +203,7 @@ func watchExecution(srv, tok, id, format string) (cliExecution, error) {
 	for scanner.Scan() {
 		line := scanner.Text()
 		if strings.HasPrefix(line, "data: changed") {
-			exec, err := fetchExecution(srv, tok, id)
+			exec, err := fetchExecution(srv, bearer, id)
 			if err == nil {
 				printExecution(exec, format, true)
 				if isExecutionTerminal(exec.Status) {
@@ -201,7 +217,7 @@ func watchExecution(srv, tok, id, format string) (cliExecution, error) {
 	}
 
 	// Scanner finished; do a final fetch to get the absolute current state
-	finalExec, err := fetchExecution(srv, tok, id)
+	finalExec, err := fetchExecution(srv, bearer, id)
 	if err != nil {
 		return finalExec, err
 	}
