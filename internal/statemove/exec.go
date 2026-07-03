@@ -120,7 +120,7 @@ func Execute(ctx context.Context, deps ExecDeps, root, destStack string, xm XMov
 	destProviders := DiscoverDestProviders(dstDir)
 
 	// Validate move plan against live state
-	diags := ValidateMovePlan(srcAddrs, dstAddrs, destProviders, xm, true)
+	diags := ValidateMovePlan(srcAddrs, dstAddrs, nil, destProviders, xm, true)
 	for _, diag := range diags {
 		if diag.Severity == SeverityError {
 			return nil, fmt.Errorf("validation error: %s", diag.Message)

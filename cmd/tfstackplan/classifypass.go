@@ -181,15 +181,21 @@ func validateXMoveManifest(dir, outDir string) error {
 		// a false-safe classification.
 		srcPlanPath := filepath.Join(outDir, filepath.FromSlash(resolvedSource), "tfplan.json")
 		dstPlanPath := filepath.Join(outDir, filepath.FromSlash(fx.DestStack), "tfplan.json")
+
+		// Destination prior_state addresses back spent detection on both paths:
+		// whole-manifest (source plan absent) and per-entry (source planned but
+		// an entry's From address already moved away).
+		dstPlanBytes, dstPlanErr := os.ReadFile(dstPlanPath)
+		var dstPriorAddrs statemove.AddressSet
+		if dstPlanErr == nil {
+			dstPriorAddrs = statemove.PriorStateAddrs(dstPlanBytes)
+		}
+
 		srcPlanBytes, rerr := os.ReadFile(srcPlanPath)
 		if rerr != nil {
 			// Source plan absent — check dest prior_state to distinguish:
 			//   spent:           move already applied → green info, no error
 			//   source-not-planned: source omitted from PR → red error
-			var dstPriorAddrs statemove.AddressSet
-			if dstPlanBytes, derr := os.ReadFile(dstPlanPath); derr == nil {
-				dstPriorAddrs = statemove.PriorStateAddrs(dstPlanBytes)
-			}
 			if statemove.IsSpent(fx.XMove.Pairs, dstPriorAddrs) {
 				fmt.Fprintf(os.Stderr, "ℹ️  xmove %s: xmove/spent — all declared moves already applied; run 'state cleanup --applied' to remove this manifest\n", fx.Key)
 			} else {
@@ -217,7 +223,7 @@ func validateXMoveManifest(dir, outDir string) error {
 
 		// Build Destination AddressSet
 		dstAddrs := statemove.AddressSet{}
-		if dstPlanBytes, err := os.ReadFile(dstPlanPath); err == nil {
+		if dstPlanErr == nil {
 			if rs, err := plan.Parse(fx.DestStack, dstPlanBytes); err == nil {
 				for _, c := range rs.Changes {
 					dstAddrs[c.Address] = c.ProviderName
@@ -233,14 +239,17 @@ func validateXMoveManifest(dir, outDir string) error {
 		destProviders := statemove.DiscoverDestProviders(destStackDir)
 
 		// Run ValidateMovePlan
-		diags := statemove.ValidateMovePlan(srcAddrs, dstAddrs, destProviders, fx.XMove, false)
+		diags := statemove.ValidateMovePlan(srcAddrs, dstAddrs, dstPriorAddrs, destProviders, fx.XMove, false)
 
 		// Process and Print Diagnostics
 		for _, diag := range diags {
-			if diag.Severity == statemove.SeverityError {
+			switch {
+			case diag.Severity == statemove.SeverityError:
 				fmt.Fprintf(os.Stderr, "❌ xmove %s: %s\n", fx.Key, diag.Message)
 				hasErrors = true
-			} else {
+			case diag.Code == "xmove/spent":
+				fmt.Fprintf(os.Stderr, "ℹ️  xmove %s: xmove/spent — %s\n", fx.Key, diag.Message)
+			default:
 				fmt.Fprintf(os.Stderr, "⚠️  xmove %s: %s\n", fx.Key, diag.Message)
 			}
 		}

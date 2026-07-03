@@ -317,6 +317,79 @@ xmove {
 	}
 }
 
+// A spent manifest — its move already applied by an earlier PR, awaiting its GC
+// PR — must not fail run plan on unrelated PRs (issue #180). The source stack
+// is planned (so the source-absent whole-manifest spent path does not apply)
+// but no longer holds the From address; the destination's prior_state holds the
+// moved resource. Expect a per-entry xmove/spent info line and no error.
+func TestValidateXMoveManifest_spentManifestIsNoOp(t *testing.T) {
+	dir := t.TempDir()
+	const (
+		srcStack = "stacks/nonprod/service-projects/fh-dev-svc"
+		dstStack = "stacks/nonprod/workloads/cms/fh-dev-svc"
+	)
+
+	write := func(rel, body string) {
+		p := filepath.Join(dir, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Source plan exists but its prior_state no longer holds the From address —
+	// the resource moved away in a previous apply.
+	write(srcStack+"/tfplan.json", `{"format_version":"1.2",`+
+		`"prior_state":{"values":{"root_module":{"child_modules":[`+
+		`{"address":"module.other","resources":[`+
+		`{"address":"module.other.r","type":"google_project_iam_member",`+
+		`"provider_name":"registry.terraform.io/hashicorp/google"}]}]}}},`+
+		`"resource_changes":[]}`)
+
+	// Destination plan's prior_state holds the moved resource; no changes.
+	write(dstStack+"/tfplan.json", `{"format_version":"1.2",`+
+		`"prior_state":{"values":{"root_module":{"child_modules":[`+
+		`{"address":"module.cms","resources":[`+
+		`{"address":"module.cms.google_sql_database.a","type":"google_sql_database",`+
+		`"provider_name":"registry.terraform.io/hashicorp/google"}]}]}}},`+
+		`"resource_changes":[]}`)
+
+	write(dstStack+"/_tfsp_xmove.PR-1.hcl", `# tfstackplan:key=PR-1
+xmove {
+  source_stack = "`+srcStack+`"
+  moves = {
+    "module.main.module.cms[0]" = "module.cms"
+  }
+}
+`)
+
+	oldStderr := os.Stderr
+	r, w, _ := os.Pipe()
+	os.Stderr = w
+
+	err := validateXMoveManifest(dir, dir)
+
+	w.Close()
+	os.Stderr = oldStderr
+
+	if err != nil {
+		t.Fatalf("expected spent manifest to validate clean, got error: %v", err)
+	}
+
+	var buf [2048]byte
+	n, _ := r.Read(buf[:])
+	out := string(buf[:n])
+
+	if !strings.Contains(out, "xmove/spent") || !strings.Contains(out, "already applied") {
+		t.Fatalf("expected per-entry xmove/spent info line, got: %q", out)
+	}
+	if strings.Contains(out, "❌") {
+		t.Fatalf("expected no error output for spent manifest, got: %q", out)
+	}
+}
+
 func TestValidateXMoveManifest_warnsForMissingProviders(t *testing.T) {
 	dir := t.TempDir()
 	const (
