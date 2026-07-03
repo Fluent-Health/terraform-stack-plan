@@ -13,7 +13,6 @@ import (
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/gauth"
-	"github.com/Fluent-Health/terraform-stack-plan/internal/jwtutil"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/runner"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
@@ -56,7 +55,7 @@ func runStatus(args []string) int {
 		return 2
 	}
 	srv = strings.TrimRight(srv, "/")
-	bearer := apiBearer(srv, tok)
+	bearer := apiBearer(tok)
 
 	// Execute initial fetch
 	exec, err := fetchExecution(srv, bearer, execID)
@@ -96,31 +95,25 @@ func exitCode(status string) int {
 	return 0
 }
 
-// apiBearer returns a func yielding the bearer token for /api/* calls: an
-// HS256 JWT minted from the shared secret when tok is set (legacy), else a
-// Google OIDC ID token from ADC with audience $TFSTACKPLAN_AUDIENCE (default:
-// the server URL). Returns nil when neither credential is available.
-func apiBearer(srv, tok string) func() (string, error) {
-	if tok != "" {
-		return func() (string, error) { return jwtutil.Make(tok, "runner", "api", time.Hour) }
-	}
-	aud := os.Getenv(runner.EnvAudience)
-	if aud == "" {
-		aud = srv
-	}
-	src, err := gauth.Source(context.Background(), aud)
+// apiBearer returns the bearer-token source for /api/* calls — the same
+// credential selection as the runner client (runner.APITokenFunc): the shared
+// secret when tok is set (legacy HS256), else Google OIDC via ADC when
+// $TFSTACKPLAN_AUDIENCE is set, else nil (unauthenticated). An unavailable ADC
+// is warned about rather than silently degraded.
+func apiBearer(tok string) gauth.TokenFunc {
+	src, err := runner.APITokenFunc(context.Background(), tok, os.Getenv(runner.EnvAudience))
 	if err != nil {
-		return nil
+		fmt.Fprintf(os.Stderr, "run status: %s is set but Google ADC is unavailable (%v) — requests will be unauthenticated\n", runner.EnvAudience, err)
 	}
-	return func() (string, error) { return src(context.Background()) }
+	return src
 }
 
 // setBearer attaches the bearer token to req (a no-op for a nil provider).
-func setBearer(req *http.Request, bearer func() (string, error)) error {
+func setBearer(req *http.Request, bearer gauth.TokenFunc) error {
 	if bearer == nil {
 		return nil
 	}
-	tok, err := bearer()
+	tok, err := bearer(req.Context())
 	if err != nil {
 		return fmt.Errorf("api token: %w", err)
 	}
@@ -128,7 +121,7 @@ func setBearer(req *http.Request, bearer func() (string, error)) error {
 	return nil
 }
 
-func fetchExecution(srv string, bearer func() (string, error), id string) (cliExecution, error) {
+func fetchExecution(srv string, bearer gauth.TokenFunc, id string) (cliExecution, error) {
 	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/execution/%s", srv, id), nil)
 	if err != nil {
 		return cliExecution{}, err
@@ -188,7 +181,7 @@ func printExecution(exec cliExecution, format string, clear bool) {
 	}
 }
 
-func watchExecution(srv string, bearer func() (string, error), id, format string) (cliExecution, error) {
+func watchExecution(srv string, bearer gauth.TokenFunc, id, format string) (cliExecution, error) {
 	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/api/execution/%s/events", srv, id), nil)
 	if err != nil {
 		return cliExecution{}, err

@@ -113,7 +113,9 @@ serve {
   # maps a verified email to scopes: "report" (CI runner lifecycle/gate/claims),
   # "read" (execution + claims reads), "admin" (claim release / surgery verbs).
   # While webhook_secret_env is also set, the legacy shared-secret HS256 tokens
-  # stay accepted (migration posture); drop it to enforce OIDC only.
+  # stay accepted on /api/* (migration posture). Keep that secret for now: the
+  # live-viewer routes are gated only by its view JWTs — it retires with the
+  # viewer rework, not with this block.
   api_auth {
     audience        = "https://tfstackplan.example.com" # default: public_base_url
     extra_audiences = [

@@ -20,13 +20,13 @@ import (
 	"time"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
-	"github.com/Fluent-Health/terraform-stack-plan/internal/jwtutil"
+	"github.com/Fluent-Health/terraform-stack-plan/internal/gauth"
 )
 
 // Client posts execution lifecycle events to the control-plane server.
 type Client struct {
 	baseURL string
-	token   func(ctx context.Context) (string, error) // nil = unauthenticated
+	token   gauth.TokenFunc // nil = unauthenticated
 	hc      *http.Client
 }
 
@@ -34,21 +34,13 @@ type Client struct {
 // the given shared bearer secret (legacy HS256 auth; empty sends no auth). A
 // short timeout keeps a slow/down server from stalling the build.
 func NewClient(baseURL, secret string) *Client {
-	c := &Client{
-		baseURL: strings.TrimRight(baseURL, "/"),
-		hc:      &http.Client{Timeout: 10 * time.Second},
-	}
-	if secret != "" {
-		c.token = func(context.Context) (string, error) {
-			return jwtutil.Make(secret, "runner", "api", time.Hour)
-		}
-	}
-	return c
+	tok, _ := APITokenFunc(context.Background(), secret, "") // secret-only: cannot error
+	return NewClientTokenSource(baseURL, tok)
 }
 
 // NewClientTokenSource builds a client whose requests carry bearer tokens from
 // token — the Google OIDC path (ID tokens minted from ambient credentials).
-func NewClientTokenSource(baseURL string, token func(ctx context.Context) (string, error)) *Client {
+func NewClientTokenSource(baseURL string, token gauth.TokenFunc) *Client {
 	return &Client{
 		baseURL: strings.TrimRight(baseURL, "/"),
 		token:   token,
@@ -57,10 +49,14 @@ func NewClientTokenSource(baseURL string, token func(ctx context.Context) (strin
 }
 
 // authorize attaches the bearer token to req (a no-op when unauthenticated).
+// The fetch is bounded to the client's HTTP timeout so a hung credential
+// endpoint cannot stall a best-effort call indefinitely.
 func (c *Client) authorize(ctx context.Context, req *http.Request) error {
 	if c.token == nil {
 		return nil
 	}
+	ctx, cancel := context.WithTimeout(ctx, c.hc.Timeout)
+	defer cancel()
 	tok, err := c.token(ctx)
 	if err != nil {
 		return fmt.Errorf("api token: %w", err)

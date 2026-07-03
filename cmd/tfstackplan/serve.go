@@ -93,7 +93,11 @@ func buildServeApp(ctx context.Context, cfg *config.Config, secret, ghWebhookSec
 		if aud == "" {
 			aud = strings.TrimRight(s.PublicBaseURL, "/")
 		}
-		app.APIVerifier = gcpAPIVerifier(append([]string{aud}, s.APIAuth.ExtraAudiences...))
+		if aud == "" {
+			cleanup()
+			return nil, nil, fmt.Errorf("serve: api_auth needs an audience (set api_auth.audience or public_base_url)")
+		}
+		app.APIVerifier = gcpIDTokenVerifier(append([]string{aud}, s.APIAuth.ExtraAudiences...))
 	}
 
 	if s.PubSub != nil {
@@ -101,7 +105,7 @@ func buildServeApp(ctx context.Context, cfg *config.Config, secret, ghWebhookSec
 		if aud == "" {
 			aud = strings.TrimRight(s.PublicBaseURL, "/") + "/pubsub/push"
 		}
-		app.PushVerifier = gcpOIDCVerifier(aud)
+		app.PushVerifier = gcpIDTokenVerifier([]string{aud})
 	}
 
 	if s.Approval != nil && s.Approval.Backend == "gcp-pam" {

@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -179,6 +180,31 @@ serve {
 	}
 	if aa.Principals[1].Email != "ops@example.com" || len(aa.Principals[1].Scopes) != 2 {
 		t.Errorf("principal[1] = %+v", aa.Principals[1])
+	}
+}
+
+func TestLoadServeAPIAuthRejectsUnknownScope(t *testing.T) {
+	_, err := Load(writeCfg(t, `
+serve {
+  api_auth {
+    principal "ops@example.com" { scopes = ["raed"] }
+  }
+}`))
+	if err == nil || !strings.Contains(err.Error(), `unknown scope "raed"`) {
+		t.Fatalf("unknown scope should fail at load, got err = %v", err)
+	}
+}
+
+func TestLoadServeAPIAuthRejectsDuplicatePrincipal(t *testing.T) {
+	_, err := Load(writeCfg(t, `
+serve {
+  api_auth {
+    principal "ops@example.com" { scopes = ["read"] }
+    principal "OPS@example.com" { scopes = ["admin"] }
+  }
+}`))
+	if err == nil || !strings.Contains(err.Error(), "duplicate principal") {
+		t.Fatalf("duplicate principal (case-insensitive) should fail at load, got err = %v", err)
 	}
 }
 

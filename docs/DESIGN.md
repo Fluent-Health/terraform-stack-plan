@@ -1823,16 +1823,25 @@ already verifying Pub/Sub pushes:
 - **Clients**: `internal/gauth` obtains ID tokens from Application Default
   Credentials — `idtoken.NewTokenSource` for service accounts (Cloud Build /
   GCE metadata, keys, impersonation), falling back to the `id_token` riding
-  the user-ADC refresh grant. The runner client and `run status` use it
-  whenever `TFSTACKPLAN_TOKEN` is unset (`TFSTACKPLAN_AUDIENCE` overrides the
-  audience; default = server URL). So the CI flip is config-only: stop
-  injecting the token env, and builds authenticate as their build SA.
+  the user-ADC refresh grant. OIDC is **opt-in via `TFSTACKPLAN_AUDIENCE`**
+  (with `TFSTACKPLAN_TOKEN` unset): a token-less environment never probes
+  ambient machine credentials, never hard-fails on a stale ADC file, and never
+  sends a replayable ID token to whatever host the server URL happens to name.
+  The CI flip is config-only: swap the injected token env for the audience
+  env, and builds authenticate as their build SA. Token minting is bounded by
+  the client's 10 s timeout (`gauth` honors the caller's context), so a hung
+  metadata server cannot stall a best-effort tick.
 - **Dual-accept (migration posture)**: while `webhook_secret_env` is set,
   legacy HS256 tokens stay accepted with full access — the JOSE header `alg`
   routes each bearer to the matching verifier, so a wrong-secret HS256 token
-  never falls through to OIDC. End state: the shared secret and client-side
-  JWT minting are deleted and rotation/revocation become IAM operations; the
-  30-day view-JWT machinery retires separately with the planned central UI.
+  never falls through to OIDC. The secret cannot be dropped yet even after
+  all `/api/*` callers flip: the live-viewer routes are gated only by the
+  view JWTs minted from it. End state: the shared secret, client-side JWT
+  minting, and the 30-day view-JWT machinery are deleted together with the
+  viewer rework (the planned central UI), and rotation/revocation become IAM
+  operations. Claim release is deliberately not ownership-checked (the runner
+  releases claims for whichever PR it applies — an association the server
+  cannot verify); the verified actor is what gets audited.
 - Auth is disabled only when *neither* the secret nor `api_auth {}` is
   configured (local/dev), preserving the old escape hatch.
 

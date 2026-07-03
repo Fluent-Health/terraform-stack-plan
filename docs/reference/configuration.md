@@ -427,7 +427,13 @@ accounts (the CI runner, a UI service) mint tokens for `audience` natively;
 human callers on user ADC present tokens whose audience is the fixed gcloud
 client id — list it in `extra_audiences` to accept them. While
 `webhook_secret_env` is also set, legacy HS256 shared-secret tokens remain
-accepted (the migration posture); remove it to enforce OIDC only.
+accepted on `/api/*` (the migration posture).
+
+> ⚠️ Do **not** drop `webhook_secret_env` yet: the live-viewer routes (`/`,
+> `/pr/{n}`, `/live/*` and the rerun button) are authenticated only by the
+> view JWTs minted from that same secret. Removing it enforces OIDC on
+> `/api/*` but leaves the entire viewer unauthenticated. The secret can go
+> only when the viewer machinery is replaced (the planned central UI).
 
 | Field | Type | Default | Description |
 |---|---|---|---|
@@ -439,7 +445,7 @@ accepted (the migration posture); remove it to enforce OIDC only.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `scopes` | list(string) | `[]` | Any of `report` (execution lifecycle events, logs, gate check/revoke, claims), `read` (execution state/events, claims listing), `admin` (claim release and future admin verbs) |
+| `scopes` | list(string) | `[]` | Any of `report` (execution lifecycle events, logs, gate check/revoke, claims — the runner releases claims for the PRs it applies, so release is not ownership-checked; the verified actor is what gets audited), `read` (execution state/events, claims listing), `admin` (claim release and future admin verbs). Unknown scopes fail at config load. |
 
 ---
 

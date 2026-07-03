@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -176,11 +177,15 @@ func (a *App) Routes() http.Handler {
 }
 
 // API scopes, granted per verified OIDC identity via Config.APIPrincipals.
-// Each /api/* route lists the scopes that may call it (any-of).
+// Each /api/* route lists the scopes that may call it (any-of). The vocabulary
+// lives in config (validated at load); these are local aliases. Note: claim
+// release is not ownership-checked — the runner releases claims for whichever
+// PR it applies, an association the server cannot verify; the verified actor
+// is what gets audited.
 const (
-	scopeReport = "report" // CI runner: execution lifecycle events, logs, gates, its own claims
-	scopeRead   = "read"   // read-only: execution state/events, claims listing
-	scopeAdmin  = "admin"  // operator surgery: claim release (and future /api/admin/* verbs)
+	scopeReport = config.ScopeReport // CI runner: execution lifecycle events, logs, gates, claims
+	scopeRead   = config.ScopeRead   // read-only: execution state/events, claims listing
+	scopeAdmin  = config.ScopeAdmin  // operator surgery: claim release (and future /api/admin/* verbs)
 )
 
 // actorKey carries the verified /api/* caller identity in the request context.
@@ -248,14 +253,7 @@ func (a *App) auth(next http.Handler, scopes ...string) http.Handler {
 
 // hasAnyScope reports whether the granted scope set holds any required scope.
 func hasAnyScope(granted, required []string) bool {
-	for _, g := range granted {
-		for _, req := range required {
-			if g == req {
-				return true
-			}
-		}
-	}
-	return false
+	return slices.ContainsFunc(granted, func(g string) bool { return slices.Contains(required, g) })
 }
 
 // viewAuth enforces a 30-day HS256 JWT (aud=view) on GET routes.

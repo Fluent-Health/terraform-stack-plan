@@ -21,8 +21,8 @@ The authoritative constant names live in `internal/runner/env.go`.
 | Variable | Required | Default | Meaning |
 |---|---|---|---|
 | `TFSTACKPLAN_SERVER` | No | `""` | Control-plane base URL. **Empty or unset = fully offline**: `run tick`/`run step` are no-ops; the apply gate check passes unconditionally; no HTTP posts are made. |
-| `TFSTACKPLAN_TOKEN` | No | `""` | **Legacy** shared bearer secret for `/api/*` (HS256 tokens minted per request). When unset, the client authenticates with **Google OIDC ID tokens** from Application Default Credentials instead — service accounts (Cloud Build, GCE) mint them natively; humans need `gcloud auth application-default login`. With neither, requests go unauthenticated (best-effort reporting degrades; the fail-closed gate check errors). |
-| `TFSTACKPLAN_AUDIENCE` | No | server URL | OIDC ID-token audience used on the ADC path. Defaults to `TFSTACKPLAN_SERVER`; set it when the serve `api_auth { audience }` differs from the URL the client dials. Ignored when `TFSTACKPLAN_TOKEN` is set. |
+| `TFSTACKPLAN_TOKEN` | No | `""` | **Legacy** shared bearer secret for `/api/*` (HS256 tokens minted per request). Takes precedence over `TFSTACKPLAN_AUDIENCE` when both are set. |
+| `TFSTACKPLAN_AUDIENCE` | No | `""` | Setting this **opts in** to Google OIDC auth: the client authenticates with ID tokens for this audience (normally the serve URL, matching `api_auth { audience }`) minted from Application Default Credentials — service accounts (Cloud Build, GCE) natively, humans via `gcloud auth application-default login`. Unset (and no token) = requests go unauthenticated, exactly as before: no ambient credentials are probed and nothing is sent to the server URL beyond the request itself. If set but ADC is unavailable, a warning is printed and requests degrade to unauthenticated (the fail-closed gate check then errors). |
 | `TFSTACKPLAN_EXECUTION` | No | auto-generated | Execution id that correlates all events for one plan or apply run. `run plan` and `run apply` generate a random id when unset; set it explicitly (e.g. `TFSTACKPLAN_EXECUTION=$BUILD_ID`) to make phase events emitted before those commands share the same id and appear in the same check run. |
 | `TFSTACKPLAN_ENVIRONMENT` | No | `""` | Deployment environment this run targets (e.g. `staging`, `prod`). Determines the check-run name (`plan/<env>`) and the approval gate scope. |
 | `TFSTACKPLAN_REPO` | No | `""` | Repository in `owner/name` form. Used to build the GitHub check run and commit status. |
@@ -69,7 +69,7 @@ the requester pool so `run apply` can mint the token. See
 
 | Config field | Env var read at startup | Required | Meaning |
 |---|---|---|---|
-| `serve { webhook_secret_env = "…" }` | The name stored in the field (e.g. `TFSTACKPLAN_WEBHOOK_SECRET`) | No | **Legacy** shared bearer secret accepted on `/api/*` (HS256). Kept accepted alongside OIDC while set — the migration posture. When neither this **nor** `api_auth {}` is configured, `/api/*` auth is disabled (local/dev only). |
+| `serve { webhook_secret_env = "…" }` | The name stored in the field (e.g. `TFSTACKPLAN_WEBHOOK_SECRET`) | No | **Legacy** shared bearer secret accepted on `/api/*` (HS256). Kept accepted alongside OIDC while set — the migration posture. When neither this **nor** `api_auth {}` is configured, `/api/*` auth is disabled (local/dev only). ⚠️ The live-viewer routes (`/`, `/pr/*`, `/live/*`) are gated **only** by this secret (30-day view JWTs), so it cannot be dropped until the viewer machinery is replaced — see the `api_auth` notes in [configuration.md](configuration.md). |
 | `serve { github_webhook_secret_env = "…" }` | The name stored in the field (e.g. `GITHUB_WEBHOOK_SECRET`) | No | HMAC secret for validating GitHub webhook payloads. If empty, webhook HMAC validation is skipped. |
 
 All other `serve` credentials (GitHub App private key, GCP/PAM, GCS) are

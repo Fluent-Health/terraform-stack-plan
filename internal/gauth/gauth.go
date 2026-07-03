@@ -46,8 +46,8 @@ func Source(ctx context.Context, audience string) (TokenFunc, error) {
 // fromTokenSource adapts an oauth2.TokenSource, extracting the ID token from
 // each refreshed token via pick.
 func fromTokenSource(ts oauth2.TokenSource, pick func(*oauth2.Token) string) TokenFunc {
-	return func(context.Context) (string, error) {
-		t, err := ts.Token()
+	return func(ctx context.Context) (string, error) {
+		t, err := tokenWithContext(ctx, ts)
 		if err != nil {
 			return "", err
 		}
@@ -56,5 +56,28 @@ func fromTokenSource(ts oauth2.TokenSource, pick func(*oauth2.Token) string) Tok
 			return "", errors.New("credentials carry no ID token (re-run `gcloud auth application-default login`)")
 		}
 		return id, nil
+	}
+}
+
+// tokenWithContext bounds ts.Token() — which takes no context and may hit the
+// network (metadata server, oauth2.googleapis.com) — by ctx, so a hung
+// credential endpoint cannot stall the caller past its deadline. On expiry the
+// fetch goroutine is abandoned and finishes in the background (the source
+// caches its result, so the work is not wasted).
+func tokenWithContext(ctx context.Context, ts oauth2.TokenSource) (*oauth2.Token, error) {
+	type result struct {
+		t   *oauth2.Token
+		err error
+	}
+	ch := make(chan result, 1)
+	go func() {
+		t, err := ts.Token()
+		ch <- result{t, err}
+	}()
+	select {
+	case r := <-ch:
+		return r.t, r.err
+	case <-ctx.Done():
+		return nil, ctx.Err()
 	}
 }

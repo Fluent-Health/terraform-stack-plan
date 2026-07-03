@@ -133,7 +133,7 @@ func TestOIDCAuthScopes(t *testing.T) {
 		want                int // 0 = authorized: any status except 401/403
 	}{
 		{"tok-runner", "POST", "/api/init", 0},                              // report may report
-		{"tok-runner", "POST", "/api/claims/release", 0},                    // report may release its own claims
+		{"tok-runner", "POST", "/api/claims/release", 0},                    // report may release claims (runner post-apply cleanup; not ownership-checked)
 		{"tok-runner", "POST", "/api/claims/list", 0},                       // report may list claims
 		{"tok-runner", "GET", "/api/execution/nope", 0},                     // report may read
 		{"tok-viewer", "POST", "/api/init", http.StatusForbidden},           // read cannot report

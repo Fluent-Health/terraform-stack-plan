@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
@@ -44,6 +45,15 @@ type PubSubConfig struct {
 	Audience       string // expected OIDC audience (default: <public_base_url>/pubsub/push)
 	ServiceAccount string // the push subscription's OIDC service-account email
 }
+
+// API scopes grantable to an api_auth principal. Each /api/* route on the
+// server accepts a subset of these (any-of). Validated at config load so a
+// typo'd scope fails at startup, not as runtime 403s.
+const (
+	ScopeReport = "report" // CI runner: execution lifecycle events, logs, gates, claims
+	ScopeRead   = "read"   // read-only: execution state/events, claims listing
+	ScopeAdmin  = "admin"  // operator surgery: claim release (and future admin verbs)
+)
 
 // APIAuthPrincipal maps one verified caller identity (an email — service
 // account or user) to the API scopes it holds.
@@ -166,7 +176,20 @@ func decodeServe(blk *hclsyntax.Block) (*ServeConfig, error) {
 	}
 	if b.APIAuth != nil {
 		aa := &APIAuthConfig{Audience: b.APIAuth.Audience, ExtraAudiences: b.APIAuth.ExtraAudiences}
+		seen := map[string]bool{}
 		for _, p := range b.APIAuth.Principals {
+			email := strings.ToLower(p.Email)
+			if seen[email] {
+				return nil, fmt.Errorf("api_auth: duplicate principal %q", p.Email)
+			}
+			seen[email] = true
+			for _, sc := range p.Scopes {
+				switch sc {
+				case ScopeReport, ScopeRead, ScopeAdmin:
+				default:
+					return nil, fmt.Errorf("api_auth principal %q: unknown scope %q (valid: %s, %s, %s)", p.Email, sc, ScopeReport, ScopeRead, ScopeAdmin)
+				}
+			}
 			aa.Principals = append(aa.Principals, APIAuthPrincipal{Email: p.Email, Scopes: p.Scopes})
 		}
 		s.APIAuth = aa
