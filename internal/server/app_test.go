@@ -205,6 +205,39 @@ func TestDualAcceptHS256WithOIDC(t *testing.T) {
 	}
 }
 
+// TestAuthActorInContext: handlers must see the verified identity via Actor —
+// the OIDC email, or "shared-token" on the legacy path.
+func TestAuthActorInContext(t *testing.T) {
+	a := New(nil, &MockGitHub{}, Config{
+		WebhookSecret: "s3cret",
+		APIPrincipals: map[string][]string{"runner@x.iam.gserviceaccount.com": {"report"}},
+	})
+	a.APIVerifier = fakeOIDC(map[string]string{"tok-runner": "Runner@x.iam.gserviceaccount.com"}) // mixed case → lowered
+	var gotActor string
+	h := a.auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotActor = Actor(r)
+	}), scopeReport)
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+
+	hs, _ := jwtutil.Make("s3cret", "runner", "api", time.Hour)
+	for want, tok := range map[string]string{
+		"runner@x.iam.gserviceaccount.com": "tok-runner",
+		"shared-token":                     hs,
+	} {
+		req, _ := http.NewRequest("POST", srv.URL, nil)
+		req.Header.Set("Authorization", "Bearer "+tok)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if gotActor != want {
+			t.Errorf("Actor = %q, want %q", gotActor, want)
+		}
+	}
+}
+
 // TestOIDCOnlyEnforcedWithoutSecret: an empty shared secret must NOT disable
 // auth when an OIDC verifier is configured.
 func TestOIDCOnlyEnforcedWithoutSecret(t *testing.T) {
