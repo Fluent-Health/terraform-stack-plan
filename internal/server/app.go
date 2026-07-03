@@ -49,6 +49,10 @@ type Config struct {
 	// PushServiceAccount is the allowed verified OIDC email for /pubsub/push.
 	// Empty accepts any verified token.
 	PushServiceAccount string
+	// APIPrincipals maps a verified OIDC caller email (lowercase) to the API
+	// scopes it holds (see the scope* constants). Only consulted when
+	// App.APIVerifier is set.
+	APIPrincipals map[string][]string
 	// GitHubWebhookSecret is the HMAC-SHA256 secret GitHub sends on every webhook
 	// delivery (X-Hub-Signature-256). Empty disables the /github/webhook endpoint.
 	GitHubWebhookSecret string
@@ -75,6 +79,11 @@ type App struct {
 	// token's email claim. Set externally (like Approval/Objects); nil disables
 	// the /pubsub/push endpoint (it returns 404).
 	PushVerifier func(ctx context.Context, bearer string) (email string, err error)
+	// APIVerifier verifies a Google-signed OIDC bearer token on /api/* routes,
+	// returning the token's email claim (audience checking included). Set
+	// externally, like PushVerifier; nil disables the OIDC path — only the
+	// legacy shared-secret HS256 JWT is accepted then.
+	APIVerifier func(ctx context.Context, bearer string) (email string, err error)
 	// tmpl holds the page templates (parsed once from the embedded FS in New).
 	tmpl *template.Template
 	// groupRE is the compiled Config.GroupPattern (nil → depth grouping).
@@ -152,38 +161,101 @@ func (a *App) Routes() http.Handler {
 	mux.HandleFunc("GET /plan/{exec}/{stack...}", a.handlePlanServe)
 	mux.HandleFunc("POST /pubsub/push", a.handlePushEvent)
 	mux.HandleFunc("POST /github/webhook", a.handleGitHubWebhook)
-	mux.Handle("POST /api/init", a.auth(http.HandlerFunc(a.handleInit)))
-	mux.Handle("POST /api/phase", a.auth(http.HandlerFunc(a.handlePhase)))
-	mux.Handle("POST /api/update", a.auth(http.HandlerFunc(a.handleUpdate)))
-	mux.Handle("POST /api/finalize", a.auth(http.HandlerFunc(a.handleFinalize)))
-	mux.Handle("POST /api/gate/check", a.auth(http.HandlerFunc(a.handleGateCheck)))
-	mux.Handle("POST /api/gate/revoke", a.auth(http.HandlerFunc(a.handleGateRevoke)))
-	mux.Handle("POST /api/logs", a.auth(http.HandlerFunc(a.handleLogs)))
-	mux.Handle("POST /api/claims/list", a.auth(http.HandlerFunc(a.handleClaimsList)))
-	mux.Handle("POST /api/claims/release", a.auth(http.HandlerFunc(a.handleClaimsRelease)))
-	mux.Handle("GET /api/execution/{id}", a.auth(http.HandlerFunc(a.handleGetExecution)))
-	mux.Handle("GET /api/execution/{id}/events", a.auth(http.HandlerFunc(a.handleGetExecutionEvents)))
+	mux.Handle("POST /api/init", a.auth(http.HandlerFunc(a.handleInit), scopeReport))
+	mux.Handle("POST /api/phase", a.auth(http.HandlerFunc(a.handlePhase), scopeReport))
+	mux.Handle("POST /api/update", a.auth(http.HandlerFunc(a.handleUpdate), scopeReport))
+	mux.Handle("POST /api/finalize", a.auth(http.HandlerFunc(a.handleFinalize), scopeReport))
+	mux.Handle("POST /api/gate/check", a.auth(http.HandlerFunc(a.handleGateCheck), scopeReport))
+	mux.Handle("POST /api/gate/revoke", a.auth(http.HandlerFunc(a.handleGateRevoke), scopeReport))
+	mux.Handle("POST /api/logs", a.auth(http.HandlerFunc(a.handleLogs), scopeReport))
+	mux.Handle("POST /api/claims/list", a.auth(http.HandlerFunc(a.handleClaimsList), scopeReport, scopeRead, scopeAdmin))
+	mux.Handle("POST /api/claims/release", a.auth(http.HandlerFunc(a.handleClaimsRelease), scopeReport, scopeAdmin))
+	mux.Handle("GET /api/execution/{id}", a.auth(http.HandlerFunc(a.handleGetExecution), scopeReport, scopeRead, scopeAdmin))
+	mux.Handle("GET /api/execution/{id}/events", a.auth(http.HandlerFunc(a.handleGetExecutionEvents), scopeReport, scopeRead, scopeAdmin))
 	return mux
 }
 
-// auth enforces a short-lived HS256 JWT (aud=api) on /api/* mutations.
-// An empty configured secret disables the check (local/dev).
-func (a *App) auth(next http.Handler) http.Handler {
+// API scopes, granted per verified OIDC identity via Config.APIPrincipals.
+// Each /api/* route lists the scopes that may call it (any-of).
+const (
+	scopeReport = "report" // CI runner: execution lifecycle events, logs, gates, its own claims
+	scopeRead   = "read"   // read-only: execution state/events, claims listing
+	scopeAdmin  = "admin"  // operator surgery: claim release (and future /api/admin/* verbs)
+)
+
+// actorKey carries the verified /api/* caller identity in the request context.
+type actorKey struct{}
+
+// Actor returns the authenticated caller of an /api/* request: the verified
+// OIDC email, "shared-token" on the legacy HS256 path, or "" when auth is
+// disabled.
+func Actor(r *http.Request) string {
+	v, _ := r.Context().Value(actorKey{}).(string)
+	return v
+}
+
+// auth enforces bearer auth on /api/* routes. Two credentials are accepted:
+//
+//   - a Google-signed OIDC ID token (when APIVerifier is set): the verified
+//     email must hold one of the route's scopes in Config.APIPrincipals;
+//   - the legacy shared-secret HS256 JWT (aud=api): full access regardless of
+//     scopes — the pre-OIDC scheme, kept accepted until every caller is
+//     migrated and the secret is deleted.
+//
+// With neither a secret nor a verifier configured the check is disabled
+// (local/dev).
+func (a *App) auth(next http.Handler, scopes ...string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if a.cfg.WebhookSecret != "" {
-			const prefix = "Bearer "
-			h := r.Header.Get("Authorization")
-			if !strings.HasPrefix(h, prefix) {
+		hs256 := a.cfg.WebhookSecret != ""
+		oidc := a.APIVerifier != nil
+		if !hs256 && !oidc {
+			next.ServeHTTP(w, r)
+			return
+		}
+		const prefix = "Bearer "
+		h := r.Header.Get("Authorization")
+		if !strings.HasPrefix(h, prefix) {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		token := strings.TrimPrefix(h, prefix)
+		if hs256 && jwtutil.Alg(token) == "HS256" {
+			if _, err := jwtutil.Validate(token, a.cfg.WebhookSecret, "api"); err != nil {
 				http.Error(w, "unauthorized", http.StatusUnauthorized)
 				return
 			}
-			if _, err := jwtutil.Validate(strings.TrimPrefix(h, prefix), a.cfg.WebhookSecret, "api"); err != nil {
-				http.Error(w, "unauthorized", http.StatusUnauthorized)
-				return
+			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), actorKey{}, "shared-token")))
+			return
+		}
+		if !oidc {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		email, err := a.APIVerifier(r.Context(), token)
+		if err != nil {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		email = strings.ToLower(email)
+		if !hasAnyScope(a.cfg.APIPrincipals[email], scopes) {
+			log.Printf("server: api auth: %s lacks scope %v for %s %s", email, scopes, r.Method, r.URL.Path)
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), actorKey{}, email)))
+	})
+}
+
+// hasAnyScope reports whether the granted scope set holds any required scope.
+func hasAnyScope(granted, required []string) bool {
+	for _, g := range granted {
+		for _, req := range required {
+			if g == req {
+				return true
 			}
 		}
-		next.ServeHTTP(w, r)
-	})
+	}
+	return false
 }
 
 // viewAuth enforces a 30-day HS256 JWT (aud=view) on GET routes.

@@ -146,6 +146,42 @@ serve {
 	}
 }
 
+func TestLoadServeAPIAuth(t *testing.T) {
+	cfg, err := Load(writeCfg(t, `
+serve {
+  db_path = "x.db"
+  api_auth {
+    audience        = "https://srv.example"
+    extra_audiences = ["1234-abc.apps.googleusercontent.com"]
+    principal "tf-planner@x.iam.gserviceaccount.com" {
+      scopes = ["report"]
+    }
+    principal "ops@example.com" {
+      scopes = ["read", "admin"]
+    }
+  }
+}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	aa := cfg.Serve.APIAuth
+	if aa == nil {
+		t.Fatal("api_auth block not parsed")
+	}
+	if aa.Audience != "https://srv.example" || len(aa.ExtraAudiences) != 1 || aa.ExtraAudiences[0] != "1234-abc.apps.googleusercontent.com" {
+		t.Errorf("api_auth audiences = %+v", aa)
+	}
+	if len(aa.Principals) != 2 {
+		t.Fatalf("principals = %d, want 2", len(aa.Principals))
+	}
+	if aa.Principals[0].Email != "tf-planner@x.iam.gserviceaccount.com" || len(aa.Principals[0].Scopes) != 1 || aa.Principals[0].Scopes[0] != "report" {
+		t.Errorf("principal[0] = %+v", aa.Principals[0])
+	}
+	if aa.Principals[1].Email != "ops@example.com" || len(aa.Principals[1].Scopes) != 2 {
+		t.Errorf("principal[1] = %+v", aa.Principals[1])
+	}
+}
+
 func TestExampleServeConfigParses(t *testing.T) {
 	cfg, err := Load("../../examples/serve.tfstackplan.hcl")
 	if err != nil {

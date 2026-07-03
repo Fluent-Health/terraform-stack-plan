@@ -1,6 +1,8 @@
 package server
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -92,6 +94,132 @@ func TestAuthDisabledWhenSecretEmpty(t *testing.T) {
 	resp.Body.Close()
 	if resp.StatusCode == http.StatusUnauthorized {
 		t.Fatalf("empty secret must disable auth, got 401")
+	}
+}
+
+// fakeOIDC returns an APIVerifier accepting exactly the given bearer values,
+// mapped to emails.
+func fakeOIDC(tokens map[string]string) func(ctx context.Context, bearer string) (string, error) {
+	return func(_ context.Context, bearer string) (string, error) {
+		if email, ok := tokens[bearer]; ok {
+			return email, nil
+		}
+		return "", errAuth
+	}
+}
+
+var errAuth = errors.New("bad token")
+
+// TestOIDCAuthScopes exercises the OIDC path: verified identities get access
+// per their configured scopes (want=0: any non-auth status), unknown
+// identities and missing scopes are 403, unverifiable tokens are 401.
+func TestOIDCAuthScopes(t *testing.T) {
+	a := New(newServerTestDB(t), &MockGitHub{}, Config{APIPrincipals: map[string][]string{
+		"runner@x.iam.gserviceaccount.com": {"report"},
+		"viewer@example.com":               {"read"},
+		"ops@example.com":                  {"read", "admin"},
+	}})
+	a.APIVerifier = fakeOIDC(map[string]string{
+		"tok-runner": "runner@x.iam.gserviceaccount.com",
+		"tok-viewer": "viewer@example.com",
+		"tok-ops":    "ops@example.com",
+		"tok-nobody": "stranger@example.com",
+	})
+	srv := httptest.NewServer(a.Routes())
+	defer srv.Close()
+
+	cases := []struct {
+		token, method, path string
+		want                int // 0 = authorized: any status except 401/403
+	}{
+		{"tok-runner", "POST", "/api/init", 0},                              // report may report
+		{"tok-runner", "POST", "/api/claims/release", 0},                    // report may release its own claims
+		{"tok-runner", "POST", "/api/claims/list", 0},                       // report may list claims
+		{"tok-runner", "GET", "/api/execution/nope", 0},                     // report may read
+		{"tok-viewer", "POST", "/api/init", http.StatusForbidden},           // read cannot report
+		{"tok-viewer", "POST", "/api/claims/release", http.StatusForbidden}, // read cannot release
+		{"tok-viewer", "GET", "/api/execution/nope", 0},                     // read may read
+		{"tok-ops", "POST", "/api/claims/release", 0},                       // admin may release
+		{"tok-ops", "POST", "/api/init", http.StatusForbidden},              // admin is not the runner
+		{"tok-nobody", "POST", "/api/init", http.StatusForbidden},           // verified but not allowlisted
+		{"garbage", "POST", "/api/init", http.StatusUnauthorized},           // unverifiable token
+		{"", "POST", "/api/init", http.StatusUnauthorized},                  // no token
+	}
+	for _, c := range cases {
+		req, _ := http.NewRequest(c.method, srv.URL+c.path, nil)
+		if c.token != "" {
+			req.Header.Set("Authorization", "Bearer "+c.token)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if c.want == 0 {
+			if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+				t.Errorf("%s %s %s = %d, want authorized pass-through", c.token, c.method, c.path, resp.StatusCode)
+			}
+		} else if resp.StatusCode != c.want {
+			t.Errorf("%s %s %s = %d, want %d", c.token, c.method, c.path, resp.StatusCode, c.want)
+		}
+	}
+}
+
+// TestDualAcceptHS256WithOIDC verifies the migration posture: with both the
+// shared secret and an OIDC verifier configured, legacy HS256 tokens keep full
+// access and OIDC tokens work per scope.
+func TestDualAcceptHS256WithOIDC(t *testing.T) {
+	a := New(nil, &MockGitHub{}, Config{
+		WebhookSecret: "s3cret",
+		APIPrincipals: map[string][]string{"runner@x.iam.gserviceaccount.com": {"report"}},
+	})
+	a.APIVerifier = fakeOIDC(map[string]string{"tok-runner": "runner@x.iam.gserviceaccount.com"})
+	srv := httptest.NewServer(a.Routes())
+	defer srv.Close()
+
+	hs, _ := jwtutil.Make("s3cret", "runner", "api", time.Hour)
+	for name, tok := range map[string]string{"hs256": hs, "oidc": "tok-runner"} {
+		req, _ := http.NewRequest("POST", srv.URL+"/api/init", nil)
+		req.Header.Set("Authorization", "Bearer "+tok)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+			t.Errorf("%s token = %d, want pass-through", name, resp.StatusCode)
+		}
+	}
+
+	// A wrong-secret HS256 token must not fall through to the OIDC verifier.
+	bad, _ := jwtutil.Make("wrong", "runner", "api", time.Hour)
+	req, _ := http.NewRequest("POST", srv.URL+"/api/init", nil)
+	req.Header.Set("Authorization", "Bearer "+bad)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("wrong-secret hs256 = %d, want 401", resp.StatusCode)
+	}
+}
+
+// TestOIDCOnlyEnforcedWithoutSecret: an empty shared secret must NOT disable
+// auth when an OIDC verifier is configured.
+func TestOIDCOnlyEnforcedWithoutSecret(t *testing.T) {
+	a := New(nil, &MockGitHub{}, Config{})
+	a.APIVerifier = fakeOIDC(map[string]string{})
+	srv := httptest.NewServer(a.Routes())
+	defer srv.Close()
+	req, _ := http.NewRequest("POST", srv.URL+"/api/init", nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("no credentials with OIDC-only auth = %d, want 401", resp.StatusCode)
 	}
 }
 

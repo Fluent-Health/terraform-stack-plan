@@ -45,6 +45,23 @@ type PubSubConfig struct {
 	ServiceAccount string // the push subscription's OIDC service-account email
 }
 
+// APIAuthPrincipal maps one verified caller identity (an email — service
+// account or user) to the API scopes it holds.
+type APIAuthPrincipal struct {
+	Email  string
+	Scopes []string
+}
+
+// APIAuthConfig configures Google OIDC bearer auth for /api/*: which token
+// audiences are accepted and the identity → scope allowlist. When present,
+// /api/* callers may authenticate with Google-signed ID tokens; the legacy
+// shared-secret HS256 path (webhook_secret_env) stays accepted while set.
+type APIAuthConfig struct {
+	Audience       string   // expected OIDC audience (default: public_base_url)
+	ExtraAudiences []string // additional accepted audiences (e.g. the gcloud ADC client id, for user tokens)
+	Principals     []APIAuthPrincipal
+}
+
 // ServeConfig is the `serve {}` block: the control-plane server runtime config.
 type ServeConfig struct {
 	DBPath                 string
@@ -57,6 +74,7 @@ type ServeConfig struct {
 	LogsDir                string
 	Objects                *ObjectsConfig
 	PubSub                 *PubSubConfig
+	APIAuth                *APIAuthConfig
 }
 
 // GitHubAppConfig is the `github_app {}` sub-block.
@@ -96,6 +114,14 @@ type serveBody struct {
 		Audience       string `hcl:"audience,optional"`
 		ServiceAccount string `hcl:"service_account,optional"`
 	} `hcl:"pubsub,block"`
+	APIAuth *struct {
+		Audience       string   `hcl:"audience,optional"`
+		ExtraAudiences []string `hcl:"extra_audiences,optional"`
+		Principals     []struct {
+			Email  string   `hcl:"email,label"`
+			Scopes []string `hcl:"scopes,optional"`
+		} `hcl:"principal,block"`
+	} `hcl:"api_auth,block"`
 }
 
 type githubAppBody struct {
@@ -137,6 +163,13 @@ func decodeServe(blk *hclsyntax.Block) (*ServeConfig, error) {
 	}
 	if b.PubSub != nil {
 		s.PubSub = &PubSubConfig{Audience: b.PubSub.Audience, ServiceAccount: b.PubSub.ServiceAccount}
+	}
+	if b.APIAuth != nil {
+		aa := &APIAuthConfig{Audience: b.APIAuth.Audience, ExtraAudiences: b.APIAuth.ExtraAudiences}
+		for _, p := range b.APIAuth.Principals {
+			aa.Principals = append(aa.Principals, APIAuthPrincipal{Email: p.Email, Scopes: p.Scopes})
+		}
+		s.APIAuth = aa
 	}
 	return s, nil
 }

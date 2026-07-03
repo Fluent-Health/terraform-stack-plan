@@ -15,6 +15,27 @@ import (
 	"github.com/Fluent-Health/terraform-stack-plan/internal/jwtutil"
 )
 
+// TestClientTokenSource verifies the OIDC-path client attaches tokens from the
+// injected source verbatim.
+func TestClientTokenSource(t *testing.T) {
+	var got string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Header.Get("Authorization")
+		w.WriteHeader(200)
+	}))
+	defer srv.Close()
+
+	c := NewClientTokenSource(srv.URL, func(context.Context) (string, error) {
+		return "id-token-123", nil
+	})
+	if err := c.Init(context.Background(), events.Init{ID: "e1"}); err != nil {
+		t.Fatal(err)
+	}
+	if got != "Bearer id-token-123" {
+		t.Errorf("Authorization = %q, want Bearer id-token-123", got)
+	}
+}
+
 func TestPostsHitRightPathsWithAuth(t *testing.T) {
 	var mu sync.Mutex
 	seen := map[string]string{}
