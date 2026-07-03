@@ -34,7 +34,7 @@ type Client struct {
 // the given shared bearer secret (legacy HS256 auth; empty sends no auth). A
 // short timeout keeps a slow/down server from stalling the build.
 func NewClient(baseURL, secret string) *Client {
-	tok, _ := APITokenFunc(context.Background(), secret, "") // secret-only: cannot error
+	tok, _ := APITokenFunc(secret, "") // secret-only: cannot error
 	return NewClientTokenSource(baseURL, tok)
 }
 

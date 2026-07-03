@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -101,7 +100,7 @@ func exitCode(status string) int {
 // $TFSTACKPLAN_AUDIENCE is set, else nil (unauthenticated). An unavailable ADC
 // is warned about rather than silently degraded.
 func apiBearer(tok string) gauth.TokenFunc {
-	src, err := runner.APITokenFunc(context.Background(), tok, os.Getenv(runner.EnvAudience))
+	src, err := runner.APITokenFunc(tok, os.Getenv(runner.EnvAudience))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "run status: %s is set but Google ADC is unavailable (%v) — requests will be unauthenticated\n", runner.EnvAudience, err)
 	}

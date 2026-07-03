@@ -14,6 +14,7 @@ import (
 	"github.com/Fluent-Health/terraform-stack-plan/internal/approval/gcppam"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/config"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/demo"
+	"github.com/Fluent-Health/terraform-stack-plan/internal/gauth"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/server"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
@@ -97,7 +98,12 @@ func buildServeApp(ctx context.Context, cfg *config.Config, secret, ghWebhookSec
 			cleanup()
 			return nil, nil, fmt.Errorf("serve: api_auth needs an audience (set api_auth.audience or public_base_url)")
 		}
-		app.APIVerifier = gcpIDTokenVerifier(append([]string{aud}, s.APIAuth.ExtraAudiences...))
+		verify, err := gauth.Verifier(ctx, append([]string{aud}, s.APIAuth.ExtraAudiences...))
+		if err != nil {
+			cleanup()
+			return nil, nil, fmt.Errorf("serve: api_auth verifier: %w", err)
+		}
+		app.APIVerifier = verify
 	}
 
 	if s.PubSub != nil {
@@ -105,7 +111,12 @@ func buildServeApp(ctx context.Context, cfg *config.Config, secret, ghWebhookSec
 		if aud == "" {
 			aud = strings.TrimRight(s.PublicBaseURL, "/") + "/pubsub/push"
 		}
-		app.PushVerifier = gcpIDTokenVerifier([]string{aud})
+		verify, err := gauth.Verifier(ctx, []string{aud})
+		if err != nil {
+			cleanup()
+			return nil, nil, fmt.Errorf("serve: pubsub verifier: %w", err)
+		}
+		app.PushVerifier = verify
 	}
 
 	if s.Approval != nil && s.Approval.Backend == "gcp-pam" {
