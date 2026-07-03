@@ -95,6 +95,12 @@ anything. For each manifest it reports one of:
   manifest is not spent; run `run plan` first.
 - `xmove/<error-code>` — a specific validation failure.
 
+Spent detection is per-entry too: when the source plan is present but an
+entry's From address is gone from it *and* the destination `prior_state`
+already holds the To address, that entry reports an info-only `xmove/spent`
+line instead of `xmove/source-missing`. A spent manifest still on `main`
+(its GC PR not yet merged) is therefore harmless to unrelated PRs.
+
 Exit 0 when all manifests are valid or spent. Use this for mid-migration
 debugging without re-running the full CI classify pass.
 

@@ -99,43 +99,89 @@ func TestValidateMovePlan(t *testing.T) {
 
 	// 1. Success case (apply-time)
 	m := XMove{Pairs: []Move{{From: "google_artifact_registry_repository.main", To: "google_artifact_registry_repository.main"}}}
-	diags := ValidateMovePlan(src, dst, providers, m, true)
+	diags := ValidateMovePlan(src, dst, nil, providers, m, true)
 	if len(diags) != 0 {
 		t.Errorf("expected 0 diags, got: %+v", diags)
 	}
 
 	// 2. Missing provider case (apply-time)
-	diags = ValidateMovePlan(src, dst, DestProviders{}, m, true)
+	diags = ValidateMovePlan(src, dst, nil, DestProviders{}, m, true)
 	if len(diags) != 1 || diags[0].Code != "xmove/provider-missing" {
 		t.Errorf("expected provider-missing, got: %+v", diags)
 	}
 
 	// 3. Phantom index mismatch case (apply-time)
 	mWrong := XMove{Pairs: []Move{{From: "google_artifact_registry_repository.main[0]", To: "google_artifact_registry_repository.main"}}}
-	diags = ValidateMovePlan(src, dst, providers, mWrong, true)
+	diags = ValidateMovePlan(src, dst, nil, providers, mWrong, true)
 	if len(diags) != 1 || diags[0].Code != "xmove/source-missing" {
 		t.Errorf("expected source-missing due to phantom index, got: %+v", diags)
 	}
 
 	// 4. Occupied destination case (apply-time)
 	dstOccupied := AddressSet{"google_artifact_registry_repository.main": "registry.terraform.io/hashicorp/google"}
-	diags = ValidateMovePlan(src, dstOccupied, providers, m, true)
+	diags = ValidateMovePlan(src, dstOccupied, nil, providers, m, true)
 	if len(diags) != 1 || diags[0].Code != "xmove/dest-occupied" {
 		t.Errorf("expected dest-occupied, got: %+v", diags)
 	}
 
 	// 5. Success case (plan-time)
 	dstPlan := AddressSet{"google_artifact_registry_repository.main": "registry.terraform.io/hashicorp/google"}
-	diagsPlan := ValidateMovePlan(src, dstPlan, providers, m, false)
+	diagsPlan := ValidateMovePlan(src, dstPlan, nil, providers, m, false)
 	if len(diagsPlan) != 0 {
 		t.Errorf("expected 0 plan-time diags, got: %+v", diagsPlan)
 	}
 
 	// 6. Missing source case (plan-time)
 	srcEmpty := AddressSet{}
-	diagsPlan = ValidateMovePlan(srcEmpty, dstPlan, providers, m, false)
+	diagsPlan = ValidateMovePlan(srcEmpty, dstPlan, nil, providers, m, false)
 	if len(diagsPlan) != 1 || diagsPlan[0].Code != "xmove/source-missing" {
 		t.Errorf("expected source-missing at plan-time, got: %+v", diagsPlan)
+	}
+}
+
+func TestValidateMovePlan_SpentEntry(t *testing.T) {
+	providers := DestProviders{"google": true}
+
+	// Exact pair already applied: From gone from source, To in dest prior_state
+	// → xmove/spent warning, no error, and no dest-missing from the changes set.
+	m := XMove{Pairs: []Move{{From: "google_storage_bucket.a", To: "module.dst.google_storage_bucket.a"}}}
+	srcEmpty := AddressSet{}
+	dstChanges := AddressSet{"google_storage_bucket.other": "registry.terraform.io/hashicorp/google"}
+	dstPrior := AddressSet{"module.dst.google_storage_bucket.a": "registry.terraform.io/hashicorp/google"}
+	diags := ValidateMovePlan(srcEmpty, dstChanges, dstPrior, providers, m, false)
+	if len(diags) != 1 || diags[0].Code != "xmove/spent" || diags[0].Severity != SeverityWarning {
+		t.Errorf("expected single xmove/spent warning, got: %+v", diags)
+	}
+
+	// Module-level pair already applied: the pair does not expand (nothing under
+	// From in source, nothing under To in changes) but dest prior_state holds a
+	// child of To → spent.
+	mMod := XMove{Pairs: []Move{{From: "module.a", To: "module.b"}}}
+	dstPriorMod := AddressSet{"module.b.google_storage_bucket.x": "registry.terraform.io/hashicorp/google"}
+	diags = ValidateMovePlan(srcEmpty, AddressSet{}, dstPriorMod, providers, mMod, false)
+	if len(diags) != 1 || diags[0].Code != "xmove/spent" {
+		t.Errorf("expected xmove/spent for module-level pair, got: %+v", diags)
+	}
+
+	// Genuinely stale: From gone from source and dest prior_state does NOT hold
+	// To → hard error, unchanged behavior.
+	dstPriorUnrelated := AddressSet{"module.other.google_storage_bucket.y": "registry.terraform.io/hashicorp/google"}
+	diags = ValidateMovePlan(srcEmpty, AddressSet{}, dstPriorUnrelated, providers, m, false)
+	if len(diags) != 1 || diags[0].Code != "xmove/source-missing" || diags[0].Severity != SeverityError {
+		t.Errorf("expected xmove/source-missing error, got: %+v", diags)
+	}
+
+	// Mixed manifest: one pending pair (still in source) and one spent pair —
+	// the spent entry must not fail the pending one.
+	mMixed := XMove{Pairs: []Move{
+		{From: "google_storage_bucket.pending", To: "module.dst.google_storage_bucket.pending"},
+		{From: "google_storage_bucket.a", To: "module.dst.google_storage_bucket.a"},
+	}}
+	src := AddressSet{"google_storage_bucket.pending": "registry.terraform.io/hashicorp/google"}
+	dstPending := AddressSet{"module.dst.google_storage_bucket.pending": "registry.terraform.io/hashicorp/google"}
+	diags = ValidateMovePlan(src, dstPending, dstPrior, providers, mMixed, false)
+	if len(diags) != 1 || diags[0].Code != "xmove/spent" {
+		t.Errorf("expected only xmove/spent for the applied pair, got: %+v", diags)
 	}
 }
 
@@ -150,14 +196,14 @@ func TestValidateMovePlan_BuiltinTerraformProvider(t *testing.T) {
 
 	// Apply-time: destination has no providers configured at all.
 	dstApply := AddressSet{}
-	diags := ValidateMovePlan(src, dstApply, DestProviders{}, m, true)
+	diags := ValidateMovePlan(src, dstApply, nil, DestProviders{}, m, true)
 	if len(diags) != 0 {
 		t.Errorf("apply-time: expected 0 diags for builtin terraform provider, got: %+v", diags)
 	}
 
 	// Plan-time: destination plan has the resource but no "terraform" provider.
 	dstPlan := AddressSet{"module.analytics.terraform_data.loinc_csv_file": "terraform.io/builtin/terraform"}
-	diags = ValidateMovePlan(src, dstPlan, DestProviders{}, m, false)
+	diags = ValidateMovePlan(src, dstPlan, nil, DestProviders{}, m, false)
 	if len(diags) != 0 {
 		t.Errorf("plan-time: expected 0 diags for builtin terraform provider, got: %+v", diags)
 	}
@@ -168,7 +214,7 @@ func TestValidateMovePlan_ProviderMismatch(t *testing.T) {
 	dst := AddressSet{"module.b.aws_iam_role.x": "registry.terraform.io/hashicorp/aws"}
 	providers := DestProviders{"aws": true}
 	xm := XMove{Pairs: []Move{{From: "module.a", To: "module.b"}}}
-	diags := ValidateMovePlan(src, dst, providers, xm, false)
+	diags := ValidateMovePlan(src, dst, nil, providers, xm, false)
 	var got []string
 	for _, d := range diags {
 		got = append(got, d.Code)

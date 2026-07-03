@@ -194,6 +194,18 @@ func DataSourceOrphans(pairs []Move, dataSources []string) []string {
 	return orphans
 }
 
+// appliedTo reports whether the destination prior state already holds the
+// moved resource: some address in dstPriorAddrs is p.To itself or a child of
+// it (the same exact-or-child relation expandPairs/classify use).
+func appliedTo(dstPriorAddrs AddressSet, to string) bool {
+	for a := range dstPriorAddrs {
+		if matches(a, to) {
+			return true
+		}
+	}
+	return false
+}
+
 // IsSpent reports whether all declared moves have already been applied: every
 // pair's To-prefix has at least one address present in dstPriorAddrs. Returns
 // false when dstPriorAddrs is empty (indeterminate) or pairs is empty.
@@ -202,14 +214,7 @@ func IsSpent(pairs []Move, dstPriorAddrs AddressSet) bool {
 		return false
 	}
 	for _, p := range pairs {
-		found := false
-		for a := range dstPriorAddrs {
-			if matches(a, p.To) {
-				found = true
-				break
-			}
-		}
-		if !found {
+		if !appliedTo(dstPriorAddrs, p.To) {
 			return false
 		}
 	}
@@ -217,7 +222,14 @@ func IsSpent(pairs []Move, dstPriorAddrs AddressSet) bool {
 }
 
 // ValidateMovePlan validates a cross-state move manifest against source and destination AddressSets and configured providers.
-func ValidateMovePlan(src, dst AddressSet, providers DestProviders, m XMove, isApply bool) []Diagnostic {
+//
+// dstPrior is the destination stack's prior_state address set, used only at
+// plan time (isApply=false) to tell a spent manifest entry from a stale one:
+// a source address absent from the source plan whose To-address is already in
+// dstPrior was moved by an earlier apply — warning (xmove/spent), not error.
+// Apply-time callers validate against live states (dst *is* the prior state)
+// and may pass nil.
+func ValidateMovePlan(src, dst, dstPrior AddressSet, providers DestProviders, m XMove, isApply bool) []Diagnostic {
 	var diags []Diagnostic
 
 	getShortName := func(fullName string) string {
@@ -272,6 +284,19 @@ func ValidateMovePlan(src, dst AddressSet, providers DestProviders, m XMove, isA
 			// Plan-time validation against planned changes
 			// 1. Source address check: must be present in the source plan as a change
 			if !inSrc {
+				// Source gone AND destination prior state already holds the
+				// target: the move was applied by an earlier PR's apply. The
+				// entry is spent, not stale — a manifest awaiting its GC PR
+				// on main must not fail unrelated PRs. Skip the remaining
+				// checks for this entry (there is nothing left to move).
+				if appliedTo(dstPrior, p.To) {
+					diags = append(diags, Diagnostic{
+						Code:     "xmove/spent",
+						Severity: SeverityWarning,
+						Message:  fmt.Sprintf("%q already moved to %q — entry already applied; run 'state cleanup --applied' to remove this manifest", p.From, p.To),
+					})
+					continue
+				}
 				diags = append(diags, Diagnostic{
 					Code:     "xmove/source-missing",
 					Severity: SeverityError,
