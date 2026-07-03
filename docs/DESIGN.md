@@ -1829,8 +1829,12 @@ already verifying Pub/Sub pushes:
   sends a replayable ID token to whatever host the server URL happens to name.
   The CI flip is config-only: swap the injected token env for the audience
   env, and builds authenticate as their build SA. Token minting is bounded by
-  the client's 10 s timeout (`gauth` honors the caller's context), so a hung
-  metadata server cannot stall a best-effort tick.
+  the client's 10 s timeout (`gauth` honors the caller's context), and
+  credential discovery — including `idtoken.NewTokenSource`'s eager
+  construction-time fetch — is bounded separately by `gauth.SourceTimeout`
+  (built on a background context deliberately: oauth2 binds the construction
+  context into future refreshes), so a hung metadata server cannot stall a
+  best-effort tick at either stage.
 - **Dual-accept (migration posture)**: while `webhook_secret_env` is set,
   legacy HS256 tokens stay accepted with full access — the JOSE header `alg`
   routes each bearer to the matching verifier, so a wrong-secret HS256 token
@@ -1844,6 +1848,20 @@ already verifying Pub/Sub pushes:
   cannot verify); the verified actor is what gets audited.
 - Auth is disabled only when *neither* the secret nor `api_auth {}` is
   configured (local/dev), preserving the old escape hatch.
+- **Offline e2e via a fake Google issuer**: `internal/gauth` owns both halves
+  — `Source`/`SourceTimeout` (client minting) and `Verifier` (server
+  verification: signature/expiry via `idtoken`, audience allowlist, email +
+  `email_verified`, injectable key-fetch client) — and `gauth/gauthtest`
+  fakes Google entirely: a throwaway RSA key signs ID tokens, the validator
+  fetches the matching JWKS through an injected HTTP client (`idtoken`
+  verifies signature/expiry/audience but does not pin the issuer), and a
+  fabricated service-account key whose `token_uri` points at a local
+  JWT-bearer endpoint drives the *real* client-library minting path. The e2e
+  suite runs the whole loop — SA key → mint → bearer → verify → scope
+  enforcement — with real cryptography and zero credentials or network, so
+  fork PRs and OSS contributors run it too. A real test user/OAuth setup was
+  deliberately rejected (public repo, secretless fork CI, ToS-fragile robot
+  accounts); real-Google integration is what the nonprod rollout bake covers.
 
 ### Delivery: binary + Cloud Run container
 

@@ -25,11 +25,12 @@ const (
 // APITokenFunc returns the /api/* bearer source for the given credentials: a
 // non-empty secret wins (legacy HS256 minting, deprecated); otherwise a
 // non-empty audience selects Google OIDC ID tokens from Application Default
-// Credentials. Both empty → nil (unauthenticated). OIDC is deliberately opt-in
-// via the audience: a token-less environment must not probe ambient machine
+// Credentials — with discovery (which can hit the network) bounded to 10s.
+// Both empty → nil (unauthenticated). OIDC is deliberately opt-in via the
+// audience: a token-less environment must not probe ambient machine
 // credentials, hard-fail on a stale ADC file, or send a replayable ID token to
 // whatever host the server URL happens to name.
-func APITokenFunc(ctx context.Context, secret, audience string) (gauth.TokenFunc, error) {
+func APITokenFunc(secret, audience string) (gauth.TokenFunc, error) {
 	if secret != "" {
 		return func(context.Context) (string, error) {
 			return jwtutil.Make(secret, "runner", "api", time.Hour)
@@ -38,7 +39,7 @@ func APITokenFunc(ctx context.Context, secret, audience string) (gauth.TokenFunc
 	if audience == "" {
 		return nil, nil
 	}
-	return gauth.Source(ctx, audience)
+	return gauth.SourceTimeout(10*time.Second, audience)
 }
 
 // ClientFromEnv builds a Client from TFSTACKPLAN_SERVER. When the server var is
@@ -52,7 +53,7 @@ func ClientFromEnv() *Client {
 	if base == "" {
 		return NewClient("", "")
 	}
-	tok, err := APITokenFunc(context.Background(), os.Getenv(EnvToken), os.Getenv(EnvAudience))
+	tok, err := APITokenFunc(os.Getenv(EnvToken), os.Getenv(EnvAudience))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "tfstackplan: %s is set but Google ADC is unavailable (%v) — reporting unauthenticated\n", EnvAudience, err)
 	}

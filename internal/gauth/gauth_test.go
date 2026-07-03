@@ -78,3 +78,16 @@ func TestSourceErrorsWithoutCredentials(t *testing.T) {
 		t.Fatal("Source should error when no credentials are available")
 	}
 }
+
+// TestSourceTimeout covers the bounded-discovery wrapper on the same
+// deterministic no-credentials setup: the underlying error must surface (not
+// the timeout) when discovery fails fast.
+func TestSourceTimeout(t *testing.T) {
+	t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", t.TempDir()+"/nonexistent.json")
+	t.Setenv("GCE_METADATA_HOST", "127.0.0.1:1")
+	if _, err := SourceTimeout(5*time.Second, "https://srv.example"); err == nil {
+		t.Fatal("SourceTimeout should propagate the discovery error")
+	} else if strings.Contains(err.Error(), "timed out") {
+		t.Fatalf("fast failure must not be reported as a timeout: %v", err)
+	}
+}

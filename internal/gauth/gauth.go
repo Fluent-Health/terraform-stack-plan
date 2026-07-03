@@ -14,6 +14,8 @@ package gauth
 import (
 	"context"
 	"errors"
+	"fmt"
+	"time"
 
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
@@ -41,6 +43,30 @@ func Source(ctx context.Context, audience string) (TokenFunc, error) {
 		id, _ := t.Extra("id_token").(string)
 		return id
 	}), nil
+}
+
+// SourceTimeout builds Source but bounds credential discovery — which may
+// include an eager network token fetch (idtoken.NewTokenSource fetches once at
+// construction) — by timeout. The source itself is deliberately built on a
+// background context: the oauth2 machinery binds the construction context into
+// every future refresh, so cancelling it would poison the returned TokenFunc.
+// On timeout the discovery goroutine is abandoned.
+func SourceTimeout(timeout time.Duration, audience string) (TokenFunc, error) {
+	type result struct {
+		fn  TokenFunc
+		err error
+	}
+	ch := make(chan result, 1)
+	go func() {
+		fn, err := Source(context.Background(), audience)
+		ch <- result{fn, err}
+	}()
+	select {
+	case r := <-ch:
+		return r.fn, r.err
+	case <-time.After(timeout):
+		return nil, fmt.Errorf("google credential discovery timed out after %s", timeout)
+	}
 }
 
 // fromTokenSource adapts an oauth2.TokenSource, extracting the ID token from
