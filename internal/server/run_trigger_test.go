@@ -1,7 +1,9 @@
 package server
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -10,6 +12,7 @@ import (
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/executor"
+	"github.com/Fluent-Health/terraform-stack-plan/internal/reconcile"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
 
@@ -284,5 +287,194 @@ func TestWatchdogIgnoresRunnerCreatedExecutions(t *testing.T) {
 	e, _ := store.GetExecution(a.db, "runner-e1")
 	if e.Status != "in_progress" {
 		t.Fatalf("runner-created execution must be untouched, status = %q", e.Status)
+	}
+}
+
+// TestQueuedApplyNotConcludedSuccess: the serve-queued apply row (zero stacks,
+// no phase) must stay pending — the legacy "no stacks to apply → success"
+// shortcut would green-light an apply that never ran.
+func TestQueuedApplyNotConcludedSuccess(t *testing.T) {
+	a, fe, srv := newRunTriggerApp(t)
+	payload := map[string]any{
+		"ref": "refs/heads/main", "after": "mergesha123456",
+		"head_commit": map[string]any{"message": "feat: y (#41)"},
+		"repository":  map[string]any{"full_name": "o/r"},
+	}
+	webhookReq(t, srv, whSecret, "push", payload).Body.Close()
+	if len(fe.starts) != 1 {
+		t.Fatalf("starts = %+v", fe.starts)
+	}
+	e, err := store.GetExecution(a.db, fe.starts[0].ExecutionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e.Status != "in_progress" {
+		t.Fatalf("queued apply status = %q, want in_progress (NOT success)", e.Status)
+	}
+}
+
+// TestPlanStartFailureConcludesCheckFailure: a plan run that never starts must
+// conclude its check run "failure" — not hang in_progress (the gate-derived
+// conclusion can never say failure for a runner-less execution).
+func TestPlanStartFailureConcludesCheckFailure(t *testing.T) {
+	var mu sync.Mutex
+	var conclusions []string
+	gh := &MockGitHub{
+		CreateCheckRunFn: func(context.Context, string, string, string, string) (int64, error) { return 4242, nil },
+		UpdateCheckRunFn: func(_ context.Context, _ string, _ int64, upd CheckRunUpdate) error {
+			mu.Lock()
+			defer mu.Unlock()
+			if upd.Conclusion != "" {
+				conclusions = append(conclusions, upd.Conclusion)
+			}
+			return nil
+		},
+	}
+	a := New(newServerTestDB(t), gh, Config{GitHubWebhookSecret: whSecret, Environment: "nonprod", PublicBaseURL: "https://serve.test"})
+	fe := &fakeExecutor{startErr: context.DeadlineExceeded}
+	a.Executor = fe
+	srv := httptest.NewServer(a.Routes())
+	defer srv.Close()
+
+	webhookReq(t, srv, whSecret, "pull_request", prSyncPayload(7, "sha-one")).Body.Close()
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(conclusions) == 0 || conclusions[len(conclusions)-1] != "failure" {
+		t.Fatalf("check conclusions = %v, want a terminal failure", conclusions)
+	}
+	id, _ := store.LatestExecutionID(a.db, 7, "nonprod")
+	if e, _ := store.GetExecution(a.db, id); e.Status != "failure" {
+		t.Fatalf("row status = %q, want failure", e.Status)
+	}
+}
+
+// TestRunnerInitSupersedesQueuedRow: partial-cutover shape — the runner reports
+// under its OWN id (BUILD_ID) with the legacy empty gate context. The
+// write-time context normalization must land both rows in one supersede bucket
+// so the queued twin dies instead of feeding the watchdog forever.
+func TestRunnerInitSupersedesQueuedRow(t *testing.T) {
+	a, fe, srv := newRunTriggerApp(t)
+	webhookReq(t, srv, whSecret, "pull_request", prSyncPayload(7, "sha-one")).Body.Close()
+	queuedID := fe.starts[0].ExecutionID
+
+	// Runner init over the API: same (pr, env, sha), legacy "" context, own id.
+	body, _ := json.Marshal(events.Init{ID: "build-999", Repo: "o/r", SHA: "sha-one", PR: 7, Environment: "nonprod"})
+	resp, err := http.Post(srv.URL+"/api/init", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("init = %d", resp.StatusCode)
+	}
+	old, err := store.GetExecution(a.db, queuedID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if old.SupersededBy != "build-999" {
+		t.Fatalf("queued row superseded_by = %q, want build-999", old.SupersededBy)
+	}
+}
+
+// TestQueuedRowDoesNotShadowPlanForApplyLock: the apply-lock evaluation must
+// read the last REPORTED plan's stacks, not the serve-queued empty row.
+func TestQueuedRowDoesNotShadowPlanForApplyLock(t *testing.T) {
+	a, _, srv := newRunTriggerApp(t)
+	// A real plan with stacks…
+	if err := store.UpsertInit(a.db, events.Init{
+		ID: "real-plan", Repo: "o/r", SHA: "sha-zero", PR: 7, Environment: "nonprod",
+		Stacks: []events.StackState{{Path: "stacks/a"}, {Path: "stacks/b"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// …then a queued run row lands on top.
+	webhookReq(t, srv, whSecret, "pull_request", prSyncPayload(7, "sha-one")).Body.Close()
+
+	stacks, ok := a.prChangedStacks("nonprod", 7)
+	if !ok || len(stacks) != 2 {
+		t.Fatalf("prChangedStacks = %v, %v — must read the reported plan, not the queued row", stacks, ok)
+	}
+}
+
+// TestPRFromMergeSubject: the squash pattern is end-anchored so revert-style
+// subjects with inner references resolve to the OUTER PR.
+func TestPRFromMergeSubject(t *testing.T) {
+	cases := map[string]int{
+		`feat: something great (#41)`:                          41,
+		`Revert "fix: allow xmove (#179)" (#190)`:              190,
+		`Merge pull request #77 from Fluent-Health/feat/x`:     77,
+		`hotfix straight to main`:                              0,
+		`fix: mention (#12) in the middle without trailing pr`: 0,
+	}
+	for subject, want := range cases {
+		if got := prFromMergeSubject(subject); got != want {
+			t.Errorf("prFromMergeSubject(%q) = %d, want %d", subject, got, want)
+		}
+	}
+}
+
+// TestApplyCheckRerunRecoversPRFromStore: apply checks live on merge commits
+// where GitHub sends no pull_requests — the PR comes from the execution row.
+func TestApplyCheckRerunRecoversPRFromStore(t *testing.T) {
+	a, fe, srv := newRunTriggerApp(t)
+	// Seed the apply run via push, then complete it (runner finalize through
+	// the shell) so the rerun isn't dropped as a live-apply protection.
+	payload := map[string]any{
+		"ref": "refs/heads/main", "after": "mergesha123456",
+		"head_commit": map[string]any{"message": "feat: y (#41)"},
+		"repository":  map[string]any{"full_name": "o/r"},
+	}
+	webhookReq(t, srv, whSecret, "push", payload).Body.Close()
+	if err := a.shell.Handle(context.Background(), 41, "nonprod", "o/r",
+		reconcile.RunnerFinalize{Failed: true, ApplyContext: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	rerun := map[string]any{
+		"action": "rerequested",
+		"check_run": map[string]any{
+			"name":          "apply/nonprod",
+			"head_sha":      "mergesha123456",
+			"pull_requests": []map[string]any{},
+		},
+		"repository": map[string]any{"full_name": "o/r"},
+	}
+	webhookReq(t, srv, whSecret, "check_run", rerun).Body.Close()
+	if len(fe.starts) != 2 {
+		t.Fatalf("starts = %+v — apply rerun must start a second build", fe.starts)
+	}
+	if fe.starts[1].Kind != "apply" || fe.starts[1].PR != 41 {
+		t.Fatalf("rerun request = %+v", fe.starts[1])
+	}
+}
+
+// TestRunnerRecoveryAfterFalseStartFailure: a client-side start timeout whose
+// build actually ran — the runner's finalize completes the run, and later
+// signals must NOT flip the row back to failure (projection is batch-scoped).
+func TestRunnerRecoveryAfterFalseStartFailure(t *testing.T) {
+	a, fe, srv := newRunTriggerApp(t)
+	fe.startErr = context.DeadlineExceeded
+	webhookReq(t, srv, whSecret, "pull_request", prSyncPayload(7, "sha-one")).Body.Close()
+	id := fe.starts // no start recorded on error
+	_ = id
+	execID, _ := store.LatestExecutionID(a.db, 7, "nonprod")
+	if e, _ := store.GetExecution(a.db, execID); e.Status != "failure" {
+		t.Fatalf("precondition: start-failed row = %q", e.Status)
+	}
+
+	// The build ran anyway: runner revives the row and finalizes clean.
+	if err := store.SetExecutionStatus(a.db, execID, "in_progress"); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.shell.Handle(context.Background(), 7, "nonprod", "o/r", reconcile.RunnerFinalize{}); err != nil {
+		t.Fatal(err)
+	}
+	// A later unrelated signal (a gate tick) must not re-apply the stale failure.
+	if err := a.shell.Handle(context.Background(), 7, "nonprod", "o/r", reconcile.GateTick{}); err != nil {
+		t.Fatal(err)
+	}
+	if e, _ := store.GetExecution(a.db, execID); e.Status == "failure" {
+		t.Fatalf("stale start-failure re-applied after runner recovery: %q", e.Status)
 	}
 }

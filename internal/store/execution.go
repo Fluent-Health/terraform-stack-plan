@@ -308,17 +308,21 @@ func SupersedeExecution(db *sql.DB, oldID, newID string) error {
 	return err
 }
 
-// StuckPendingExecutions returns non-superseded executions still in_progress
+// StuckPendingExecutions returns this environment's serve-initiated
+// executions (id prefix per reconcile.RunExecutionIDPrefix) still in_progress
 // with no runner activity at all (empty phase) created before cutoff — the
-// start-watchdog's candidates: serve queued a run but no runner ever reported.
-func StuckPendingExecutions(db *sql.DB, cutoff time.Time) ([]Execution, error) {
+// start-watchdog's candidates. Runner-created executions and other tiers' rows
+// are excluded in SQL so the watchdog never replays streams it cannot act on.
+func StuckPendingExecutions(db *sql.DB, environment string, cutoff time.Time) ([]Execution, error) {
 	rows, err := db.Query(
 		`SELECT id, repo, sha, COALESCE(pr,0), COALESCE(environment,''), COALESCE(status,''),
 		        COALESCE(status_context,''), COALESCE(phase,''), created_at
 		   FROM executions
 		  WHERE status = 'in_progress' AND COALESCE(phase,'') = ''
 		    AND COALESCE(superseded_by,'') = ''
-		    AND created_at < ?`, cutoff.UTC())
+		    AND environment = ?
+		    AND id LIKE 'run-%'
+		    AND created_at < ?`, environment, cutoff.UTC())
 	if err != nil {
 		return nil, err
 	}
@@ -333,4 +337,36 @@ func StuckPendingExecutions(db *sql.DB, cutoff time.Time) ([]Execution, error) {
 		out = append(out, e)
 	}
 	return out, rows.Err()
+}
+
+// LatestReportedExecutionID is LatestExecutionID restricted to executions the
+// runner actually reported on (a phase tick or registered stacks) — a
+// serve-queued row awaiting its build has neither and must not shadow the last
+// real plan (the apply-lock evaluation reads the graph through this).
+func LatestReportedExecutionID(db *sql.DB, pr int, environment string) (string, bool) {
+	var id string
+	err := db.QueryRow(
+		`SELECT id FROM executions WHERE pr = ? AND environment = ?
+		   AND (COALESCE(phase,'') != ''
+		        OR EXISTS (SELECT 1 FROM stacks WHERE execution_id = executions.id))
+		 ORDER BY created_at DESC, id DESC LIMIT 1`, pr, environment).Scan(&id)
+	if err != nil {
+		return "", false
+	}
+	return id, true
+}
+
+// LatestPRForSHA recovers the PR of the newest execution for (sha, env,
+// context) — the check_run rerequested path for apply checks, whose webhook
+// payload carries no pull_requests on merge commits.
+func LatestPRForSHA(db *sql.DB, sha, environment, statusContext string) (int, bool) {
+	var pr int
+	err := db.QueryRow(
+		`SELECT COALESCE(pr,0) FROM executions
+		  WHERE sha = ? AND environment = ? AND COALESCE(status_context,'') = ? AND COALESCE(pr,0) > 0
+		 ORDER BY created_at DESC, id DESC LIMIT 1`, sha, environment, statusContext).Scan(&pr)
+	if err != nil || pr == 0 {
+		return 0, false
+	}
+	return pr, true
 }

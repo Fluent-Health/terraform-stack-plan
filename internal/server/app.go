@@ -335,6 +335,19 @@ func badRequest(w http.ResponseWriter, err error) {
 	http.Error(w, err.Error(), http.StatusBadRequest)
 }
 
+// supersedeExecution marks old superseded by new and redirects its live page
+// (the SSE consumers parse the "superseded:<id>" message). One helper for both
+// supersede writers — the runner-init path and the run-trigger cancel path.
+func (a *App) supersedeExecution(oldID, newID string) {
+	if err := store.SupersedeExecution(a.db, oldID, newID); err != nil {
+		log.Printf("supersede %s -> %s: %v", oldID, newID, err)
+		return
+	}
+	if a.hub != nil {
+		a.hub.publish("exec:"+oldID, "superseded:"+newID)
+	}
+}
+
 // liveURL builds the per-execution live-page URL. When WebhookSecret is set,
 // appends a 30-day view JWT so GitHub check-run recipients can open the page
 // without additional auth.

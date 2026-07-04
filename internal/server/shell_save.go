@@ -15,13 +15,13 @@ func (sh *Shell) persist(pr int, env string, expectedVersion int, evs []reconcil
 	if err := sh.app.gateDecider.Append(sh.app.eventStore, execStreamID(pr, env), expectedVersion, evs, state); err != nil {
 		return err
 	}
-	return sh.project(state)
+	return sh.project(state, evs)
 }
 
 // project writes the gate_targets index + stacks.status overlay derived from the
 // folded gate state. gate_targets is a derived projection of the event log;
 // gate_runs has been retired (migration 008).
-func (sh *Shell) project(cs reconcile.ChangeSet) error {
+func (sh *Shell) project(cs reconcile.ChangeSet, evs []reconcile.Event) error {
 	tx, err := sh.app.db.Begin()
 	if err != nil {
 		return err
@@ -44,14 +44,17 @@ func (sh *Shell) project(cs reconcile.ChangeSet) error {
 		}
 	}
 
-	// Run-lifecycle projection: a run whose start failed marks its execution row
-	// failed — the runner will never report, so nothing else would ever move the
-	// row off in_progress (the terminal check render derives from this).
-	for _, r := range cs.Runs {
-		if r.Phase == reconcile.RunPhaseStartFailed {
+	// Run-lifecycle projection: a RunStartFailed IN THIS BATCH marks its
+	// execution row failed — the runner will never report, so nothing else
+	// would move the row off in_progress (the terminal check render derives
+	// from this). Scoped to the event batch, not the folded state: a stale
+	// start_failed entry must not keep flipping a row a real runner later
+	// revived (a client-side start timeout whose build actually ran).
+	for _, e := range evs {
+		if rf, ok := e.(reconcile.RunStartFailed); ok {
 			if _, err := tx.Exec(
 				`UPDATE executions SET status = 'failure' WHERE id = ? AND status = 'in_progress'`,
-				r.ExecutionID); err != nil {
+				rf.ExecutionID); err != nil {
 				return err
 			}
 		}

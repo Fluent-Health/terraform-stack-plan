@@ -81,6 +81,14 @@ func Evolve(cs ChangeSet, e Event) ChangeSet {
 		r.Phase = RunPhaseStartFailed
 		return withRun(cs, r)
 
+	case RunCompleted:
+		r, ok := cs.Runs[ev.Kind]
+		if !ok || r.ExecutionID != ev.ExecutionID {
+			return cs
+		}
+		r.Phase = RunPhaseCompleted
+		return withRun(cs, r)
+
 	case RunSuperseded:
 		r, ok := cs.Runs[ev.Kind]
 		if !ok || r.ExecutionID != ev.OldExecutionID {

@@ -49,6 +49,7 @@ const (
 	RunPhaseStarted     RunPhase = "started"      // executor accepted the build
 	RunPhaseStartFailed RunPhase = "start_failed" // executor refused / start errored
 	RunPhaseSuperseded  RunPhase = "superseded"   // a newer SHA replaced this run
+	RunPhaseCompleted   RunPhase = "completed"    // the runner took over and finalized
 )
 
 // Live reports whether the run is still in flight (may be superseded/cancelled).

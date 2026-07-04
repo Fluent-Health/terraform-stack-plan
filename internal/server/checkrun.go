@@ -8,6 +8,7 @@ import (
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/config"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
+	"github.com/Fluent-Health/terraform-stack-plan/internal/reconcile"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
 
@@ -55,11 +56,6 @@ func progressTitle(prog *config.ProgressConfig, phase events.Phase, stacks []eve
 			kindLabel = "Apply"
 		}
 		return terminalSummary(kindLabel, stacks)
-	}
-	// A serve-queued execution (run triggered, runner not reporting yet) has no
-	// phase and no stacks: a progress bar would read "0/0", so name the state.
-	if phase == "" && len(stacks) == 0 {
-		return "queued — waiting for the build to start"
 	}
 	bar, _, label := runProgress(prog, phase, stacks, kind)
 	return bar + " · " + label
@@ -205,8 +201,22 @@ func (a *App) renderAndPatch(ctx context.Context, id, base string, terminal bool
 		Text:       gatesSection(targets) + failuresSection(g, e.LogURL, "") + e.ReportMarkdown,
 		DetailsURL: a.liveURL(base, id),
 	}
+	// Serve-queued run (no runner data at all): name the state instead of an
+	// empty progress bar / misleading "no changes" summary.
+	if e.Phase == "" && len(g.Stacks) == 0 && reconcile.IsRunExecutionID(id) {
+		if e.Status == "failure" {
+			upd.Title = "build failed to start — use Re-run to retry"
+		} else {
+			upd.Title = "queued — waiting for the build to start"
+		}
+	}
 	if terminal {
-		if snap, _, ok := loadSnapshot(a.db, id); ok {
+		if e.Status == "failure" && len(g.Stacks) == 0 {
+			// A run that failed without runner data (start failed / watchdog) has
+			// no plan snapshot to conclude from — the row status is the fact. The
+			// gate-derived conclusion below can never say failure for it.
+			upd.Conclusion = "failure"
+		} else if snap, _, ok := loadSnapshot(a.db, id); ok {
 			upd.Conclusion = conclusion(snap)
 		}
 	}
@@ -256,6 +266,13 @@ func (a *App) driveApply(ctx context.Context, e store.Execution, base string) {
 		// structurally in each failing stack's Detail and rendered below.
 		desc = fmt.Sprintf("apply failed — %d/%d applied, %d failed; see the failing stack below — fix-forward or re-run this tier's apply", applied, total, failed)
 		state = "failure"
+	case total == 0 && e.Phase == "" && reconcile.IsRunExecutionID(e.ID):
+		// Serve-queued run: the runner has not reported anything yet (no phase,
+		// no stacks). Concluding "no stacks to apply" here would green-light an
+		// apply that has not run — stay pending; the start watchdog fails it if
+		// the build never materializes. Runner-created executions (non run- ids)
+		// keep the legacy zero-stack success below.
+		state, desc = "pending", "queued — waiting for the build to start"
 	case total == 0:
 		// NOTHING_TO_APPLY: no changed stacks — a no-op apply (e.g. a docs/CI-only
 		// merge, or a PR whose work was a cross-state move done in the pre-phase).

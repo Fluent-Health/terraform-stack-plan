@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/reconcile"
+	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
 
 // handleGitHubWebhook receives GitHub webhook events at POST /github/webhook.
@@ -176,7 +177,10 @@ func prFromMergeSubject(subject string) int {
 }
 
 var (
-	squashSubjectRE = regexp.MustCompile(`\(#([0-9]+)\)`)
+	// Anchored to the END of the subject: GitHub's squash convention appends
+	// "(#N)"; an unanchored match would grab an inner reference first (e.g.
+	// `Revert "fix: x (#179)" (#190)` must yield 190, not 179).
+	squashSubjectRE = regexp.MustCompile(`\(#([0-9]+)\)\s*$`)
 	mergeSubjectRE  = regexp.MustCompile(`^Merge pull request #([0-9]+) `)
 )
 
@@ -265,12 +269,20 @@ func (a *App) handleCheckRunWebhook(w http.ResponseWriter, r *http.Request, body
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
-	if len(p.CheckRun.PullRequests) == 0 {
+	pr := 0
+	if len(p.CheckRun.PullRequests) > 0 {
+		pr = p.CheckRun.PullRequests[0].Number
+	} else {
+		// Apply checks live on merge commits, where GitHub sends an empty
+		// pull_requests array — recover the PR from the execution this check
+		// belongs to (it exists: the Re-run button was pressed on it).
+		pr, _ = store.LatestPRForSHA(a.db, p.CheckRun.HeadSHA, a.cfg.Environment, runContext(kind, a.cfg.Environment))
+	}
+	if pr == 0 {
 		log.Printf("webhook: check_run rerequested for %s %.12s carries no PR — skipping", p.CheckRun.Name, p.CheckRun.HeadSHA)
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
-	pr := p.CheckRun.PullRequests[0].Number
 	if err := a.shell.Handle(r.Context(), pr, a.cfg.Environment, p.Repository.FullName, reconcile.RunRequested{
 		Kind:  kind,
 		SHA:   p.CheckRun.HeadSHA,

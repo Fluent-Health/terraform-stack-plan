@@ -75,11 +75,7 @@ func (sh *Shell) startRun(ctx context.Context, cs reconcile.ChangeSet, repo stri
 // cancelRun executes a CancelRun action: mark the old execution superseded by
 // the new one (the live page redirects) and best-effort cancel the old build.
 func (sh *Shell) cancelRun(ctx context.Context, act reconcile.CancelRun) {
-	if err := store.SupersedeExecution(sh.app.db, act.OldExecutionID, act.NewExecutionID); err != nil {
-		log.Printf("shell: supersede %s -> %s: %v", act.OldExecutionID, act.NewExecutionID, err)
-	} else if sh.app.hub != nil {
-		sh.app.hub.publish("exec:"+act.OldExecutionID, "superseded:"+act.NewExecutionID)
-	}
+	sh.app.supersedeExecution(act.OldExecutionID, act.NewExecutionID)
 	if act.OldBuildRef == "" || sh.app.Executor == nil {
 		return
 	}

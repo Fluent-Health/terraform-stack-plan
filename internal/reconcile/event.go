@@ -96,6 +96,15 @@ type RunSuperseded struct {
 	NewSHA         string
 }
 
+// RunCompleted records the runner taking over and finalizing: the run-start
+// lifecycle is over. Also emitted when a "start-failed" run finalizes anyway
+// (a client-side start timeout whose build actually ran) — the finalize proves
+// the start happened, and folding this stops the failure projection.
+type RunCompleted struct {
+	Kind        string
+	ExecutionID string
+}
+
 // --- claim-ledger fact ---
 
 type ClaimReleased struct {
@@ -130,3 +139,4 @@ func (RunQueued) isEvent()           {}
 func (RunStarted) isEvent()          {}
 func (RunStartFailed) isEvent()      {}
 func (RunSuperseded) isEvent()       {}
+func (RunCompleted) isEvent()        {}

@@ -1,6 +1,9 @@
 package reconcile
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // decideRunRequested handles a webhook-driven CI run request.
 //
@@ -21,16 +24,17 @@ func decideRunRequested(state ChangeSet, sig RunRequested) []Event {
 	attempt := 1
 	var evs []Event
 	if exists {
-		sameSHA := prior.SHA == sig.SHA
-		switch {
-		case sameSHA && prior.Live() && !sig.Rerun:
-			return nil // redelivery of an already-running request
-		case sameSHA:
-			// Rerun of a live run, or retry after start_failed/superseded.
-			attempt = prior.Attempt + 1
-		default:
-			attempt = 1
+		// Same (kind, sha) without an explicit rerun is a webhook redelivery —
+		// no-op regardless of the run's phase: a late redelivery must never
+		// re-trigger a build (an apply in particular). Only the Re-run button
+		// (Rerun) forces a fresh attempt.
+		if prior.SHA == sig.SHA && !sig.Rerun {
+			return nil
 		}
+		// Attempts are monotonic across ALL requests, not per SHA: a force-push
+		// round-trip (A → B → A) must not re-mint A's first execution id — that
+		// row is superseded/dead in the store.
+		attempt = prior.Attempt + 1
 	}
 	execID := runExecutionID(state.PR, state.Environment, sig.Kind, sig.SHA, attempt)
 	if exists && prior.Live() && sig.Kind == RunKindPlan {
@@ -53,6 +57,23 @@ func decideRunRequested(state ChangeSet, sig RunRequested) []Event {
 	})
 }
 
+// runCompletionEvents closes the run-start lifecycle when the runner
+// finalizes: the matching kind's run (live, or "start-failed" — a client-side
+// start timeout whose build evidently ran) completes. The finalize itself is
+// the proof the build executed; without this, a finished apply would read as
+// live forever and every later apply request would be dropped.
+func runCompletionEvents(state ChangeSet, applyContext bool) []Event {
+	kind := RunKindPlan
+	if applyContext {
+		kind = RunKindApply
+	}
+	r, ok := state.Runs[kind]
+	if !ok || (!r.Live() && r.Phase != RunPhaseStartFailed) {
+		return nil
+	}
+	return []Event{RunCompleted{Kind: kind, ExecutionID: r.ExecutionID}}
+}
+
 // decideRunStartResult folds the executor's answer to a StartRun action.
 // Stale feedback (a different execution id than the current run's) is dropped
 // — a supersede may have raced the start.
@@ -71,6 +92,16 @@ func decideRunStartResult(state ChangeSet, sig RunStartResult) []Event {
 		return nil
 	}
 	return []Event{RunStarted{Kind: sig.Kind, ExecutionID: sig.ExecutionID, BuildRef: sig.BuildRef}}
+}
+
+// RunExecutionIDPrefix marks serve-minted run execution ids (see
+// runExecutionID). The store's stuck-run query and the queued check render key
+// off it to distinguish serve-initiated runs from runner-created executions.
+const RunExecutionIDPrefix = "run-"
+
+// IsRunExecutionID reports whether id was minted by runExecutionID.
+func IsRunExecutionID(id string) bool {
+	return strings.HasPrefix(id, RunExecutionIDPrefix)
 }
 
 // runExecutionID mints the deterministic execution id for a run. Decide is

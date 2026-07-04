@@ -33,9 +33,11 @@ func TestDecideRunRequestedNewSHASupersedesLivePlan(t *testing.T) {
 		RunKindPlan: {ExecutionID: "e-old", Kind: RunKindPlan, SHA: "oldsha", BuildRef: "b-1", Attempt: 1, Phase: RunPhaseStarted},
 	}}
 	got := Decide(st, RunRequested{Kind: RunKindPlan, SHA: "newsha", Branch: "feat/x"})
+	// Attempt 2: attempts are monotonic across requests (a force-push back to
+	// an old SHA must never re-mint its dead execution id).
 	want := []Event{
-		RunSuperseded{Kind: RunKindPlan, OldExecutionID: "e-old", OldBuildRef: "b-1", NewExecutionID: "run-7-nonprod-plan-newsha-a1", NewSHA: "newsha"},
-		RunQueued{Kind: RunKindPlan, SHA: "newsha", Branch: "feat/x", ExecutionID: "run-7-nonprod-plan-newsha-a1", Attempt: 1},
+		RunSuperseded{Kind: RunKindPlan, OldExecutionID: "e-old", OldBuildRef: "b-1", NewExecutionID: "run-7-nonprod-plan-newsha-a2", NewSHA: "newsha"},
+		RunQueued{Kind: RunKindPlan, SHA: "newsha", Branch: "feat/x", ExecutionID: "run-7-nonprod-plan-newsha-a2", Attempt: 2},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %#v want %#v", got, want)
@@ -87,6 +89,116 @@ func TestDecideRunRequestedRejectsGarbage(t *testing.T) {
 	}
 	if got := Decide(st, RunRequested{Kind: RunKindPlan}); got != nil {
 		t.Fatalf("empty sha must no-op, got %#v", got)
+	}
+}
+
+// --- Decide: run completion (the runner takes over) ---
+
+func TestDecideFinalizeCompletesRun(t *testing.T) {
+	st := ChangeSet{PR: 7, Environment: "nonprod", Runs: map[string]Run{
+		RunKindPlan: {ExecutionID: "e1", Kind: RunKindPlan, SHA: "sha1", BuildRef: "b-1", Attempt: 1, Phase: RunPhaseStarted},
+	}}
+	evs := Decide(st, RunnerFinalize{Failed: false})
+	found := false
+	for _, e := range evs {
+		if rc, ok := e.(RunCompleted); ok {
+			found = true
+			if rc.Kind != RunKindPlan || rc.ExecutionID != "e1" {
+				t.Fatalf("RunCompleted = %#v", rc)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("plan finalize must complete the live plan run, got %#v", evs)
+	}
+	// Folding it makes the run non-live, so a new SHA queues WITHOUT a cancel.
+	post := st
+	for _, e := range evs {
+		post = Evolve(post, e)
+	}
+	got := Decide(post, RunRequested{Kind: RunKindPlan, SHA: "sha2"})
+	if len(got) != 1 {
+		t.Fatalf("new sha after completion must queue without supersede, got %#v", got)
+	}
+	if _, ok := got[0].(RunQueued); !ok {
+		t.Fatalf("want RunQueued, got %#v", got[0])
+	}
+}
+
+func TestDecideApplyFinalizeCompletesApplyRun(t *testing.T) {
+	// Regression: a completed apply previously stayed Live forever, so every
+	// later apply request — including the check Re-run button — was dropped.
+	st := ChangeSet{PR: 7, Environment: "nonprod", Runs: map[string]Run{
+		RunKindApply: {ExecutionID: "e-apply", Kind: RunKindApply, SHA: "mergesha", Attempt: 1, Phase: RunPhaseStarted},
+	}}
+	evs := Decide(st, RunnerFinalize{Failed: true, ApplyContext: true})
+	post := st
+	for _, e := range evs {
+		post = Evolve(post, e)
+	}
+	if post.Runs[RunKindApply].Live() {
+		t.Fatalf("apply run must not stay live after its finalize: %#v", post.Runs[RunKindApply])
+	}
+	rerun := Decide(post, RunRequested{Kind: RunKindApply, SHA: "mergesha", Rerun: true})
+	if len(rerun) != 1 {
+		t.Fatalf("re-run of a finished apply must queue, got %#v", rerun)
+	}
+	q, ok := rerun[0].(RunQueued)
+	if !ok || q.Attempt != 2 {
+		t.Fatalf("want RunQueued attempt 2, got %#v", rerun[0])
+	}
+}
+
+func TestDecideFinalizeCompletesStartFailedRun(t *testing.T) {
+	// A client-side start "failure" (timeout) where the build actually ran: the
+	// runner's finalize proves the start happened — complete the run so the
+	// start-failed projection stops touching the row.
+	st := ChangeSet{PR: 7, Environment: "nonprod", Runs: map[string]Run{
+		RunKindPlan: {ExecutionID: "e1", Kind: RunKindPlan, SHA: "sha1", Attempt: 1, Phase: RunPhaseStartFailed},
+	}}
+	evs := Decide(st, RunnerFinalize{})
+	post := st
+	for _, e := range evs {
+		post = Evolve(post, e)
+	}
+	if post.Runs[RunKindPlan].Phase != RunPhaseCompleted {
+		t.Fatalf("start-failed run must complete when the runner finalizes: %#v", post.Runs[RunKindPlan])
+	}
+}
+
+// --- Decide: redelivery / attempt permutations ---
+
+func TestDecideRunRequestedRedeliveryAfterCompletionNoOps(t *testing.T) {
+	// A late push redelivery for an apply that already ran must NEVER
+	// re-trigger the apply; only an explicit Rerun may.
+	st := ChangeSet{PR: 7, Environment: "nonprod", Runs: map[string]Run{
+		RunKindApply: {ExecutionID: "e1", Kind: RunKindApply, SHA: "mergesha", Attempt: 1, Phase: RunPhaseCompleted},
+	}}
+	if got := Decide(st, RunRequested{Kind: RunKindApply, SHA: "mergesha"}); got != nil {
+		t.Fatalf("redelivery after completion must no-op, got %#v", got)
+	}
+}
+
+func TestDecideRunRequestedForcePushRoundTripMintsFreshIDs(t *testing.T) {
+	// Force-push A → B → A: the third request must NOT reuse the first id (its
+	// row is superseded/dead in the store) — attempts are monotonic.
+	st := ChangeSet{PR: 7, Environment: "nonprod"}
+	ids := map[string]bool{}
+	shas := []string{"shaA", "shaB", "shaA"}
+	for _, sha := range shas {
+		evs := Decide(st, RunRequested{Kind: RunKindPlan, SHA: sha})
+		for _, e := range evs {
+			if q, ok := e.(RunQueued); ok {
+				if ids[q.ExecutionID] {
+					t.Fatalf("execution id %q minted twice", q.ExecutionID)
+				}
+				ids[q.ExecutionID] = true
+			}
+			st = Evolve(st, e)
+		}
+	}
+	if len(ids) != 3 {
+		t.Fatalf("want 3 distinct execution ids, got %v", ids)
 	}
 }
 

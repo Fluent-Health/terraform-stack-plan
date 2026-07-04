@@ -50,7 +50,7 @@ func TestSaveWritesGatedOverlay(t *testing.T) {
 	cs := reconcile.ChangeSet{PR: 7, Environment: "staging", Gate: reconcile.Pending{
 		Targets: []reconcile.Target{{Class: "iam", Target: "p1", GrantName: "g1"}},
 	}}
-	if err := sh.project(cs); err != nil {
+	if err := sh.project(cs, nil); err != nil {
 		t.Fatal(err)
 	}
 	if got := stackStatus(t, sh, "e1", "s1"); got != "gated" {
@@ -71,7 +71,7 @@ func TestSaveWritesSafeOverlayWhenSatisfied(t *testing.T) {
 	cs := reconcile.ChangeSet{PR: 7, Environment: "staging", Gate: reconcile.Satisfied{
 		Targets: []reconcile.Target{{Class: "iam", Target: "p1", GrantName: "g1", Grant: approval.StateActive}},
 	}}
-	if err := sh.project(cs); err != nil {
+	if err := sh.project(cs, nil); err != nil {
 		t.Fatal(err)
 	}
 	if got := stackStatus(t, sh, "e1", "s1"); got != "safe" {

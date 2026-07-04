@@ -33,15 +33,12 @@ func (a *App) RunWatchdogLoop(ctx context.Context, interval, timeout time.Durati
 
 // watchRunsOnce probes one round of stuck queued executions.
 func (a *App) watchRunsOnce(ctx context.Context, timeout time.Duration) {
-	stuck, err := store.StuckPendingExecutions(a.db, a.now().Add(-timeout))
+	stuck, err := store.StuckPendingExecutions(a.db, a.cfg.Environment, a.now().Add(-timeout))
 	if err != nil {
 		log.Printf("watchdog: list stuck executions: %v", err)
 		return
 	}
 	for _, e := range stuck {
-		if e.Environment != a.cfg.Environment {
-			continue
-		}
 		kind := reconcile.RunKindPlan
 		if isApplyContext(e.StatusContext) {
 			kind = reconcile.RunKindApply
