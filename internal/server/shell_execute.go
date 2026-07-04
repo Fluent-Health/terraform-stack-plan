@@ -11,12 +11,15 @@ import (
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
 
-// execute performs the side-effecting Actions and returns the ObservedGrant
-// results that feed the next Step (only RequestGrant yields). RenderCheckRun /
-// PostCommitStatus / PublishSSE are output-only. Slot collisions are resolved
-// against GitHub here (self / closed) and surfaced as ObservedGrant.Collision.
-func (sh *Shell) execute(ctx context.Context, cs reconcile.ChangeSet, repo string, actions []reconcile.Action) []reconcile.ObservedGrant {
-	var results []reconcile.ObservedGrant
+// execute performs the side-effecting Actions and returns the feedback signals
+// that drive the next fixpoint iteration: RequestGrant results batch into one
+// GrantsObserved; each StartRun yields a RunStartResult. RenderCheckRun /
+// PostCommitStatus / PublishSSE / CancelRun are output-only. Slot collisions
+// are resolved against GitHub here (self / closed) and surfaced as
+// ObservedGrant.Collision.
+func (sh *Shell) execute(ctx context.Context, cs reconcile.ChangeSet, repo string, actions []reconcile.Action) []reconcile.Signal {
+	var grants []reconcile.ObservedGrant
+	var feedback []reconcile.Signal
 	for _, a := range actions {
 		switch act := a.(type) {
 		case reconcile.RequestGrant:
@@ -27,10 +30,10 @@ func (sh *Shell) execute(ctx context.Context, cs reconcile.ChangeSet, repo strin
 				Class: act.Class, Target: act.Target, PR: cs.PR, Environment: cs.Environment, Requester: act.Requester,
 			})
 			if err != nil {
-				results = append(results, sh.observeError(ctx, cs, repo, act, err))
+				grants = append(grants, sh.observeError(ctx, cs, repo, act, err))
 				continue
 			}
-			results = append(results, reconcile.ObservedGrant{
+			grants = append(grants, reconcile.ObservedGrant{
 				Class: act.Class, Target: act.Target, Name: g.Name, State: g.State, Requester: g.Requester,
 			})
 		case reconcile.RevokeGrant:
@@ -42,6 +45,10 @@ func (sh *Shell) execute(ctx context.Context, cs reconcile.ChangeSet, repo strin
 			}); err != nil {
 				log.Printf("shell: revoke pr=%d env=%s %s/%s: %v", act.PR, act.Environment, act.Class, act.Target, err)
 			}
+		case reconcile.StartRun:
+			feedback = append(feedback, sh.startRun(ctx, cs, repo, act))
+		case reconcile.CancelRun:
+			sh.cancelRun(ctx, act)
 		case reconcile.RenderCheckRun:
 			sh.renderCheckRun(ctx, cs, act)
 		case reconcile.PostCommitStatus:
@@ -54,7 +61,10 @@ func (sh *Shell) execute(ctx context.Context, cs reconcile.ChangeSet, repo strin
 			sh.app.releaseApplyClaims(ctx, act.Environment, act.PR)
 		}
 	}
-	return results
+	if len(grants) > 0 {
+		feedback = append(feedback, reconcile.GrantsObserved{Grants: grants})
+	}
+	return feedback
 }
 
 // observeError maps a RequestGrant error into an ObservedGrant: a slot collision

@@ -45,6 +45,29 @@ type GrantsObserved struct{ Grants []ObservedGrant }
 // the changeset's targets. Processed identically to GrantsObserved.
 type GateTick struct{ Grants []ObservedGrant }
 
+// --- serve-initiated run triggering (webhook → executor) ---
+
+// RunRequested asks for a CI run: pull_request opened/synchronize → plan for
+// the head SHA; push to main → apply for the merge commit; check_run
+// rerequested → the same kind again with Rerun set (forces a new attempt even
+// for an already-seen SHA).
+type RunRequested struct {
+	Kind   string // RunKindPlan | RunKindApply
+	SHA    string
+	Branch string
+	Rerun  bool
+}
+
+// RunStartResult is the fixpoint feedback from a StartRun action (like
+// GrantsObserved for RequestGrant): the executor either accepted the build
+// (BuildRef) or failed (Err).
+type RunStartResult struct {
+	Kind        string
+	ExecutionID string
+	BuildRef    string
+	Err         string
+}
+
 // --- post-apply ---
 
 type ApplySucceeded struct{}
@@ -57,6 +80,8 @@ func (PRClosed) isSignal()       {}
 func (GrantsObserved) isSignal() {}
 func (GateTick) isSignal()       {}
 func (ApplySucceeded) isSignal() {}
+func (RunRequested) isSignal()   {}
+func (RunStartResult) isSignal() {}
 
 // ObservedGrant is one grant fact the shell gathered for a (class,target).
 type ObservedGrant struct {

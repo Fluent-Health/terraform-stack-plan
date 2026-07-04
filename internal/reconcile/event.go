@@ -56,6 +56,55 @@ type TargetRevoked struct {
 type GatePassed struct{}
 type GateReleased struct{}
 
+// --- run-triggering facts (serve-initiated CI runs) ---
+
+// RunQueued records that a run request was accepted: the shell creates the
+// execution row + a "queued" check run and issues StartRun. ExecutionID is
+// minted deterministically by Decide (pr/env/kind/sha/attempt — the pure core
+// cannot use randomness).
+type RunQueued struct {
+	Kind        string
+	SHA         string
+	Branch      string
+	ExecutionID string
+	Attempt     int
+}
+
+// RunStarted records the executor accepting the build.
+type RunStarted struct {
+	Kind        string
+	ExecutionID string
+	BuildRef    string
+}
+
+// RunStartFailed records the executor refusing / erroring — surfaced as a
+// terminal check failure (vs the pre-driver era's silent nothing).
+type RunStartFailed struct {
+	Kind        string
+	ExecutionID string
+	Reason      string
+}
+
+// RunSuperseded records a newer SHA replacing an in-flight run (plan only —
+// applies are never superseded). The shell cancels the old build (when a
+// BuildRef exists) and marks the old execution superseded by the new one.
+type RunSuperseded struct {
+	Kind           string
+	OldExecutionID string
+	OldBuildRef    string
+	NewExecutionID string
+	NewSHA         string
+}
+
+// RunCompleted records the runner taking over and finalizing: the run-start
+// lifecycle is over. Also emitted when a "start-failed" run finalizes anyway
+// (a client-side start timeout whose build actually ran) — the finalize proves
+// the start happened, and folding this stops the failure projection.
+type RunCompleted struct {
+	Kind        string
+	ExecutionID string
+}
+
 // --- claim-ledger fact ---
 
 type ClaimReleased struct {
@@ -86,3 +135,8 @@ func (GatePassed) isEvent()          {}
 func (GateReleased) isEvent()        {}
 func (ClaimReleased) isEvent()       {}
 func (PRClosedRecorded) isEvent()    {}
+func (RunQueued) isEvent()           {}
+func (RunStarted) isEvent()          {}
+func (RunStartFailed) isEvent()      {}
+func (RunSuperseded) isEvent()       {}
+func (RunCompleted) isEvent()        {}

@@ -56,14 +56,16 @@ func (sh *Shell) withLock(_ context.Context, pr int, env string, fn func()) {
 
 // Handle processes one signal for (pr, env) to a fixpoint: gather (replay) →
 // Decide → persist (append+snapshot+project) → React → execute, repeating while
-// RequestGrant actions yield new observations. Serialized per (pr, env). maxIters
-// guards the loop.
+// actions yield feedback signals (RequestGrant → GrantsObserved, StartRun →
+// RunStartResult). Serialized per (pr, env). maxIters guards the loop.
 func (sh *Shell) Handle(ctx context.Context, pr int, env, repo string, sig reconcile.Signal) error {
 	const maxIters = 16
 	var outerErr error
 	sh.withLock(ctx, pr, env, func() {
-		cur := sig
-		for i := 0; i < maxIters; i++ {
+		queue := []reconcile.Signal{sig}
+		for i := 0; i < maxIters && len(queue) > 0; i++ {
+			cur := queue[0]
+			queue = queue[1:]
 			world, err := sh.gather(pr, env)
 			if err != nil {
 				outerErr = err
@@ -81,16 +83,14 @@ func (sh *Shell) Handle(ctx context.Context, pr int, env, repo string, sig recon
 				outerErr = err
 				return
 			}
-			actions := sh.execute(ctx, state, repo, reconcile.React(state, evs))
-			if len(actions) == 0 {
-				return
-			}
-			cur = reconcile.GrantsObserved{Grants: actions}
+			queue = append(queue, sh.execute(ctx, state, repo, reconcile.React(state, evs))...)
 		}
-		// Reached the iteration ceiling with work still pending — should not
-		// happen in normal flows (a finalize converges in ≤3 iterations). Log so
-		// a silent partial state is visible.
-		log.Printf("shell: maxIters=%d reached for pr=%d env=%s", maxIters, pr, env)
+		if len(queue) > 0 {
+			// Reached the iteration ceiling with work still pending — should not
+			// happen in normal flows (a finalize converges in ≤3 iterations). Log so
+			// a silent partial state is visible.
+			log.Printf("shell: maxIters=%d reached for pr=%d env=%s", maxIters, pr, env)
+		}
 	})
 	return outerErr
 }

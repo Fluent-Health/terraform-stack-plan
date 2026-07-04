@@ -14,6 +14,7 @@ import (
 	"github.com/Fluent-Health/terraform-stack-plan/internal/approval/gcppam"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/config"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/demo"
+	"github.com/Fluent-Health/terraform-stack-plan/internal/executor"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/gauth"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/server"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
@@ -81,6 +82,7 @@ func buildServeApp(ctx context.Context, cfg *config.Config, secret, ghWebhookSec
 		WebhookSecret:       secret,
 		GitHubWebhookSecret: ghWebhookSecret,
 		PublicBaseURL:       s.PublicBaseURL,
+		Environment:         serverEnvironment(cfg),
 		GroupDepth:          groupDepth(s),
 		GroupPattern:        groupPattern(s),
 		LogsDir:             logsDir,
@@ -119,6 +121,15 @@ func buildServeApp(ctx context.Context, cfg *config.Config, secret, ghWebhookSec
 		app.PushVerifier = verify
 	}
 
+	if s.Executor != nil && s.Executor.Backend == "cloudbuild" {
+		token, _, err := creds(ctx)
+		if err != nil {
+			cleanup()
+			return nil, nil, fmt.Errorf("serve: gcp credentials for executor: %w", err)
+		}
+		app.Executor = executor.NewCloudBuild(s.Executor.Project, s.Executor.Region, s.Executor.Triggers, executor.TokenFunc(token))
+	}
+
 	if s.Approval != nil && s.Approval.Backend == "gcp-pam" {
 		token, impersonate, err := creds(ctx)
 		if err != nil {
@@ -151,6 +162,15 @@ func apiPrincipals(s *config.ServeConfig) map[string][]string {
 		m[strings.ToLower(p.Email)] = p.Scopes
 	}
 	return m
+}
+
+// serverEnvironment returns this tier's environment from the shared server{}
+// block ("" if unset — run triggering stays disarmed then).
+func serverEnvironment(cfg *config.Config) string {
+	if cfg.Server != nil {
+		return cfg.Server.Environment
+	}
+	return ""
 }
 
 // pubsubSA returns the configured Pub/Sub push service-account email ("" if unset).
@@ -263,6 +283,7 @@ func runServe(args []string) int {
 	defer cleanup()
 
 	go app.ReconcileLoop(ctx, 30*time.Second)
+	go app.RunWatchdogLoop(ctx, time.Minute, 10*time.Minute)
 	go app.OrphanSweepLoop(ctx, 5*time.Minute)
 	go app.ClaimsSweepLoop(ctx, time.Minute)
 	go app.CleanLogBuffers(24 * time.Hour)

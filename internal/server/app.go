@@ -22,6 +22,7 @@ import (
 	"github.com/Fluent-Health/terraform-stack-plan/internal/claims"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/config"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/eventsourcing"
+	"github.com/Fluent-Health/terraform-stack-plan/internal/executor"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/jwtutil"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/reconcile"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
@@ -38,6 +39,9 @@ type Config struct {
 	// PublicBaseURL is the public origin used for check-run Details links. Empty
 	// derives it from the inbound request (e.g. behind a TLS-terminating proxy).
 	PublicBaseURL string
+	// Environment is this serve's tier (e.g. "nonprod"). Run triggering scopes
+	// its ChangeSets to it; empty disables webhook-driven run triggering.
+	Environment string
 	// LogsDir is where per-stack log buffers are written. Empty disables log
 	// ingestion (the endpoints become no-ops).
 	LogsDir string
@@ -76,6 +80,10 @@ type App struct {
 	// Objects is the optional object store for completed-log offload. nil keeps
 	// logs in the local buffer only. Set after construction, like Approval.
 	Objects ObjectStore
+	// Executor is the optional CI backend serve drives when it triggers runs
+	// itself (webhook → build). nil keeps serve reactive-only (runs start via
+	// the CI system's own triggers, as before). Set after construction.
+	Executor executor.Backend
 	// PushVerifier verifies a Pub/Sub push OIDC bearer token, returning the
 	// token's email claim. Set externally (like Approval/Objects); nil disables
 	// the /pubsub/push endpoint (it returns 404).
@@ -325,6 +333,19 @@ func (a *App) baseURL(r *http.Request) string {
 
 func badRequest(w http.ResponseWriter, err error) {
 	http.Error(w, err.Error(), http.StatusBadRequest)
+}
+
+// supersedeExecution marks old superseded by new and redirects its live page
+// (the SSE consumers parse the "superseded:<id>" message). One helper for both
+// supersede writers — the runner-init path and the run-trigger cancel path.
+func (a *App) supersedeExecution(oldID, newID string) {
+	if err := store.SupersedeExecution(a.db, oldID, newID); err != nil {
+		log.Printf("supersede %s -> %s: %v", oldID, newID, err)
+		return
+	}
+	if a.hub != nil {
+		a.hub.publish("exec:"+oldID, "superseded:"+newID)
+	}
 }
 
 // liveURL builds the per-execution live-page URL. When WebhookSecret is set,

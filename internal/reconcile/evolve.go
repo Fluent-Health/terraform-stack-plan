@@ -56,6 +56,49 @@ func Evolve(cs ChangeSet, e Event) ChangeSet {
 		}
 		return cs
 
+	// --- run-triggering facts ---
+
+	case RunQueued:
+		return withRun(cs, Run{
+			ExecutionID: ev.ExecutionID, Kind: ev.Kind, SHA: ev.SHA,
+			Branch: ev.Branch, Attempt: ev.Attempt, Phase: RunPhaseQueued,
+		})
+
+	case RunStarted:
+		r, ok := cs.Runs[ev.Kind]
+		if !ok || r.ExecutionID != ev.ExecutionID {
+			return cs // stale: a supersede raced the start
+		}
+		r.BuildRef = ev.BuildRef
+		r.Phase = RunPhaseStarted
+		return withRun(cs, r)
+
+	case RunStartFailed:
+		r, ok := cs.Runs[ev.Kind]
+		if !ok || r.ExecutionID != ev.ExecutionID {
+			return cs
+		}
+		r.Phase = RunPhaseStartFailed
+		return withRun(cs, r)
+
+	case RunCompleted:
+		r, ok := cs.Runs[ev.Kind]
+		if !ok || r.ExecutionID != ev.ExecutionID {
+			return cs
+		}
+		r.Phase = RunPhaseCompleted
+		return withRun(cs, r)
+
+	case RunSuperseded:
+		r, ok := cs.Runs[ev.Kind]
+		if !ok || r.ExecutionID != ev.OldExecutionID {
+			return cs
+		}
+		// Usually followed in the same batch by the RunQueued that replaces
+		// this map entry; folding superseded first keeps replays total.
+		r.Phase = RunPhaseSuperseded
+		return withRun(cs, r)
+
 	// --- gate-lifecycle facts ---
 
 	case Classified:
@@ -207,4 +250,17 @@ func withTargetsAndLease(g GateState, targets []Target, lease Lease) GateState {
 		return v
 	}
 	return g
+}
+
+// withRun returns cs with the run stored under its kind. The map is cloned —
+// Evolve must never mutate shared state (a prior ChangeSet may still be
+// referenced by the caller).
+func withRun(cs ChangeSet, r Run) ChangeSet {
+	runs := make(map[string]Run, len(cs.Runs)+1)
+	for k, v := range cs.Runs {
+		runs[k] = v
+	}
+	runs[r.Kind] = r
+	cs.Runs = runs
+	return cs
 }

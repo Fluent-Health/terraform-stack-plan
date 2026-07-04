@@ -21,7 +21,10 @@ type applyLockVerdict struct {
 // prChangedStacks returns a PR's plan-time changed-stack set for env. ok=false
 // when there is no successful plan to read (caller fails closed).
 func (a *App) prChangedStacks(env string, pr int) ([]string, bool) {
-	id, ok := store.LatestExecutionID(a.db, pr, env)
+	// Latest REPORTED execution: a serve-queued run row (no runner data yet)
+	// must not read as "PR touches nothing" — that would flip a held
+	// apply-lock to clear on an empty graph. Fail closed instead.
+	id, ok := store.LatestReportedExecutionID(a.db, pr, env)
 	if !ok {
 		return nil, false
 	}

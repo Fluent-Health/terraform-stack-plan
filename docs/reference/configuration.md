@@ -419,6 +419,38 @@ runner poll loop.
 | `audience` | string | `<public_base_url>/pubsub/push` | OIDC token audience. Defaults to the push endpoint URL derived from `public_base_url` |
 | `service_account` | string | — (required) | Service account email the Pub/Sub push subscription authenticates as |
 
+### `executor "<backend>" {}` sub-block
+
+The CI backend serve drives when it triggers runs itself (webhook → build).
+Only `"cloudbuild"` is implemented. When the block is present **and** the
+shared `server { environment }` names this tier, serve requests a plan run on
+every PR head push, an apply run on every push to main, and honors the check
+Re-run button — posting the check run within the webhook turnaround. Omit the
+block to keep serve reactive-only (runs start via the CI system's own
+triggers). The trigger definitions stay terraform-managed; serve runs them by
+name via the Cloud Build API (the serve service account needs
+`cloudbuild.builds.create`/`get`/`cancel` in the project).
+
+```hcl
+executor "cloudbuild" {
+  project = "example-host-project"
+  region  = "asia-south1"
+  trigger "plan" { name = "nonprod-plan" }
+  trigger "apply" { name = "nonprod-apply" }
+}
+```
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `project` | string | — (required) | GCP project hosting the triggers |
+| `region` | string | — (required) | Cloud Build location of the triggers |
+| `trigger "<kind>" { name }` | block | — (required) | One block per run kind — both `plan` and `apply` are required; the label is the kind, `name` is the Cloud Build trigger name |
+
+Builds are started with the exact commit (`commitSha`) plus `_EXECUTION_ID`
+and `_PR_NUMBER` substitutions; the build must export
+`TFSTACKPLAN_EXECUTION="${_EXECUTION_ID}"` so the runner reports under the
+serve-minted execution (the queued check run seamlessly becomes the live one).
+
 ### `api_auth {}` sub-block
 
 Google OIDC bearer auth for `/api/*`. Callers present Google-signed ID tokens;

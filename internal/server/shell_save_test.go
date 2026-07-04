@@ -50,7 +50,7 @@ func TestProjectPersistsTargetsAndPrunes(t *testing.T) {
 		Lease:   reconcile.Lease{Requester: "sa3"},
 		Targets: []reconcile.Target{{Class: "iam", Target: "p1", GrantName: "g1", Grant: approval.StateActive}},
 	}}
-	if err := sh.project(cs); err != nil {
+	if err := sh.project(cs, nil); err != nil {
 		t.Fatal(err)
 	}
 

@@ -18,11 +18,15 @@ func Decide(state ChangeSet, s Signal) []Event {
 	case RunnerUpdate:
 		return []Event{StackStatusChanged{Stack: sig.Stack, Status: sig.Status, Detail: sig.Detail}}
 	case RunnerFinalize:
-		return decideFinalize(state, sig)
+		return append(runCompletionEvents(state, sig.ApplyContext), decideFinalize(state, sig)...)
 	case GrantsObserved:
 		return decideObserve(state, sig.Grants, false)
 	case GateTick:
 		return decideObserve(state, sig.Grants, true)
+	case RunRequested:
+		return decideRunRequested(state, sig)
+	case RunStartResult:
+		return decideRunStartResult(state, sig)
 	case ApplySucceeded:
 		if _, ok := state.Gate.(NotClassified); ok {
 			return nil

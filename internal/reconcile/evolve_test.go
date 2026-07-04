@@ -74,6 +74,11 @@ func corpus() []Event {
 		GatePassed{}, GateReleased{},
 		ClaimReleased{PR: 1, Environment: "nonprod"},
 		PRClosedRecorded{},
+		RunQueued{Kind: RunKindPlan, SHA: "abc123", Branch: "feat/x", ExecutionID: "run-1-nonprod-plan-abc123-a1", Attempt: 1},
+		RunStarted{Kind: RunKindPlan, ExecutionID: "run-1-nonprod-plan-abc123-a1", BuildRef: "b-1"},
+		RunStartFailed{Kind: RunKindPlan, ExecutionID: "run-1-nonprod-plan-abc123-a1", Reason: "api error"},
+		RunSuperseded{Kind: RunKindPlan, OldExecutionID: "run-1-nonprod-plan-abc123-a1", OldBuildRef: "b-1", NewExecutionID: "run-1-nonprod-plan-def456-a1", NewSHA: "def456"},
+		RunCompleted{Kind: RunKindPlan, ExecutionID: "run-1-nonprod-plan-abc123-a1"},
 	}
 }
 

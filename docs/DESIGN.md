@@ -1868,6 +1868,52 @@ already verifying Pub/Sub pushes:
   deliberately rejected (public repo, secretless fork CI, ToS-fragile robot
   accounts); real-Google integration is what the nonprod rollout bake covers.
 
+### Serve as the CI driver — webhook-triggered runs (inert until configured)
+
+The second increment of the CI/CD-driver evolution: serve receives the GitHub
+webhooks and starts the builds itself, instead of Cloud Build's own GitHub-app
+event triggers. Feedback (check run + live link) appears within the webhook
+turnaround — before any build machine spins up. Everything is **inert unless
+both** an `executor "<backend>" {}` block is configured **and** the tier
+environment is known (`server { environment }`); a disarmed serve behaves
+exactly as before.
+
+- **Event-sourced run lifecycle**: webhook → `RunRequested{kind, sha, branch,
+  rerun}` through the shell → `RunQueued` (execution row + "queued" check run
+  materialized, `StartRun` issued) → `RunStarted{buildRef}` or
+  `RunStartFailed{reason}` (terminal check failure — a build that never starts
+  is no longer silent). A new SHA supersedes a live plan run (`RunSuperseded` →
+  store supersede + best-effort build cancel); a live apply is never disturbed.
+  Same-(kind,sha) redeliveries no-op in the decider. Execution ids are minted
+  deterministically (`run-<pr>-<env>-<kind>-<sha12>-a<attempt>`) — the pure
+  core cannot use randomness — and the build must report under that id (the
+  `_EXECUTION_ID` substitution → `TFSTACKPLAN_EXECUTION`, wired at cutover).
+- **Ingest**: `pull_request` opened/reopened/synchronize → plan run for the
+  head SHA; `push` to main → apply run, PR recovered from the merge-commit
+  subject (squash/merge conventions; direct pushes are skipped); `check_run`
+  rerequested (GitHub's native Re-run button) → the same kind again for THIS
+  tier's check names only, bumping the attempt.
+- **Executor seam** (`internal/executor`): `Backend{Start, Cancel, Probe}`.
+  Only `cloudbuild` is implemented — gcppam-style injected token func + raw
+  REST (`triggers.run` with `commitSha` + substitutions, `builds.cancel`,
+  `builds.get`), offline-tested against a fake endpoint. The Cloud Build
+  trigger definitions stay terraform-managed; serve runs them by name. Other
+  backends (github-actions `workflow_dispatch`, gitlab, generic webhook) are
+  documented shapes behind the same seam.
+- **Shell integration**: the fixpoint loop generalized from grant observations
+  to feedback signals — `StartRun` yields `RunStartResult` exactly like
+  `RequestGrant` yields `GrantsObserved`. `project()` marks start-failed runs'
+  execution rows failed (nothing else would ever move them off in_progress).
+- **Start watchdog** (`RunWatchdogLoop`, 1 min cadence, 10 min timeout): an
+  execution still queued with no runner activity past the timeout gets its
+  build probed — still provisioning/working is left alone; failed / vanished /
+  finished-silent becomes `RunStartFailed` → terminal check failure.
+- **Cutover** (the infra side, later): widen the repo webhook events
+  (pull_request + push + check_run), strip the `github {}` blocks from the
+  Cloud Build triggers (manual triggers post no native checks), add the
+  executor block to the serve config, and have the build yamls consume
+  `_EXECUTION_ID`. Until then nothing changes in production.
+
 ### Delivery: binary + Cloud Run container
 
 The `serve` face is intended to run as a Cloud Run-class service, so a release

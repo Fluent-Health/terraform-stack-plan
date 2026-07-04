@@ -208,6 +208,60 @@ serve {
 	}
 }
 
+func TestLoadServeExecutor(t *testing.T) {
+	cfg, err := Load(writeCfg(t, `
+serve {
+  db_path = "x.db"
+  executor "cloudbuild" {
+    project = "fh-nonprod-host"
+    region  = "asia-south1"
+    trigger "plan"  { name = "nonprod-plan" }
+    trigger "apply" { name = "nonprod-apply" }
+  }
+}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ex := cfg.Serve.Executor
+	if ex == nil {
+		t.Fatal("executor block not parsed")
+	}
+	if ex.Backend != "cloudbuild" || ex.Project != "fh-nonprod-host" || ex.Region != "asia-south1" {
+		t.Errorf("executor = %+v", ex)
+	}
+	if ex.Triggers["plan"] != "nonprod-plan" || ex.Triggers["apply"] != "nonprod-apply" {
+		t.Errorf("triggers = %v", ex.Triggers)
+	}
+}
+
+func TestLoadServeExecutorValidation(t *testing.T) {
+	cases := map[string]string{
+		"unknown backend": `
+serve { executor "jenkins" { project = "p", region = "r"
+  trigger "plan" { name = "n" }
+  trigger "apply" { name = "n" } } }`,
+		"missing region": `
+serve { executor "cloudbuild" { project = "p"
+  trigger "plan" { name = "n" }
+  trigger "apply" { name = "n" } } }`,
+		"unknown trigger kind": `
+serve { executor "cloudbuild" { project = "p", region = "r"
+  trigger "deploy" { name = "n" } } }`,
+		"missing apply trigger": `
+serve { executor "cloudbuild" { project = "p", region = "r"
+  trigger "plan" { name = "n" } } }`,
+		"unnamed trigger": `
+serve { executor "cloudbuild" { project = "p", region = "r"
+  trigger "plan" {}
+  trigger "apply" { name = "n" } } }`,
+	}
+	for name, body := range cases {
+		if _, err := Load(writeCfg(t, body)); err == nil {
+			t.Errorf("%s: config should fail at load", name)
+		}
+	}
+}
+
 func TestExampleServeConfigParses(t *testing.T) {
 	cfg, err := Load("../../examples/serve.tfstackplan.hcl")
 	if err != nil {

@@ -16,6 +16,45 @@ type ChangeSet struct {
 	Environment string
 	Exec        Execution
 	Gate        GateState
+	// Runs tracks serve-initiated CI runs, keyed by kind (plan/apply). Only
+	// the run-start lifecycle lives here (webhook → build started); once the
+	// runner reports, Exec carries the execution facts as before.
+	Runs map[string]Run
+}
+
+// Run kinds — the two CI run flavors serve can trigger.
+const (
+	RunKindPlan  = "plan"
+	RunKindApply = "apply"
+)
+
+// Run is the serve-initiated lifecycle of one CI run: requested by a webhook,
+// queued (execution + check run exist), started (build accepted by the
+// executor backend), or terminally start_failed / superseded.
+type Run struct {
+	ExecutionID string
+	Kind        string // RunKindPlan | RunKindApply
+	SHA         string
+	Branch      string
+	Attempt     int      // bumps on rerun / retry-after-failure (part of the deterministic execution id)
+	BuildRef    string   // executor backend reference ("" until started)
+	Phase       RunPhase //
+}
+
+// RunPhase is the run-start lifecycle phase.
+type RunPhase string
+
+const (
+	RunPhaseQueued      RunPhase = "queued"       // execution created, StartRun pending/issued
+	RunPhaseStarted     RunPhase = "started"      // executor accepted the build
+	RunPhaseStartFailed RunPhase = "start_failed" // executor refused / start errored
+	RunPhaseSuperseded  RunPhase = "superseded"   // a newer SHA replaced this run
+	RunPhaseCompleted   RunPhase = "completed"    // the runner took over and finalized
+)
+
+// Live reports whether the run is still in flight (may be superseded/cancelled).
+func (r Run) Live() bool {
+	return r.Phase == RunPhaseQueued || r.Phase == RunPhaseStarted
 }
 
 // Execution is the plan/apply run for the ChangeSet (edge-triggered facts).

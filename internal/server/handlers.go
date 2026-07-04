@@ -64,6 +64,13 @@ func (a *App) handleInit(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, err)
 		return
 	}
+	// Normalize the gate context at write: the runner sends "" for the plan
+	// gate while serve-queued executions carry "plan/<env>" — both must land in
+	// one supersede bucket (FindNonSupersededExecution matches on the stored
+	// context), or a runner init can never supersede its serve-queued twin.
+	if isGate(in.Context, in.Environment) {
+		in.Context = statusContext(in.Environment)
+	}
 	if err := store.UpsertInit(a.db, in); err != nil {
 		http.Error(w, "store init", http.StatusInternalServerError)
 		return
@@ -71,11 +78,7 @@ func (a *App) handleInit(w http.ResponseWriter, r *http.Request) {
 	if in.PR > 0 {
 		oldID, found, err := store.FindNonSupersededExecution(a.db, in.PR, in.Environment, in.SHA, in.Context, in.ID)
 		if err == nil && found {
-			if err := store.SupersedeExecution(a.db, oldID, in.ID); err == nil {
-				if a.hub != nil {
-					a.hub.publish("exec:"+oldID, "superseded:"+in.ID)
-				}
-			}
+			a.supersedeExecution(oldID, in.ID)
 		}
 	}
 	base := a.baseURL(r)

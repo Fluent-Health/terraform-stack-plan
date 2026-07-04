@@ -83,6 +83,33 @@ func React(state ChangeSet, evs []Event) []Action {
 				renderPrec = 2
 				renderAction = RenderCheckRun{Terminal: true, Conclusion: "action_required"}
 			}
+		case RunQueued:
+			// Start the build; the shell first materializes the queued execution
+			// + check run so feedback lands within the webhook turnaround.
+			actions = append(actions, StartRun{Kind: ev.Kind, SHA: ev.SHA, Branch: ev.Branch, ExecutionID: ev.ExecutionID})
+			if renderPrec < 1 {
+				renderPrec = 1
+				renderAction = RenderCheckRun{}
+			}
+		case RunStarted:
+			// Non-terminal render: the check title moves queued → provisioning.
+			if renderPrec < 1 {
+				renderPrec = 1
+				renderAction = RenderCheckRun{}
+			}
+		case RunStartFailed:
+			// The build never started: terminal failure (vs the old silent nothing).
+			if renderPrec < 3 {
+				renderPrec = 3
+				renderAction = RenderCheckRun{Terminal: true, Conclusion: "failure"}
+			}
+		case RunSuperseded:
+			actions = append(actions, CancelRun{
+				Kind:           ev.Kind,
+				OldExecutionID: ev.OldExecutionID,
+				OldBuildRef:    ev.OldBuildRef,
+				NewExecutionID: ev.NewExecutionID,
+			})
 		case ClaimReleased:
 			actions = append(actions, ReleaseClaim{PR: ev.PR, Environment: ev.Environment})
 		case TargetRevoked:
