@@ -1821,9 +1821,14 @@ already verifying Pub/Sub pushes:
   gcloud client id, accepted via `extra_audiences`. The audience check runs in
   the verifier against this allowlist (not inside `idtoken.Validate`).
 - **Clients**: `internal/gauth` obtains ID tokens from Application Default
-  Credentials — `idtoken.NewTokenSource` for service accounts (Cloud Build /
-  GCE metadata, keys, impersonation), falling back to the `id_token` riding
-  the user-ADC refresh grant. OIDC is **opt-in via `TFSTACKPLAN_AUDIENCE`**
+  Credentials, in order: `idtoken.NewTokenSource` (SA keys, GCE/GKE metadata,
+  impersonated creds); then — when a metadata server exists but its
+  identity endpoint doesn't (**Cloud Build**, unlike real GCE, does not
+  implement it, discovered live during the runner flip) — the IAM Credentials
+  `generateIdToken` API as the ambient SA itself, which requires the SA to
+  hold `roles/iam.serviceAccountOpenIdTokenCreator` on itself (self-grant in
+  the infra companion); finally the `id_token` riding the user-ADC refresh
+  grant. OIDC is **opt-in via `TFSTACKPLAN_AUDIENCE`**
   (with `TFSTACKPLAN_TOKEN` unset): a token-less environment never probes
   ambient machine credentials, never hard-fails on a stale ADC file, and never
   sends a replayable ID token to whatever host the server URL happens to name.

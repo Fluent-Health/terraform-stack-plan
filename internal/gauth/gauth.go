@@ -17,9 +17,12 @@ import (
 	"fmt"
 	"time"
 
+	"cloud.google.com/go/compute/metadata"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/idtoken"
+	"google.golang.org/api/impersonate"
+	"google.golang.org/api/option"
 )
 
 // TokenFunc returns a currently-valid bearer token. Implementations cache and
@@ -32,6 +35,19 @@ func Source(ctx context.Context, audience string) (TokenFunc, error) {
 	if ts, err := idtoken.NewTokenSource(ctx, audience); err == nil {
 		return fromTokenSource(ts, func(t *oauth2.Token) string { return t.AccessToken }), nil
 	}
+	// Cloud Build: a metadata server exists (so ADC resolves to compute
+	// credentials) but — unlike real GCE/GKE — it does not implement the
+	// identity-token endpoint, so idtoken.NewTokenSource fails above. Mint
+	// through the IAM Credentials generateIdToken API as the ambient service
+	// account itself. Requires the SA to hold
+	// roles/iam.serviceAccountOpenIdTokenCreator on itself (self-grant).
+	if metadata.OnGCE() {
+		email, err := metadata.EmailWithContext(ctx, "default")
+		if err != nil {
+			return nil, fmt.Errorf("metadata identity endpoint unavailable and SA email lookup failed: %w", err)
+		}
+		return selfIDTokenSource(ctx, audience, email)
+	}
 	// idtoken refuses user ADC ("unsupported credentials type") — fall back to
 	// the id_token carried on the user refresh grant.
 	creds, err := google.FindDefaultCredentials(ctx, "openid", "email")
@@ -43,6 +59,23 @@ func Source(ctx context.Context, audience string) (TokenFunc, error) {
 		id, _ := t.Extra("id_token").(string)
 		return id
 	}), nil
+}
+
+// selfIDTokenSource mints ID tokens for audience by calling the IAM
+// Credentials generateIdToken API with the ambient credentials, targeting
+// email — normally the caller's own service account (self-impersonation, the
+// Cloud Build path). opts configure the underlying HTTP client; tests inject
+// a fake iamcredentials endpoint.
+func selfIDTokenSource(ctx context.Context, audience, email string, opts ...option.ClientOption) (TokenFunc, error) {
+	ts, err := impersonate.IDTokenSource(ctx, impersonate.IDTokenConfig{
+		TargetPrincipal: email,
+		Audience:        audience,
+		IncludeEmail:    true,
+	}, opts...)
+	if err != nil {
+		return nil, fmt.Errorf("iamcredentials id-token source for %s: %w", email, err)
+	}
+	return fromTokenSource(ts, func(t *oauth2.Token) string { return t.AccessToken }), nil
 }
 
 // SourceTimeout builds Source but bounds credential discovery — which may
