@@ -23,6 +23,10 @@ func Decide(state ChangeSet, s Signal) []Event {
 		return decideObserve(state, sig.Grants, false)
 	case GateTick:
 		return decideObserve(state, sig.Grants, true)
+	case RunRequested:
+		return decideRunRequested(state, sig)
+	case RunStartResult:
+		return decideRunStartResult(state, sig)
 	case ApplySucceeded:
 		if _, ok := state.Gate.(NotClassified); ok {
 			return nil

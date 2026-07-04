@@ -55,6 +55,14 @@ func eventTag(e Event) string {
 		return "ClaimReleased"
 	case PRClosedRecorded:
 		return "PRClosedRecorded"
+	case RunQueued:
+		return "RunQueued"
+	case RunStarted:
+		return "RunStarted"
+	case RunStartFailed:
+		return "RunStartFailed"
+	case RunSuperseded:
+		return "RunSuperseded"
 	default:
 		return ""
 	}
@@ -95,6 +103,14 @@ func UnmarshalEvent(tag string, data []byte) (Event, error) {
 		return unmarshalInto[ClaimReleased](data)
 	case "PRClosedRecorded":
 		return unmarshalInto[PRClosedRecorded](data)
+	case "RunQueued":
+		return unmarshalInto[RunQueued](data)
+	case "RunStarted":
+		return unmarshalInto[RunStarted](data)
+	case "RunStartFailed":
+		return unmarshalInto[RunStartFailed](data)
+	case "RunSuperseded":
+		return unmarshalInto[RunSuperseded](data)
 	default:
 		return nil, fmt.Errorf("reconcile: unknown event tag %q", tag)
 	}
@@ -117,6 +133,7 @@ type snapshotDTO struct {
 	Exec        Execution       `json:"exec"`
 	GateKind    string          `json:"gate_kind"`
 	Gate        json.RawMessage `json:"gate"`
+	Runs        map[string]Run  `json:"runs,omitempty"`
 }
 
 // MarshalSnapshot serializes a folded ChangeSet (the GateState sum type is encoded
@@ -132,7 +149,7 @@ func MarshalSnapshot(cs ChangeSet) ([]byte, error) {
 	}
 	return json.Marshal(snapshotDTO{
 		PR: cs.PR, Environment: cs.Environment, Exec: cs.Exec,
-		GateKind: kind, Gate: gateJSON,
+		GateKind: kind, Gate: gateJSON, Runs: cs.Runs,
 	})
 }
 
@@ -159,7 +176,7 @@ func UnmarshalSnapshot(b []byte) (ChangeSet, error) {
 	if err := json.Unmarshal(b, &dto); err != nil {
 		return ChangeSet{}, err
 	}
-	cs := ChangeSet{PR: dto.PR, Environment: dto.Environment, Exec: dto.Exec}
+	cs := ChangeSet{PR: dto.PR, Environment: dto.Environment, Exec: dto.Exec, Runs: dto.Runs}
 	gate, err := decodeGate(dto.GateKind, dto.Gate)
 	if err != nil {
 		return ChangeSet{}, err
