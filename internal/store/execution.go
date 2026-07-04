@@ -307,3 +307,30 @@ func SupersedeExecution(db *sql.DB, oldID, newID string) error {
 	)
 	return err
 }
+
+// StuckPendingExecutions returns non-superseded executions still in_progress
+// with no runner activity at all (empty phase) created before cutoff — the
+// start-watchdog's candidates: serve queued a run but no runner ever reported.
+func StuckPendingExecutions(db *sql.DB, cutoff time.Time) ([]Execution, error) {
+	rows, err := db.Query(
+		`SELECT id, repo, sha, COALESCE(pr,0), COALESCE(environment,''), COALESCE(status,''),
+		        COALESCE(status_context,''), COALESCE(phase,''), created_at
+		   FROM executions
+		  WHERE status = 'in_progress' AND COALESCE(phase,'') = ''
+		    AND COALESCE(superseded_by,'') = ''
+		    AND created_at < ?`, cutoff.UTC())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Execution
+	for rows.Next() {
+		var e Execution
+		if err := rows.Scan(&e.ID, &e.Repo, &e.SHA, &e.PR, &e.Environment, &e.Status,
+			&e.StatusContext, &e.Phase, &e.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}

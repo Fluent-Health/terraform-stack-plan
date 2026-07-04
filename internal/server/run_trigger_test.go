@@ -6,7 +6,9 @@ import (
 	"net/http/httptest"
 	"sync"
 	"testing"
+	"time"
 
+	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/executor"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
@@ -232,5 +234,55 @@ func TestWebhookStartFailureFailsCheck(t *testing.T) {
 	}
 	if e.Status != "failure" {
 		t.Errorf("execution status = %q, want failure (start never happened)", e.Status)
+	}
+}
+
+// TestWatchdogFailsVanishedBuild: a queued run whose build the executor no
+// longer knows must terminally fail after the timeout; a working build stays.
+func TestWatchdogFailsVanishedBuild(t *testing.T) {
+	a, fe, srv := newRunTriggerApp(t)
+
+	webhookReq(t, srv, whSecret, "pull_request", prSyncPayload(7, "sha-one")).Body.Close()
+	if len(fe.starts) != 1 {
+		t.Fatalf("starts = %+v", fe.starts)
+	}
+	id := fe.starts[0].ExecutionID
+
+	// Age the row past the watchdog timeout.
+	if _, err := a.db.Exec(`UPDATE executions SET created_at = datetime('now', '-1 hour') WHERE id = ?`, id); err != nil {
+		t.Fatal(err)
+	}
+
+	// Still working: the watchdog leaves it alone.
+	fe.phase = executor.PhaseWorking
+	a.watchRunsOnce(context.Background(), 10*time.Minute)
+	e, _ := store.GetExecution(a.db, id)
+	if e.Status != "in_progress" {
+		t.Fatalf("working build must be left alone, status = %q", e.Status)
+	}
+
+	// Vanished: terminal failure.
+	fe.phase = executor.PhaseNotFound
+	a.watchRunsOnce(context.Background(), 10*time.Minute)
+	e, _ = store.GetExecution(a.db, id)
+	if e.Status != "failure" {
+		t.Fatalf("vanished build must fail the run, status = %q", e.Status)
+	}
+}
+
+// TestWatchdogIgnoresRunnerCreatedExecutions: executions the runner registered
+// itself (no serve run in the stream) are not the watchdog's business.
+func TestWatchdogIgnoresRunnerCreatedExecutions(t *testing.T) {
+	a, _, _ := newRunTriggerApp(t)
+	if err := store.UpsertInit(a.db, events.Init{ID: "runner-e1", PR: 9, Environment: "nonprod", Repo: "o/r"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.db.Exec(`UPDATE executions SET created_at = datetime('now', '-1 hour') WHERE id = 'runner-e1'`); err != nil {
+		t.Fatal(err)
+	}
+	a.watchRunsOnce(context.Background(), 10*time.Minute)
+	e, _ := store.GetExecution(a.db, "runner-e1")
+	if e.Status != "in_progress" {
+		t.Fatalf("runner-created execution must be untouched, status = %q", e.Status)
 	}
 }
