@@ -56,6 +56,11 @@ func progressTitle(prog *config.ProgressConfig, phase events.Phase, stacks []eve
 		}
 		return terminalSummary(kindLabel, stacks)
 	}
+	// A serve-queued execution (run triggered, runner not reporting yet) has no
+	// phase and no stacks: a progress bar would read "0/0", so name the state.
+	if phase == "" && len(stacks) == 0 {
+		return "queued — waiting for the build to start"
+	}
 	bar, _, label := runProgress(prog, phase, stacks, kind)
 	return bar + " · " + label
 }

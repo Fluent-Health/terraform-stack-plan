@@ -44,6 +44,19 @@ func (sh *Shell) project(cs reconcile.ChangeSet) error {
 		}
 	}
 
+	// Run-lifecycle projection: a run whose start failed marks its execution row
+	// failed — the runner will never report, so nothing else would ever move the
+	// row off in_progress (the terminal check render derives from this).
+	for _, r := range cs.Runs {
+		if r.Phase == reconcile.RunPhaseStartFailed {
+			if _, err := tx.Exec(
+				`UPDATE executions SET status = 'failure' WHERE id = ? AND status = 'in_progress'`,
+				r.ExecutionID); err != nil {
+				return err
+			}
+		}
+	}
+
 	// Prune persisted targets the new state dropped.
 	// Prune set is read via the pooled connection (not tx): under the per-(pr,env)
 	// lock no other writer touches these rows, and the tx's own upserts are in

@@ -15,11 +15,15 @@ func TestExecuteRequestGrantYieldsObservedGrant(t *testing.T) {
 	sh := NewShell(app)
 
 	cs := reconcile.ChangeSet{PR: 7, Environment: "staging"}
-	obs := sh.execute(context.Background(), cs, "repo", []reconcile.Action{
+	feedback := sh.execute(context.Background(), cs, "repo", []reconcile.Action{
 		reconcile.RequestGrant{Class: "iam", Target: "p1", Requester: ""},
 	})
-	if len(obs) != 1 || obs[0].Target != "p1" || obs[0].State == "" {
-		t.Fatalf("want one observed grant for p1, got %+v", obs)
+	if len(feedback) != 1 {
+		t.Fatalf("want one feedback signal, got %+v", feedback)
+	}
+	obs, ok := feedback[0].(reconcile.GrantsObserved)
+	if !ok || len(obs.Grants) != 1 || obs.Grants[0].Target != "p1" || obs.Grants[0].State == "" {
+		t.Fatalf("want one observed grant for p1, got %+v", feedback[0])
 	}
 }
 
@@ -27,10 +31,10 @@ func TestExecuteRevokeYieldsNoResult(t *testing.T) {
 	app := New(newServerTestDB(t), &MockGitHub{}, Config{})
 	app.Approval = approval.NewFake()
 	sh := NewShell(app)
-	obs := sh.execute(context.Background(), reconcile.ChangeSet{PR: 7, Environment: "staging"}, "repo",
+	feedback := sh.execute(context.Background(), reconcile.ChangeSet{PR: 7, Environment: "staging"}, "repo",
 		[]reconcile.Action{reconcile.RevokeGrant{Class: "iam", Target: "p1", PR: 7, Environment: "staging"}})
-	if len(obs) != 0 {
-		t.Fatalf("revoke must yield no result, got %+v", obs)
+	if len(feedback) != 0 {
+		t.Fatalf("revoke must yield no feedback, got %+v", feedback)
 	}
 }
 

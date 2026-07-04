@@ -8,7 +8,11 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"regexp"
+	"strconv"
 	"strings"
+
+	"github.com/Fluent-Health/terraform-stack-plan/internal/reconcile"
 )
 
 // handleGitHubWebhook receives GitHub webhook events at POST /github/webhook.
@@ -34,6 +38,12 @@ func (a *App) handleGitHubWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 
 	switch r.Header.Get("X-GitHub-Event") {
+	case "push":
+		a.handlePushEventWebhook(w, r, body)
+		return
+	case "check_run":
+		a.handleCheckRunWebhook(w, r, body)
+		return
 	case "merge_group":
 		var mg struct {
 			Action     string `json:"action"`
@@ -66,6 +76,10 @@ func (a *App) handleGitHubWebhook(w http.ResponseWriter, r *http.Request) {
 		PullRequest struct {
 			Number int  `json:"number"`
 			Merged bool `json:"merged"`
+			Head   struct {
+				SHA string `json:"sha"`
+				Ref string `json:"ref"`
+			} `json:"head"`
 		} `json:"pull_request"`
 		Repository struct {
 			FullName string `json:"full_name"`
@@ -83,6 +97,20 @@ func (a *App) handleGitHubWebhook(w http.ResponseWriter, r *http.Request) {
 	case "opened", "reopened", "synchronize":
 		if pr > 0 {
 			a.handlePRApplyLock(r.Context(), repoFullName, pr, false)
+			// Serve-as-driver: request the plan run for the new head. Inside the
+			// webhook turnaround, so the check + live link appear before any
+			// build machine spins up. A redelivery no-ops in the decider.
+			if a.runTriggerArmed() {
+				if err := a.shell.Handle(r.Context(), pr, a.cfg.Environment, repoFullName, reconcile.RunRequested{
+					Kind:   reconcile.RunKindPlan,
+					SHA:    payload.PullRequest.Head.SHA,
+					Branch: payload.PullRequest.Head.Ref,
+				}); err != nil {
+					log.Printf("webhook: plan run request pr=%d: %v", pr, err)
+					http.Error(w, "run request failed", http.StatusInternalServerError)
+					return
+				}
+			}
 		}
 		w.WriteHeader(http.StatusNoContent)
 		return
@@ -124,4 +152,133 @@ func verifyGitHubSig(secret []byte, sigHeader string, body []byte) bool {
 	mac := hmac.New(sha256.New, secret)
 	mac.Write(body)
 	return hmac.Equal(mac.Sum(nil), expected)
+}
+
+// runTriggerArmed reports whether serve drives CI runs itself: an executor
+// backend is wired and the tier environment is known.
+func (a *App) runTriggerArmed() bool {
+	return a.Executor != nil && a.cfg.Environment != ""
+}
+
+// prFromMergeSubject recovers the PR number from a merge-commit subject line.
+// Two formats: squash "<title> (#N)" and merge "Merge pull request #N from …".
+// Returns 0 when neither matches (e.g. a direct push).
+func prFromMergeSubject(subject string) int {
+	if m := squashSubjectRE.FindStringSubmatch(subject); m != nil {
+		n, _ := strconv.Atoi(m[1])
+		return n
+	}
+	if m := mergeSubjectRE.FindStringSubmatch(subject); m != nil {
+		n, _ := strconv.Atoi(m[1])
+		return n
+	}
+	return 0
+}
+
+var (
+	squashSubjectRE = regexp.MustCompile(`\(#([0-9]+)\)`)
+	mergeSubjectRE  = regexp.MustCompile(`^Merge pull request #([0-9]+) `)
+)
+
+// handlePushEventWebhook requests the post-merge apply run for a push to main.
+// The PR number is recovered from the merge-commit subject (same convention as
+// the CI apply build); a push with no recoverable PR is skipped — there is no
+// changeset to correlate the gate to.
+func (a *App) handlePushEventWebhook(w http.ResponseWriter, r *http.Request, body []byte) {
+	if !a.runTriggerArmed() {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	var p struct {
+		Ref        string `json:"ref"`
+		After      string `json:"after"`
+		HeadCommit struct {
+			Message string `json:"message"`
+		} `json:"head_commit"`
+		Repository struct {
+			FullName string `json:"full_name"`
+		} `json:"repository"`
+	}
+	if err := json.Unmarshal(body, &p); err != nil {
+		http.Error(w, "invalid payload", http.StatusBadRequest)
+		return
+	}
+	if p.Ref != "refs/heads/main" || p.After == "" {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	subject, _, _ := strings.Cut(p.HeadCommit.Message, "\n")
+	pr := prFromMergeSubject(subject)
+	if pr == 0 {
+		log.Printf("webhook: push %.12s to main has no recoverable PR — skipping apply run", p.After)
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if err := a.shell.Handle(r.Context(), pr, a.cfg.Environment, p.Repository.FullName, reconcile.RunRequested{
+		Kind:   reconcile.RunKindApply,
+		SHA:    p.After,
+		Branch: "main",
+	}); err != nil {
+		log.Printf("webhook: apply run request pr=%d: %v", pr, err)
+		http.Error(w, "run request failed", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleCheckRunWebhook re-requests the matching run when GitHub's native
+// Re-run button is pressed on one of THIS serve's check runs. Other tiers'
+// checks (and unrelated apps') are ignored.
+func (a *App) handleCheckRunWebhook(w http.ResponseWriter, r *http.Request, body []byte) {
+	if !a.runTriggerArmed() {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	var p struct {
+		Action   string `json:"action"`
+		CheckRun struct {
+			Name         string `json:"name"`
+			HeadSHA      string `json:"head_sha"`
+			PullRequests []struct {
+				Number int `json:"number"`
+			} `json:"pull_requests"`
+		} `json:"check_run"`
+		Repository struct {
+			FullName string `json:"full_name"`
+		} `json:"repository"`
+	}
+	if err := json.Unmarshal(body, &p); err != nil {
+		http.Error(w, "invalid payload", http.StatusBadRequest)
+		return
+	}
+	if p.Action != "rerequested" {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	var kind string
+	switch p.CheckRun.Name {
+	case checkRunName(a.cfg.Environment):
+		kind = reconcile.RunKindPlan
+	case runContext(reconcile.RunKindApply, a.cfg.Environment):
+		kind = reconcile.RunKindApply
+	default:
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if len(p.CheckRun.PullRequests) == 0 {
+		log.Printf("webhook: check_run rerequested for %s %.12s carries no PR — skipping", p.CheckRun.Name, p.CheckRun.HeadSHA)
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	pr := p.CheckRun.PullRequests[0].Number
+	if err := a.shell.Handle(r.Context(), pr, a.cfg.Environment, p.Repository.FullName, reconcile.RunRequested{
+		Kind:  kind,
+		SHA:   p.CheckRun.HeadSHA,
+		Rerun: true,
+	}); err != nil {
+		log.Printf("webhook: rerun request pr=%d kind=%s: %v", pr, kind, err)
+		http.Error(w, "run request failed", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }

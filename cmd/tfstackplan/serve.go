@@ -82,6 +82,7 @@ func buildServeApp(ctx context.Context, cfg *config.Config, secret, ghWebhookSec
 		WebhookSecret:       secret,
 		GitHubWebhookSecret: ghWebhookSecret,
 		PublicBaseURL:       s.PublicBaseURL,
+		Environment:         serverEnvironment(cfg),
 		GroupDepth:          groupDepth(s),
 		GroupPattern:        groupPattern(s),
 		LogsDir:             logsDir,
@@ -161,6 +162,15 @@ func apiPrincipals(s *config.ServeConfig) map[string][]string {
 		m[strings.ToLower(p.Email)] = p.Scopes
 	}
 	return m
+}
+
+// serverEnvironment returns this tier's environment from the shared server{}
+// block ("" if unset — run triggering stays disarmed then).
+func serverEnvironment(cfg *config.Config) string {
+	if cfg.Server != nil {
+		return cfg.Server.Environment
+	}
+	return ""
 }
 
 // pubsubSA returns the configured Pub/Sub push service-account email ("" if unset).

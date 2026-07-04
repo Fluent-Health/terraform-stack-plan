@@ -39,6 +39,9 @@ type Config struct {
 	// PublicBaseURL is the public origin used for check-run Details links. Empty
 	// derives it from the inbound request (e.g. behind a TLS-terminating proxy).
 	PublicBaseURL string
+	// Environment is this serve's tier (e.g. "nonprod"). Run triggering scopes
+	// its ChangeSets to it; empty disables webhook-driven run triggering.
+	Environment string
 	// LogsDir is where per-stack log buffers are written. Empty disables log
 	// ingestion (the endpoints become no-ops).
 	LogsDir string
