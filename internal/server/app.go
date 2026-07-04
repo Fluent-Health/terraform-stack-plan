@@ -22,6 +22,7 @@ import (
 	"github.com/Fluent-Health/terraform-stack-plan/internal/claims"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/config"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/eventsourcing"
+	"github.com/Fluent-Health/terraform-stack-plan/internal/executor"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/jwtutil"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/reconcile"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
@@ -76,6 +77,10 @@ type App struct {
 	// Objects is the optional object store for completed-log offload. nil keeps
 	// logs in the local buffer only. Set after construction, like Approval.
 	Objects ObjectStore
+	// Executor is the optional CI backend serve drives when it triggers runs
+	// itself (webhook → build). nil keeps serve reactive-only (runs start via
+	// the CI system's own triggers, as before). Set after construction.
+	Executor executor.Backend
 	// PushVerifier verifies a Pub/Sub push OIDC bearer token, returning the
 	// token's email claim. Set externally (like Approval/Objects); nil disables
 	// the /pubsub/push endpoint (it returns 404).

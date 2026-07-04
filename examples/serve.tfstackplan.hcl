@@ -107,6 +107,17 @@ serve {
     service_account = "pubsub-pusher@example.iam.gserviceaccount.com"
   }
 
+  # CI executor: serve triggers the plan/apply builds itself (webhook-driven)
+  # instead of Cloud Build's own GitHub-event triggers. The trigger definitions
+  # stay terraform-managed; serve runs them by name via the Cloud Build API.
+  # Omit the block to keep serve reactive-only (no run triggering).
+  executor "cloudbuild" {
+    project = "example-host-project"
+    region  = "asia-south1"
+    trigger "plan" { name = "nonprod-plan" }
+    trigger "apply" { name = "nonprod-apply" }
+  }
+
   # Google OIDC bearer auth for /api/*: callers present ID tokens (service
   # accounts mint them for `audience`; user ADC tokens carry the fixed gcloud
   # client id — list it in extra_audiences to accept humans). Each principal

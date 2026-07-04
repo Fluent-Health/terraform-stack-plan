@@ -72,6 +72,17 @@ type APIAuthConfig struct {
 	Principals     []APIAuthPrincipal
 }
 
+// ExecutorConfig is the `executor "<backend>" {}` sub-block: the CI backend
+// serve drives when it triggers runs itself (webhook → build). Only
+// "cloudbuild" is implemented; the trigger definitions stay terraform-managed,
+// serve runs them by name.
+type ExecutorConfig struct {
+	Backend  string // the block label, e.g. "cloudbuild"
+	Project  string
+	Region   string
+	Triggers map[string]string // run kind ("plan"/"apply") → trigger name
+}
+
 // ServeConfig is the `serve {}` block: the control-plane server runtime config.
 type ServeConfig struct {
 	DBPath                 string
@@ -85,6 +96,7 @@ type ServeConfig struct {
 	Objects                *ObjectsConfig
 	PubSub                 *PubSubConfig
 	APIAuth                *APIAuthConfig
+	Executor               *ExecutorConfig
 }
 
 // GitHubAppConfig is the `github_app {}` sub-block.
@@ -132,6 +144,15 @@ type serveBody struct {
 			Scopes []string `hcl:"scopes,optional"`
 		} `hcl:"principal,block"`
 	} `hcl:"api_auth,block"`
+	Executor *struct {
+		Backend  string `hcl:"backend,label"`
+		Project  string `hcl:"project,optional"`
+		Region   string `hcl:"region,optional"`
+		Triggers []struct {
+			Kind string `hcl:"kind,label"`
+			Name string `hcl:"name,optional"`
+		} `hcl:"trigger,block"`
+	} `hcl:"executor,block"`
 }
 
 type githubAppBody struct {
@@ -193,6 +214,36 @@ func decodeServe(blk *hclsyntax.Block) (*ServeConfig, error) {
 			aa.Principals = append(aa.Principals, APIAuthPrincipal{Email: p.Email, Scopes: p.Scopes})
 		}
 		s.APIAuth = aa
+	}
+	if b.Executor != nil {
+		if b.Executor.Backend != "cloudbuild" {
+			return nil, fmt.Errorf("executor: unknown backend %q (only \"cloudbuild\" is implemented)", b.Executor.Backend)
+		}
+		if b.Executor.Project == "" || b.Executor.Region == "" {
+			return nil, fmt.Errorf("executor %q: project and region are required", b.Executor.Backend)
+		}
+		ex := &ExecutorConfig{
+			Backend: b.Executor.Backend, Project: b.Executor.Project, Region: b.Executor.Region,
+			Triggers: map[string]string{},
+		}
+		for _, tr := range b.Executor.Triggers {
+			switch tr.Kind {
+			case "plan", "apply":
+			default:
+				return nil, fmt.Errorf("executor %q: unknown trigger kind %q (valid: plan, apply)", b.Executor.Backend, tr.Kind)
+			}
+			if tr.Name == "" {
+				return nil, fmt.Errorf("executor %q: trigger %q needs a name", b.Executor.Backend, tr.Kind)
+			}
+			if _, dup := ex.Triggers[tr.Kind]; dup {
+				return nil, fmt.Errorf("executor %q: duplicate trigger %q", b.Executor.Backend, tr.Kind)
+			}
+			ex.Triggers[tr.Kind] = tr.Name
+		}
+		if ex.Triggers["plan"] == "" || ex.Triggers["apply"] == "" {
+			return nil, fmt.Errorf("executor %q: both a plan and an apply trigger are required", b.Executor.Backend)
+		}
+		s.Executor = ex
 	}
 	return s, nil
 }
