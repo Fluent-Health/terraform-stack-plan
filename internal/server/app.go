@@ -308,6 +308,25 @@ func statusContext(environment string) string {
 	return "plan/" + environment
 }
 
+// planCheckName is the GitHub check-run NAME for the plan gate. Armed
+// (serve-as-driver) tiers post the consolidated terraform/<env> context; the
+// stored gate identity (statusContext) stays plan/<env> either way.
+func (a *App) planCheckName(environment string) string {
+	if a.runTriggerArmed() {
+		return consolidatedCheckName(environment)
+	}
+	return checkRunName(environment)
+}
+
+// mergeGateCheckName is the check name for merge-lock-only surfaces (merge
+// group heads, legacy PR heads): folded into terraform/<env> when armed.
+func (a *App) mergeGateCheckName(environment string) string {
+	if a.runTriggerArmed() {
+		return consolidatedCheckName(environment)
+	}
+	return applyLockName(environment)
+}
+
 // isGate reports whether a run's declared context drives the plan gate (versus a
 // non-gate context such as a post-merge apply). Empty context = the gate.
 func isGate(context, environment string) bool {

@@ -23,6 +23,23 @@ func TestStatusContext(t *testing.T) {
 	}
 }
 
+func TestConsolidatedCheckNaming(t *testing.T) {
+	a := New(newServerTestDB(t), &MockGitHub{}, Config{Environment: "nonprod"})
+	if got := a.planCheckName("nonprod"); got != "plan/nonprod" {
+		t.Errorf("unarmed planCheckName = %q, want plan/nonprod", got)
+	}
+	if got := a.mergeGateCheckName("nonprod"); got != "apply-lock/nonprod" {
+		t.Errorf("unarmed mergeGateCheckName = %q, want apply-lock/nonprod", got)
+	}
+	a.Executor = &fakeExecutor{}
+	if got := a.planCheckName("nonprod"); got != "terraform/nonprod" {
+		t.Errorf("armed planCheckName = %q, want terraform/nonprod", got)
+	}
+	if got := a.mergeGateCheckName("nonprod"); got != "terraform/nonprod" {
+		t.Errorf("armed mergeGateCheckName = %q, want terraform/nonprod", got)
+	}
+}
+
 func TestHealthz(t *testing.T) {
 	a := New(nil, &MockGitHub{}, Config{})
 	srv := httptest.NewServer(a.Routes())

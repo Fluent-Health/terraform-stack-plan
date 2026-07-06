@@ -141,6 +141,17 @@ func checkRunName(environment string) string {
 	return "plan/" + environment
 }
 
+// consolidatedCheckName is the single per-tier PR-head check context that
+// replaces plan/<env> + apply-lock/<env> once serve drives the runs itself
+// (runTriggerArmed). The infra cutover swaps required_status_check_contexts
+// to this name in the same change that arms the executor.
+func consolidatedCheckName(environment string) string {
+	if environment == "" {
+		return "terraform"
+	}
+	return "terraform/" + environment
+}
+
 // CreateCheckRun opens an in_progress check run with the given name.
 func (c *RealClient) CreateCheckRun(ctx context.Context, repo, sha, name, detailsURL string) (int64, error) {
 	owner, repoName, err := splitRepo(repo)
