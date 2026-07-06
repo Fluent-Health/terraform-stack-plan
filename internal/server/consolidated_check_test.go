@@ -122,3 +122,72 @@ func TestConsolidatedCheckClearConcludesSuccess(t *testing.T) {
 		t.Errorf("record = %+v ok=%v, want clear", rec, ok)
 	}
 }
+
+// TestConsolidatedReleaseFlipsHeldToSuccess: when the overlapping apply
+// releases its claim, the held consolidated check must be re-driven to a
+// success conclusion (not a lock-only apply-lock patch).
+func TestConsolidatedReleaseFlipsHeldToSuccess(t *testing.T) {
+	a, fe, srv, snap := consolidatedApp(t)
+	if err := a.shell.handleClaim("nonprod", claims.AcquireClaim{PR: 3, Stacks: []string{"stacks/a"}, Now: a.now()}); err != nil {
+		t.Fatal(err)
+	}
+	webhookReq(t, srv, whSecret, "pull_request", prSyncPayload(7, "sha-one")).Body.Close()
+	id := fe.starts[0].ExecutionID
+	if err := store.UpsertInit(a.db, events.Init{
+		ID: id, Repo: "o/r", SHA: "sha-one", PR: 7, Environment: "nonprod",
+		Context: "plan/nonprod", Stacks: []events.StackState{{Path: "stacks/a", Status: events.StatusSafe}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetReport(a.db, id, "report"); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.shell.Handle(context.Background(), 7, "nonprod", "o/r", reconcile.RunnerFinalize{}); err != nil {
+		t.Fatal(err)
+	}
+	if last := snap()[len(snap())-1]; last.Conclusion != "" {
+		t.Fatalf("precondition: held check concluded %q", last.Conclusion)
+	}
+
+	// PR #3's apply finishes.
+	a.releaseApplyClaims(context.Background(), "nonprod", 3)
+
+	upds := snap()
+	last := upds[len(upds)-1]
+	if last.Conclusion != "success" {
+		t.Fatalf("post-release conclusion = %q, want success", last.Conclusion)
+	}
+	rec, ok, _ := store.GetApplyLockCheck(a.db, "nonprod", "sha-one")
+	if !ok || rec.State != "clear" {
+		t.Errorf("record after release = %+v ok=%v, want clear", rec, ok)
+	}
+}
+
+// TestArmedTierPostsNoSeparateApplyLockCheck: the pull_request webhook and the
+// plan finalize must not create an apply-lock/<env> check run on an armed tier.
+func TestArmedTierPostsNoSeparateApplyLockCheck(t *testing.T) {
+	var mu sync.Mutex
+	var created []string
+	gh := &MockGitHub{
+		CreateCheckRunFn: func(_ context.Context, _, _, name, _ string) (int64, error) {
+			mu.Lock()
+			created = append(created, name)
+			mu.Unlock()
+			return 4242, nil
+		},
+		PRHeadSHAFn: func(context.Context, string, int) (string, error) { return "sha-one", nil },
+	}
+	a := New(newServerTestDB(t), gh, Config{GitHubWebhookSecret: whSecret, Environment: "nonprod", PublicBaseURL: "https://serve.test"})
+	a.Executor = &fakeExecutor{}
+	srv := httptest.NewServer(a.Routes())
+	defer srv.Close()
+
+	webhookReq(t, srv, whSecret, "pull_request", prSyncPayload(7, "sha-one")).Body.Close()
+	mu.Lock()
+	defer mu.Unlock()
+	for _, n := range created {
+		if strings.HasPrefix(n, "apply-lock/") {
+			t.Fatalf("armed tier created %q — apply-lock is folded into terraform/<env>", n)
+		}
+	}
+}

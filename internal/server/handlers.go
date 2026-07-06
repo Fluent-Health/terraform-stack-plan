@@ -269,7 +269,10 @@ func (a *App) handleFinalize(w http.ResponseWriter, r *http.Request) {
 	if g, gerr := store.LoadGraph(a.db, f.ID); gerr == nil {
 		a.finalizeLogs(r.Context(), f.ID, g.Stacks)
 	}
-	if !isApplyContext(e.StatusContext) && e.PR > 0 {
+	if !isApplyContext(e.StatusContext) && e.PR > 0 && !a.runTriggerArmed() {
+		// Legacy two-check mode only: consolidated tiers render the lock
+		// verdict inside terraform/<env> during the terminal RenderCheckRun.
+		//
 		// Plan finalize: the PR's changed stacks are now registered, so post
 		// apply-lock/<env> here. The pull_request webhook fires on PR open —
 		// before the plan registers the stacks — so this is what makes the

@@ -120,7 +120,7 @@ func (a *App) postApplyLock(ctx context.Context, repo, env, sha string, pr int, 
 	if ok {
 		crID = rec.CheckRunID
 	} else {
-		crID, err = a.gh.CreateCheckRun(ctx, repo, sha, applyLockName(env), a.applyLockDetailsURL(env, pr))
+		crID, err = a.gh.CreateCheckRun(ctx, repo, sha, a.mergeGateCheckName(env), a.applyLockDetailsURL(env, pr))
 		if err != nil {
 			return err
 		}
@@ -176,6 +176,11 @@ func (a *App) handlePRApplyLock(ctx context.Context, repo string, pr int, merged
 			if ok {
 				_ = a.shell.handleClaim(env, claims.AcquireClaim{PR: pr, Stacks: stacks, Now: now})
 			}
+			continue
+		}
+		if a.runTriggerArmed() {
+			// Consolidated mode: the plan run's terraform/<env> check carries
+			// the lock verdict (rendered at finalize; re-driven on release).
 			continue
 		}
 		sha, err := a.gh.PRHeadSHA(ctx, repo, pr)
@@ -351,7 +356,14 @@ func (a *App) reevaluateHeld(ctx context.Context, env string) {
 		return
 	}
 	now := a.now()
+	base := strings.TrimRight(a.cfg.PublicBaseURL, "/")
 	for _, c := range held {
+		if c.ExecutionID != "" {
+			// Consolidated pr_head record: re-render the whole check (the
+			// render re-evaluates the lock and updates the record itself).
+			a.drive(ctx, c.ExecutionID, base, true)
+			continue
+		}
 		v := a.evalApplyLock(env, c.PR, c.Stacks, now)
 		if v.State == "clear" && c.Kind == "merge_group" {
 			_ = a.shell.handleClaim(env, claims.AcquireClaim{PR: c.PR, Stacks: c.Stacks, Now: now})
