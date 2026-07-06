@@ -7,6 +7,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/Fluent-Health/terraform-stack-plan/internal/approval"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/claims"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/reconcile"
@@ -258,4 +259,141 @@ func TestMergeGroupCheckNameFollowsArming(t *testing.T) {
 	}
 	t.Run("armed", func(t *testing.T) { run(t, true, "terraform/nonprod") })
 	t.Run("unarmed", func(t *testing.T) { run(t, false, "apply-lock/nonprod") })
+}
+
+// TestConsolidatedGateLockThenReleaseSucceeds: the full gate → lock → success
+// sequencing on the consolidated check. A PAM-gated plan whose stacks overlap
+// another PR's in-flight apply must go action_required (gate pending — the
+// held lock must NOT mask the gate) → "" with the lock's waiting title (gate
+// satisfied, lock still held) → success (claim released).
+func TestConsolidatedGateLockThenReleaseSucceeds(t *testing.T) {
+	a, fe, srv, snap := consolidatedApp(t)
+	fake := approval.NewFake()
+	fake.Pool = []string{"sa0@project.iam.gserviceaccount.com"}
+	a.Approval = fake
+
+	// PR #3 is applying stacks/a right now.
+	if err := a.shell.handleClaim("nonprod", claims.AcquireClaim{PR: 3, Stacks: []string{"stacks/a"}, Now: a.now()}); err != nil {
+		t.Fatal(err)
+	}
+
+	// PR #7 opens a gated plan touching the same stack.
+	webhookReq(t, srv, whSecret, "pull_request", prSyncPayload(7, "sha-one")).Body.Close()
+	id := fe.starts[0].ExecutionID
+	if err := store.UpsertInit(a.db, events.Init{
+		ID: id, Repo: "o/r", SHA: "sha-one", PR: 7, Environment: "nonprod",
+		Context: "plan/nonprod", Stacks: []events.StackState{{Path: "stacks/a", Project: "proj-a", Status: events.StatusPlanned}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if code := post(t, srv, "/api/finalize", events.Finalize{
+		ID: id, ReportMarkdown: "report",
+		Gates: []events.GateTarget{{Class: "iam", Target: "proj-a"}},
+	}); code != 200 {
+		t.Fatalf("finalize = %d", code)
+	}
+
+	// The gate is pending approval: action_required, even though PR #3's claim
+	// also overlaps — the gate takes precedence over the lock.
+	last := snap()[len(snap())-1]
+	if last.Conclusion != "action_required" {
+		t.Fatalf("conclusion while gate pending = %q, want action_required", last.Conclusion)
+	}
+
+	// Approver grants the gate; the reconcile tick converges it to ACTIVE and
+	// re-drives the check terminally.
+	fake.Approve(approval.Request{Class: "iam", Target: "proj-a", PR: 7, Environment: "nonprod"})
+	if err := a.reconcileGate(context.Background(), 7, "nonprod"); err != nil {
+		t.Fatalf("reconcileGate: %v", err)
+	}
+
+	// Gate satisfied but PR #3's claim is still held: in_progress (empty
+	// conclusion), titled for the lock since it is now the sole blocker.
+	last = snap()[len(snap())-1]
+	if last.Conclusion != "" {
+		t.Fatalf("conclusion after gate satisfied (lock still held) = %q, want \"\" (in_progress)", last.Conclusion)
+	}
+	if last.Title != "waiting on PR #3's apply" {
+		t.Fatalf("title after gate satisfied = %q, want \"waiting on PR #3's apply\"", last.Title)
+	}
+
+	// PR #3's apply finishes, releasing the claim.
+	a.releaseApplyClaims(context.Background(), "nonprod", 3)
+
+	last = snap()[len(snap())-1]
+	if last.Conclusion != "success" {
+		t.Fatalf("conclusion after release = %q, want success", last.Conclusion)
+	}
+}
+
+// TestSupersededHeldRecordDoesNotResurrectOldCheck: push sha-two while
+// sha-one's record is held; releasing the claim re-drives BOTH records'
+// executions, but the superseded run's render must not conclude anything
+// that contradicts sha-two's live check. We assert the sha-two record is
+// the one keyed for (env, sha-two) and that driving the old execution does
+// not error (best-effort, GitHub keyed by its own check_run_id keeps the
+// surfaces separate).
+func TestSupersededHeldRecordDoesNotResurrectOldCheck(t *testing.T) {
+	a, fe, srv, _ := consolidatedApp(t)
+
+	// PR #3 is applying stacks/a right now.
+	if err := a.shell.handleClaim("nonprod", claims.AcquireClaim{PR: 3, Stacks: []string{"stacks/a"}, Now: a.now()}); err != nil {
+		t.Fatal(err)
+	}
+
+	// PR #7 opens at sha-one; its plan overlaps PR #3's claim and holds.
+	webhookReq(t, srv, whSecret, "pull_request", prSyncPayload(7, "sha-one")).Body.Close()
+	id1 := fe.starts[0].ExecutionID
+	if err := store.UpsertInit(a.db, events.Init{
+		ID: id1, Repo: "o/r", SHA: "sha-one", PR: 7, Environment: "nonprod",
+		Context: "plan/nonprod", Stacks: []events.StackState{{Path: "stacks/a", Status: events.StatusSafe}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetReport(a.db, id1, "report"); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.shell.Handle(context.Background(), 7, "nonprod", "o/r", reconcile.RunnerFinalize{}); err != nil {
+		t.Fatal(err)
+	}
+	if rec, ok, _ := store.GetApplyLockCheck(a.db, "nonprod", "sha-one"); !ok || rec.State != "held" {
+		t.Fatalf("precondition: sha-one record = %+v ok=%v, want held", rec, ok)
+	}
+
+	// PR #7 is superseded by a push to sha-two, which replays the same flow.
+	webhookReq(t, srv, whSecret, "pull_request", prSyncPayload(7, "sha-two")).Body.Close()
+	id2 := fe.starts[1].ExecutionID
+	if err := store.UpsertInit(a.db, events.Init{
+		ID: id2, Repo: "o/r", SHA: "sha-two", PR: 7, Environment: "nonprod",
+		Context: "plan/nonprod", Stacks: []events.StackState{{Path: "stacks/a", Status: events.StatusSafe}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetReport(a.db, id2, "report"); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.shell.Handle(context.Background(), 7, "nonprod", "o/r", reconcile.RunnerFinalize{}); err != nil {
+		t.Fatal(err)
+	}
+	if rec, ok, _ := store.GetApplyLockCheck(a.db, "nonprod", "sha-two"); !ok || rec.State != "held" {
+		t.Fatalf("precondition: sha-two record = %+v ok=%v, want held", rec, ok)
+	}
+
+	// PR #3's apply finishes: releasing the claim re-drives every held record in
+	// the env, including the superseded sha-one execution. This must not panic
+	// or error even though sha-one's execution is no longer PR #7's latest.
+	a.releaseApplyClaims(context.Background(), "nonprod", 3)
+
+	// sha-two — the live record for (env, sha-two) — must clear.
+	rec, ok, err := store.GetApplyLockCheck(a.db, "nonprod", "sha-two")
+	if err != nil || !ok {
+		t.Fatalf("sha-two record: %v ok=%v", err, ok)
+	}
+	if rec.State != "clear" {
+		t.Errorf("sha-two record state = %q, want clear", rec.State)
+	}
+	// sha-one's record may stay held or flip clear — both are harmless: its
+	// check run lives on the old SHA and GitHub keys check runs by their own
+	// check_run_id, so re-driving it cannot resurrect a stale surface onto
+	// sha-two's PR head. We only require that driving it did not error above.
 }
