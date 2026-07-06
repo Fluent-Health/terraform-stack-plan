@@ -7,8 +7,9 @@ import (
 
 // Verdict is the result of a Held query.
 type Verdict struct {
-	Held     bool
-	Blocking []string
+	Held        bool
+	Blocking    []string // blocked stacks, sorted
+	BlockingPRs []int    // owning PRs of the blocking claims, sorted, de-duplicated
 }
 
 // Held reports whether any of pr's stacks is claimed by ANOTHER pr with an
@@ -20,12 +21,22 @@ type Verdict struct {
 // to Held once their lease lapses.
 func Held(s ClaimSet, pr int, stacks []string, now time.Time) Verdict {
 	var blocking []string
+	prSet := map[int]bool{}
 	for _, stack := range stacks {
 		c, ok := s[stack]
 		if ok && c.PR != pr && c.ExpiresAt.After(now) {
 			blocking = append(blocking, stack)
+			prSet[c.PR] = true
 		}
 	}
 	sort.Strings(blocking)
-	return Verdict{Held: len(blocking) > 0, Blocking: blocking}
+	prs := make([]int, 0, len(prSet))
+	for p := range prSet {
+		prs = append(prs, p)
+	}
+	sort.Ints(prs)
+	if len(prs) == 0 {
+		prs = nil
+	}
+	return Verdict{Held: len(blocking) > 0, Blocking: blocking, BlockingPRs: prs}
 }

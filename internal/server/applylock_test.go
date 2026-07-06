@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -290,6 +291,30 @@ func TestMergeGroupUnverifiable(t *testing.T) {
 	}
 	if gh.lastUpdate.Conclusion != "" {
 		t.Fatalf("unverifiable merge group check should leave check-run in_progress, got %q", gh.lastUpdate.Conclusion)
+	}
+}
+
+func TestLockRenderPieces(t *testing.T) {
+	held := applyLockVerdict{State: "held", Blocking: []string{"stacks/a", "stacks/b"}, BlockingPRs: []int{3}}
+	if got := lockTitle(held); got != "waiting on PR #3's apply" {
+		t.Errorf("lockTitle = %q", got)
+	}
+	multi := applyLockVerdict{State: "held", Blocking: []string{"stacks/a"}, BlockingPRs: []int{3, 9}}
+	if got := lockTitle(multi); got != "waiting on PRs #3, #9 applies" {
+		t.Errorf("lockTitle multi = %q", got)
+	}
+	if got := lockTitle(applyLockVerdict{State: "unverifiable", Reason: "claim-ledger load failed"}); got != "merge-lock unverifiable — retrying" {
+		t.Errorf("lockTitle unverifiable = %q", got)
+	}
+	if lockSection(applyLockVerdict{State: "clear"}) != "" || lockSection(applyLockVerdict{}) != "" {
+		t.Error("clear/unevaluated lock must render no section")
+	}
+	sec := lockSection(held)
+	if !strings.Contains(sec, "stacks/a") || !strings.Contains(sec, "#3") {
+		t.Errorf("lockSection = %q, want blocking stacks + PR attribution", sec)
+	}
+	if !lockBlocked(held) || lockBlocked(applyLockVerdict{State: "clear"}) || lockBlocked(applyLockVerdict{}) {
+		t.Error("lockBlocked misclassifies")
 	}
 }
 

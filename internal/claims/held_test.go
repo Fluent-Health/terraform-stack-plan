@@ -46,3 +46,19 @@ func TestHeldNilBlockingWhenClear(t *testing.T) {
 		t.Fatalf("Blocking should be nil when not held, got %v", v.Blocking)
 	}
 }
+
+func TestHeldReportsBlockingPRs(t *testing.T) {
+	now := t0
+	s := ClaimSet{
+		"stacks/a": {PR: 9, ExpiresAt: now.Add(Lease())},
+		"stacks/b": {PR: 3, ExpiresAt: now.Add(Lease())},
+		"stacks/c": {PR: 9, ExpiresAt: now.Add(Lease())},
+	}
+	v := Held(s, 7, []string{"stacks/a", "stacks/b", "stacks/c"}, now)
+	if !v.Held {
+		t.Fatal("want held")
+	}
+	if !reflect.DeepEqual(v.BlockingPRs, []int{3, 9}) {
+		t.Errorf("BlockingPRs = %v, want [3 9] (sorted, de-duplicated)", v.BlockingPRs)
+	}
+}

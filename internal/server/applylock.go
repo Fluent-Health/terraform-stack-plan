@@ -13,9 +13,10 @@ import (
 // applyLockVerdict is the evaluation of one PR's mergeability against the env's
 // claimed-stack set. State is clear|held|unverifiable.
 type applyLockVerdict struct {
-	State    string
-	Blocking []string
-	Reason   string
+	State       string
+	Blocking    []string
+	BlockingPRs []int
+	Reason      string
 }
 
 // prChangedStacks returns a PR's plan-time changed-stack set for env. ok=false
@@ -52,8 +53,58 @@ func (a *App) evalApplyLock(env string, pr int, stacks []string, now time.Time) 
 	if !v.Held {
 		return applyLockVerdict{State: "clear"}
 	}
-	return applyLockVerdict{State: "held", Blocking: v.Blocking,
+	return applyLockVerdict{State: "held", Blocking: v.Blocking, BlockingPRs: v.BlockingPRs,
 		Reason: "stacks being applied by another PR"}
+}
+
+// lockBlocked reports whether the merge-lock verdict blocks a green conclusion
+// (held, or fail-closed unverifiable). Zero value = not evaluated = clear.
+func lockBlocked(v applyLockVerdict) bool {
+	return v.State == "held" || v.State == "unverifiable"
+}
+
+// lockTitle is the check-run title when the merge lock is the only blocker.
+func lockTitle(v applyLockVerdict) string {
+	if v.State == "unverifiable" {
+		return "merge-lock unverifiable — retrying"
+	}
+	prs := make([]string, len(v.BlockingPRs))
+	for i, p := range v.BlockingPRs {
+		prs[i] = "#" + strconv.Itoa(p)
+	}
+	switch len(prs) {
+	case 0:
+		return "waiting on another PR's apply"
+	case 1:
+		return "waiting on PR " + prs[0] + "'s apply"
+	default:
+		return "waiting on PRs " + strings.Join(prs, ", ") + " applies"
+	}
+}
+
+// lockSection renders the merge-lock block for the consolidated check body.
+// Empty when clear (or not evaluated) — no section beats a "clear" banner.
+func lockSection(v applyLockVerdict) string {
+	switch v.State {
+	case "held":
+		prs := make([]string, len(v.BlockingPRs))
+		for i, p := range v.BlockingPRs {
+			prs[i] = "#" + strconv.Itoa(p)
+		}
+		by := "another PR"
+		if len(prs) > 0 {
+			by = "PR " + strings.Join(prs, ", ")
+		}
+		return "## Merge lock\n\nHolding — stacks `" + strings.Join(v.Blocking, "`, `") +
+			"` are being applied by " + by + ". Clears automatically when that apply finishes " +
+			"(or when its lease expires). Next: wait; if that apply is stuck, cancel/re-run it, " +
+			"an admin may bypass, or run `tfstackplan claims release`.\n\n"
+	case "unverifiable":
+		return "## Merge lock\n\nCan't verify the merge lock — " + v.Reason +
+			". Retrying; re-run the plan if it failed.\n\n"
+	default:
+		return ""
+	}
 }
 
 // postApplyLock creates-or-updates the apply-lock/<env> check on `sha` to match
@@ -69,7 +120,7 @@ func (a *App) postApplyLock(ctx context.Context, repo, env, sha string, pr int, 
 	if ok {
 		crID = rec.CheckRunID
 	} else {
-		crID, err = a.gh.CreateCheckRun(ctx, repo, sha, applyLockName(env), a.applyLockDetailsURL(env, pr))
+		crID, err = a.gh.CreateCheckRun(ctx, repo, sha, a.mergeGateCheckName(env), a.applyLockDetailsURL(env, pr))
 		if err != nil {
 			return err
 		}
@@ -111,8 +162,10 @@ func (a *App) applyLockDetailsURL(env string, pr int) string {
 }
 
 // handlePRApplyLock drives the auto-merge front-end: on open/sync/reopen it posts
-// apply-lock/<env> on the PR head for every env the PR touches; on merge it claims
-// the PR's stacks (the apply is imminent).
+// apply-lock/<env> on the PR head for every env the PR touches — except on an
+// armed tier, where the consolidated terraform/<env> check already carries the
+// lock render and this is a no-op; on merge it claims the PR's stacks (the
+// apply is imminent).
 func (a *App) handlePRApplyLock(ctx context.Context, repo string, pr int, merged bool) {
 	envs, err := store.EnvironmentsForPR(a.db, pr)
 	if err != nil {
@@ -125,6 +178,11 @@ func (a *App) handlePRApplyLock(ctx context.Context, repo string, pr int, merged
 			if ok {
 				_ = a.shell.handleClaim(env, claims.AcquireClaim{PR: pr, Stacks: stacks, Now: now})
 			}
+			continue
+		}
+		if a.runTriggerArmed() {
+			// Consolidated mode: the plan run's terraform/<env> check carries
+			// the lock verdict (rendered at finalize; re-driven on release).
 			continue
 		}
 		sha, err := a.gh.PRHeadSHA(ctx, repo, pr)
@@ -300,7 +358,22 @@ func (a *App) reevaluateHeld(ctx context.Context, env string) {
 		return
 	}
 	now := a.now()
+	base := strings.TrimRight(a.cfg.PublicBaseURL, "/")
 	for _, c := range held {
+		if c.ExecutionID != "" && a.runTriggerArmed() {
+			// Consolidated pr_head record: re-render the whole check (the
+			// render re-evaluates the lock and updates the record itself).
+			// Gated on arming: a disarmed serve (rollback/misconfig) with a
+			// leftover consolidated record must NOT take this branch — drive
+			// would call renderAndPatch, whose lock fold is itself
+			// armed-gated, so it would skip the lock entirely and conclude
+			// success while the lock is still held (a merge-lock bypass).
+			// Fall through to the legacy lock-only patch below instead,
+			// which reads c.Stacks directly and fails safe (held/unverifiable
+			// stay in_progress).
+			a.drive(ctx, c.ExecutionID, base, true)
+			continue
+		}
 		v := a.evalApplyLock(env, c.PR, c.Stacks, now)
 		if v.State == "clear" && c.Kind == "merge_group" {
 			_ = a.shell.handleClaim(env, claims.AcquireClaim{PR: c.PR, Stacks: c.Stacks, Now: now})

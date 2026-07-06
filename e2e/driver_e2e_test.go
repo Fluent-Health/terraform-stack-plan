@@ -115,7 +115,8 @@ func TestDriverE2E(t *testing.T) {
 	}
 	execID := exec.starts[0].ExecutionID
 	mu.Lock()
-	if created["plan/nonprod"] != 1 {
+	// Armed serve posts the consolidated check name (not legacy plan/<env>).
+	if created["terraform/nonprod"] != 1 {
 		mu.Unlock()
 		t.Fatalf("plan checks created = %v, want the queued check before any build", created)
 	}
@@ -144,7 +145,7 @@ func TestDriverE2E(t *testing.T) {
 	// 3. The SAME check run (no duplicate) concluded success.
 	mu.Lock()
 	defer mu.Unlock()
-	if created["plan/nonprod"] != 1 {
+	if created["terraform/nonprod"] != 1 {
 		t.Fatalf("plan checks created = %v — the runner must land on the queued check, not mint a duplicate", created)
 	}
 	if len(conclusions) == 0 || conclusions[len(conclusions)-1] != "success" {

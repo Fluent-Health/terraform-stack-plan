@@ -32,3 +32,39 @@ func TestApplyLockCheckRoundTrip(t *testing.T) {
 		t.Fatalf("held = %+v, want only sha1", held)
 	}
 }
+
+func TestApplyLockCheckExecutionIDRoundTrip(t *testing.T) {
+	db := newTestDB(t)
+	if err := UpsertApplyLockCheck(db, ApplyLockCheck{
+		Environment: "nonprod", HeadSHA: "sha1", CheckRunID: 42, PR: 7, Repo: "o/r",
+		Stacks: []string{"stacks/a"}, State: "held", Kind: "pr_head", ExecutionID: "run-7-nonprod-plan-abc-a1",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	c, ok, err := GetApplyLockCheck(db, "nonprod", "sha1")
+	if err != nil || !ok {
+		t.Fatalf("get: %v ok=%v", err, ok)
+	}
+	if c.ExecutionID != "run-7-nonprod-plan-abc-a1" {
+		t.Errorf("ExecutionID = %q", c.ExecutionID)
+	}
+	held, err := HeldApplyLockChecks(db, "nonprod")
+	if err != nil || len(held) != 1 || held[0].ExecutionID != "run-7-nonprod-plan-abc-a1" {
+		t.Fatalf("held = %+v, err %v", held, err)
+	}
+	// Upserting the same (environment, head_sha) must update execution_id
+	// via the ON CONFLICT path.
+	if err := UpsertApplyLockCheck(db, ApplyLockCheck{
+		Environment: "nonprod", HeadSHA: "sha1", CheckRunID: 42, PR: 7, Repo: "o/r",
+		Stacks: []string{"stacks/a"}, State: "clear", Kind: "pr_head", ExecutionID: "run-7-nonprod-plan-def-b2",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	c, ok, err = GetApplyLockCheck(db, "nonprod", "sha1")
+	if err != nil || !ok {
+		t.Fatalf("get after upsert: %v ok=%v", err, ok)
+	}
+	if c.ExecutionID != "run-7-nonprod-plan-def-b2" || c.State != "clear" {
+		t.Errorf("after conflict upsert: ExecutionID = %q, State = %q", c.ExecutionID, c.State)
+	}
+}

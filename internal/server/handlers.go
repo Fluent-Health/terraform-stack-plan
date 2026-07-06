@@ -83,7 +83,7 @@ func (a *App) handleInit(w http.ResponseWriter, r *http.Request) {
 	}
 	base := a.baseURL(r)
 	if isGate(in.Context, in.Environment) {
-		if err := a.ensureCheckRun(r.Context(), in.ID, in.Repo, in.SHA, checkRunName(in.Environment), a.liveURL(base, in.ID)); err != nil {
+		if err := a.ensureCheckRun(r.Context(), in.ID, in.Repo, in.SHA, a.planCheckName(in.Environment), a.liveURL(base, in.ID)); err != nil {
 			http.Error(w, "create check run", http.StatusBadGateway)
 			return
 		}
@@ -118,7 +118,7 @@ func (a *App) handlePhase(w http.ResponseWriter, r *http.Request) {
 	}
 	base := a.baseURL(r)
 	if isGate(e.StatusContext, e.Environment) {
-		if err := a.ensureCheckRun(r.Context(), e.ID, e.Repo, e.SHA, checkRunName(e.Environment), a.liveURL(base, e.ID)); err != nil {
+		if err := a.ensureCheckRun(r.Context(), e.ID, e.Repo, e.SHA, a.planCheckName(e.Environment), a.liveURL(base, e.ID)); err != nil {
 			http.Error(w, "create check run", http.StatusBadGateway)
 			return
 		}
@@ -269,7 +269,10 @@ func (a *App) handleFinalize(w http.ResponseWriter, r *http.Request) {
 	if g, gerr := store.LoadGraph(a.db, f.ID); gerr == nil {
 		a.finalizeLogs(r.Context(), f.ID, g.Stacks)
 	}
-	if !isApplyContext(e.StatusContext) && e.PR > 0 {
+	if !isApplyContext(e.StatusContext) && e.PR > 0 && !a.runTriggerArmed() {
+		// Legacy two-check mode only: consolidated tiers render the lock
+		// verdict inside terraform/<env> during the terminal RenderCheckRun.
+		//
 		// Plan finalize: the PR's changed stacks are now registered, so post
 		// apply-lock/<env> here. The pull_request webhook fires on PR open —
 		// before the plan registers the stacks — so this is what makes the

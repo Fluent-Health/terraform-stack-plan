@@ -261,7 +261,7 @@ func (a *App) handleCheckRunWebhook(w http.ResponseWriter, r *http.Request, body
 	}
 	var kind string
 	switch p.CheckRun.Name {
-	case checkRunName(a.cfg.Environment):
+	case a.planCheckName(a.cfg.Environment), checkRunName(a.cfg.Environment):
 		kind = reconcile.RunKindPlan
 	case runContext(reconcile.RunKindApply, a.cfg.Environment):
 		kind = reconcile.RunKindApply

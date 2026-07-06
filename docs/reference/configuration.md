@@ -425,10 +425,14 @@ The CI backend serve drives when it triggers runs itself (webhook → build).
 Only `"cloudbuild"` is implemented. When the block is present **and** the
 shared `server { environment }` names this tier, serve requests a plan run on
 every PR head push, an apply run on every push to main, and honors the check
-Re-run button — posting the check run within the webhook turnaround. Omit the
-block to keep serve reactive-only (runs start via the CI system's own
-triggers). The trigger definitions stay terraform-managed; serve runs them by
-name via the Cloud Build API (the serve service account needs
+Re-run button — posting the check run within the webhook turnaround. Arming
+also consolidates the pre-merge check surface: the PR head gets a single
+`terraform/<env>` check (folding in the merge-lock verdict) instead of the
+reactive-only tier's `plan/<env>` + `apply-lock/<env>` pair — see *Consolidated
+`terraform/<env>` check* in [`../DESIGN.md`](../DESIGN.md). Omit the block to
+keep serve reactive-only (runs start via the CI system's own triggers). The
+trigger definitions stay terraform-managed; serve runs them by name via the
+Cloud Build API (the serve service account needs
 `cloudbuild.builds.create`/`get`/`cancel` in the project).
 
 ```hcl

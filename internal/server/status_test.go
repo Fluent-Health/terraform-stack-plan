@@ -35,7 +35,33 @@ func TestConclusion(t *testing.T) {
 		{"failure beats gates", snapshot{anyFailed: true, totalGates: 2}, "failure"},
 	}
 	for _, c := range cases {
-		if got := conclusion(c.s); got != c.want {
+		if got := conclusion(c.s, applyLockVerdict{}); got != c.want {
+			t.Errorf("%s: conclusion = %q, want %q", c.name, got, c.want)
+		}
+	}
+}
+
+func TestConclusionLockPrecedence(t *testing.T) {
+	base := snapshot{finalized: true}
+	held := applyLockVerdict{State: "held", BlockingPRs: []int{3}}
+	cases := []struct {
+		name string
+		s    snapshot
+		lock applyLockVerdict
+		want string
+	}{
+		{"clean plan, lock clear", base, applyLockVerdict{State: "clear"}, "success"},
+		{"clean plan, zero-value lock (not evaluated)", base, applyLockVerdict{}, "success"},
+		{"clean plan, lock held stays in progress", base, held, ""},
+		{"lock unverifiable stays in progress", base, applyLockVerdict{State: "unverifiable", Reason: "x"}, ""},
+		{"failure beats lock", snapshot{finalized: true, anyFailed: true}, held, "failure"},
+		{"pending gate beats lock", snapshot{finalized: true, totalGates: 1}, held, "action_required"},
+		{"satisfied gates then lock held", snapshot{finalized: true, totalGates: 1, activeGates: 1}, held, ""},
+		{"satisfied gates, lock clear", snapshot{finalized: true, totalGates: 1, activeGates: 1}, applyLockVerdict{State: "clear"}, "success"},
+		{"not finalized", snapshot{}, held, ""},
+	}
+	for _, c := range cases {
+		if got := conclusion(c.s, c.lock); got != c.want {
 			t.Errorf("%s: conclusion = %q, want %q", c.name, got, c.want)
 		}
 	}

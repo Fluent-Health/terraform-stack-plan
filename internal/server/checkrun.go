@@ -195,10 +195,45 @@ func (a *App) renderAndPatch(ctx context.Context, id, base string, terminal bool
 	// Surface pending approval gates at the top of the check run so an
 	// action_required conclusion is self-explanatory (which gate, how to approve).
 	targets, _ := store.TargetsFor(a.db, e.PR, e.Environment)
+	// Consolidated mode: the merge-lock verdict is part of THIS check. Evaluate
+	// on terminal renders of the plan gate (stacks are known then), persist the
+	// record so a later claim release can re-drive this execution, and fold the
+	// verdict into title/body/conclusion below.
+	lock := applyLockVerdict{}
+	// pendingClearRec holds a "clear" record that must NOT be persisted until
+	// the patch below actually succeeds: if UpdateCheckRun errors, persisting
+	// the clear record now would drop the row out of HeldApplyLockChecks, and
+	// no future release/sweep would ever re-drive this execution again,
+	// wedging the check in_progress forever. held/unverifiable are written
+	// eagerly (before the patch) instead — that direction is fail-safe: worst
+	// case a transient patch failure leaves a held/unverifiable record that a
+	// later release/sweep can still find and retry.
+	var pendingClearRec *store.ApplyLockCheck
+	if terminal && a.runTriggerArmed() && e.PR > 0 && isGate(e.StatusContext, e.Environment) {
+		stacks := make([]string, 0, len(g.Stacks))
+		for _, s := range g.Stacks {
+			stacks = append(stacks, s.Path)
+		}
+		lock = a.evalApplyLock(e.Environment, e.PR, stacks, a.now())
+		if e.CheckRunID.Valid && e.CheckRunID.Int64 != 0 {
+			rec := store.ApplyLockCheck{
+				Environment: e.Environment, HeadSHA: e.SHA, CheckRunID: e.CheckRunID.Int64,
+				PR: e.PR, Repo: e.Repo, Stacks: stacks, State: lock.State, Kind: "pr_head",
+				ExecutionID: e.ID,
+			}
+			if lock.State == "held" || lock.State == "unverifiable" {
+				if err := store.UpsertApplyLockCheck(a.db, rec); err != nil {
+					log.Printf("consolidated lock record %s: %v", e.ID, err)
+				}
+			} else {
+				pendingClearRec = &rec
+			}
+		}
+	}
 	upd := CheckRunUpdate{
 		Title:      progressTitle(a.cfg.Progress, events.Phase(e.Phase), g.Stacks, terminal, "plan"),
 		Summary:    checkSummary("plan", g.Stacks, a.liveURL(base, id), events.Phase(e.Phase)),
-		Text:       gatesSection(targets) + failuresSection(g, e.LogURL, "") + e.ReportMarkdown,
+		Text:       lockSection(lock) + gatesSection(targets) + failuresSection(g, e.LogURL, "") + e.ReportMarkdown,
 		DetailsURL: a.liveURL(base, id),
 	}
 	// Serve-queued run (no runner data at all): name the state instead of an
@@ -217,11 +252,22 @@ func (a *App) renderAndPatch(ctx context.Context, id, base string, terminal bool
 			// gate-derived conclusion below can never say failure for it.
 			upd.Conclusion = "failure"
 		} else if snap, _, ok := loadSnapshot(a.db, id); ok {
-			upd.Conclusion = conclusion(snap)
+			upd.Conclusion = conclusion(snap, lock)
+			// The lock as the SOLE blocker: name the wait in the title (the
+			// terminal tally alone would read as a stuck green run).
+			if upd.Conclusion == "" && lockBlocked(lock) && conclusion(snap, applyLockVerdict{}) == "success" {
+				upd.Title = lockTitle(lock)
+			}
 		}
 	}
 	if err := a.gh.UpdateCheckRun(ctx, e.Repo, e.CheckRunID.Int64, upd); err != nil {
 		log.Printf("update check run %s: %v", id, err)
+		return
+	}
+	if pendingClearRec != nil {
+		if err := store.UpsertApplyLockCheck(a.db, *pendingClearRec); err != nil {
+			log.Printf("consolidated lock record %s: %v", e.ID, err)
+		}
 	}
 }
 

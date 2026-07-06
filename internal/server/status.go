@@ -58,19 +58,20 @@ func loadSnapshot(db *sql.DB, id string) (snapshot, store.Execution, bool) {
 	return snap, exec, true
 }
 
-// conclusion projects DB state onto a GitHub check-run conclusion. "" means
-// leave the run in_progress (still planning). action_required is used for an
-// unsatisfied gate so a required check blocks the merge until approval flips it.
-func conclusion(s snapshot) string {
+// conclusion projects DB state + the merge-lock verdict onto a GitHub check-run
+// conclusion. "" means leave the run in_progress. Precedence: a failed plan >
+// an unsatisfied gate (action_required) > still planning > merge-lock blocked
+// (in_progress until the overlapping apply releases) > success. The zero-value
+// lock verdict means "not evaluated" (legacy two-check mode) and never blocks.
+func conclusion(s snapshot, lock applyLockVerdict) string {
 	switch {
 	case s.anyFailed:
 		return "failure"
-	case s.totalGates > 0:
-		if s.activeGates >= s.totalGates {
-			return "success"
-		}
+	case s.totalGates > 0 && s.activeGates < s.totalGates:
 		return "action_required"
 	case !s.finalized:
+		return ""
+	case lockBlocked(lock):
 		return ""
 	default:
 		return "success"

@@ -43,7 +43,7 @@ func (sh *Shell) startRun(ctx context.Context, cs reconcile.ChangeSet, repo stri
 		return result
 	}
 	base := strings.TrimRight(sh.app.cfg.PublicBaseURL, "/")
-	name := checkRunName(cs.Environment)
+	name := sh.app.planCheckName(cs.Environment)
 	if act.Kind == reconcile.RunKindApply {
 		name = init.Context
 	}

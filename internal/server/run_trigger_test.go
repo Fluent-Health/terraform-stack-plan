@@ -203,6 +203,52 @@ func TestWebhookCheckRunRerequested(t *testing.T) {
 	}
 }
 
+func TestQueuedPlanCheckUsesConsolidatedName(t *testing.T) {
+	var mu sync.Mutex
+	var names []string
+	gh := &MockGitHub{CreateCheckRunFn: func(_ context.Context, _, _, name, _ string) (int64, error) {
+		mu.Lock()
+		names = append(names, name)
+		mu.Unlock()
+		return 4242, nil
+	}}
+	a := New(newServerTestDB(t), gh, Config{GitHubWebhookSecret: whSecret, Environment: "nonprod", PublicBaseURL: "https://serve.test"})
+	a.Executor = &fakeExecutor{}
+	srv := httptest.NewServer(a.Routes())
+	defer srv.Close()
+
+	webhookReq(t, srv, whSecret, "pull_request", prSyncPayload(7, "sha-one")).Body.Close()
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(names) == 0 || names[0] != "terraform/nonprod" {
+		t.Fatalf("queued check names = %v, want [terraform/nonprod]", names)
+	}
+	// Stored gate identity is untouched.
+	id, _ := store.LatestExecutionID(a.db, 7, "nonprod")
+	if e, _ := store.GetExecution(a.db, id); e.StatusContext != "plan/nonprod" {
+		t.Errorf("StatusContext = %q, want plan/nonprod (identity unchanged)", e.StatusContext)
+	}
+}
+
+func TestCheckRunRerequestedMatchesConsolidatedName(t *testing.T) {
+	_, fe, srv := newRunTriggerApp(t)
+	webhookReq(t, srv, whSecret, "pull_request", prSyncPayload(7, "sha-one")).Body.Close()
+	payload := map[string]any{
+		"action": "rerequested",
+		"check_run": map[string]any{
+			"name":          "terraform/nonprod",
+			"head_sha":      "sha-one",
+			"pull_requests": []map[string]any{{"number": 7}},
+		},
+		"repository": map[string]any{"full_name": "o/r"},
+	}
+	webhookReq(t, srv, whSecret, "check_run", payload).Body.Close()
+	if len(fe.starts) != 2 {
+		t.Fatalf("starts = %+v, want the consolidated-name rerun to start a second build", fe.starts)
+	}
+}
+
 func TestWebhookRunTriggerDisarmedWithoutExecutor(t *testing.T) {
 	a := New(newServerTestDB(t), &MockGitHub{}, Config{
 		GitHubWebhookSecret: whSecret,
