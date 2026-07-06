@@ -162,8 +162,10 @@ func (a *App) applyLockDetailsURL(env string, pr int) string {
 }
 
 // handlePRApplyLock drives the auto-merge front-end: on open/sync/reopen it posts
-// apply-lock/<env> on the PR head for every env the PR touches; on merge it claims
-// the PR's stacks (the apply is imminent).
+// apply-lock/<env> on the PR head for every env the PR touches — except on an
+// armed tier, where the consolidated terraform/<env> check already carries the
+// lock render and this is a no-op; on merge it claims the PR's stacks (the
+// apply is imminent).
 func (a *App) handlePRApplyLock(ctx context.Context, repo string, pr int, merged bool) {
 	envs, err := store.EnvironmentsForPR(a.db, pr)
 	if err != nil {
@@ -358,9 +360,17 @@ func (a *App) reevaluateHeld(ctx context.Context, env string) {
 	now := a.now()
 	base := strings.TrimRight(a.cfg.PublicBaseURL, "/")
 	for _, c := range held {
-		if c.ExecutionID != "" {
+		if c.ExecutionID != "" && a.runTriggerArmed() {
 			// Consolidated pr_head record: re-render the whole check (the
 			// render re-evaluates the lock and updates the record itself).
+			// Gated on arming: a disarmed serve (rollback/misconfig) with a
+			// leftover consolidated record must NOT take this branch — drive
+			// would call renderAndPatch, whose lock fold is itself
+			// armed-gated, so it would skip the lock entirely and conclude
+			// success while the lock is still held (a merge-lock bypass).
+			// Fall through to the legacy lock-only patch below instead,
+			// which reads c.Stacks directly and fails safe (held/unverifiable
+			// stay in_progress).
 			a.drive(ctx, c.ExecutionID, base, true)
 			continue
 		}

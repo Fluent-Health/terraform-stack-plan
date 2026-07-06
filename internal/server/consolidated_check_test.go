@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"net/http/httptest"
 	"strings"
 	"sync"
@@ -396,4 +397,164 @@ func TestSupersededHeldRecordDoesNotResurrectOldCheck(t *testing.T) {
 	// check run lives on the old SHA and GitHub keys check runs by their own
 	// check_run_id, so re-driving it cannot resurrect a stale surface onto
 	// sha-two's PR head. We only require that driving it did not error above.
+}
+
+// TestReevaluateHeldFallsBackToLegacyWhenDisarmed: a DISARMED serve (rollback
+// or misconfig) that still carries a leftover held CONSOLIDATED record
+// (ExecutionID set, from before the disarm) must NOT take the consolidated
+// re-drive branch in reevaluateHeld. Consolidated re-drive calls
+// a.drive→renderAndPatch, whose lock fold is itself armed-gated — on an
+// unarmed app it would skip the lock fold entirely and conclude "success"
+// while the lock is STILL held (a merge-lock bypass). The legacy fallback
+// (evaluate c.Stacks directly, PATCH the check held/in_progress) is the
+// fail-safe path and must run instead.
+func TestReevaluateHeldFallsBackToLegacyWhenDisarmed(t *testing.T) {
+	var mu sync.Mutex
+	var updates []CheckRunUpdate
+	gh := &MockGitHub{
+		UpdateCheckRunFn: func(_ context.Context, _ string, _ int64, upd CheckRunUpdate) error {
+			mu.Lock()
+			updates = append(updates, upd)
+			mu.Unlock()
+			return nil
+		},
+	}
+	// No Executor wired => a.runTriggerArmed() is false (disarmed tier).
+	a := New(newServerTestDB(t), gh, Config{Environment: "nonprod", PublicBaseURL: "https://serve.test"})
+
+	// PR #3 is applying stacks/a right now — the blocking claim.
+	if err := a.shell.handleClaim("nonprod", claims.AcquireClaim{PR: 3, Stacks: []string{"stacks/a"}, Now: a.now()}); err != nil {
+		t.Fatal(err)
+	}
+
+	// A matching execution row for PR #7 so the legacy path has stacks to read
+	// if it ever needs to resolve them independently of the record.
+	if err := store.UpsertInit(a.db, events.Init{
+		ID: "exec-7", Repo: "o/r", SHA: "sha-one", PR: 7, Environment: "nonprod",
+		Context: "plan/nonprod", Stacks: []events.StackState{{Path: "stacks/a", Status: events.StatusSafe}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetCheckRunID(a.db, "exec-7", 4242); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetReport(a.db, "exec-7", "report"); err != nil {
+		t.Fatal(err)
+	}
+
+	// A leftover HELD consolidated record (ExecutionID set) — as if this SHA's
+	// check was last rendered while the tier was armed, before being disarmed.
+	if err := store.UpsertApplyLockCheck(a.db, store.ApplyLockCheck{
+		Environment: "nonprod", HeadSHA: "sha-one", CheckRunID: 4242, PR: 7, Repo: "o/r",
+		Stacks: []string{"stacks/a"}, State: "held", Kind: "pr_head", ExecutionID: "exec-7",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// The blocking claim is still held when we re-evaluate.
+	a.reevaluateHeld(context.Background(), "nonprod")
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(updates) == 0 {
+		t.Fatal("no check updates recorded — reevaluateHeld should have patched via the legacy path")
+	}
+	last := updates[len(updates)-1]
+	if last.Conclusion == "success" {
+		t.Fatalf("conclusion = %q, want NOT success — the lock is still held (merge-lock bypass)", last.Conclusion)
+	}
+	rec, ok, err := store.GetApplyLockCheck(a.db, "nonprod", "sha-one")
+	if err != nil || !ok {
+		t.Fatalf("applylock record: %v ok=%v", err, ok)
+	}
+	if rec.State != "held" {
+		t.Errorf("record state = %q, want held", rec.State)
+	}
+}
+
+// TestConsolidatedClearRecordSurvivesFailedPatch: the "clear" record must only
+// be persisted AFTER UpdateCheckRun succeeds. If the release re-drive's PATCH
+// fails transiently, the record must stay "held" — so a later
+// release/sweep still finds it via HeldApplyLockChecks and retries — rather
+// than being wrongly marked "clear" while the live check is stuck in_progress
+// forever.
+func TestConsolidatedClearRecordSurvivesFailedPatch(t *testing.T) {
+	var mu sync.Mutex
+	var updates []CheckRunUpdate
+	failNext := false
+	gh := &MockGitHub{
+		CreateCheckRunFn: func(context.Context, string, string, string, string) (int64, error) { return 4242, nil },
+		UpdateCheckRunFn: func(_ context.Context, _ string, _ int64, upd CheckRunUpdate) error {
+			mu.Lock()
+			defer mu.Unlock()
+			if failNext {
+				failNext = false
+				return fmt.Errorf("transient github error")
+			}
+			updates = append(updates, upd)
+			return nil
+		},
+	}
+	a := New(newServerTestDB(t), gh, Config{GitHubWebhookSecret: whSecret, Environment: "nonprod", PublicBaseURL: "https://serve.test"})
+	fe := &fakeExecutor{}
+	a.Executor = fe
+	srv := httptest.NewServer(a.Routes())
+	t.Cleanup(srv.Close)
+	snap := func() []CheckRunUpdate {
+		mu.Lock()
+		defer mu.Unlock()
+		return append([]CheckRunUpdate(nil), updates...)
+	}
+
+	// PR #3 is applying stacks/a right now.
+	if err := a.shell.handleClaim("nonprod", claims.AcquireClaim{PR: 3, Stacks: []string{"stacks/a"}, Now: a.now()}); err != nil {
+		t.Fatal(err)
+	}
+	webhookReq(t, srv, whSecret, "pull_request", prSyncPayload(7, "sha-one")).Body.Close()
+	id := fe.starts[0].ExecutionID
+	if err := store.UpsertInit(a.db, events.Init{
+		ID: id, Repo: "o/r", SHA: "sha-one", PR: 7, Environment: "nonprod",
+		Context: "plan/nonprod", Stacks: []events.StackState{{Path: "stacks/a", Status: events.StatusSafe}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if code := post(t, srv, "/api/finalize", events.Finalize{ID: id, ReportMarkdown: "report"}); code != 200 {
+		t.Fatalf("finalize = %d", code)
+	}
+	if rec, ok, _ := store.GetApplyLockCheck(a.db, "nonprod", "sha-one"); !ok || rec.State != "held" {
+		t.Fatalf("precondition: record = %+v ok=%v, want held", rec, ok)
+	}
+
+	// PR #3's apply finishes, but the re-drive's PATCH fails transiently.
+	mu.Lock()
+	failNext = true
+	mu.Unlock()
+	a.releaseApplyClaims(context.Background(), "nonprod", 3)
+
+	rec, ok, err := store.GetApplyLockCheck(a.db, "nonprod", "sha-one")
+	if err != nil || !ok {
+		t.Fatalf("applylock record after failed patch: %v ok=%v", err, ok)
+	}
+	if rec.State != "held" {
+		t.Fatalf("record state after failed patch = %q, want held (failed patch must not clear the record)", rec.State)
+	}
+
+	// A subsequent release/sweep succeeds: the record flips to clear and the
+	// check concludes success.
+	a.releaseApplyClaims(context.Background(), "nonprod", 3)
+	upds := snap()
+	if len(upds) == 0 {
+		t.Fatal("no successful update recorded after retry")
+	}
+	last := upds[len(upds)-1]
+	if last.Conclusion != "success" {
+		t.Fatalf("conclusion after retry = %q, want success", last.Conclusion)
+	}
+	rec, ok, err = store.GetApplyLockCheck(a.db, "nonprod", "sha-one")
+	if err != nil || !ok {
+		t.Fatalf("applylock record after retry: %v ok=%v", err, ok)
+	}
+	if rec.State != "clear" {
+		t.Errorf("record state after retry = %q, want clear", rec.State)
+	}
 }

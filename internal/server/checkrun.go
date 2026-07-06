@@ -200,6 +200,15 @@ func (a *App) renderAndPatch(ctx context.Context, id, base string, terminal bool
 	// record so a later claim release can re-drive this execution, and fold the
 	// verdict into title/body/conclusion below.
 	lock := applyLockVerdict{}
+	// pendingClearRec holds a "clear" record that must NOT be persisted until
+	// the patch below actually succeeds: if UpdateCheckRun errors, persisting
+	// the clear record now would drop the row out of HeldApplyLockChecks, and
+	// no future release/sweep would ever re-drive this execution again,
+	// wedging the check in_progress forever. held/unverifiable are written
+	// eagerly (before the patch) instead — that direction is fail-safe: worst
+	// case a transient patch failure leaves a held/unverifiable record that a
+	// later release/sweep can still find and retry.
+	var pendingClearRec *store.ApplyLockCheck
 	if terminal && a.runTriggerArmed() && e.PR > 0 && isGate(e.StatusContext, e.Environment) {
 		stacks := make([]string, 0, len(g.Stacks))
 		for _, s := range g.Stacks {
@@ -207,12 +216,17 @@ func (a *App) renderAndPatch(ctx context.Context, id, base string, terminal bool
 		}
 		lock = a.evalApplyLock(e.Environment, e.PR, stacks, a.now())
 		if e.CheckRunID.Valid && e.CheckRunID.Int64 != 0 {
-			if err := store.UpsertApplyLockCheck(a.db, store.ApplyLockCheck{
+			rec := store.ApplyLockCheck{
 				Environment: e.Environment, HeadSHA: e.SHA, CheckRunID: e.CheckRunID.Int64,
 				PR: e.PR, Repo: e.Repo, Stacks: stacks, State: lock.State, Kind: "pr_head",
 				ExecutionID: e.ID,
-			}); err != nil {
-				log.Printf("consolidated lock record %s: %v", e.ID, err)
+			}
+			if lock.State == "held" || lock.State == "unverifiable" {
+				if err := store.UpsertApplyLockCheck(a.db, rec); err != nil {
+					log.Printf("consolidated lock record %s: %v", e.ID, err)
+				}
+			} else {
+				pendingClearRec = &rec
 			}
 		}
 	}
@@ -248,6 +262,12 @@ func (a *App) renderAndPatch(ctx context.Context, id, base string, terminal bool
 	}
 	if err := a.gh.UpdateCheckRun(ctx, e.Repo, e.CheckRunID.Int64, upd); err != nil {
 		log.Printf("update check run %s: %v", id, err)
+		return
+	}
+	if pendingClearRec != nil {
+		if err := store.UpsertApplyLockCheck(a.db, *pendingClearRec); err != nil {
+			log.Printf("consolidated lock record %s: %v", e.ID, err)
+		}
 	}
 }
 
