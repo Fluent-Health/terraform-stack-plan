@@ -195,10 +195,31 @@ func (a *App) renderAndPatch(ctx context.Context, id, base string, terminal bool
 	// Surface pending approval gates at the top of the check run so an
 	// action_required conclusion is self-explanatory (which gate, how to approve).
 	targets, _ := store.TargetsFor(a.db, e.PR, e.Environment)
+	// Consolidated mode: the merge-lock verdict is part of THIS check. Evaluate
+	// on terminal renders of the plan gate (stacks are known then), persist the
+	// record so a later claim release can re-drive this execution, and fold the
+	// verdict into title/body/conclusion below.
+	lock := applyLockVerdict{}
+	if terminal && a.runTriggerArmed() && e.PR > 0 && isGate(e.StatusContext, e.Environment) {
+		stacks := make([]string, 0, len(g.Stacks))
+		for _, s := range g.Stacks {
+			stacks = append(stacks, s.Path)
+		}
+		lock = a.evalApplyLock(e.Environment, e.PR, stacks, a.now())
+		if e.CheckRunID.Valid && e.CheckRunID.Int64 != 0 {
+			if err := store.UpsertApplyLockCheck(a.db, store.ApplyLockCheck{
+				Environment: e.Environment, HeadSHA: e.SHA, CheckRunID: e.CheckRunID.Int64,
+				PR: e.PR, Repo: e.Repo, Stacks: stacks, State: lock.State, Kind: "pr_head",
+				ExecutionID: e.ID,
+			}); err != nil {
+				log.Printf("consolidated lock record %s: %v", e.ID, err)
+			}
+		}
+	}
 	upd := CheckRunUpdate{
 		Title:      progressTitle(a.cfg.Progress, events.Phase(e.Phase), g.Stacks, terminal, "plan"),
 		Summary:    checkSummary("plan", g.Stacks, a.liveURL(base, id), events.Phase(e.Phase)),
-		Text:       gatesSection(targets) + failuresSection(g, e.LogURL, "") + e.ReportMarkdown,
+		Text:       lockSection(lock) + gatesSection(targets) + failuresSection(g, e.LogURL, "") + e.ReportMarkdown,
 		DetailsURL: a.liveURL(base, id),
 	}
 	// Serve-queued run (no runner data at all): name the state instead of an
@@ -217,7 +238,12 @@ func (a *App) renderAndPatch(ctx context.Context, id, base string, terminal bool
 			// gate-derived conclusion below can never say failure for it.
 			upd.Conclusion = "failure"
 		} else if snap, _, ok := loadSnapshot(a.db, id); ok {
-			upd.Conclusion = conclusion(snap, applyLockVerdict{})
+			upd.Conclusion = conclusion(snap, lock)
+			// The lock as the SOLE blocker: name the wait in the title (the
+			// terminal tally alone would read as a stuck green run).
+			if upd.Conclusion == "" && lockBlocked(lock) && conclusion(snap, applyLockVerdict{}) == "success" {
+				upd.Title = lockTitle(lock)
+			}
 		}
 	}
 	if err := a.gh.UpdateCheckRun(ctx, e.Repo, e.CheckRunID.Int64, upd); err != nil {
