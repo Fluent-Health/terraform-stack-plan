@@ -13,9 +13,10 @@ import (
 // applyLockVerdict is the evaluation of one PR's mergeability against the env's
 // claimed-stack set. State is clear|held|unverifiable.
 type applyLockVerdict struct {
-	State    string
-	Blocking []string
-	Reason   string
+	State       string
+	Blocking    []string
+	BlockingPRs []int
+	Reason      string
 }
 
 // prChangedStacks returns a PR's plan-time changed-stack set for env. ok=false
@@ -52,8 +53,58 @@ func (a *App) evalApplyLock(env string, pr int, stacks []string, now time.Time) 
 	if !v.Held {
 		return applyLockVerdict{State: "clear"}
 	}
-	return applyLockVerdict{State: "held", Blocking: v.Blocking,
+	return applyLockVerdict{State: "held", Blocking: v.Blocking, BlockingPRs: v.BlockingPRs,
 		Reason: "stacks being applied by another PR"}
+}
+
+// lockBlocked reports whether the merge-lock verdict blocks a green conclusion
+// (held, or fail-closed unverifiable). Zero value = not evaluated = clear.
+func lockBlocked(v applyLockVerdict) bool {
+	return v.State == "held" || v.State == "unverifiable"
+}
+
+// lockTitle is the check-run title when the merge lock is the only blocker.
+func lockTitle(v applyLockVerdict) string {
+	if v.State == "unverifiable" {
+		return "merge-lock unverifiable — retrying"
+	}
+	prs := make([]string, len(v.BlockingPRs))
+	for i, p := range v.BlockingPRs {
+		prs[i] = "#" + strconv.Itoa(p)
+	}
+	switch len(prs) {
+	case 0:
+		return "waiting on another PR's apply"
+	case 1:
+		return "waiting on PR " + prs[0] + "'s apply"
+	default:
+		return "waiting on PRs " + strings.Join(prs, ", ") + " applies"
+	}
+}
+
+// lockSection renders the merge-lock block for the consolidated check body.
+// Empty when clear (or not evaluated) — no section beats a "clear" banner.
+func lockSection(v applyLockVerdict) string {
+	switch v.State {
+	case "held":
+		prs := make([]string, len(v.BlockingPRs))
+		for i, p := range v.BlockingPRs {
+			prs[i] = "#" + strconv.Itoa(p)
+		}
+		by := "another PR"
+		if len(prs) > 0 {
+			by = "PR " + strings.Join(prs, ", ")
+		}
+		return "## Merge lock\n\nHolding — stacks `" + strings.Join(v.Blocking, "`, `") +
+			"` are being applied by " + by + ". Clears automatically when that apply finishes " +
+			"(or when its lease expires). Next: wait; if that apply is stuck, cancel/re-run it, " +
+			"an admin may bypass, or run `tfstackplan claims release`.\n\n"
+	case "unverifiable":
+		return "## Merge lock\n\nCan't verify the merge lock — " + v.Reason +
+			". Retrying; re-run the plan if it failed.\n\n"
+	default:
+		return ""
+	}
 }
 
 // postApplyLock creates-or-updates the apply-lock/<env> check on `sha` to match

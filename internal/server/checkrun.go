@@ -217,7 +217,7 @@ func (a *App) renderAndPatch(ctx context.Context, id, base string, terminal bool
 			// gate-derived conclusion below can never say failure for it.
 			upd.Conclusion = "failure"
 		} else if snap, _, ok := loadSnapshot(a.db, id); ok {
-			upd.Conclusion = conclusion(snap)
+			upd.Conclusion = conclusion(snap, applyLockVerdict{})
 		}
 	}
 	if err := a.gh.UpdateCheckRun(ctx, e.Repo, e.CheckRunID.Int64, upd); err != nil {
