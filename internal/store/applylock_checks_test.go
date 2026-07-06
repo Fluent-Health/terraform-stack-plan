@@ -32,3 +32,24 @@ func TestApplyLockCheckRoundTrip(t *testing.T) {
 		t.Fatalf("held = %+v, want only sha1", held)
 	}
 }
+
+func TestApplyLockCheckExecutionIDRoundTrip(t *testing.T) {
+	db := newTestDB(t)
+	if err := UpsertApplyLockCheck(db, ApplyLockCheck{
+		Environment: "nonprod", HeadSHA: "sha1", CheckRunID: 42, PR: 7, Repo: "o/r",
+		Stacks: []string{"stacks/a"}, State: "held", Kind: "pr_head", ExecutionID: "run-7-nonprod-plan-abc-a1",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	c, ok, err := GetApplyLockCheck(db, "nonprod", "sha1")
+	if err != nil || !ok {
+		t.Fatalf("get: %v ok=%v", err, ok)
+	}
+	if c.ExecutionID != "run-7-nonprod-plan-abc-a1" {
+		t.Errorf("ExecutionID = %q", c.ExecutionID)
+	}
+	held, err := HeldApplyLockChecks(db, "nonprod")
+	if err != nil || len(held) != 1 || held[0].ExecutionID != "run-7-nonprod-plan-abc-a1" {
+		t.Fatalf("held = %+v, err %v", held, err)
+	}
+}
