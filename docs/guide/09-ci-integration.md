@@ -314,8 +314,10 @@ jobs:
 scripts), so both must be on `PATH` (pin them in the repo's `.tool-versions`).
 The plan job's report is also printed to stdout, so it is useful even without a
 server. Branch protection requires the server's one check run per environment
-(`plan/<environment>`); the apply gate pre-check blocks merge-time applies
-until that environment's gates are approved.
+(`plan/<environment>`, or the consolidated `terraform/<environment>` on a tier
+where serve drives CI runs itself — see [07 — `serve`](07-serve.md)); the apply
+gate pre-check blocks merge-time applies until that environment's gates are
+approved.
 
 ## Local / offline
 

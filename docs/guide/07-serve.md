@@ -33,8 +33,10 @@ choice.
 ## The live UI
 
 When `run plan` registers an execution, `serve` creates a per-environment GitHub
-check run (`plan/<env>`) before a single plan has finished. From that moment,
-anyone watching the PR can see a live view.
+check run (`plan/<env>` — or the consolidated `terraform/<env>`, see
+[09 — CI integration](09-ci-integration.md), on a tier where serve drives CI
+runs itself) before a single plan has finished. From that moment, anyone
+watching the PR can see a live view.
 
 The UI has two levels:
 
@@ -88,11 +90,13 @@ class paired with its emitted `project` (or other `emit_attributes`) values — 
 requests a PAM grant for each one. A human approves in GCP IAM. The server
 reconciles the gate state as approvals come in.
 
-The check run (`plan/<env>`) reflects gate status in its summary. Branch
-protection requires this one check run per environment, so an unapproved gate
-blocks the merge — and `run apply`'s fail-closed gate pre-check blocks the apply
-even if a merge somehow slips through. There is no code path where an
-unsatisfied gate lets an apply proceed.
+The check run (`plan/<env>`, or `terraform/<env>` when serve drives CI runs
+itself — see the `executor` block in [09 — CI integration](09-ci-integration.md))
+reflects gate status in its summary. Branch protection requires this one check
+run per environment, so an unapproved gate blocks the merge — and `run
+apply`'s fail-closed gate pre-check blocks the apply even if a merge somehow
+slips through. There is no code path where an unsatisfied gate lets an apply
+proceed.
 
 ## Privilege-backed apply
 

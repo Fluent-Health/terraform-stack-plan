@@ -1688,8 +1688,12 @@ removable.
 ### Apply serialization — merge-lock
 
 `tfstackplan serve` prevents overlapping tier-applies from colliding on per-stack
-Terraform state locks. It is always on (no flag): serve posts an `apply-lock/<env>`
-check that holds a PR's merge while its changed stacks overlap an in-flight apply.
+Terraform state locks. It is always on (no flag): serve holds a PR's merge while
+its changed stacks overlap an in-flight apply. On an **unarmed** (legacy) tier
+this is a standalone required check, `apply-lock/<env>`; on an **armed**
+(serve-as-driver) tier the verdict is folded into the consolidated
+`terraform/<env>` check instead — see *Consolidated `terraform/<env>` check*
+below for the merged surface and its precedence.
 
 **Mechanism.** The claim ledger is event-sourced on the `env:<env>` stream (Phase
 4c): the `ClaimSet` is the folded state of claim/renew/release events, loaded via
@@ -1703,10 +1707,15 @@ stream to get the current `ClaimSet`, then computes the *overlap* between the PR
 plan-time changed stacks and the live claimed set. An empty intersection → `clear`;
 any overlap → `held`. If the PR's plan stacks cannot be determined (no finalized
 plan, or the store is unreadable) the verdict is `unverifiable` — the subsystem
-**fails closed**. Serve posts a required GitHub check named `apply-lock/<env>`:
+**fails closed**. On an unarmed tier this verdict drives a standalone required
+GitHub check named `apply-lock/<env>`:
 
 - `clear` → check conclusion `success`.
 - `held` or `unverifiable` → check conclusion `pending` (blocking the merge).
+
+On an armed tier there is no standalone check on a PR head — the same verdict is
+computed at every terminal render of the plan execution and folded into the
+consolidated `terraform/<env>` check (below).
 
 **Two webhook front-ends** over the same overlap predicate; infra's governance
 ruleset chooses which to enforce:
@@ -1716,14 +1725,20 @@ ruleset chooses which to enforce:
   written atomically at the moment serve posts the `success` check (greenlight).
   This is race-free: the merge-queue serializes PRs into the queue one at a
   time, so two PRs with overlapping stacks cannot both receive `success`
-  simultaneously.
-- **`pull_request`** — the check is posted on the PR's head SHA. Because the
-  `pull_request` webhook (open/sync) fires *before* the plan registers the PR's
-  changed stacks, the check is **also (re-)posted when the plan finalizes**
-  (`handleFinalize` → `postPlanApplyLock`, on the same SHA as `plan/<env>`) — so
-  on a freshly-opened PR it appears reliably alongside `plan/<env>` rather than
-  only after a later push. The claim is written at the `push` event that delivers
-  the merge commit (i.e. on actual merge, not at greenlight). Simpler to deploy
+  simultaneously. The check posted on the group head is lock-only (there is no
+  plan execution against a merge-group SHA); named `apply-lock/<env>` on
+  unarmed tiers, `terraform/<env>` on armed ones.
+- **`pull_request`** — on an unarmed tier the check is posted on the PR's head
+  SHA. Because the `pull_request` webhook (open/sync) fires *before* the plan
+  registers the PR's changed stacks, the check is **also (re-)posted when the
+  plan finalizes** (`handleFinalize` → `postPlanApplyLock`, on the same SHA as
+  `plan/<env>`) — so on a freshly-opened PR it appears reliably alongside
+  `plan/<env>` rather than only after a later push. On an armed tier this
+  separate posting is skipped entirely: the lock verdict is computed inline by
+  the plan execution's own terminal render (`renderAndPatch`), so there is
+  nothing to (re-)post standalone. Either way the claim is written at the
+  `push` event that delivers the merge commit (i.e. on actual merge, not at
+  greenlight). Simpler to deploy
   (no merge queue needed) but has a residual race: two PRs with overlapping
   stacks that receive `clear` within the same window can both merge before either
   claim is recorded.
@@ -1794,6 +1809,67 @@ bypass directly via the GitHub Checks API, skipping the predicate entirely.
   env's held checks. A mid-run classify-pass `Finalize` deliberately does NOT
   release (it would drop the lock before the apply ran); the claim lease TTL is
   the crash backstop.
+
+### Consolidated `terraform/<env>` check (armed tiers)
+
+On an **armed** tier (`runTriggerArmed()` — an `executor "<backend>" {}` block
+configured and `server { environment }` set, i.e. serve driving CI runs itself)
+a single `terraform/<env>` check per PR head replaces the unarmed tier's
+two-check surface (`plan/<env>` + `apply-lock/<env>`). It is a **pure render**
+of execution state × gate state × merge-lock state, recomputed on every
+terminal render of the plan execution (`renderAndPatch`) — there is no
+independent posting path to fall out of sync. Precedence (`conclusion()` +
+the lock fold in `renderAndPatch`):
+
+1. Any stack failed → `failure`.
+2. An unsatisfied PAM approval gate → `action_required` (`gatesSection` names
+   which gate; unchanged from the unarmed surface).
+3. Still planning/applying → left `in_progress`.
+4. The merge-lock is held (or unverifiable) and would otherwise be the sole
+   blocker → left `in_progress`, title `"waiting on PR #N's apply"`
+   (`lockTitle`) so a reviewer doesn't read a stalled bar as stuck. This
+   clears **automatically**: the blocking apply's release re-evaluates and
+   re-drives this same check (`reevaluateHeld` → `drive`) — no re-push needed.
+5. Otherwise → `success`.
+
+**Merge-group heads.** A GitHub merge-queue group head has no plan execution
+against its SHA — there is nothing to fail or gate — so `handleMergeGroup`
+posts a **lock-only** check there. It is named `terraform/<env>` when armed
+(`apply-lock/<env>` on unarmed tiers) via the shared `mergeGateCheckName`,
+so the required-check name is identical whether the head is a PR or a merge
+group.
+
+**Post-merge `apply/<env>` is unchanged** in both modes — the consolidation is
+scoped to the pre-merge PR-head surface.
+
+**Unarmed (legacy) tiers** keep the two-check surface until each tier's infra
+cutover (widening webhook events, arming the `executor` block, wiring
+`_EXECUTION_ID`). The legacy posting paths (`postApplyLock`,
+`postPlanApplyLock`, the standalone `apply-lock/<env>` check) stay in the
+codebase, gated behind `!runTriggerArmed()`, and are only removable after
+every tier has cut over.
+
+**Known limitations / gotchas (consolidated check):**
+
+- **The stored gate identity never changes.** `executions.status_context`
+  stays `plan/<env>` regardless of which name the check run wears — `isGate`,
+  supersede bucketing, and pre-cutover rows all key off `status_context`, not
+  the display name. Only the GitHub-facing name (`planCheckName` /
+  `consolidatedCheckName`) flips with arming.
+- **The Re-run matcher accepts both names.** `handleCheckRunWebhook` matches
+  `check_run.name` against both `planCheckName(env)` (the live name) and the
+  legacy `checkRunName(env)` (`plan/<env>`), so a check posted before a
+  mid-flight cutover keeps a working Re-run button after arming.
+- **A Re-run on a merge-group head's `terraform/<env>` check degrades safely
+  to a logged skip.** There is no execution row keyed to a merge-group SHA, so
+  `store.LatestPRForSHA` finds no PR and the handler logs and returns
+  no-content — no crash, no misattributed re-run.
+- **The held-lock record points at the owning plan execution.** In consolidated
+  mode, `applylock_checks.execution_id` carries the id of the plan execution
+  whose check render carries the lock verdict. A claim release
+  (`reevaluateHeld`) re-drives that execution's check directly rather than
+  patching the lock check standalone — there is no standalone lock check to
+  patch once armed.
 
 ### API auth — Google OIDC identity + scopes (dual-accept)
 
