@@ -65,6 +65,8 @@ func eventTag(e Event) string {
 		return "RunSuperseded"
 	case RunCompleted:
 		return "RunCompleted"
+	case RunAdopted:
+		return "RunAdopted"
 	default:
 		return ""
 	}
@@ -115,6 +117,8 @@ func UnmarshalEvent(tag string, data []byte) (Event, error) {
 		return unmarshalInto[RunSuperseded](data)
 	case "RunCompleted":
 		return unmarshalInto[RunCompleted](data)
+	case "RunAdopted":
+		return unmarshalInto[RunAdopted](data)
 	default:
 		return nil, fmt.Errorf("reconcile: unknown event tag %q", tag)
 	}

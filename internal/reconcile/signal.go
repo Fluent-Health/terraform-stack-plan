@@ -68,6 +68,17 @@ type RunStartResult struct {
 	Err         string
 }
 
+// InboundBuild is an observed Cloud Build lifecycle event for a build serve may
+// NOT have launched — a native-check Re-run or a console rebuild. The shell has
+// already correlated it to this ChangeSet's (pr, env) and derived the run Kind
+// (from the trigger) + the resolved commit SHA. Decide reconciles it onto the
+// PR's stuck run; the fail-safe backstop for the adopted build stays the watchdog.
+type InboundBuild struct {
+	Kind     string // RunKindPlan | RunKindApply
+	SHA      string // resolved commit sha of the build
+	BuildRef string // Cloud Build build id
+}
+
 // --- post-apply ---
 
 type ApplySucceeded struct{}
@@ -82,6 +93,7 @@ func (GateTick) isSignal()       {}
 func (ApplySucceeded) isSignal() {}
 func (RunRequested) isSignal()   {}
 func (RunStartResult) isSignal() {}
+func (InboundBuild) isSignal()   {}
 
 // ObservedGrant is one grant fact the shell gathered for a (class,target).
 type ObservedGrant struct {

@@ -99,6 +99,15 @@ func Evolve(cs ChangeSet, e Event) ChangeSet {
 		r.Phase = RunPhaseSuperseded
 		return withRun(cs, r)
 
+	case RunAdopted:
+		// Bind a run to an externally-created build: created already-Started (the
+		// build exists), replacing any prior (superseded/failed) entry for the kind.
+		return withRun(cs, Run{
+			ExecutionID: ev.ExecutionID, Kind: ev.Kind, SHA: ev.SHA,
+			Branch: ev.Branch, Attempt: ev.Attempt, BuildRef: ev.BuildRef,
+			Phase: RunPhaseStarted,
+		})
+
 	// --- gate-lifecycle facts ---
 
 	case Classified:
