@@ -78,6 +78,7 @@ func corpus() []Event {
 		RunStarted{Kind: RunKindPlan, ExecutionID: "run-1-nonprod-plan-abc123-a1", BuildRef: "b-1"},
 		RunStartFailed{Kind: RunKindPlan, ExecutionID: "run-1-nonprod-plan-abc123-a1", Reason: "api error"},
 		RunSuperseded{Kind: RunKindPlan, OldExecutionID: "run-1-nonprod-plan-abc123-a1", OldBuildRef: "b-1", NewExecutionID: "run-1-nonprod-plan-def456-a1", NewSHA: "def456"},
+		RunAdopted{Kind: RunKindPlan, ExecutionID: "run-7-nonprod-plan-abc-a2", SHA: "abc", Branch: "feat/x", Attempt: 2, BuildRef: "build-new"},
 		RunCompleted{Kind: RunKindPlan, ExecutionID: "run-1-nonprod-plan-abc123-a1"},
 	}
 }

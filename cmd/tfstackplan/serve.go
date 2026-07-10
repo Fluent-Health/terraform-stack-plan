@@ -89,6 +89,7 @@ func buildServeApp(ctx context.Context, cfg *config.Config, secret, ghWebhookSec
 		PushServiceAccount:  pubsubSA(s),
 		APIPrincipals:       apiPrincipals(s),
 		Progress:            cfg.Progress,
+		BuildTriggerNames:   buildTriggerNames(s),
 	})
 
 	if s.APIAuth != nil {
@@ -160,6 +161,22 @@ func apiPrincipals(s *config.ServeConfig) map[string][]string {
 	m := make(map[string][]string, len(s.APIAuth.Principals))
 	for _, p := range s.APIAuth.Principals {
 		m[strings.ToLower(p.Email)] = p.Scopes
+	}
+	return m
+}
+
+// buildTriggerNames inverts the executor's kind→trigger-name map into the
+// trigger-name→kind map the /pubsub/cloud-builds ingest correlates on. nil when
+// no cloudbuild executor is configured.
+func buildTriggerNames(s *config.ServeConfig) map[string]string {
+	if s.Executor == nil {
+		return nil
+	}
+	m := make(map[string]string, len(s.Executor.Triggers))
+	for kind, name := range s.Executor.Triggers {
+		if name != "" {
+			m[name] = kind
+		}
 	}
 	return m
 }

@@ -308,6 +308,28 @@ func SupersedeExecution(db *sql.DB, oldID, newID string) error {
 	return err
 }
 
+// FindExecutionBySHA returns the most recent non-superseded execution for
+// (environment, status_context, sha) with pr > 0. The inbound-build correlation
+// and the pr==0 runner-Init recovery both key on it: a plan head SHA is PR-unique,
+// so this recovers the owning PR when a rerun lost its _PR_NUMBER.
+func FindExecutionBySHA(db *sql.DB, environment, statusContext, sha string) (string, bool, error) {
+	var id string
+	err := db.QueryRow(
+		`SELECT id FROM executions
+                 WHERE environment = ? AND status_context = ? AND sha = ? AND COALESCE(pr,0) > 0
+                   AND (superseded_by IS NULL OR superseded_by = '')
+                 ORDER BY created_at DESC, id DESC LIMIT 1`,
+		environment, statusContext, sha,
+	).Scan(&id)
+	if err == sql.ErrNoRows {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	return id, true, nil
+}
+
 // StuckPendingExecutions returns this environment's serve-initiated
 // executions (id prefix per reconcile.RunExecutionIDPrefix) still in_progress
 // with no runner activity at all (empty phase) created before cutoff — the

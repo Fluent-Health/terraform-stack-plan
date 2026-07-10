@@ -423,3 +423,75 @@ func TestDecidePRClosedRevokesAndBlocks(t *testing.T) {
 		t.Fatalf("got %#v want %#v", got, want)
 	}
 }
+
+func TestDecideInboundBuild(t *testing.T) {
+	base := ChangeSet{PR: 7, Environment: "nonprod", Gate: NotClassified{}}
+	deadRun := func(phase RunPhase, buildRef string) map[string]Run {
+		return map[string]Run{RunKindPlan: {
+			ExecutionID: "run-7-nonprod-plan-abc123abc123-a1", Kind: RunKindPlan,
+			SHA: "abc123abc123def", Branch: "feat/x", Attempt: 1,
+			BuildRef: buildRef, Phase: phase,
+		}}
+	}
+
+	t.Run("new build for a start-failed run supersedes and adopts", func(t *testing.T) {
+		cs := base
+		cs.Runs = deadRun(RunPhaseStartFailed, "build-old")
+		evs := Decide(cs, InboundBuild{Kind: RunKindPlan, SHA: "abc123abc123def", BuildRef: "build-new"})
+		wantNew := "run-7-nonprod-plan-abc123abc123-a2"
+		sup, ok := evs[0].(RunSuperseded)
+		if !ok || sup.OldExecutionID != "run-7-nonprod-plan-abc123abc123-a1" || sup.OldBuildRef != "build-old" || sup.NewExecutionID != wantNew {
+			t.Fatalf("evs[0] = %+v", evs[0])
+		}
+		ad, ok := evs[1].(RunAdopted)
+		if !ok || ad.ExecutionID != wantNew || ad.BuildRef != "build-new" || ad.SHA != "abc123abc123def" || ad.Attempt != 2 || ad.Branch != "feat/x" {
+			t.Fatalf("evs[1] = %+v", evs[1])
+		}
+	})
+
+	t.Run("same build id is idempotent no-op", func(t *testing.T) {
+		cs := base
+		cs.Runs = deadRun(RunPhaseStartFailed, "build-old")
+		if evs := Decide(cs, InboundBuild{Kind: RunKindPlan, SHA: "abc123abc123def", BuildRef: "build-old"}); len(evs) != 0 {
+			t.Fatalf("want no-op, got %+v", evs)
+		}
+	})
+
+	t.Run("live run is left alone", func(t *testing.T) {
+		cs := base
+		cs.Runs = deadRun(RunPhaseStarted, "build-old")
+		if evs := Decide(cs, InboundBuild{Kind: RunKindPlan, SHA: "abc123abc123def", BuildRef: "build-new"}); len(evs) != 0 {
+			t.Fatalf("want no-op for live run, got %+v", evs)
+		}
+	})
+
+	t.Run("different sha is ignored", func(t *testing.T) {
+		cs := base
+		cs.Runs = deadRun(RunPhaseStartFailed, "build-old")
+		if evs := Decide(cs, InboundBuild{Kind: RunKindPlan, SHA: "othersha000000", BuildRef: "build-new"}); len(evs) != 0 {
+			t.Fatalf("want no-op for different sha, got %+v", evs)
+		}
+	})
+
+	t.Run("no serve run is ignored", func(t *testing.T) {
+		if evs := Decide(base, InboundBuild{Kind: RunKindPlan, SHA: "abc123abc123def", BuildRef: "build-new"}); len(evs) != 0 {
+			t.Fatalf("want no-op when no run tracked, got %+v", evs)
+		}
+	})
+
+	t.Run("unknown kind is ignored", func(t *testing.T) {
+		cs := base
+		cs.Runs = deadRun(RunPhaseStartFailed, "build-old")
+		if evs := Decide(cs, InboundBuild{Kind: "bogus", SHA: "abc123abc123def", BuildRef: "build-new"}); len(evs) != 0 {
+			t.Fatalf("want no-op for unknown kind, got %+v", evs)
+		}
+	})
+
+	t.Run("empty build ref is ignored", func(t *testing.T) {
+		cs := base
+		cs.Runs = deadRun(RunPhaseStartFailed, "build-old")
+		if evs := Decide(cs, InboundBuild{Kind: RunKindPlan, SHA: "abc123abc123def", BuildRef: ""}); len(evs) != 0 {
+			t.Fatalf("want no-op for empty build ref, got %+v", evs)
+		}
+	})
+}

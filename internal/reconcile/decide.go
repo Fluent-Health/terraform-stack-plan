@@ -27,6 +27,8 @@ func Decide(state ChangeSet, s Signal) []Event {
 		return decideRunRequested(state, sig)
 	case RunStartResult:
 		return decideRunStartResult(state, sig)
+	case InboundBuild:
+		return decideInboundBuild(state, sig)
 	case ApplySucceeded:
 		if _, ok := state.Gate.(NotClassified); ok {
 			return nil

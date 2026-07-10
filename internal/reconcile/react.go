@@ -103,6 +103,14 @@ func React(state ChangeSet, evs []Event) []Action {
 				renderPrec = 3
 				renderAction = RenderCheckRun{Terminal: true, Conclusion: "failure"}
 			}
+		case RunAdopted:
+			// Materialize the execution row + check without calling the executor,
+			// then render in-progress (queued → provisioning on the new build).
+			actions = append(actions, AdoptRun{Kind: ev.Kind, ExecutionID: ev.ExecutionID, SHA: ev.SHA, BuildRef: ev.BuildRef})
+			if renderPrec < 1 {
+				renderPrec = 1
+				renderAction = RenderCheckRun{}
+			}
 		case RunSuperseded:
 			actions = append(actions, CancelRun{
 				Kind:           ev.Kind,

@@ -49,6 +49,8 @@ func (sh *Shell) execute(ctx context.Context, cs reconcile.ChangeSet, repo strin
 			feedback = append(feedback, sh.startRun(ctx, cs, repo, act))
 		case reconcile.CancelRun:
 			sh.cancelRun(ctx, act)
+		case reconcile.AdoptRun:
+			sh.adoptRun(ctx, cs, repo, act)
 		case reconcile.RenderCheckRun:
 			sh.renderCheckRun(ctx, cs, act)
 		case reconcile.PostCommitStatus:

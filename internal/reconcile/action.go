@@ -59,6 +59,16 @@ type CancelRun struct {
 	NewExecutionID string
 }
 
+// AdoptRun materializes the execution row + check run for a run bound to a build
+// serve did NOT launch (RunAdopted), pointing them at the existing BuildRef.
+// Unlike StartRun it never calls the executor — the build already exists. No result.
+type AdoptRun struct {
+	Kind        string
+	ExecutionID string
+	SHA         string
+	BuildRef    string
+}
+
 // ReleaseClaim releases the merge-lock stack claim a PR holds in an environment.
 // Emitted post-apply (the apply is done, so the claim it held is no longer
 // needed). The shell deletes the claims and re-evaluates the env's held
@@ -76,3 +86,4 @@ func (PublishSSE) isAction()       {}
 func (ReleaseClaim) isAction()     {}
 func (StartRun) isAction()         {}
 func (CancelRun) isAction()        {}
+func (AdoptRun) isAction()         {}

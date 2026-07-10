@@ -96,6 +96,21 @@ type RunSuperseded struct {
 	NewSHA         string
 }
 
+// RunAdopted records serve binding a run to a build it did NOT launch (a rerun
+// created outside triggers.run). Unlike RunQueued it carries an existing
+// BuildRef and does NOT trigger StartRun — the build already exists. Evolve folds
+// it to a Started-phase Run; React materializes the execution row + check via
+// AdoptRun. The watchdog then tracks BuildRef and fails it if it finishes without
+// the runner ever reporting (fail-safe backstop).
+type RunAdopted struct {
+	Kind        string
+	ExecutionID string
+	SHA         string
+	Branch      string
+	Attempt     int
+	BuildRef    string
+}
+
 // RunCompleted records the runner taking over and finalizing: the run-start
 // lifecycle is over. Also emitted when a "start-failed" run finalizes anyway
 // (a client-side start timeout whose build actually ran) — the finalize proves
@@ -139,4 +154,5 @@ func (RunQueued) isEvent()           {}
 func (RunStarted) isEvent()          {}
 func (RunStartFailed) isEvent()      {}
 func (RunSuperseded) isEvent()       {}
+func (RunAdopted) isEvent()          {}
 func (RunCompleted) isEvent()        {}

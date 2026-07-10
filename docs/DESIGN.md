@@ -2000,6 +2000,70 @@ exactly as before.
   executor block to the serve config, and have the build yamls consume
   `_EXECUTION_ID`. Until then nothing changes in production.
 
+### Inbound Cloud Build awareness (recover builds serve didn't launch)
+
+A build outside serve's own `StartRun` call — a native-check Re-run or a
+console rebuild — used to leave the stuck `terraform/<env>` check pointing at
+a run serve had already given up on, with no path back to green. `POST
+/pubsub/cloud-builds` closes that gap reactively: it ingests the project's
+`cloud-builds` Pub/Sub topic (OIDC-verified, reusing the same push verifier
+and `PushServiceAccount` identity check as `/pubsub/push`) and always ACKs
+(a wedged subscription from endless redelivery is worse than a dropped
+build event).
+
+- **Correlation**: `reconcileInboundBuild` recovers the owning execution in
+  precedence order — `_EXECUTION_ID` (exact) → `_PR_NUMBER` (latest execution
+  for that PR/env) → `(environment, context, sha)` via
+  `store.FindExecutionBySHA`. A build that matches none of these, or whose
+  trigger name isn't in `BuildTriggerNames`, is silently ignored.
+- **Supersede + adopt**: `decideInboundBuild` fires only when the matched run
+  is one serve has already given up on (start_failed / completed /
+  superseded) and the build is a genuinely new `BuildRef` for the same SHA —
+  a live run is left untouched, and a build serve already tracks is a no-op.
+  It emits `RunSuperseded` + `RunAdopted`, and the shell's `AdoptRun` action
+  materializes a fresh execution + check row (a new attempt) pointed at the
+  existing build — **without** calling the executor, since the build already
+  exists. The stale FAILED check is shadowed by the new in-progress one, and
+  the existing start watchdog re-points to the adopted `BuildRef` and remains
+  the fail-safe backstop for it.
+- **Conclusion still comes from the runner.** Adoption only re-arms the
+  check; the rich green/red conclusion is unchanged — it comes from the
+  rebuild's own runner finalize. A rerun triggered outside `triggers.run` can
+  report `pr=0` (its `_PR_NUMBER` substitution is lost); `handleInit` now
+  recovers the owning PR by `(environment, context, sha)` — the same key the
+  inbound-build path uses — before writing the row, so the rerun still
+  supersedes and reattaches to the PR's check instead of orphaning.
+
+**Known limitations / gotchas (inbound Cloud Build awareness):**
+
+- **The conclusion still depends on the runner reporting.** Adoption only
+  gets the check back to `in_progress` against the right build; if that
+  rebuild's runner never reports (crashes before its first `Init`, wrong
+  image, network partition), the check has no other path to a terminal
+  state — the existing start watchdog is what eventually fails it safe after
+  its timeout.
+- **SHA-based correlation assumes plan head SHAs are PR-unique.** The
+  `(environment, context, sha)` fallback (`FindExecutionBySHA`) picks the
+  most recent non-superseded execution for that key; two open PRs sharing an
+  identical head SHA (e.g. a branch pushed to both) would correlate to
+  whichever execution was recorded, not necessarily the right one. The
+  `_EXECUTION_ID`/`_PR_NUMBER` precedence exists specifically to avoid
+  relying on this in the common case.
+- **Inert until the infra companion lands.** `handleCloudBuildPush` 404s
+  unless run triggering is armed, a push verifier is configured, and
+  `BuildTriggerNames` is non-empty — but even fully configured, nothing
+  reaches it until each tier's infra wires a `cloud-builds` push subscription
+  to `/pubsub/cloud-builds` with the same push-SA OIDC identity/audience as
+  the existing `/pubsub/push` subscription. No new serve GCP role is needed.
+- **A console rebuild of an already-green SHA flips the check back to
+  in-progress.** The inbound path fires for any run serve has given up on,
+  which includes `completed` — so re-running an already-succeeded build from
+  the Cloud Build console adopts it and moves `terraform/<env>` from success
+  back to in-progress until the rebuild's runner reports. This is
+  user-visible but intentional; serve's own builds never trigger it, since
+  the `BuildRef`-match and live-run guards only let a genuinely new,
+  serve-abandoned build through.
+
 ### Delivery: binary + Cloud Run container
 
 The `serve` face is intended to run as a Cloud Run-class service, so a release
