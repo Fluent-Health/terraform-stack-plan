@@ -1,0 +1,4 @@
+HTTP 200
+Content-Type: application/json
+
+[{"environment":"staging","stack_path":"stacks/a","owner_pr":7,"expires_at":"2030-01-02T03:04:05Z"},{"environment":"staging","stack_path":"stacks/b","owner_pr":7,"expires_at":"2030-01-02T03:04:05Z"}]

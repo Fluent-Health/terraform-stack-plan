@@ -1,0 +1,4 @@
+HTTP 409
+Content-Type: application/json
+
+{"code":"GATE-001","message":"not classified"}
