@@ -1,0 +1,4 @@
+HTTP 200
+Content-Type: application/json
+
+{"ID":"e1","Repo":"o/r","SHA":"cafe1234cafe","PR":7,"Environment":"staging","CheckRunID":{"Int64":0,"Valid":true},"Rev":4,"ReportMarkdown":"## report\n","LogURL":"https://ci/logs/1","Status":"in_progress","StatusContext":"plan/staging","Phase":"planning","CreatedAt":"2030-01-02T03:04:05Z","SupersededBy":"","graph":{"stacks":[{"path":"stacks/a","project":"proj-a","status":"planned","categories":[{"name":"iam","icon":"🔐"}],"counts":{"add":1,"change":2}},{"path":"stacks/b","project":"proj-b","status":"pending"}],"edges":[{"from":"stacks/a","to":"stacks/b"}]},"gates":[]}

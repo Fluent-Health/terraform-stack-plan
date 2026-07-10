@@ -9,6 +9,7 @@ The dry, exact material. No narrative here — for *why* and *how*, see
 | [CLI](cli.md) | Every subcommand and flag: `render`, `run *`, `serve`, `state *`, `claims *` |
 | [Environment](environment.md) | Environment variables each face reads, grouped by face |
 | [Install & deploy](install-and-deploy.md) | Install paths (go / release binary / asdf) and deploying `serve` to Cloud Run |
+| [`api/openapi.yaml`](../../api/openapi.yaml) | The OpenAPI contract for serve's `/api` surface — the wire truth the server router and Go client are generated from |
 
 These pages are kept exact against the source. If something here disagrees with
 the code, the code wins — please [open an issue](https://github.com/Fluent-Health/terraform-stack-plan/issues).

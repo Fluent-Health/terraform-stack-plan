@@ -1,0 +1,11 @@
+# oapi-codegen configuration — regenerate with `go generate ./internal/api`.
+package: api
+generate:
+  models: true
+  std-http-server: true
+  client: true
+output: api.gen.go
+output-options:
+  # The events schemas are x-go-type-bound to internal/events; suppress
+  # duplicate model emission for anything the binding already covers.
+  skip-prune: false

@@ -1,0 +1,689 @@
+openapi: 3.0.3
+info:
+  title: tfstackplan control-plane API
+  version: "1"
+  description: |
+    The `/api` surface of a tfstackplan tier serve: the runner→server execution
+    lifecycle (init → phase → per-stack updates → finalize, plus log ingest and
+    the apply-time gate exchange), the apply-lock claim verbs, and the
+    execution read.
+
+    This document is the wire contract. It mirrors the shapes in
+    `internal/events` (the schemas are bound to those Go types via `x-go-type`
+    — there is exactly one canonical definition) and is consumed by code
+    generation on both sides: the serve router/stubs and the Go client. Serve
+    and runner deploy independently, so changes here are cross-version protocol
+    changes: additive only, never a field rename or removal. The byte-level
+    truth is pinned by `internal/server/testdata/wire/`.
+
+    Deliberately out of scope: the SSE streams (`GET
+    /api/execution/{id}/events`, `/logs/{exec}/{stack}?follow=1` — OpenAPI does
+    not model event streams usefully; they are hand-rolled), the GitHub webhook
+    and Pub/Sub push endpoints (external contracts), and the public `/img`,
+    `/assets`, `/live` surfaces.
+
+    Authentication: every operation requires a Google-signed OIDC ID token
+    (bearer). The verified email maps to scopes (`report`, `read`, `admin`) in
+    the serve config; each operation lists its accepted scopes (any-of) in
+    `x-scopes`. Rejections are `401 unauthorized` / `403 forbidden` as
+    `text/plain`.
+
+    Error model: gate-check failures return machine-readable
+    `{code, message}` JSON (`CodedError`); every other failure is a
+    `text/plain` message with the appropriate HTTP status.
+paths:
+  /api/init:
+    post:
+      operationId: initExecution
+      summary: Register an execution and its changed subgraph
+      description: |
+        Idempotent per execution id — a repeat Init resets per-stack statuses
+        to the payload values but never regresses an already-advanced stack.
+        Creates/refreshes the GitHub check run and may supersede a live
+        same-(pr, environment) execution for an older SHA.
+      security:
+        - oidc: [report]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Init"
+      responses:
+        "200":
+          description: Recorded.
+        "400":
+          $ref: "#/components/responses/BadRequestText"
+        "500":
+          $ref: "#/components/responses/InternalText"
+        "502":
+          description: The GitHub check run could not be created.
+          content:
+            text/plain: {}
+  /api/phase:
+    post:
+      operationId: reportPhase
+      summary: Narrate a lifecycle phase transition
+      description: May arrive before Init; the execution row is upserted.
+      security:
+        - oidc: [report]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PhaseEvent"
+      responses:
+        "200":
+          description: Recorded.
+        "400":
+          $ref: "#/components/responses/BadRequestText"
+        "500":
+          $ref: "#/components/responses/InternalText"
+        "502":
+          description: The GitHub check run could not be created.
+          content:
+            text/plain: {}
+  /api/update:
+    post:
+      operationId: updateStack
+      summary: Tick a single stack's status
+      security:
+        - oidc: [report]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Update"
+      responses:
+        "200":
+          description: Recorded.
+        "400":
+          $ref: "#/components/responses/BadRequestText"
+        "500":
+          $ref: "#/components/responses/InternalText"
+  /api/finalize:
+    post:
+      operationId: finalizeExecution
+      summary: Record the terminal plan state
+      description: |
+        Persists the rendered report and per-stack backfills, records the gate
+        targets through the reconcile core (requesting approval grants), and
+        drives the terminal check-run conclusion.
+      security:
+        - oidc: [report]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Finalize"
+      responses:
+        "200":
+          description: Recorded.
+        "400":
+          $ref: "#/components/responses/BadRequestText"
+        "500":
+          $ref: "#/components/responses/InternalText"
+  /api/logs:
+    post:
+      operationId: appendLogs
+      summary: Ingest a per-stack output chunk
+      security:
+        - oidc: [report]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LogChunk"
+      responses:
+        "200":
+          description: Appended.
+        "400":
+          $ref: "#/components/responses/BadRequestText"
+        "500":
+          $ref: "#/components/responses/InternalText"
+  /api/gate/check:
+    post:
+      operationId: checkGate
+      summary: Apply-time, fail-closed gate pre-check
+      description: |
+        200 only when the (pr, environment) was classified AND every recorded
+        gate target's grant is ACTIVE (a classified plan with no gates passes,
+        with an empty requester). Reconciles against the approval backend
+        first; when current grant state cannot be confirmed the check fails
+        closed with 503 `GATE-003` rather than trusting a stale cache.
+      security:
+        - oidc: [report]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GateCheck"
+      responses:
+        "200":
+          description: Gate satisfied; apply may proceed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GateCheckOK"
+        "400":
+          $ref: "#/components/responses/BadRequestText"
+        "409":
+          description: >-
+            Gate not passable: `GATE-001` (never classified) or `GATE-002`
+            (a required grant is not ACTIVE).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CodedError"
+        "500":
+          description: Internal error (`SRV-001`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CodedError"
+        "503":
+          description: >-
+            Gate state could not be freshly confirmed (`GATE-003`) —
+            transient, retriable, fail-closed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CodedError"
+  /api/gate/revoke:
+    post:
+      operationId: revokeGate
+      summary: Revoke the grants requested for (pr, environment)
+      description: >-
+        Best-effort post-apply cleanup; also releases the apply-lock claim.
+        Always 200 — revoke failures are logged server-side, not surfaced.
+      security:
+        - oidc: [report]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GateRevoke"
+      responses:
+        "200":
+          description: Accepted.
+        "400":
+          $ref: "#/components/responses/BadRequestText"
+  /api/claims/list:
+    post:
+      operationId: listClaims
+      summary: List the apply-lock claims for an environment
+      security:
+        - oidc: [report, read, admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ClaimsListRequest"
+      responses:
+        "200":
+          description: The environment's claims. Always a JSON array, never null.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Claim"
+        "400":
+          $ref: "#/components/responses/BadRequestText"
+        "500":
+          $ref: "#/components/responses/InternalText"
+  /api/claims/release:
+    post:
+      operationId: releaseClaims
+      summary: Admin-release one stack's claim or all of a PR's claims
+      description: >-
+        stack != "" releases that stack's claim; stack == "" releases every
+        claim the PR holds in the environment. Always 200 (best-effort).
+      security:
+        - oidc: [report, admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ClaimsReleaseRequest"
+      responses:
+        "200":
+          description: Accepted.
+        "400":
+          $ref: "#/components/responses/BadRequestText"
+  /api/execution/{id}:
+    get:
+      operationId: getExecution
+      summary: Read one execution's full state
+      description: |
+        The execution row, its stack/edge graph, and the gate targets for its
+        (pr, environment). NOTE the response's top-level and `gates` keys are
+        PascalCase and `CheckRunID` is a raw `{Int64, Valid}` pair — a
+        historical accident preserved for wire compatibility.
+      security:
+        - oidc: [report, read, admin]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The execution.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExecutionDetail"
+        "404":
+          description: Unknown execution id.
+          content:
+            text/plain: {}
+        "500":
+          $ref: "#/components/responses/InternalText"
+components:
+  securitySchemes:
+    oidc:
+      type: http
+      scheme: bearer
+      bearerFormat: "Google-signed OIDC ID token"
+  responses:
+    BadRequestText:
+      description: Malformed payload (decode/validation error as plain text).
+      content:
+        text/plain: {}
+    InternalText:
+      description: Server-side failure (plain-text message).
+      content:
+        text/plain: {}
+  schemas:
+    Status:
+      type: string
+      description: >-
+        Per-stack lifecycle status. Decoding rejects unknown non-empty values
+        (WIRE-001); an omitted/empty status is tolerated.
+      enum:
+        - pending
+        - initializing
+        - initialized
+        - running
+        - planned
+        - gated
+        - safe
+        - nochange
+        - moving
+        - failed
+        - aborted
+      x-go-type: events.Status
+      x-go-type-import:
+        path: github.com/Fluent-Health/terraform-stack-plan/internal/events
+    Phase:
+      type: string
+      description: Execution-wide lifecycle phase.
+      enum:
+        - warming
+        - linting
+        - initializing
+        - planning
+        - applying
+        - testing
+        - verifying
+      x-go-type: events.Phase
+      x-go-type-import:
+        path: github.com/Fluent-Health/terraform-stack-plan/internal/events
+    Category:
+      type: object
+      description: A classification label matched by a stack.
+      required: [name]
+      properties:
+        name:
+          type: string
+        icon:
+          type: string
+        attributes:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
+      x-go-type: events.Category
+      x-go-type-import:
+        path: github.com/Fluent-Health/terraform-stack-plan/internal/events
+    Counts:
+      type: object
+      description: A stack's per-kind operation tally (zero counts omitted).
+      properties:
+        add: { type: integer }
+        change: { type: integer }
+        destroy: { type: integer }
+        replace: { type: integer }
+        move: { type: integer }
+        import: { type: integer }
+        forget: { type: integer }
+        sensitivity_only: { type: integer }
+      x-go-type: events.Counts
+      x-go-type-import:
+        path: github.com/Fluent-Health/terraform-stack-plan/internal/events
+    StackState:
+      type: object
+      description: One node in the execution graph.
+      required: [path]
+      properties:
+        path:
+          type: string
+        project:
+          type: string
+          description: Grouping/target key (e.g. cloud project/account).
+        status:
+          $ref: "#/components/schemas/Status"
+        detail:
+          type: string
+          description: Optional failure detail (last error lines).
+        categories:
+          type: array
+          items:
+            $ref: "#/components/schemas/Category"
+        counts:
+          $ref: "#/components/schemas/Counts"
+      x-go-type: events.StackState
+      x-go-type-import:
+        path: github.com/Fluent-Health/terraform-stack-plan/internal/events
+    Edge:
+      type: object
+      description: "A dependency: from must run before to."
+      required: [from, to]
+      properties:
+        from: { type: string }
+        to: { type: string }
+      x-go-type: events.Edge
+      x-go-type-import:
+        path: github.com/Fluent-Health/terraform-stack-plan/internal/events
+    Graph:
+      type: object
+      description: The changed subgraph for one execution.
+      required: [stacks, edges]
+      properties:
+        stacks:
+          type: array
+          items:
+            $ref: "#/components/schemas/StackState"
+        edges:
+          type: array
+          nullable: true
+          items:
+            $ref: "#/components/schemas/Edge"
+      x-go-type: events.Graph
+      x-go-type-import:
+        path: github.com/Fluent-Health/terraform-stack-plan/internal/events
+    GateTarget:
+      type: object
+      description: >-
+        One thing that must be approved: a classification class against a
+        target (e.g. a cloud project).
+      required: [class, target]
+      properties:
+        class: { type: string }
+        target: { type: string }
+      x-go-type: events.GateTarget
+      x-go-type-import:
+        path: github.com/Fluent-Health/terraform-stack-plan/internal/events
+    Init:
+      type: object
+      description: Registers an execution and its changed subgraph.
+      required: [id, repo, sha, pr, environment, log_url, stacks, edges]
+      properties:
+        id: { type: string }
+        repo: { type: string }
+        sha: { type: string }
+        pr: { type: integer }
+        environment: { type: string }
+        log_url:
+          type: string
+          description: CI log deep-link, shown on failures.
+        context:
+          type: string
+          description: Commit-status context this run drives.
+        stacks:
+          type: array
+          items:
+            $ref: "#/components/schemas/StackState"
+        edges:
+          type: array
+          nullable: true
+          items:
+            $ref: "#/components/schemas/Edge"
+      x-go-type: events.Init
+      x-go-type-import:
+        path: github.com/Fluent-Health/terraform-stack-plan/internal/events
+    PhaseEvent:
+      type: object
+      description: Narrates a lifecycle phase transition (may arrive before Init).
+      required: [id, phase]
+      properties:
+        id: { type: string }
+        repo: { type: string }
+        sha: { type: string }
+        pr: { type: integer }
+        environment: { type: string }
+        log_url: { type: string }
+        context: { type: string }
+        phase:
+          $ref: "#/components/schemas/Phase"
+      x-go-type: events.PhaseEvent
+      x-go-type-import:
+        path: github.com/Fluent-Health/terraform-stack-plan/internal/events
+    Update:
+      type: object
+      description: Ticks a single stack's status.
+      required: [id, stack, status]
+      properties:
+        id: { type: string }
+        stack: { type: string }
+        status:
+          $ref: "#/components/schemas/Status"
+        detail: { type: string }
+      x-go-type: events.Update
+      x-go-type-import:
+        path: github.com/Fluent-Health/terraform-stack-plan/internal/events
+    Finalize:
+      type: object
+      description: Records the terminal plan state.
+      required: [id, report_markdown]
+      properties:
+        id: { type: string }
+        report_markdown: { type: string }
+        projects:
+          type: object
+          description: Stack path → grouping/target key.
+          additionalProperties: { type: string }
+        stack_reports:
+          type: object
+          description: Stack path → rendered plan section (markdown).
+          additionalProperties: { type: string }
+        gates:
+          type: array
+          description: (class, target) pairs needing approval.
+          items:
+            $ref: "#/components/schemas/GateTarget"
+        moving:
+          type: array
+          description: Stack paths adopting resources via a cross-state move.
+          items: { type: string }
+        failed: { type: boolean }
+        categories:
+          type: object
+          description: Stack path → matched categories.
+          additionalProperties:
+            type: array
+            items:
+              $ref: "#/components/schemas/Category"
+        counts:
+          type: object
+          description: Stack path → operation counts.
+          additionalProperties:
+            $ref: "#/components/schemas/Counts"
+      x-go-type: events.Finalize
+      x-go-type-import:
+        path: github.com/Fluent-Health/terraform-stack-plan/internal/events
+    LogChunk:
+      type: object
+      description: A slice of one stack's combined output.
+      required: [id, stack, data]
+      properties:
+        id: { type: string }
+        stack: { type: string }
+        data: { type: string }
+      x-go-type: events.LogChunk
+      x-go-type-import:
+        path: github.com/Fluent-Health/terraform-stack-plan/internal/events
+    GateCheck:
+      type: object
+      required: [pr, environment]
+      properties:
+        pr: { type: integer }
+        environment: { type: string }
+      x-go-type: events.GateCheck
+      x-go-type-import:
+        path: github.com/Fluent-Health/terraform-stack-plan/internal/events
+    GateRevoke:
+      type: object
+      required: [pr, environment]
+      properties:
+        pr: { type: integer }
+        environment: { type: string }
+      x-go-type: events.GateRevoke
+      x-go-type-import:
+        path: github.com/Fluent-Health/terraform-stack-plan/internal/events
+    Claim:
+      type: object
+      description: One apply-lock claim row.
+      required: [environment, stack_path, owner_pr, expires_at]
+      properties:
+        environment: { type: string }
+        stack_path: { type: string }
+        owner_pr: { type: integer }
+        expires_at:
+          type: string
+          format: date-time
+      x-go-type: events.Claim
+      x-go-type-import:
+        path: github.com/Fluent-Health/terraform-stack-plan/internal/events
+    GateCheckOK:
+      type: object
+      description: A passing gate check.
+      required: [requester]
+      properties:
+        requester:
+          type: string
+          description: >-
+            Leased requester SA the apply impersonates; empty for a
+            clean/no-gate pass.
+    CodedError:
+      type: object
+      description: >-
+        Machine-readable error: HTTP status carries the coarse class, code the
+        precise condition callers switch on.
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          description: "e.g. GATE-001, GATE-002, GATE-003, SRV-001"
+        message: { type: string }
+    ClaimsListRequest:
+      type: object
+      required: [environment]
+      properties:
+        environment: { type: string }
+    ClaimsReleaseRequest:
+      type: object
+      required: [environment, pr, stack]
+      properties:
+        environment: { type: string }
+        pr: { type: integer }
+        stack:
+          type: string
+          description: Empty releases all of the PR's claims in the environment.
+    NullInt64:
+      type: object
+      description: >-
+        A database nullable int64, serialized raw (historical accident,
+        preserved for wire compatibility).
+      required: [Int64, Valid]
+      properties:
+        Int64:
+          type: integer
+          format: int64
+        Valid:
+          type: boolean
+    StoredGateTarget:
+      type: object
+      description: A recorded gate target with its grant state (PascalCase keys).
+      required: [Class, Target, GrantName, State, Requester]
+      properties:
+        Class: { type: string }
+        Target: { type: string }
+        GrantName:
+          type: string
+          description: The approval-backend grant resource name (may be empty).
+        State:
+          type: string
+          description: Backend grant state (e.g. REQUESTED, ACTIVE, DENIED, REVOKED).
+        Requester:
+          type: string
+          description: Leased requester SA for this grant.
+    ExecutionDetail:
+      type: object
+      description: >-
+        The full execution read. Top-level and gate keys are PascalCase with a
+        raw NullInt64 (see getExecution).
+      required:
+        - ID
+        - Repo
+        - SHA
+        - PR
+        - Environment
+        - CheckRunID
+        - Rev
+        - ReportMarkdown
+        - LogURL
+        - Status
+        - StatusContext
+        - Phase
+        - CreatedAt
+        - SupersededBy
+        - graph
+        - gates
+      properties:
+        ID: { type: string }
+        Repo: { type: string }
+        SHA: { type: string }
+        PR: { type: integer }
+        Environment: { type: string }
+        CheckRunID:
+          $ref: "#/components/schemas/NullInt64"
+        Rev: { type: integer }
+        ReportMarkdown: { type: string }
+        LogURL: { type: string }
+        Status:
+          type: string
+          description: Execution-level status (in_progress/success/failure).
+        StatusContext: { type: string }
+        Phase: { type: string }
+        CreatedAt:
+          type: string
+          format: date-time
+        SupersededBy: { type: string }
+        graph:
+          $ref: "#/components/schemas/Graph"
+        gates:
+          type: array
+          items:
+            $ref: "#/components/schemas/StoredGateTarget"

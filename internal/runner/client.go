@@ -10,7 +10,6 @@
 package runner
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -19,15 +18,20 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Fluent-Health/terraform-stack-plan/internal/api"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/gauth"
 )
 
-// Client posts execution lifecycle events to the control-plane server.
+// Client posts execution lifecycle events to the control-plane server. It
+// wraps the OpenAPI-generated client (internal/api — the wire contract lives
+// in api/openapi.yaml) with the runner's calling conventions: disabled on an
+// empty URL, best-effort bearer minting, and non-2xx collapsed to errors.
 type Client struct {
 	baseURL string
+	api     *api.Client     // nil only when disabled
 	token   gauth.TokenFunc // nil = unauthenticated
-	hc      *http.Client
+	timeout time.Duration
 }
 
 // NewClient builds an unauthenticated client for the server at baseURL (empty
@@ -40,21 +44,29 @@ func NewClient(baseURL string) *Client {
 // NewClientTokenSource builds a client whose requests carry bearer tokens from
 // token — the Google OIDC path (ID tokens minted from ambient credentials).
 func NewClientTokenSource(baseURL string, token gauth.TokenFunc) *Client {
-	return &Client{
+	c := &Client{
 		baseURL: strings.TrimRight(baseURL, "/"),
 		token:   token,
-		hc:      &http.Client{Timeout: 10 * time.Second},
+		timeout: 10 * time.Second,
 	}
+	if c.baseURL != "" {
+		// NewClient cannot fail here: the only error paths are option
+		// constructors, and neither option used errors.
+		c.api, _ = api.NewClient(c.baseURL,
+			api.WithHTTPClient(&http.Client{Timeout: c.timeout}),
+			api.WithRequestEditorFn(c.authorize))
+	}
+	return c
 }
 
 // authorize attaches the bearer token to req (a no-op when unauthenticated).
-// The fetch is bounded to the client's HTTP timeout so a hung credential
-// endpoint cannot stall a best-effort call indefinitely.
+// The fetch is bounded to the client's timeout so a hung credential endpoint
+// cannot stall a best-effort call indefinitely.
 func (c *Client) authorize(ctx context.Context, req *http.Request) error {
 	if c.token == nil {
 		return nil
 	}
-	ctx, cancel := context.WithTimeout(ctx, c.hc.Timeout)
+	ctx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
 	tok, err := c.token(ctx)
 	if err != nil {
@@ -68,90 +80,32 @@ func (c *Client) authorize(ctx context.Context, req *http.Request) error {
 // no-op returning nil.
 func (c *Client) Enabled() bool { return c.baseURL != "" }
 
-// do builds and sends a JSON POST with bearer auth, returning the raw response.
-// The caller is responsible for closing resp.Body. Returns an error on
-// transport failure or any non-2xx status.
-func (c *Client) do(ctx context.Context, path string, payload any) (*http.Response, error) {
-	b, err := json.Marshal(payload)
+// finish collapses a generated-client call to the runner's error convention:
+// nil on 2xx, an error naming the path on transport failure or any non-2xx
+// status (with the response body in the message).
+func (c *Client) finish(path string, resp *http.Response, err error) error {
 	if err != nil {
-		return nil, err
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+path, bytes.NewReader(b))
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	if err := c.authorize(ctx, req); err != nil {
-		return nil, err
-	}
-	resp, err := c.hc.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("post %s: %w", path, err)
-	}
-	if resp.StatusCode/100 != 2 {
-		body, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		return nil, fmt.Errorf("post %s: %d: %s", path, resp.StatusCode, body)
-	}
-	return resp, nil
-}
-
-// doRaw sends the same authed JSON POST as do, but returns the HTTP status and
-// body for ANY response, erroring only on a transport failure. Callers that
-// must distinguish status/code (the fail-closed gate check) use this instead of
-// do's non-2xx-collapsing behavior.
-func (c *Client) doRaw(ctx context.Context, path string, payload any) (int, []byte, error) {
-	b, err := json.Marshal(payload)
-	if err != nil {
-		return 0, nil, err
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+path, bytes.NewReader(b))
-	if err != nil {
-		return 0, nil, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	if err := c.authorize(ctx, req); err != nil {
-		return 0, nil, err
-	}
-	resp, err := c.hc.Do(req)
-	if err != nil {
-		return 0, nil, fmt.Errorf("post %s: %w", path, err)
+		return fmt.Errorf("post %s: %w", path, err)
 	}
 	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return resp.StatusCode, nil, fmt.Errorf("post %s: read body: %w", path, err)
+	if resp.StatusCode/100 != 2 {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("post %s: %d: %s", path, resp.StatusCode, body)
 	}
-	return resp.StatusCode, body, nil
-}
-
-// post sends a JSON POST with bearer auth. A no-op (nil) when disabled. Returns
-// an error on transport failure or any non-2xx status; best-effort callers
-// ignore it, the gate check honors it.
-func (c *Client) post(ctx context.Context, path string, payload any) error {
-	if !c.Enabled() {
-		return nil
-	}
-	resp, err := c.do(ctx, path, payload)
-	if err != nil {
-		return err
-	}
-	resp.Body.Close()
 	return nil
 }
 
-// postInto posts body to path and decodes a JSON response into out. Same
-// request building + non-2xx handling as post; tolerates an empty body.
-func (c *Client) postInto(ctx context.Context, path string, body, out any) error {
-	if !c.Enabled() {
-		return nil
-	}
-	resp, err := c.do(ctx, path, body)
+// finishInto is finish plus a JSON decode of a 2xx body into out (an empty
+// body is not an error).
+func (c *Client) finishInto(path string, resp *http.Response, err error, out any) error {
 	if err != nil {
-		return err
+		return fmt.Errorf("post %s: %w", path, err)
 	}
 	defer resp.Body.Close()
-	// Decode only if there is a body; an empty response is not an error.
+	if resp.StatusCode/100 != 2 {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("post %s: %d: %s", path, resp.StatusCode, body)
+	}
 	b, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return fmt.Errorf("post %s: read body: %w", path, err)
@@ -166,40 +120,68 @@ func (c *Client) postInto(ctx context.Context, path string, body, out any) error
 
 // Init registers the execution and its changed subgraph.
 func (c *Client) Init(ctx context.Context, in events.Init) error {
-	return c.post(ctx, "/api/init", in)
+	if !c.Enabled() {
+		return nil
+	}
+	resp, err := c.api.InitExecution(ctx, in)
+	return c.finish("/api/init", resp, err)
 }
 
 // Phase narrates a lifecycle phase transition.
 func (c *Client) Phase(ctx context.Context, p events.PhaseEvent) error {
-	return c.post(ctx, "/api/phase", p)
+	if !c.Enabled() {
+		return nil
+	}
+	resp, err := c.api.ReportPhase(ctx, p)
+	return c.finish("/api/phase", resp, err)
 }
 
 // Update ticks a single stack's status.
 func (c *Client) Update(ctx context.Context, u events.Update) error {
-	return c.post(ctx, "/api/update", u)
+	if !c.Enabled() {
+		return nil
+	}
+	resp, err := c.api.UpdateStack(ctx, u)
+	return c.finish("/api/update", resp, err)
 }
 
 // Finalize records the terminal plan state (report, gates, moving/failed).
 func (c *Client) Finalize(ctx context.Context, f events.Finalize) error {
-	return c.post(ctx, "/api/finalize", f)
+	if !c.Enabled() {
+		return nil
+	}
+	resp, err := c.api.FinalizeExecution(ctx, f)
+	return c.finish("/api/finalize", resp, err)
 }
 
 // LogChunk streams a slice of one stack's output to the server (best-effort).
 func (c *Client) LogChunk(ctx context.Context, lc events.LogChunk) error {
-	return c.post(ctx, "/api/logs", lc)
+	if !c.Enabled() {
+		return nil
+	}
+	resp, err := c.api.AppendLogs(ctx, lc)
+	return c.finish("/api/logs", resp, err)
 }
 
 // GateRevoke asks the server to revoke the grants it requested (best-effort
 // post-apply cleanup).
 func (c *Client) GateRevoke(ctx context.Context, g events.GateRevoke) error {
-	return c.post(ctx, "/api/gate/revoke", g)
+	if !c.Enabled() {
+		return nil
+	}
+	resp, err := c.api.RevokeGate(ctx, g)
+	return c.finish("/api/gate/revoke", resp, err)
 }
 
 // ClaimsList returns the current apply-lock claims for an environment.
 // Returns nil (no error) when the client is disabled.
 func (c *Client) ClaimsList(ctx context.Context, env string) ([]events.Claim, error) {
+	if !c.Enabled() {
+		return nil, nil
+	}
 	var out []events.Claim
-	if err := c.postInto(ctx, "/api/claims/list", map[string]string{"environment": env}, &out); err != nil {
+	resp, err := c.api.ListClaims(ctx, api.ClaimsListRequest{Environment: env})
+	if err := c.finishInto("/api/claims/list", resp, err, &out); err != nil {
 		return nil, err
 	}
 	return out, nil
@@ -208,9 +190,13 @@ func (c *Client) ClaimsList(ctx context.Context, env string) ([]events.Claim, er
 // ClaimsRelease asks the server to release one stack's claim (stack != "") or
 // all of a PR's claims in env (stack == ""). Best-effort; callers may ignore the error.
 func (c *Client) ClaimsRelease(ctx context.Context, env string, pr int, stack string) error {
-	return c.post(ctx, "/api/claims/release", map[string]any{
-		"environment": env,
-		"pr":          pr,
-		"stack":       stack,
+	if !c.Enabled() {
+		return nil
+	}
+	resp, err := c.api.ReleaseClaims(ctx, api.ClaimsReleaseRequest{
+		Environment: env,
+		Pr:          pr,
+		Stack:       stack,
 	})
+	return c.finish("/api/claims/release", resp, err)
 }

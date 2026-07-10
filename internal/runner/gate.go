@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/codes"
@@ -42,9 +43,15 @@ func (c *Client) GateCheck(ctx context.Context, g events.GateCheck) GateVerdict 
 	if !c.Enabled() {
 		return GateVerdict{Kind: VerdictSatisfied}
 	}
-	status, body, err := c.doRaw(ctx, "/api/gate/check", g)
+	resp, err := c.api.CheckGate(ctx, g)
 	if err != nil {
-		return GateVerdict{Kind: VerdictUnreachable, Err: err}
+		return GateVerdict{Kind: VerdictUnreachable, Err: fmt.Errorf("post /api/gate/check: %w", err)}
+	}
+	defer resp.Body.Close()
+	status := resp.StatusCode
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return GateVerdict{Kind: VerdictUnreachable, Err: fmt.Errorf("post /api/gate/check: read body: %w", err)}
 	}
 	if status/100 == 2 {
 		var res struct {

@@ -1,0 +1,4 @@
+HTTP 400
+Content-Type: text/plain; charset=utf-8
+
+WIRE-001: unknown stack status "bogus"
