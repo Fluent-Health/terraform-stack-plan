@@ -401,3 +401,32 @@ func TestEnvironmentsForPR(t *testing.T) {
 		t.Errorf("expected environments to contain both prod and staging, got %v", envs)
 	}
 }
+
+func TestFindExecutionBySHA(t *testing.T) {
+	db := newTestDB(t)
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	must(UpsertInit(db, events.Init{ID: "e-serve", Repo: "o/r", SHA: "sha1", PR: 9, Environment: "nonprod", Context: "plan/nonprod"}))
+	must(UpsertInit(db, events.Init{ID: "e-noprfoo", Repo: "o/r", SHA: "sha1", PR: 0, Environment: "nonprod", Context: "plan/nonprod"}))
+
+	id, ok, err := FindExecutionBySHA(db, "nonprod", "plan/nonprod", "sha1")
+	must(err)
+	if !ok || id != "e-serve" {
+		t.Fatalf("got (%q,%v), want (e-serve,true)", id, ok)
+	}
+
+	// Superseded rows are excluded.
+	must(SupersedeExecution(db, "e-serve", "e-newer"))
+	if _, ok, err := FindExecutionBySHA(db, "nonprod", "plan/nonprod", "sha1"); err == nil && ok {
+		t.Fatal("superseded execution should not be returned")
+	}
+
+	// Miss returns ("", false, nil).
+	if id, ok, err := FindExecutionBySHA(db, "nonprod", "plan/nonprod", "absent"); err != nil || ok || id != "" {
+		t.Fatalf("miss = (%q,%v,%v)", id, ok, err)
+	}
+}
