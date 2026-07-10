@@ -65,6 +65,11 @@ type Config struct {
 	// file's progress{} block) driving the full-progress bar. nil → built-in
 	// fractions.
 	Progress *config.ProgressConfig
+	// BuildTriggerNames maps a Cloud Build trigger NAME to the run kind
+	// ("plan"/"apply") it drives. Populated from the executor block; lets the
+	// /pubsub/cloud-builds ingest recognize builds from serve's own triggers and
+	// derive their kind. Empty disables inbound build reconciliation.
+	BuildTriggerNames map[string]string
 }
 
 // App is the HTTP application.
@@ -170,6 +175,7 @@ func (a *App) Routes() http.Handler {
 	mux.HandleFunc("GET /logs/{exec}/{stack...}", a.handleLogServe)
 	mux.HandleFunc("GET /plan/{exec}/{stack...}", a.handlePlanServe)
 	mux.HandleFunc("POST /pubsub/push", a.handlePushEvent)
+	mux.HandleFunc("POST /pubsub/cloud-builds", a.handleCloudBuildPush)
 	mux.HandleFunc("POST /github/webhook", a.handleGitHubWebhook)
 	mux.Handle("POST /api/init", a.auth(http.HandlerFunc(a.handleInit), scopeReport))
 	mux.Handle("POST /api/phase", a.auth(http.HandlerFunc(a.handlePhase), scopeReport))
