@@ -478,4 +478,20 @@ func TestDecideInboundBuild(t *testing.T) {
 			t.Fatalf("want no-op when no run tracked, got %+v", evs)
 		}
 	})
+
+	t.Run("unknown kind is ignored", func(t *testing.T) {
+		cs := base
+		cs.Runs = deadRun(RunPhaseStartFailed, "build-old")
+		if evs := Decide(cs, InboundBuild{Kind: "bogus", SHA: "abc123abc123def", BuildRef: "build-new"}); len(evs) != 0 {
+			t.Fatalf("want no-op for unknown kind, got %+v", evs)
+		}
+	})
+
+	t.Run("empty build ref is ignored", func(t *testing.T) {
+		cs := base
+		cs.Runs = deadRun(RunPhaseStartFailed, "build-old")
+		if evs := Decide(cs, InboundBuild{Kind: RunKindPlan, SHA: "abc123abc123def", BuildRef: ""}); len(evs) != 0 {
+			t.Fatalf("want no-op for empty build ref, got %+v", evs)
+		}
+	})
 }

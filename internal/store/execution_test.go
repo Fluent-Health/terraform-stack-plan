@@ -421,7 +421,9 @@ func TestFindExecutionBySHA(t *testing.T) {
 
 	// Superseded rows are excluded.
 	must(SupersedeExecution(db, "e-serve", "e-newer"))
-	if _, ok, err := FindExecutionBySHA(db, "nonprod", "plan/nonprod", "sha1"); err == nil && ok {
+	_, ok, err = FindExecutionBySHA(db, "nonprod", "plan/nonprod", "sha1")
+	must(err)
+	if ok {
 		t.Fatal("superseded execution should not be returned")
 	}
 

@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
@@ -105,6 +106,9 @@ func TestInboundRebuildRecoversStuckCheck(t *testing.T) {
 		"substitutions": map[string]any{"TRIGGER_NAME": "nonprod-plan", "COMMIT_SHA": sha},
 	})
 	resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("push = %d", resp.StatusCode)
+	}
 
 	// The stuck run is superseded by an adopted execution.
 	old, err := store.GetExecution(a.db, oldID)
@@ -114,9 +118,9 @@ func TestInboundRebuildRecoversStuckCheck(t *testing.T) {
 	}
 	adoptedID := old.SupersededBy
 
-	// 3. The rebuild's runner reports Init (pr=0 — lost _PR_NUMBER) then finalizes
-	//    clean. PR recovery reattaches it; a fresh runner execution supersedes the
-	//    adopted one and renders success.
+	// 3. The rebuild's runner reports Init (pr=0 — lost _PR_NUMBER). PR recovery
+	//    reattaches it, and the fresh runner execution supersedes the adopted one —
+	//    the supersede chain below is the proof.
 	post(t, srv, "/api/init", events.Init{ID: "runner-rerun", Repo: repo, SHA: sha, PR: 0, Environment: "nonprod", Context: ""})
 	runnerExec, err := store.GetExecution(a.db, "runner-rerun")
 	must(err)

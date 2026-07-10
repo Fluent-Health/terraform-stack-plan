@@ -77,6 +77,9 @@ func (a *App) handleInit(w http.ResponseWriter, r *http.Request) {
 	// the same (env, context, sha) — the key the inbound-build path also uses — and
 	// backfill it before the row is written, so the supersede below reattaches the
 	// rerun to the PR's check.
+	// Safe because PR-triggered builds always set _PR_NUMBER and push builds
+	// recover-or-skip a PR upstream, so a genuinely PR-less Init never collides
+	// with a real PR's (env, context, sha).
 	if in.PR <= 0 && in.SHA != "" {
 		if id, ok, ferr := store.FindExecutionBySHA(a.db, in.Environment, in.Context, in.SHA); ferr == nil && ok {
 			if e, gerr := store.GetExecution(a.db, id); gerr == nil && e.PR > 0 {

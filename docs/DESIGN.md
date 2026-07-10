@@ -2055,6 +2055,14 @@ build event).
   reaches it until each tier's infra wires a `cloud-builds` push subscription
   to `/pubsub/cloud-builds` with the same push-SA OIDC identity/audience as
   the existing `/pubsub/push` subscription. No new serve GCP role is needed.
+- **A console rebuild of an already-green SHA flips the check back to
+  in-progress.** The inbound path fires for any run serve has given up on,
+  which includes `completed` — so re-running an already-succeeded build from
+  the Cloud Build console adopts it and moves `terraform/<env>` from success
+  back to in-progress until the rebuild's runner reports. This is
+  user-visible but intentional; serve's own builds never trigger it, since
+  the `BuildRef`-match and live-run guards only let a genuinely new,
+  serve-abandoned build through.
 
 ### Delivery: binary + Cloud Run container
 
