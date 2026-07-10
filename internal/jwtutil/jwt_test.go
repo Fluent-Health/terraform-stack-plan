@@ -1,7 +1,6 @@
 package jwtutil
 
 import (
-	"encoding/base64"
 	"testing"
 	"time"
 )
@@ -52,23 +51,5 @@ func TestMalformed(t *testing.T) {
 func TestEmptySecretMake(t *testing.T) {
 	if _, err := Make("", "sub", "api", time.Hour); err == nil {
 		t.Error("empty secret must fail")
-	}
-}
-
-func TestAlg(t *testing.T) {
-	tok, err := Make("secret", "runner", "api", time.Hour)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := Alg(tok); got != "HS256" {
-		t.Errorf("Alg(HS256 token) = %q", got)
-	}
-	// RS256 JOSE header (as on a Google-signed ID token).
-	rs := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"RS256","typ":"JWT"}`)) + ".payload.sig"
-	if got := Alg(rs); got != "RS256" {
-		t.Errorf("Alg(RS256 token) = %q", got)
-	}
-	if got := Alg("not-a-jwt"); got != "" {
-		t.Errorf("Alg(garbage) = %q, want empty", got)
 	}
 }

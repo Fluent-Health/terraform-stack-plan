@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
-	"github.com/Fluent-Health/terraform-stack-plan/internal/jwtutil"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
 
@@ -76,11 +75,16 @@ func TestAppendLogDisabledWithoutLogsDir(t *testing.T) {
 
 func TestLogsE2E(t *testing.T) {
 	db := newServerTestDB(t)
-	a := New(db, &MockGitHub{}, Config{LogsDir: t.TempDir(), WebhookSecret: "s"})
+	a := New(db, &MockGitHub{}, Config{
+		LogsDir:       t.TempDir(),
+		WebhookSecret: "s",
+		APIPrincipals: map[string][]string{"runner@x.iam.gserviceaccount.com": {"report"}},
+	})
+	a.APIVerifier = fakeOIDC(map[string]string{"tok-runner": "runner@x.iam.gserviceaccount.com"})
 	srv := httptest.NewServer(a.Routes())
 	defer srv.Close()
 
-	apiTok, _ := jwtutil.Make("s", "runner", "api", time.Hour)
+	apiTok := "tok-runner"
 	post := func(c events.LogChunk) int {
 		b, _ := json.Marshal(c)
 		req, _ := http.NewRequest("POST", srv.URL+"/api/logs", bytes.NewReader(b))

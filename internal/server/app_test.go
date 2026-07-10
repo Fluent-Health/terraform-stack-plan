@@ -54,14 +54,16 @@ func TestHealthz(t *testing.T) {
 	}
 }
 
+// TestBearerAuth verifies that malformed/unrecognized bearer values are
+// rejected with 401 once an OIDC verifier is configured (WebhookSecret plays
+// no role in /api/* auth any more — only the 30-day view-JWT uses it).
 func TestBearerAuth(t *testing.T) {
 	a := New(nil, &MockGitHub{}, Config{WebhookSecret: "s3cret"})
+	a.APIVerifier = fakeOIDC(map[string]string{"good-token": "runner@x.iam.gserviceaccount.com"})
 	srv := httptest.NewServer(a.Routes())
 	defer srv.Close()
 
-	wrongJWT, _ := jwtutil.Make("wrong", "runner", "api", time.Hour)
-	viewJWT, _ := jwtutil.Make("s3cret", "runner", "view", time.Hour) // wrong aud for /api/*
-	for _, h := range []string{"", "Bearer notajwt", "s3cret", "Bearer " + wrongJWT, "Bearer " + viewJWT} {
+	for _, h := range []string{"", "Bearer notajwt", "s3cret", "Bearer wrong-token"} {
 		req, _ := http.NewRequest("POST", srv.URL+"/api/init", nil)
 		if h != "" {
 			req.Header.Set("Authorization", h)
@@ -77,9 +79,12 @@ func TestBearerAuth(t *testing.T) {
 	}
 }
 
-// TestAuthAccepted verifies that a valid HS256 JWT with aud=api is accepted.
-func TestAuthAccepted(t *testing.T) {
+// TestHS256TokenRejected verifies that the deleted legacy shared-secret HS256
+// path no longer grants /api/* access: a token minted from the configured
+// WebhookSecret (aud=api) is rejected once an OIDC verifier is wired up.
+func TestHS256TokenRejected(t *testing.T) {
 	a := New(nil, &MockGitHub{}, Config{WebhookSecret: "s3cret"})
+	a.APIVerifier = fakeOIDC(map[string]string{}) // OIDC configured; accepts nothing here
 	srv := httptest.NewServer(a.Routes())
 	defer srv.Close()
 
@@ -94,12 +99,14 @@ func TestAuthAccepted(t *testing.T) {
 		t.Fatal(err)
 	}
 	resp.Body.Close()
-	if resp.StatusCode == http.StatusUnauthorized {
-		t.Error("valid api JWT: got 401, want pass-through")
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("legacy HS256 JWT: got %d, want 401 (shared-secret /api/* auth was removed)", resp.StatusCode)
 	}
 }
 
-func TestAuthDisabledWhenSecretEmpty(t *testing.T) {
+// TestAuthDisabledWithoutVerifier: with no APIVerifier configured (local/dev),
+// /api/* auth is disabled entirely — WebhookSecret has no bearing on this path.
+func TestAuthDisabledWithoutVerifier(t *testing.T) {
 	a := New(nil, &MockGitHub{}, Config{})
 	srv := httptest.NewServer(a.Routes())
 	defer srv.Close()
@@ -110,7 +117,7 @@ func TestAuthDisabledWhenSecretEmpty(t *testing.T) {
 	}
 	resp.Body.Close()
 	if resp.StatusCode == http.StatusUnauthorized {
-		t.Fatalf("empty secret must disable auth, got 401")
+		t.Fatalf("no APIVerifier configured must disable auth, got 401")
 	}
 }
 
@@ -182,10 +189,11 @@ func TestOIDCAuthScopes(t *testing.T) {
 	}
 }
 
-// TestDualAcceptHS256WithOIDC verifies the migration posture: with both the
-// shared secret and an OIDC verifier configured, legacy HS256 tokens keep full
-// access and OIDC tokens work per scope.
-func TestDualAcceptHS256WithOIDC(t *testing.T) {
+// TestHS256RejectedOIDCAccepted verifies the post-HS256-deletion posture: with
+// the (still-configured, view-JWT-only) shared secret and an OIDC verifier
+// both present, a legacy HS256 token is rejected while a scoped OIDC token
+// passes through.
+func TestHS256RejectedOIDCAccepted(t *testing.T) {
 	a := New(nil, &MockGitHub{}, Config{
 		WebhookSecret: "s3cret",
 		APIPrincipals: map[string][]string{"runner@x.iam.gserviceaccount.com": {"report"}},
@@ -194,36 +202,50 @@ func TestDualAcceptHS256WithOIDC(t *testing.T) {
 	srv := httptest.NewServer(a.Routes())
 	defer srv.Close()
 
-	hs, _ := jwtutil.Make("s3cret", "runner", "api", time.Hour)
-	for name, tok := range map[string]string{"hs256": hs, "oidc": "tok-runner"} {
-		req, _ := http.NewRequest("POST", srv.URL+"/api/init", nil)
-		req.Header.Set("Authorization", "Bearer "+tok)
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			t.Fatal(err)
-		}
-		resp.Body.Close()
-		if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
-			t.Errorf("%s token = %d, want pass-through", name, resp.StatusCode)
-		}
-	}
-
-	// A wrong-secret HS256 token must not fall through to the OIDC verifier.
-	bad, _ := jwtutil.Make("wrong", "runner", "api", time.Hour)
+	// OIDC token → authorized pass-through.
 	req, _ := http.NewRequest("POST", srv.URL+"/api/init", nil)
-	req.Header.Set("Authorization", "Bearer "+bad)
+	req.Header.Set("Authorization", "Bearer tok-runner")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
 	resp.Body.Close()
-	if resp.StatusCode != http.StatusUnauthorized {
-		t.Errorf("wrong-secret hs256 = %d, want 401", resp.StatusCode)
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		t.Errorf("oidc token = %d, want pass-through", resp.StatusCode)
+	}
+
+	// A legacy HS256 token minted from the WebhookSecret must be rejected — the
+	// shared-secret /api/* path is gone (WebhookSecret only signs view-JWTs now).
+	hs, _ := jwtutil.Make("s3cret", "runner", "api", time.Hour)
+	req2, _ := http.NewRequest("POST", srv.URL+"/api/init", nil)
+	req2.Header.Set("Authorization", "Bearer "+hs)
+	resp2, err := http.DefaultClient.Do(req2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp2.Body.Close()
+	if resp2.StatusCode != http.StatusUnauthorized {
+		t.Errorf("legacy hs256 token = %d, want 401", resp2.StatusCode)
+	}
+
+	// A wrong-secret HS256 token is rejected the same way (never reaches a
+	// secret-comparison branch — there is none left on /api/*).
+	bad, _ := jwtutil.Make("wrong", "runner", "api", time.Hour)
+	req3, _ := http.NewRequest("POST", srv.URL+"/api/init", nil)
+	req3.Header.Set("Authorization", "Bearer "+bad)
+	resp3, err := http.DefaultClient.Do(req3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp3.Body.Close()
+	if resp3.StatusCode != http.StatusUnauthorized {
+		t.Errorf("wrong-secret hs256 = %d, want 401", resp3.StatusCode)
 	}
 }
 
-// TestAuthActorInContext: handlers must see the verified identity via Actor —
-// the OIDC email, or "shared-token" on the legacy path.
+// TestAuthActorInContext: handlers must see the verified OIDC identity via
+// Actor (lowercased). A legacy HS256 bearer is rejected before the handler
+// ever runs, so Actor stays unset for it.
 func TestAuthActorInContext(t *testing.T) {
 	a := New(nil, &MockGitHub{}, Config{
 		WebhookSecret: "s3cret",
@@ -237,21 +259,32 @@ func TestAuthActorInContext(t *testing.T) {
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 
+	req, _ := http.NewRequest("POST", srv.URL, nil)
+	req.Header.Set("Authorization", "Bearer tok-runner")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if gotActor != "runner@x.iam.gserviceaccount.com" {
+		t.Errorf("Actor = %q, want lowered OIDC email", gotActor)
+	}
+
+	// A legacy HS256 token is rejected before the handler runs — Actor stays unset.
+	gotActor = ""
 	hs, _ := jwtutil.Make("s3cret", "runner", "api", time.Hour)
-	for want, tok := range map[string]string{
-		"runner@x.iam.gserviceaccount.com": "tok-runner",
-		"shared-token":                     hs,
-	} {
-		req, _ := http.NewRequest("POST", srv.URL, nil)
-		req.Header.Set("Authorization", "Bearer "+tok)
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			t.Fatal(err)
-		}
-		resp.Body.Close()
-		if gotActor != want {
-			t.Errorf("Actor = %q, want %q", gotActor, want)
-		}
+	req2, _ := http.NewRequest("POST", srv.URL, nil)
+	req2.Header.Set("Authorization", "Bearer "+hs)
+	resp2, err := http.DefaultClient.Do(req2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp2.Body.Close()
+	if resp2.StatusCode != http.StatusUnauthorized {
+		t.Errorf("legacy hs256 = %d, want 401", resp2.StatusCode)
+	}
+	if gotActor != "" {
+		t.Errorf("Actor should stay unset for a rejected request, got %q", gotActor)
 	}
 }
 

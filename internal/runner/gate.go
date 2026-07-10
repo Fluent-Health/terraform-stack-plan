@@ -63,7 +63,7 @@ func (c *Client) GateCheck(ctx context.Context, g events.GateCheck) GateVerdict 
 		// The auth middleware rejected the caller (plain-text 401/403), not the
 		// gate: name the real fix instead of "grant not active" guidance. Still
 		// fails closed below.
-		v.Err = fmt.Errorf("gate check: %d: API auth rejected — check %s/%s and the server's api_auth principals/scopes", status, EnvToken, EnvAudience)
+		v.Err = fmt.Errorf("gate check: %d: API auth rejected — check %s and the server's api_auth principals/scopes", status, EnvAudience)
 	}
 	switch codes.Code(e.Code) {
 	case codes.GateNotClassified:

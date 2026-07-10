@@ -30,12 +30,11 @@ type Client struct {
 	hc      *http.Client
 }
 
-// NewClient builds a client for the server at baseURL (empty disables it) using
-// the given shared bearer secret (legacy HS256 auth; empty sends no auth). A
-// short timeout keeps a slow/down server from stalling the build.
-func NewClient(baseURL, secret string) *Client {
-	tok, _ := APITokenFunc(secret, "") // secret-only: cannot error
-	return NewClientTokenSource(baseURL, tok)
+// NewClient builds an unauthenticated client for the server at baseURL (empty
+// disables it). Authenticated callers use NewClientTokenSource (Google OIDC).
+// A short timeout keeps a slow/down server from stalling the build.
+func NewClient(baseURL string) *Client {
+	return NewClientTokenSource(baseURL, nil)
 }
 
 // NewClientTokenSource builds a client whose requests carry bearer tokens from

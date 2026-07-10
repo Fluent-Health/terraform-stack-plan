@@ -27,7 +27,6 @@ func TestRunTickPostsUpdate(t *testing.T) {
 	}))
 	defer srv.Close()
 	t.Setenv(runner.EnvServer, srv.URL)
-	t.Setenv(runner.EnvToken, "s")
 	t.Setenv(runner.EnvExecution, "e1")
 
 	if code := runTick([]string{"--stack", "stacks/a", "--status", "running"}); code != 0 {
@@ -108,7 +107,6 @@ func TestRunPhasePostsEvent(t *testing.T) {
 	}))
 	defer srv.Close()
 	t.Setenv(runner.EnvServer, srv.URL)
-	t.Setenv(runner.EnvToken, "s")
 	t.Setenv(runner.EnvExecution, "build-7")
 	t.Setenv(runner.EnvEnvironment, "nonprod")
 	t.Setenv("TFSTACKPLAN_REPO", "o/r")

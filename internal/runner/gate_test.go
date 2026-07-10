@@ -33,7 +33,7 @@ func TestGateCheckVerdicts(t *testing.T) {
 				io.WriteString(w, tc.body)
 			}))
 			defer srv.Close()
-			c := NewClient(srv.URL, "")
+			c := NewClient(srv.URL)
 			v := c.GateCheck(context.Background(), events.GateCheck{PR: 1, Environment: "nonprod"})
 			if v.Kind != tc.wantKind {
 				t.Fatalf("kind = %v, want %v", v.Kind, tc.wantKind)
@@ -55,7 +55,7 @@ func TestGateCheckAuthRejectionNamesTheCause(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "forbidden", status)
 		}))
-		c := NewClient(srv.URL, "")
+		c := NewClient(srv.URL)
 		v := c.GateCheck(context.Background(), events.GateCheck{PR: 1, Environment: "nonprod"})
 		srv.Close()
 		if v.Allowed() {
@@ -68,7 +68,7 @@ func TestGateCheckAuthRejectionNamesTheCause(t *testing.T) {
 }
 
 func TestGateCheckUnreachableIsFailClosed(t *testing.T) {
-	c := NewClient("http://127.0.0.1:1", "") // nothing listening
+	c := NewClient("http://127.0.0.1:1") // nothing listening
 	v := c.GateCheck(context.Background(), events.GateCheck{PR: 1, Environment: "nonprod"})
 	if v.Kind != VerdictUnreachable {
 		t.Fatalf("kind = %v, want VerdictUnreachable", v.Kind)
@@ -79,7 +79,7 @@ func TestGateCheckUnreachableIsFailClosed(t *testing.T) {
 }
 
 func TestGateCheckDisabledClientIsSatisfied(t *testing.T) {
-	c := NewClient("", "") // no server configured ⇒ nothing gates
+	c := NewClient("") // no server configured ⇒ nothing gates
 	v := c.GateCheck(context.Background(), events.GateCheck{PR: 1, Environment: "nonprod"})
 	if !v.Allowed() {
 		t.Fatal("disabled client must be Allowed() (nothing gates)")

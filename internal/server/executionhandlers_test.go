@@ -11,13 +11,16 @@ import (
 	"time"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
-	"github.com/Fluent-Health/terraform-stack-plan/internal/jwtutil"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
 
 func TestGetExecution(t *testing.T) {
 	db := newServerTestDB(t)
-	a := New(db, &MockGitHub{}, Config{WebhookSecret: "s3cret"})
+	a := New(db, &MockGitHub{}, Config{
+		WebhookSecret: "s3cret",
+		APIPrincipals: map[string][]string{"runner@x.iam.gserviceaccount.com": {"report"}},
+	})
+	a.APIVerifier = fakeOIDC(map[string]string{"tok-runner": "runner@x.iam.gserviceaccount.com"})
 	srv := httptest.NewServer(a.Routes())
 	defer srv.Close()
 
@@ -37,11 +40,8 @@ func TestGetExecution(t *testing.T) {
 	// Seed gate target
 	seedProjectionTarget(t, db, 7, "staging", "gcp-pam", "proj-1", "grant-1", "ACTIVE", "requester-1")
 
-	// Generate authorization token
-	validToken, err := jwtutil.Make("s3cret", "runner", "api", time.Hour)
-	if err != nil {
-		t.Fatal(err)
-	}
+	// Authorization token: OIDC bearer verified by the fakeOIDC verifier above.
+	validToken := "tok-runner"
 
 	// 1. Test GET /api/execution/{id} without token (unauthorized)
 	{

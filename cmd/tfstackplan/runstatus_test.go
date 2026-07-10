@@ -60,7 +60,7 @@ func TestRunStatusText(t *testing.T) {
 	})
 
 	out := captureStdout(t, func() int {
-		return runStatus([]string{"--server", srv.URL, "--token", "secret", "--format", "text", "exec-1"})
+		return runStatus([]string{"--server", srv.URL, "--format", "text", "exec-1"})
 	})
 
 	expectedSubstrings := []string{
@@ -104,7 +104,7 @@ func TestRunStatusJSON(t *testing.T) {
 	defer srv.Close()
 
 	out := captureStdout(t, func() int {
-		return runStatus([]string{"--server", srv.URL, "--token", "secret", "--format", "json", "exec-1"})
+		return runStatus([]string{"--server", srv.URL, "--format", "json", "exec-1"})
 	})
 
 	var parsed map[string]any
@@ -129,7 +129,7 @@ func TestRunStatusTerminalExitCode(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	exit := runStatus([]string{"--server", srv.URL, "--token", "secret", "exec-failed"})
+	exit := runStatus([]string{"--server", srv.URL, "exec-failed"})
 	if exit != 1 {
 		t.Fatalf("expected exit 1 for failed status, got %d", exit)
 	}
@@ -184,7 +184,7 @@ func TestRunStatusWatchMode(t *testing.T) {
 
 	var exit int
 	out := captureStdout(t, func() int {
-		exit = runStatus([]string{"--server", srv.URL, "--token", "secret", "--watch", "exec-watch"})
+		exit = runStatus([]string{"--server", srv.URL, "--watch", "exec-watch"})
 		return exit
 	})
 

@@ -352,7 +352,9 @@ tfstackplan state cleanup --dir DIR (--pr N | --all)
 ## `claims`
 
 Inspects and releases apply-lock claims held against a live server.
-Requires `TFSTACKPLAN_SERVER` and `TFSTACKPLAN_TOKEN` to be set.
+Requires `TFSTACKPLAN_SERVER`; authenticate to `/api/*` via Google OIDC by
+setting `TFSTACKPLAN_AUDIENCE` (the serve URL) with Application Default
+Credentials available.
 
 ```
 tfstackplan claims <subcommand> [flags]
