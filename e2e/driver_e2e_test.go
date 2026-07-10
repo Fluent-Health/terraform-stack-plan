@@ -125,7 +125,7 @@ func TestDriverE2E(t *testing.T) {
 	// 2. Runner replay under the serve-minted execution id (the _EXECUTION_ID →
 	//    TFSTACKPLAN_EXECUTION wiring), over the real HTTP API.
 	ctx := context.Background()
-	cli := runner.NewClient(srv.URL, apiSecret)
+	cli := runner.NewClient(srv.URL)
 	if err := cli.Init(ctx, events.Init{
 		ID: execID, Repo: "o/r", SHA: "e2esha1234567890", PR: 55, Environment: "nonprod",
 		Stacks: []events.StackState{{Path: "stacks/a", Status: events.StatusPending}},

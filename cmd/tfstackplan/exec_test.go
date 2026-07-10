@@ -47,7 +47,6 @@ func TestRunExecSuccess(t *testing.T) {
 	defer srv.Close()
 
 	t.Setenv(runner.EnvServer, srv.URL)
-	t.Setenv(runner.EnvToken, "s")
 	t.Setenv(runner.EnvExecution, "build-1")
 	t.Setenv(runner.EnvEnvironment, "nonprod")
 	t.Setenv("TFSTACKPLAN_REPO", "o/r")
@@ -88,7 +87,6 @@ func TestRunExecFailure(t *testing.T) {
 	defer srv.Close()
 
 	t.Setenv(runner.EnvServer, srv.URL)
-	t.Setenv(runner.EnvToken, "s")
 	t.Setenv(runner.EnvExecution, "build-2")
 
 	code := runExec([]string{"--phase", "linting", "--", "false"})

@@ -42,24 +42,6 @@ func Make(secret, sub, aud string, ttl time.Duration) (string, error) {
 	return signing + "." + encode(mac.Sum(nil)), nil
 }
 
-// Alg returns the alg field of the token's JOSE header, or "" when the header
-// is not decodable. Used to route a bearer token to the matching verifier
-// (HS256 shared-secret vs Google-signed OIDC) without trying both.
-func Alg(token string) string {
-	head, _, _ := strings.Cut(token, ".")
-	hb, err := base64.RawURLEncoding.DecodeString(head)
-	if err != nil {
-		return ""
-	}
-	var h struct {
-		Alg string `json:"alg"`
-	}
-	if json.Unmarshal(hb, &h) != nil {
-		return ""
-	}
-	return h.Alg
-}
-
 // Validate verifies the HS256 signature, expected audience, and expiry.
 // Returns the sub claim on success.
 func Validate(token, secret, expectedAud string) (string, error) {

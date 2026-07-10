@@ -63,9 +63,9 @@ type APIAuthPrincipal struct {
 }
 
 // APIAuthConfig configures Google OIDC bearer auth for /api/*: which token
-// audiences are accepted and the identity → scope allowlist. When present,
-// /api/* callers may authenticate with Google-signed ID tokens; the legacy
-// shared-secret HS256 path (webhook_secret_env) stays accepted while set.
+// audiences are accepted and the identity → scope allowlist. It is the only
+// /api/* auth — the legacy shared-secret HS256 path was removed once every
+// caller migrated to OIDC. (webhook_secret_env now signs only the view-JWTs.)
 type APIAuthConfig struct {
 	Audience       string   // expected OIDC audience (default: public_base_url)
 	ExtraAudiences []string // additional accepted audiences (e.g. the gcloud ADC client id, for user tokens)
@@ -87,7 +87,7 @@ type ExecutorConfig struct {
 type ServeConfig struct {
 	DBPath                 string
 	PublicBaseURL          string
-	WebhookSecretEnv       string // env var name holding the bearer secret (not the secret itself)
+	WebhookSecretEnv       string // env var name holding the view-JWT signing secret (not the secret itself)
 	GitHubWebhookSecretEnv string // env var name holding the GitHub webhook HMAC secret
 	GitHubApp              *GitHubAppConfig
 	Approval               *ApprovalConfig

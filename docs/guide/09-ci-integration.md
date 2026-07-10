@@ -48,7 +48,7 @@ threaded through the Terramate scripts as flags:
 | Variable | Meaning |
 |---|---|
 | `TFSTACKPLAN_SERVER` | Control-plane base URL. **Empty ⇒ fully offline** — `run tick` no-ops, the apply gate check passes, the report goes to stdout. |
-| `TFSTACKPLAN_TOKEN` | Bearer secret for the server's `/api/*`. |
+| `TFSTACKPLAN_AUDIENCE` | Opts in to Google OIDC auth for `/api/*`: the client mints ID tokens for this audience (the serve URL) from Application Default Credentials. This is the only `/api/*` credential — the legacy shared-secret token was removed. |
 | `TFSTACKPLAN_ENVIRONMENT` | Deployment environment (e.g. `staging`, `prod`). |
 | `TFSTACKPLAN_EXECUTION` | Execution id. Set it to correlate plan and apply of the same PR; if unset, `run plan`/`run apply` generate one. Export it so the script's `run tick` reports under the same id. |
 | `TFSTACKPLAN_REPO` | `owner/name` — used to build the check run and commit status. |
@@ -277,7 +277,7 @@ on:
 
 env:
   TFSTACKPLAN_SERVER: ${{ vars.TFSTACKPLAN_SERVER }}
-  TFSTACKPLAN_TOKEN: ${{ secrets.TFSTACKPLAN_TOKEN }}
+  TFSTACKPLAN_AUDIENCE: ${{ vars.TFSTACKPLAN_SERVER }} # OIDC audience = serve URL
   TFSTACKPLAN_ENVIRONMENT: staging
   TFSTACKPLAN_REPO: ${{ github.repository }}
 

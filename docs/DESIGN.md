@@ -1871,14 +1871,20 @@ every tier has cut over.
   patching the lock check standalone — there is no standalone lock check to
   patch once armed.
 
-### API auth — Google OIDC identity + scopes (dual-accept)
+### API auth — Google OIDC identity + scopes
 
-`/api/*` auth is moving from one shared symmetric secret to **verified caller
-identity** (increment 1 of the CI/CD-driver evolution). Historically
-every caller — CI runner, human CLI, agent — locally minted an HS256 JWT
+`/api/*` auth has moved from one shared symmetric secret to **verified caller
+identity** (increment 1 of the CI/CD-driver evolution). Historically every
+caller — CI runner, human CLI, agent — locally minted an HS256 JWT
 (`sub="runner"`, `aud="api"`, 1 h) from the tier's `tfstackplan-token` secret:
-no real identity to audit, possession = full power, and any leak is a
-full-API credential until a global rotation.
+no real identity to audit, possession = full power, and any leak was a
+full-API credential until a global rotation. That shared-secret path is now
+**fully deleted** from `/api/*` — `App.auth` no longer branches on the JOSE
+header `alg` at all; OIDC is the only verified path. `internal/jwtutil`
+(`Make`/`Validate`, HS256) still exists solely for the unrelated 30-day
+view-JWT (`aud="view"`, `?token=` / `view_session` cookie on `/live/*`,
+`/pr/*`, `/{$}`) — `Config.WebhookSecret` now only signs/validates that link
+token and has no bearing on `/api/*` auth.
 
 The replacement is **Google-signed OIDC ID tokens** — the same mechanism
 already verifying Pub/Sub pushes:
@@ -1905,7 +1911,7 @@ already verifying Pub/Sub pushes:
   hold `roles/iam.serviceAccountOpenIdTokenCreator` on itself (self-grant in
   the infra companion); finally the `id_token` riding the user-ADC refresh
   grant. OIDC is **opt-in via `TFSTACKPLAN_AUDIENCE`**
-  (with `TFSTACKPLAN_TOKEN` unset): a token-less environment never probes
+  a token-less environment never probes
   ambient machine credentials, never hard-fails on a stale ADC file, and never
   sends a replayable ID token to whatever host the server URL happens to name.
   The CI flip is config-only: swap the injected token env for the audience
@@ -1916,19 +1922,23 @@ already verifying Pub/Sub pushes:
   (built on a background context deliberately: oauth2 binds the construction
   context into future refreshes), so a hung metadata server cannot stall a
   best-effort tick at either stage.
-- **Dual-accept (migration posture)**: while `webhook_secret_env` is set,
-  legacy HS256 tokens stay accepted with full access — the JOSE header `alg`
-  routes each bearer to the matching verifier, so a wrong-secret HS256 token
-  never falls through to OIDC. The secret cannot be dropped yet even after
-  all `/api/*` callers flip: the live-viewer routes are gated only by the
-  view JWTs minted from it. End state: the shared secret, client-side JWT
-  minting, and the 30-day view-JWT machinery are deleted together with the
-  viewer rework (the planned central UI), and rotation/revocation become IAM
-  operations. Claim release is deliberately not ownership-checked (the runner
-  releases claims for whichever PR it applies — an association the server
-  cannot verify); the verified actor is what gets audited.
-- Auth is disabled only when *neither* the secret nor `api_auth {}` is
-  configured (local/dev), preserving the old escape hatch.
+- **HS256 deleted from `/api/*` (post-migration)**: every caller flipped to
+  OIDC, so the dual-accept migration posture was removed — an HS256 token
+  minted from `webhook_secret_env` (any secret, right or wrong) now gets a
+  flat 401 on every `/api/*` route once `api_auth {}` (`App.APIVerifier`) is
+  configured. `runner.NewClient` dropped its secret parameter entirely
+  (`NewClient(baseURL)` is unauthenticated; `NewClientTokenSource(baseURL,
+  tokenFunc)` is the OIDC path), `runner.EnvToken` and `jwtutil.Alg` are gone,
+  and `cmd/tfstackplan run status`'s `--token` flag was dropped (OIDC via
+  `$TFSTACKPLAN_AUDIENCE` only). The shared secret's only remaining job is the
+  30-day view-JWT; it is expected to be deleted together with that
+  machinery once the planned central UI replaces the viewer.
+  Claim release is deliberately not ownership-checked (the runner releases
+  claims for whichever PR it applies — an association the server cannot
+  verify); the verified actor is what gets audited.
+- Auth is disabled only when `api_auth {}` (`App.APIVerifier`) is not
+  configured (local/dev), preserving the old escape hatch — `WebhookSecret`
+  no longer has any bearing on this.
 - **Offline e2e via a fake Google issuer**: `internal/gauth` owns both halves
   — `Source`/`SourceTimeout` (client minting) and `Verifier` (server
   verification: signature/expiry via `idtoken`, audience allowlist, email +

@@ -27,7 +27,6 @@ var statusClient = &http.Client{Timeout: 10 * time.Second}
 func runStatus(args []string) int {
 	fs := flag.NewFlagSet("run status", flag.ContinueOnError)
 	serverURL := fs.String("server", "", "server base URL (defaults to $"+runner.EnvServer+")")
-	token := fs.String("token", "", "bearer token (defaults to $"+runner.EnvToken+")")
 	format := fs.String("format", "text", "output format: text|json")
 	watch := fs.Bool("watch", false, "block and watch for real-time status updates")
 	if err := fs.Parse(args); err != nil {
@@ -45,16 +44,12 @@ func runStatus(args []string) int {
 	if srv == "" {
 		srv = os.Getenv(runner.EnvServer)
 	}
-	tok := *token
-	if tok == "" {
-		tok = os.Getenv(runner.EnvToken)
-	}
 	if srv == "" {
 		fmt.Fprintln(os.Stderr, "run status: server URL is required")
 		return 2
 	}
 	srv = strings.TrimRight(srv, "/")
-	bearer := apiBearer(tok)
+	bearer := apiBearer()
 
 	// Execute initial fetch
 	exec, err := fetchExecution(srv, bearer, execID)
@@ -95,12 +90,11 @@ func exitCode(status string) int {
 }
 
 // apiBearer returns the bearer-token source for /api/* calls — the same
-// credential selection as the runner client (runner.APITokenFunc): the shared
-// secret when tok is set (legacy HS256), else Google OIDC via ADC when
-// $TFSTACKPLAN_AUDIENCE is set, else nil (unauthenticated). An unavailable ADC
-// is warned about rather than silently degraded.
-func apiBearer(tok string) gauth.TokenFunc {
-	src, err := runner.APITokenFunc(tok, os.Getenv(runner.EnvAudience))
+// credential selection as the runner client (runner.APITokenFunc): Google OIDC
+// via ADC when $TFSTACKPLAN_AUDIENCE is set, else nil (unauthenticated). An
+// unavailable ADC is warned about rather than silently degraded.
+func apiBearer() gauth.TokenFunc {
+	src, err := runner.APITokenFunc(os.Getenv(runner.EnvAudience))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "run status: %s is set but Google ADC is unavailable (%v) — requests will be unauthenticated\n", runner.EnvAudience, err)
 	}

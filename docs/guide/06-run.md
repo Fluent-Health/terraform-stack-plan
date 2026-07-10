@@ -160,7 +160,7 @@ threaded through the terramate scripts as flags:
 | Variable | Meaning |
 |---|---|
 | `TFSTACKPLAN_SERVER` | Control-plane base URL. Empty → fully offline: `run tick` no-ops, the gate check passes, the report goes to stdout. |
-| `TFSTACKPLAN_TOKEN` | Bearer secret for `/api/*`. |
+| `TFSTACKPLAN_AUDIENCE` | OIDC audience (the serve URL) for `/api/*` auth via Google ADC — the only `/api/*` credential (the legacy shared token was removed). |
 | `TFSTACKPLAN_ENVIRONMENT` | Deployment environment (e.g. `staging`, `prod`). |
 | `TFSTACKPLAN_EXECUTION` | Execution id. `run plan`/`run apply` generate one if unset; export it so per-stack `run tick` reports under the same id. |
 | `TFSTACKPLAN_PR` | PR number — correlates plan and apply gate checks. |

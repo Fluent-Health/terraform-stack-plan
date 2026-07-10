@@ -354,7 +354,7 @@ serve {
 |---|---|---|---|
 | `db_path` | string | — (required) | Path to the SQLite database file (WAL mode; single writer by design) |
 | `public_base_url` | string | — (required) | Public base URL of the serve instance, used in check-run links and as the default Pub/Sub push audience |
-| `webhook_secret_env` | string | none | Name of the environment variable holding the **legacy** shared bearer secret for `/api/*` (HS256). Kept accepted alongside `api_auth {}` OIDC tokens while set. When neither this nor `api_auth {}` is configured, `/api/*` authentication is disabled (local/dev only) |
+| `webhook_secret_env` | string | none | Name of the environment variable holding the secret that signs the 30-day **view-JWTs** for the live-viewer routes (`/`, `/pr/*`, `/live/*`). It no longer authenticates `/api/*` — that path is OIDC-only (`api_auth {}`); the legacy shared-secret HS256 `/api/*` scheme was removed |
 | `github_webhook_secret_env` | string | none | Name of the environment variable holding the GitHub webhook HMAC secret used to verify inbound webhook signatures |
 | `logs_dir` | string | none | Directory for per-stack on-disk log buffers. When unset, log ingestion is disabled |
 
@@ -461,9 +461,9 @@ Google OIDC bearer auth for `/api/*`. Callers present Google-signed ID tokens;
 the verified email is mapped to scopes through `principal` blocks. Service
 accounts (the CI runner, a UI service) mint tokens for `audience` natively;
 human callers on user ADC present tokens whose audience is the fixed gcloud
-client id — list it in `extra_audiences` to accept them. While
-`webhook_secret_env` is also set, legacy HS256 shared-secret tokens remain
-accepted on `/api/*` (the migration posture).
+client id — list it in `extra_audiences` to accept them. OIDC is the **only**
+`/api/*` credential — the legacy HS256 shared-secret path was removed once
+every caller had migrated.
 
 > ⚠️ Do **not** drop `webhook_secret_env` yet: the live-viewer routes (`/`,
 > `/pr/{n}`, `/live/*` and the rerun button) are authenticated only by the

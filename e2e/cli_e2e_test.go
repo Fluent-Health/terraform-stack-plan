@@ -87,7 +87,7 @@ func TestCLIE2E(t *testing.T) {
 	}
 
 	// 4. Test "tfstackplan run status" (JSON output)
-	cmdStatus := exec.Command(binaryPath, "run", "status", "--server", srv.URL, "--token", "e2e-secret", "--format", "json", planID)
+	cmdStatus := exec.Command(binaryPath, "run", "status", "--server", srv.URL, "--format", "json", planID)
 	out, err := cmdStatus.CombinedOutput()
 	if err != nil {
 		t.Fatalf("tfstackplan run status failed: %v. Output:\n%s", err, string(out))
