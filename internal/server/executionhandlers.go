@@ -17,8 +17,7 @@ type executionResponse struct {
 	Gates []store.GateTarget `json:"gates"`
 }
 
-func (a *App) handleGetExecution(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
+func (a *App) handleGetExecution(w http.ResponseWriter, _ *http.Request, id string) {
 	e, err := store.GetExecution(a.db, id)
 	if err != nil {
 		http.Error(w, "not found", http.StatusNotFound)

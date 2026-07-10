@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Fluent-Health/terraform-stack-plan/internal/api"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/approval"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/claims"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/config"
@@ -177,16 +178,14 @@ func (a *App) Routes() http.Handler {
 	mux.HandleFunc("POST /pubsub/push", a.handlePushEvent)
 	mux.HandleFunc("POST /pubsub/cloud-builds", a.handleCloudBuildPush)
 	mux.HandleFunc("POST /github/webhook", a.handleGitHubWebhook)
-	mux.Handle("POST /api/init", a.auth(http.HandlerFunc(a.handleInit), scopeReport))
-	mux.Handle("POST /api/phase", a.auth(http.HandlerFunc(a.handlePhase), scopeReport))
-	mux.Handle("POST /api/update", a.auth(http.HandlerFunc(a.handleUpdate), scopeReport))
-	mux.Handle("POST /api/finalize", a.auth(http.HandlerFunc(a.handleFinalize), scopeReport))
-	mux.Handle("POST /api/gate/check", a.auth(http.HandlerFunc(a.handleGateCheck), scopeReport))
-	mux.Handle("POST /api/gate/revoke", a.auth(http.HandlerFunc(a.handleGateRevoke), scopeReport))
-	mux.Handle("POST /api/logs", a.auth(http.HandlerFunc(a.handleLogs), scopeReport))
-	mux.Handle("POST /api/claims/list", a.auth(http.HandlerFunc(a.handleClaimsList), scopeReport, scopeRead, scopeAdmin))
-	mux.Handle("POST /api/claims/release", a.auth(http.HandlerFunc(a.handleClaimsRelease), scopeReport, scopeAdmin))
-	mux.Handle("GET /api/execution/{id}", a.auth(http.HandlerFunc(a.handleGetExecution), scopeReport, scopeRead, scopeAdmin))
+	// The JSON /api surface is routed by the generated OpenAPI router —
+	// api/openapi.yaml is the contract, and each operation's accepted scopes
+	// ride the request context from its security requirements. The SSE stream
+	// is outside the contract and stays hand-registered.
+	api.HandlerWithOptions(apiServer{app: a}, api.StdHTTPServerOptions{
+		BaseRouter:  mux,
+		Middlewares: []api.MiddlewareFunc{a.apiAuth},
+	})
 	mux.Handle("GET /api/execution/{id}/events", a.auth(http.HandlerFunc(a.handleGetExecutionEvents), scopeReport, scopeRead, scopeAdmin))
 	return mux
 }
