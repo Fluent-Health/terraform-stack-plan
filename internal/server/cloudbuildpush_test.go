@@ -102,3 +102,63 @@ func TestCloudBuildPushIgnoresForeignTrigger(t *testing.T) {
 		t.Fatalf("push = %d", resp.StatusCode)
 	}
 }
+
+func TestCloudBuildPushDisabledReturns404(t *testing.T) {
+	a, _, srv := newRunTriggerApp(t)
+	a.PushVerifier = func(context.Context, string) (string, error) { return "cb-push@sa", nil }
+	// BuildTriggerNames left empty → inbound build reconciliation disabled.
+
+	resp := cloudBuildPush(t, srv, map[string]any{"id": "b", "status": "SUCCESS"})
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("push = %d, want 404", resp.StatusCode)
+	}
+}
+
+func TestCloudBuildPushMissingBearerReturns401(t *testing.T) {
+	a, _, srv := newRunTriggerApp(t)
+	a.PushVerifier = func(context.Context, string) (string, error) { return "cb-push@sa", nil }
+	a.cfg.BuildTriggerNames = map[string]string{"nonprod-plan": "plan"}
+
+	// No Authorization header at all.
+	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/pubsub/cloud-builds", strings.NewReader("{}"))
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("push = %d, want 401", resp.StatusCode)
+	}
+}
+
+func TestCloudBuildPushWrongIdentityReturns403(t *testing.T) {
+	a, _, srv := newRunTriggerApp(t)
+	a.PushVerifier = func(context.Context, string) (string, error) { return "intruder@sa", nil }
+	a.cfg.PushServiceAccount = "cb-push@sa"
+	a.cfg.BuildTriggerNames = map[string]string{"nonprod-plan": "plan"}
+
+	resp := cloudBuildPush(t, srv, map[string]any{"id": "b", "status": "SUCCESS"})
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("push = %d, want 403", resp.StatusCode)
+	}
+}
+
+func TestCloudBuildPushMalformedEnvelopeAcks(t *testing.T) {
+	a, _, srv := newRunTriggerApp(t)
+	a.PushVerifier = func(context.Context, string) (string, error) { return "cb-push@sa", nil }
+	a.cfg.BuildTriggerNames = map[string]string{"nonprod-plan": "plan"}
+
+	// A non-JSON body must still ACK (204) — never wedge the subscription.
+	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/pubsub/cloud-builds", strings.NewReader("not json"))
+	req.Header.Set("Authorization", "Bearer faketoken")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("push = %d, want 204", resp.StatusCode)
+	}
+}

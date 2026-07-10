@@ -53,7 +53,11 @@ func (a *App) handleCloudBuildPush(w http.ResponseWriter, r *http.Request) {
 	}
 	var env pushEnvelope
 	if err := json.NewDecoder(r.Body).Decode(&env); err != nil {
-		http.Error(w, "bad push envelope", http.StatusBadRequest)
+		// Always ACK a parse failure — a wedged subscription (endless redelivery
+		// of a message we can never process) is worse than a dropped event. Only
+		// auth rejections (401/403 above) may be non-2xx.
+		log.Printf("cloud-build push: bad envelope: %v", err)
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 	raw, derr := base64.StdEncoding.DecodeString(env.Message.Data)
