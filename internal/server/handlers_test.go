@@ -455,6 +455,46 @@ func TestClaimsReleaseHandler(t *testing.T) {
 	}
 }
 
+func TestInitRecoversPRFromSHAWhenMissing(t *testing.T) {
+	a, _, srv := newRunTriggerApp(t)
+
+	// A serve-queued plan run already exists for PR 12 at sha "deadbeefcafe".
+	if err := store.UpsertInit(a.db, events.Init{
+		ID: "run-12-nonprod-plan-deadbeefcafe-a1", Repo: "o/r", SHA: "deadbeefcafe",
+		PR: 12, Environment: "nonprod", Context: "plan/nonprod",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// A rerun's runner reports Init with pr=0 (lost _PR_NUMBER) and an empty gate
+	// context, same env + sha.
+	body, _ := json.Marshal(events.Init{
+		ID: "orphan-xyz", Repo: "o/r", SHA: "deadbeefcafe", PR: 0, Environment: "nonprod", Context: "",
+	})
+	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/api/init", bytes.NewReader(body))
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+
+	// The orphan Init recovered PR 12 and superseded the serve-queued execution.
+	got, err := store.GetExecution(a.db, "orphan-xyz")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.PR != 12 {
+		t.Errorf("recovered PR = %d, want 12", got.PR)
+	}
+	old, err := store.GetExecution(a.db, "run-12-nonprod-plan-deadbeefcafe-a1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if old.SupersededBy != "orphan-xyz" {
+		t.Errorf("serve-queued execution not superseded: %+v", old)
+	}
+}
+
 func TestClaimsReleaseHandlerBadRequest(t *testing.T) {
 	db := newServerTestDB(t)
 	a := New(db, &MockGitHub{}, Config{})

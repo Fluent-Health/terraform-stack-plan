@@ -71,6 +71,19 @@ func (a *App) handleInit(w http.ResponseWriter, r *http.Request) {
 	if isGate(in.Context, in.Environment) {
 		in.Context = statusContext(in.Environment)
 	}
+	// A rerun created outside triggers.run can lose its _PR_NUMBER, so its runner
+	// reports pr=0 and would orphan (FindNonSupersededExecution short-circuits at
+	// pr<=0). Recover the owning PR from an existing non-superseded execution for
+	// the same (env, context, sha) — the key the inbound-build path also uses — and
+	// backfill it before the row is written, so the supersede below reattaches the
+	// rerun to the PR's check.
+	if in.PR <= 0 && in.SHA != "" {
+		if id, ok, ferr := store.FindExecutionBySHA(a.db, in.Environment, in.Context, in.SHA); ferr == nil && ok {
+			if e, gerr := store.GetExecution(a.db, id); gerr == nil && e.PR > 0 {
+				in.PR = e.PR
+			}
+		}
+	}
 	if err := store.UpsertInit(a.db, in); err != nil {
 		http.Error(w, "store init", http.StatusInternalServerError)
 		return
