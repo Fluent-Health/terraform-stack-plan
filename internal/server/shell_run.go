@@ -23,35 +23,43 @@ func runContext(kind, environment string) string {
 	return statusContext(environment)
 }
 
-// startRun executes a StartRun action: materialize the queued execution + its
-// check run (idempotent — feedback appears within the webhook turnaround, before
-// any build machine spins up), then ask the executor to start the build. The
-// returned RunStartResult feeds the shell's fixpoint loop.
-func (sh *Shell) startRun(ctx context.Context, cs reconcile.ChangeSet, repo string, act reconcile.StartRun) reconcile.Signal {
-	result := reconcile.RunStartResult{Kind: act.Kind, ExecutionID: act.ExecutionID}
-
+// materializeRun creates the queued execution row + its check run for a run
+// (idempotent — feedback appears within the webhook turnaround, before any build
+// machine spins up). Shared by startRun (serve-launched) and adoptRun (a build
+// serve did not launch). Returns an error only when the execution row can't be
+// written; check-run creation is best-effort (the build can still run without it).
+func (sh *Shell) materializeRun(ctx context.Context, cs reconcile.ChangeSet, repo, execID, sha, kind string) error {
 	init := events.Init{
-		ID:          act.ExecutionID,
+		ID:          execID,
 		Repo:        repo,
-		SHA:         act.SHA,
+		SHA:         sha,
 		PR:          cs.PR,
 		Environment: cs.Environment,
-		Context:     runContext(act.Kind, cs.Environment),
+		Context:     runContext(kind, cs.Environment),
 	}
 	if err := store.UpsertInit(sh.app.db, init); err != nil {
-		result.Err = "store queued execution: " + err.Error()
-		return result
+		return err
 	}
 	base := strings.TrimRight(sh.app.cfg.PublicBaseURL, "/")
 	name := sh.app.planCheckName(cs.Environment)
-	if act.Kind == reconcile.RunKindApply {
+	if kind == reconcile.RunKindApply {
 		name = init.Context
 	}
-	if err := sh.app.ensureCheckRun(ctx, act.ExecutionID, repo, act.SHA, name, sh.app.liveURL(base, act.ExecutionID)); err != nil {
-		// The build can still run without its check run; report but continue.
-		log.Printf("shell: queued check run %s: %v", act.ExecutionID, err)
+	if err := sh.app.ensureCheckRun(ctx, execID, repo, sha, name, sh.app.liveURL(base, execID)); err != nil {
+		log.Printf("shell: check run %s: %v", execID, err)
 	}
+	return nil
+}
 
+// startRun executes a StartRun action: materialize the queued execution + check
+// run, then ask the executor to start the build. The returned RunStartResult
+// feeds the shell's fixpoint loop.
+func (sh *Shell) startRun(ctx context.Context, cs reconcile.ChangeSet, repo string, act reconcile.StartRun) reconcile.Signal {
+	result := reconcile.RunStartResult{Kind: act.Kind, ExecutionID: act.ExecutionID}
+	if err := sh.materializeRun(ctx, cs, repo, act.ExecutionID, act.SHA, act.Kind); err != nil {
+		result.Err = "store queued execution: " + err.Error()
+		return result
+	}
 	if sh.app.Executor == nil {
 		result.Err = "no executor configured"
 		return result
@@ -70,6 +78,16 @@ func (sh *Shell) startRun(ctx context.Context, cs reconcile.ChangeSet, repo stri
 	}
 	result.BuildRef = ref.ID
 	return result
+}
+
+// adoptRun executes an AdoptRun action: materialize the execution row + check run
+// for a run bound to a build serve did NOT launch. Unlike startRun it never calls
+// the executor — the build already exists, and its ref rode in on the RunAdopted
+// event (folded into run state). The watchdog then tracks that build.
+func (sh *Shell) adoptRun(ctx context.Context, cs reconcile.ChangeSet, repo string, act reconcile.AdoptRun) {
+	if err := sh.materializeRun(ctx, cs, repo, act.ExecutionID, act.SHA, act.Kind); err != nil {
+		log.Printf("shell: adopt run %s: store execution: %v", act.ExecutionID, err)
+	}
 }
 
 // cancelRun executes a CancelRun action: mark the old execution superseded by
