@@ -105,6 +105,51 @@ func OpenGrantPRs(db *sql.DB) ([]OpenGrantPR, error) {
 	return out, rows.Err()
 }
 
+// PendingApproval is one gate target awaiting human action, joined with the PR
+// context a reviewer needs: the repo comes from the (pr, environment)'s latest
+// execution ("" when none exists yet).
+type PendingApproval struct {
+	PR          int
+	Environment string
+	Repo        string
+	Class       string
+	Target      string
+	GrantName   string
+	State       string
+	Requester   string
+}
+
+// PendingApprovals returns every gate target not yet ACTIVE, across all PRs and
+// environments — the cross-PR approvals to-do list (same non-ACTIVE predicate as
+// PendingGates, so DENIED/REVOKED targets surface too: they need attention, not
+// approval). Returns a non-nil empty slice when none match.
+func PendingApprovals(db *sql.DB) ([]PendingApproval, error) {
+	rows, err := db.Query(
+		`SELECT gt.pr, gt.environment,
+		        COALESCE((SELECT e.repo FROM executions e
+		                  WHERE e.pr = gt.pr AND e.environment = gt.environment
+		                  ORDER BY e.created_at DESC, e.id DESC LIMIT 1), ''),
+		        gt.class, gt.target, COALESCE(gt.grant_name,''), COALESCE(gt.state,''),
+		        COALESCE(gt.requester,'')
+		 FROM gate_targets gt
+		 WHERE gt.state != 'ACTIVE'
+		 ORDER BY gt.pr, gt.environment, gt.class, gt.target`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []PendingApproval{}
+	for rows.Next() {
+		var p PendingApproval
+		if err := rows.Scan(&p.PR, &p.Environment, &p.Repo, &p.Class, &p.Target,
+			&p.GrantName, &p.State, &p.Requester); err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
 // DeleteTarget removes a single gate target row.
 func DeleteTarget(tx *sql.Tx, pr int, environment, class, target string) error {
 	_, err := tx.Exec(

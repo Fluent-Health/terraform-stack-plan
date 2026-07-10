@@ -1,0 +1,4 @@
+HTTP 200
+Content-Type: application/json
+
+[{"class":"destructive","environment":"staging","grant_name":"","pr":8,"repo":"o/r","requester":"req@x.iam.gserviceaccount.com","state":"AWAITING","target":"proj-c"}]

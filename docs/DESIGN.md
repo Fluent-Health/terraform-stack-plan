@@ -1996,6 +1996,21 @@ contracts), and the public `/img`/`/assets`/`/live` surfaces. The spec is the
 foundation the planned central UI, CLI verbs, and MCP tooling generate their
 clients (and TypeScript types) from.
 
+**Read endpoints for aggregating consumers** (added for the central UI; clean
+snake_case shapes, unlike the frozen legacy execution read):
+
+- `GET /api/executions` — recent execution summaries, newest first (`?limit=`,
+  default 100, cap 1000); `?pr=` narrows to one PR's full timeline across
+  plan/apply/verify runs. Summaries exclude the rendered report.
+- `GET /api/approvals` — every gate target not yet ACTIVE across all PRs (the
+  `PendingGates` predicate, so DENIED/REVOKED surface too — they need
+  attention even though the action is not "approve"), each with the PR context
+  (repo from the PR's latest execution in that environment) and the grant
+  resource name a future in-UI approve call targets.
+- `GET /api/execution/{id}` additionally carries `verify_execution_id` — the
+  latest verify execution for the same (pr, environment) — so the validation
+  view needs no HTML-only plumbing.
+
 ### Serve as the CI driver — webhook-triggered runs (inert until configured)
 
 The second increment of the CI/CD-driver evolution: serve receives the GitHub

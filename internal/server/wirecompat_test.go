@@ -162,6 +162,21 @@ func TestAPIWireCompat(t *testing.T) {
 			name: "17-forbidden", method: "POST", path: "/api/claims/list", token: "tok-noscopes",
 			body: `{"environment":"staging"}`,
 		},
+		{
+			name: "18-executions-list", method: "GET", path: "/api/executions", token: "tok",
+		},
+		{
+			name: "19-executions-pr-filter", method: "GET", path: "/api/executions?pr=7&limit=1", token: "tok",
+		},
+		{
+			name: "20-executions-bad-limit", method: "GET", path: "/api/executions?limit=0", token: "tok",
+		},
+		{
+			name: "21-approvals", method: "GET", path: "/api/approvals", token: "tok",
+			seed: func(t *testing.T) {
+				seedProjectionTarget(t, db, 8, "staging", "destructive", "proj-c", "", "AWAITING", "req@x.iam.gserviceaccount.com")
+			},
+		},
 	}
 
 	for _, s := range steps {
