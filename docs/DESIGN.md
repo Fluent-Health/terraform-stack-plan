@@ -1954,6 +1954,48 @@ already verifying Pub/Sub pushes:
   deliberately rejected (public repo, secretless fork CI, ToS-fragile robot
   accounts); real-Google integration is what the nonprod rollout bake covers.
 
+### The `/api` OpenAPI contract
+
+Everything under `/api` is described by a hand-written OpenAPI 3 document,
+**`api/openapi.yaml`** — the wire contract for the runner→server protocol
+(init → phase → update → finalize, log ingest, the gate exchange), the claim
+verbs, and the execution read. `oapi-codegen` (a `go.mod` tool; regenerate with
+`go generate ./internal/api`, CI fails when out of sync) generates three things
+from it into `internal/api`:
+
+- the **std-http router** (`HandlerFromMux` onto the same Go 1.22 `ServeMux`)
+  — serve mounts it through a thin `apiServer` adapter whose methods delegate
+  to the existing handlers, so the handler bodies (and the wire bytes) are
+  untouched;
+- the **models**, bound to `internal/events` via `x-go-type` — the events
+  package remains the single canonical protocol definition, no duplicate
+  type set;
+- the **typed Go client**, which `internal/runner.Client` now rides (bearer
+  minting is a `RequestEditorFn`; the runner's conventions — disabled on empty
+  URL, best-effort non-2xx-to-error collapsing, the fail-closed gate check
+  reading status + coded body raw — are preserved on top).
+
+Authorization lives in the contract too: each operation's accepted scopes are
+its `security` requirement; the generated wrapper injects them into the request
+context and one `apiAuth` middleware enforces them — the spec is the single
+source of truth for who may call what.
+
+**The contract is cross-version.** Serve and runner deploy independently, so a
+spec change is a protocol change: additive only, never a rename/removal. The
+byte-level truth is pinned by `internal/server/testdata/wire/` — golden
+snapshots (status, Content-Type, exact body) replayed by
+`TestAPIWireCompat`; regenerate with `WIRE_GOLDEN=update` only for a
+deliberate, reviewed wire change. Preserved historical accidents the goldens
+enshrine: `GET /api/execution/{id}` emits PascalCase keys with a raw
+`sql.NullInt64` `CheckRunID`, and `graph.edges` may be `null`.
+
+Deliberately outside the contract: the SSE streams (`/api/execution/{id}/events`,
+`/logs/...?follow=1` — OpenAPI models event streams poorly; they stay
+hand-rolled), the GitHub webhook and Pub/Sub push endpoints (external
+contracts), and the public `/img`/`/assets`/`/live` surfaces. The spec is the
+foundation the planned central UI, CLI verbs, and MCP tooling generate their
+clients (and TypeScript types) from.
+
 ### Serve as the CI driver — webhook-triggered runs (inert until configured)
 
 The second increment of the CI/CD-driver evolution: serve receives the GitHub
