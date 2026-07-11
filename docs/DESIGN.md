@@ -2045,17 +2045,41 @@ top-level `ui {}` block (`tier "<name>" { url }` per tier serve, `oauth {}`,
   drift); a dead tier is a `502` naming the tier and never affects the others;
   an unknown tier is `404`. The OAuth browser flow (`/auth/*`) is deliberately
   outside the contract.
+- **Streaming proxies** (session-authed, outside the contract like their
+  tier-side counterparts): `/api/tiers/{tier}/executions/{id}/events` relays
+  the tier's SSE change stream, `/api/tiers/{tier}/logs/{exec}/{stack...}`
+  relays log reads including `?follow=1` with `Last-Event-ID` resume, and
+  `/api/tiers/{tier}/plan/...` relays the rendered plan HTML fragment. The
+  stream client has no overall timeout (lifetime binds to the browser's
+  request context), relays flush per read, and headers are flushed
+  immediately — an idle SSE stream must still look connected to
+  `EventSource`.
+- **The SPA** (`web/ui/`: SolidJS + TypeScript + Vite + Tailwind/daisyUI):
+  Home (per-tier recents + awaiting-approval panels; per-tier fetches are
+  independent so one dead tier never blanks the rest), PR view, Approvals
+  (read-only until the incremental-consent increment), and the live Execution
+  briefing (header + progress, gates, stack list with op counts, per-stack
+  Plan/Log tabs). Live updates are **reload-free by construction**: the
+  payload-less `changed` stream debounces into a JSON refetch and Solid
+  patches only what moved; `superseded` navigates to the successor; logs
+  append in place via a TS port of term.js's ANSI/CR line buffer (all log
+  bytes escaped; vitest-covered). Plan diffs stay server-rendered — the SPA
+  injects the tier's fragment and never re-implements the renderer. Payload
+  types are generated from the tier contract (`yarn gen:types` →
+  `src/api/tier-schema.d.ts`, committed, CI-checked).
 - **SPA delivery**: the binary embeds `internal/ui/dist/` (`go:embed`), served
   with an index.html fallback for client-side routes. The repo commits only a
-  placeholder page; CI/release will overwrite `dist/` with the `web/ui/` Vite
-  build before `go build` — the same committed-asset contract as the serve
-  CSS, keeping `go build` node-free.
+  placeholder page; the release workflow builds the SPA once and overwrites
+  `dist/` before each `go build` (CI runs typecheck/vitest/build on every PR)
+  — the same committed-asset contract as the serve CSS, keeping `go build`
+  node-free. Local dev: `yarn dev` proxies `/api`+`/auth` to a running
+  `tfstackplan ui` (see `web/ui/README.md`).
 - `gauth` grew `ClaimsVerifier` — `Verifier`'s claims-returning core — for the
   `hd` check; `Verifier` is now a thin email/verified wrapper over it.
 
-Still to come (tracked increments): the real SolidJS SPA with in-place SSE
-updates, SSE/log proxying, in-UI PAM approve/deny via incremental consent, and
-the tier serves' HTML viewer retirement (check-run links then point here).
+Still to come (tracked increments): in-UI PAM approve/deny via incremental
+consent, a Playwright smoke, group-DAG/triage parity in the execution view,
+and the tier serves' HTML viewer retirement (check-run links then point here).
 
 ### Serve as the CI driver — webhook-triggered runs (inert until configured)
 

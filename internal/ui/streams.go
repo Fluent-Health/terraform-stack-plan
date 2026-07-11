@@ -93,6 +93,12 @@ func (a *App) proxyStream(w http.ResponseWriter, r *http.Request, tierName, path
 	}
 	w.WriteHeader(resp.StatusCode)
 	flusher, _ := w.(http.Flusher)
+	if flusher != nil {
+		// Push the headers out now: an idle SSE stream may send no bytes for
+		// a long time, and EventSource needs the response line to consider
+		// itself connected.
+		flusher.Flush()
+	}
 	buf := make([]byte, 8192)
 	for {
 		n, err := resp.Body.Read(buf)
