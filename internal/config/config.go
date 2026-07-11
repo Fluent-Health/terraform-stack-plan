@@ -30,6 +30,7 @@ type Config struct {
 	Links          *LinksConfig    // nil when no links block present
 	Server         *ServerConfig   // nil when no server block
 	Serve          *ServeConfig    // nil when no serve block (added in a later task)
+	UI             *UIConfig       // nil when no ui block (the central UI face)
 	Classes        []ClassBinding  // class "<name>" {} bindings
 	Progress       *ProgressConfig // nil when no progress block (falls back to built-in fracs)
 	Cache          *CacheConfig    // nil when no cache block present
@@ -136,6 +137,12 @@ func Load(path string) (*Config, error) {
 				return nil, err
 			}
 			cfg.Server = s
+		case "ui":
+			u, err := decodeUI(blk)
+			if err != nil {
+				return nil, err
+			}
+			cfg.UI = u
 		case "serve":
 			s, err := decodeServe(blk)
 			if err != nil {
