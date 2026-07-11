@@ -2076,10 +2076,27 @@ top-level `ui {}` block (`tier "<name>" { url }` per tier serve, `oauth {}`,
   `tfstackplan ui` (see `web/ui/README.md`).
 - `gauth` grew `ClaimsVerifier` — `Verifier`'s claims-returning core — for the
   `hd` check; `Verifier` is now a thin email/verified wrapper over it.
+- **In-UI PAM approve/deny — the incremental-consent popup.** Stateless by
+  construction: `GET /auth/approve` seals the intent (session email, tier,
+  grant name, decision, reason, 2-minute expiry) into the OAuth `state`
+  parameter with the session AEAD and redirects to Google requesting
+  `cloud-platform` (PAM exposes no narrower scope; the token is still bounded
+  by the user's own IAM) with `include_granted_scopes` — one consent per
+  user, silent popups afterwards. The callback validates the sealed intent
+  against the live session, exchanges the code, spends the user's short-lived
+  access token on the single PAM `:approve`/`:deny` call
+  (`gcppam.DecideGrant`) and discards it, then reports to the opener via
+  `postMessage`. No user credential is ever stored; the server holds no
+  approver capability of its own — GCP enforces the human's IAM (a PAM 403
+  travels verbatim to the popup) and the PAM audit log records the human.
+  `oauth { quota_project }` names the project user-token API quota attributes
+  to (the OAuth client's project, which must have the PAM API enabled). The
+  OAuth client needs `<public_base_url>/auth/approve/callback` as a second
+  authorized redirect URI.
 
-Still to come (tracked increments): in-UI PAM approve/deny via incremental
-consent, a Playwright smoke, group-DAG/triage parity in the execution view,
-and the tier serves' HTML viewer retirement (check-run links then point here).
+Still to come (tracked increments): a Playwright smoke, group-DAG/triage
+parity in the execution view, and the tier serves' HTML viewer retirement
+(check-run links then point here).
 
 ### Serve as the CI driver — webhook-triggered runs (inert until configured)
 

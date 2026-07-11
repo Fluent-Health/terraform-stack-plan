@@ -16,13 +16,13 @@ export function Approvals() {
 }
 
 function TierApprovals(props: { tier: string }) {
-  const [approvals] = createResource(() => api.approvals(props.tier));
+  const [approvals, { refetch }] = createResource(() => api.approvals(props.tier));
   return (
     <section class="card bg-base-100 shadow-sm">
       <div class="card-body p-4">
         <h2 class="card-title text-base">{props.tier}</h2>
         <Suspense fallback={<span class="loading loading-dots" />}>
-          <ApprovalsTable approvals={approvals() ?? []} />
+          <ApprovalsTable tier={props.tier} approvals={approvals() ?? []} onDecided={refetch} />
         </Suspense>
       </div>
     </section>

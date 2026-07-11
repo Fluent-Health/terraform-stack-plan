@@ -26,6 +26,11 @@ type UIOAuthConfig struct {
 	ClientID        string
 	ClientSecretEnv string
 	AllowedDomain   string // required Workspace domain (the id_token `hd` claim)
+	// QuotaProject is sent as x-goog-user-project on user-token GCP API calls
+	// (PAM approve/deny): user credentials attribute quota to the OAuth
+	// client's project, which must have the called API enabled. Empty sends
+	// no header.
+	QuotaProject string
 }
 
 // UIConfig is the top-level `ui {}` block: the central UI service — a
@@ -49,6 +54,7 @@ type uiBody struct {
 		ClientID        string `hcl:"client_id,optional"`
 		ClientSecretEnv string `hcl:"client_secret_env,optional"`
 		AllowedDomain   string `hcl:"allowed_domain,optional"`
+		QuotaProject    string `hcl:"quota_project,optional"`
 	} `hcl:"oauth,block"`
 }
 
@@ -91,6 +97,7 @@ func decodeUI(blk *hclsyntax.Block) (*UIConfig, error) {
 			ClientID:        b.OAuth.ClientID,
 			ClientSecretEnv: b.OAuth.ClientSecretEnv,
 			AllowedDomain:   strings.ToLower(b.OAuth.AllowedDomain),
+			QuotaProject:    b.OAuth.QuotaProject,
 		}
 	}
 	return u, nil
