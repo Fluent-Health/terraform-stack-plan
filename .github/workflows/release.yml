@@ -10,8 +10,36 @@ permissions:
   contents: write # upload assets to the release
 
 jobs:
+  # The SPA is built once and embedded into every binary: the repo commits
+  # only a placeholder under internal/ui/dist, and this job's artifact
+  # replaces it before each go build — go build itself never runs node.
+  spa:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web/ui
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: web/ui/.tool-versions
+
+      - name: Install, check, build
+        run: |
+          yarn install --frozen-lockfile
+          yarn typecheck
+          yarn test
+          yarn build
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: spa-dist
+          path: web/ui/dist
+
   build:
     runs-on: ubuntu-latest
+    needs: spa
     strategy:
       fail-fast: false
       matrix:
@@ -28,6 +56,12 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
+
+      - name: Embed the built SPA
+        uses: actions/download-artifact@v8
+        with:
+          name: spa-dist
+          path: internal/ui/dist
 
       - name: Build and package
         env:

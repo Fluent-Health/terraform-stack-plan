@@ -49,3 +49,35 @@ jobs:
 
       - name: build
         run: go build ./...
+
+  spa:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web/ui
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: web/ui/.tool-versions
+
+      - name: Install
+        run: yarn install --frozen-lockfile
+
+      - name: Generated TS types in sync
+        run: |
+          yarn gen:types
+          if ! git diff --exit-code -- src/api/tier-schema.d.ts; then
+            echo "tier-schema.d.ts is out of sync with api/openapi.yaml — run: yarn gen:types"
+            exit 1
+          fi
+
+      - name: Typecheck
+        run: yarn typecheck
+
+      - name: Test
+        run: yarn test
+
+      - name: Build
+        run: yarn build

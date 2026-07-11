@@ -1,0 +1,12 @@
+@import "tailwindcss";
+@plugin "daisyui";
+
+/* ANSI SGR colors for the live log view (mirrors the tier viewer's palette). */
+.a-bold { font-weight: 700; }
+.a-red { color: #f87171; }
+.a-green { color: #4ade80; }
+.a-yellow { color: #facc15; }
+.a-blue { color: #60a5fa; }
+.a-magenta { color: #e879f9; }
+.a-cyan { color: #22d3ee; }
+.a-grey { color: #9ca3af; }
