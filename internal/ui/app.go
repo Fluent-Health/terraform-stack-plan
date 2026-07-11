@@ -32,9 +32,9 @@ type Tier struct {
 type Config struct {
 	PublicBaseURL string // external base; the OAuth redirect URI is <base>/auth/callback
 	SessionSecret string
-	// GitHubWebhookSecret verifies GitHub App webhook deliveries at the relay
-	// (empty disables /github/webhook). The App secret lives only here; the
-	// relay hop to the tiers rides the UI's OIDC identity instead.
+	// GitHubWebhookSecret optionally verifies GitHub App webhook deliveries
+	// at the relay before fan-out (defense in depth — each serve verifies the
+	// HMAC itself either way; empty forwards blindly).
 	GitHubWebhookSecret string
 	AllowedDomain       string // required id_token hd claim, lowercase
 	// OAuth is the Google authorization-code client. Endpoint is overridable
@@ -94,9 +94,14 @@ func New(cfg Config) (*App, error) {
 // flow, the session-authed JSON API (generated router), and the SPA fallback.
 func (a *App) Routes() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
+	// Both spellings: /healthz is documented, but Google Frontend RESERVES
+	// /healthz on run.app domains (it never reaches the container), so /ready
+	// is the one that works on Cloud Run (mirrors the tier serves).
+	health := func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
-	})
+	}
+	mux.HandleFunc("GET /healthz", health)
+	mux.HandleFunc("GET /ready", health)
 	mux.HandleFunc("GET /auth/login", a.handleLogin)
 	mux.HandleFunc("GET /auth/callback", a.handleCallback)
 	mux.HandleFunc("POST /auth/logout", a.handleLogout)

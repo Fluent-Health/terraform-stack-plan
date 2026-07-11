@@ -116,7 +116,9 @@ func driveLogin(t *testing.T, h http.Handler) (*http.Cookie, *httptest.ResponseR
 	if loc.Query().Get("state") != state.Value {
 		t.Fatalf("redirect state %q != cookie %q", loc.Query().Get("state"), state.Value)
 	}
-	// Step 2: the callback with the provider's code.
+	// Step 2: the callback with the provider's code. Success is a 200
+	// interstitial carrying the session cookie (not a 302 — browsers may
+	// refuse cookies set on the return-redirect hop).
 	req := httptest.NewRequest("GET", "/auth/callback?code=c0de&state="+url.QueryEscape(state.Value), nil)
 	req.AddCookie(state)
 	if next != nil {
@@ -153,8 +155,8 @@ func TestLoginFlow(t *testing.T) {
 	if sess == nil {
 		t.Fatalf("no session cookie; callback: %d %s", rr.Code, rr.Body.String())
 	}
-	if rr.Code != http.StatusFound || rr.Header().Get("Location") != "/pr/7" {
-		t.Errorf("callback should redirect to next: %d %q", rr.Code, rr.Header().Get("Location"))
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `location.replace("/pr/7")`) {
+		t.Errorf("callback should land on the interstitial continuing to next: %d %q", rr.Code, rr.Body.String())
 	}
 
 	// The session opens /api/me with the verified identity.
