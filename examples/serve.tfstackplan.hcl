@@ -59,9 +59,9 @@ serve {
   db_path         = "/data/tfstackplan.db"      # SQLite store (WAL; single writer)
   public_base_url = "https://tfstackplan.example.com"
 
-  # Env var NAME holding the bearer secret for /api/* (not the secret itself).
-  # An empty/unset secret disables auth (local/dev only).
-  webhook_secret_env = "TFSTACKPLAN_WEBHOOK_SECRET"
+  # Central UI service base URL: check-run Details and approval links point
+  # there (its tier names must match serve environments). Empty = no links.
+  ui_base_url = "https://tfstackplan-ui.example.com"
 
   # Per-stack on-disk log buffers (unset = log ingestion disabled).
   logs_dir = "/data/logs"
@@ -122,11 +122,8 @@ serve {
   # accounts mint them for `audience`; user ADC tokens carry the fixed gcloud
   # client id — list it in extra_audiences to accept humans). Each principal
   # maps a verified email to scopes: "report" (CI runner lifecycle/gate/claims),
-  # "read" (execution + claims reads), "admin" (claim release / surgery verbs).
-  # While webhook_secret_env is also set, the legacy shared-secret HS256 tokens
-  # stay accepted on /api/* (migration posture). Keep that secret for now: the
-  # live-viewer routes are gated only by its view JWTs — it retires with the
-  # viewer rework, not with this block.
+  # "read" (execution + claims reads — grant this to the central UI's service
+  # account), "admin" (claim release / surgery verbs).
   api_auth {
     audience        = "https://tfstackplan.example.com" # default: public_base_url
     extra_audiences = [

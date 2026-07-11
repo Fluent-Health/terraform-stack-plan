@@ -99,13 +99,13 @@ func (a *App) handleInit(w http.ResponseWriter, r *http.Request) {
 	}
 	base := a.baseURL(r)
 	if isGate(in.Context, in.Environment) {
-		if err := a.ensureCheckRun(r.Context(), in.ID, in.Repo, in.SHA, a.planCheckName(in.Environment), a.liveURL(base, in.ID)); err != nil {
+		if err := a.ensureCheckRun(r.Context(), in.ID, in.Repo, in.SHA, a.planCheckName(in.Environment), a.uiURL(in.ID)); err != nil {
 			http.Error(w, "create check run", http.StatusBadGateway)
 			return
 		}
 	}
 	if isApplyContext(in.Context) {
-		if err := a.ensureCheckRun(r.Context(), in.ID, in.Repo, in.SHA, in.Context, a.liveURL(base, in.ID)); err != nil {
+		if err := a.ensureCheckRun(r.Context(), in.ID, in.Repo, in.SHA, in.Context, a.uiURL(in.ID)); err != nil {
 			http.Error(w, "create check run", http.StatusBadGateway)
 			return
 		}
@@ -134,13 +134,13 @@ func (a *App) handlePhase(w http.ResponseWriter, r *http.Request) {
 	}
 	base := a.baseURL(r)
 	if isGate(e.StatusContext, e.Environment) {
-		if err := a.ensureCheckRun(r.Context(), e.ID, e.Repo, e.SHA, a.planCheckName(e.Environment), a.liveURL(base, e.ID)); err != nil {
+		if err := a.ensureCheckRun(r.Context(), e.ID, e.Repo, e.SHA, a.planCheckName(e.Environment), a.uiURL(e.ID)); err != nil {
 			http.Error(w, "create check run", http.StatusBadGateway)
 			return
 		}
 	}
 	if isApplyContext(e.StatusContext) {
-		if err := a.ensureCheckRun(r.Context(), e.ID, e.Repo, e.SHA, e.StatusContext, a.liveURL(base, e.ID)); err != nil {
+		if err := a.ensureCheckRun(r.Context(), e.ID, e.Repo, e.SHA, e.StatusContext, a.uiURL(e.ID)); err != nil {
 			http.Error(w, "create check run", http.StatusBadGateway)
 			return
 		}

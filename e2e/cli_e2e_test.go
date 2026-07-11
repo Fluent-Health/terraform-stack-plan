@@ -9,10 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/demo"
-	"github.com/Fluent-Health/terraform-stack-plan/internal/jwtutil"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/server"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
@@ -35,21 +33,14 @@ func TestCLIE2E(t *testing.T) {
 
 	gh := &server.MockGitHub{}
 	app := server.New(db, gh, server.Config{
-		WebhookSecret: "e2e-secret",
-		LogsDir:       filepath.Join(tempDir, "logs"),
+		LogsDir: filepath.Join(tempDir, "logs"),
 	})
 
 	srv := httptest.NewServer(app.Routes())
 	defer srv.Close()
 
-	// Mint a valid API token
-	apiToken, err := jwtutil.Make("e2e-secret", "runner", "api", time.Hour)
-	if err != nil {
-		t.Fatalf("mint api token: %v", err)
-	}
-
 	// Seed the scenario (returns both plan and apply IDs)
-	planID, _, err := demo.SeedScenario(context.Background(), srv.URL, apiToken)
+	planID, _, err := demo.SeedScenario(context.Background(), srv.URL)
 	if err != nil {
 		t.Fatalf("seed scenario: %v", err)
 	}

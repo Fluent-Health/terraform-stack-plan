@@ -15,7 +15,7 @@ import (
 // SeedScenario sends sequences of lifecycle events to baseURL to construct
 // both a Plan execution (showing result diffs) and an Apply execution (showing logs).
 // Returns (planID, applyID, error).
-func SeedScenario(ctx context.Context, baseURL string, bearerToken string) (string, string, error) {
+func SeedScenario(ctx context.Context, baseURL string) (string, string, error) {
 	hc := &http.Client{Timeout: 5 * time.Second}
 	planID := fmt.Sprintf("demo-plan-%d", time.Now().UnixNano()%1000000)
 	applyID := fmt.Sprintf("demo-apply-%d", (time.Now().UnixNano()+12345)%1000000)
@@ -94,7 +94,7 @@ func SeedScenario(ctx context.Context, baseURL string, bearerToken string) (stri
 		},
 	}
 
-	if err := post(ctx, hc, baseURL+"/api/init", bearerToken, planInitEv); err != nil {
+	if err := post(ctx, hc, baseURL+"/api/init", planInitEv); err != nil {
 		return "", "", fmt.Errorf("plan init failed: %w", err)
 	}
 
@@ -110,7 +110,7 @@ func SeedScenario(ctx context.Context, baseURL string, bearerToken string) (stri
 	}
 
 	for _, u := range planUpdates {
-		if err := post(ctx, hc, baseURL+"/api/update", bearerToken, u); err != nil {
+		if err := post(ctx, hc, baseURL+"/api/update", u); err != nil {
 			return "", "", fmt.Errorf("plan update failed for %s: %w", u.Stack, err)
 		}
 	}
@@ -140,7 +140,7 @@ func SeedScenario(ctx context.Context, baseURL string, bearerToken string) (stri
 		},
 	}
 
-	if err := post(ctx, hc, baseURL+"/api/finalize", bearerToken, planFinalizeEv); err != nil {
+	if err := post(ctx, hc, baseURL+"/api/finalize", planFinalizeEv); err != nil {
 		return "", "", fmt.Errorf("plan finalize failed: %w", err)
 	}
 
@@ -159,7 +159,7 @@ func SeedScenario(ctx context.Context, baseURL string, bearerToken string) (stri
 		Edges:       planInitEv.Edges,
 	}
 
-	if err := post(ctx, hc, baseURL+"/api/init", bearerToken, applyInitEv); err != nil {
+	if err := post(ctx, hc, baseURL+"/api/init", applyInitEv); err != nil {
 		return "", "", fmt.Errorf("apply init failed: %w", err)
 	}
 
@@ -176,7 +176,7 @@ func SeedScenario(ctx context.Context, baseURL string, bearerToken string) (stri
 	}
 
 	for _, u := range applyUpdates {
-		if err := post(ctx, hc, baseURL+"/api/update", bearerToken, u); err != nil {
+		if err := post(ctx, hc, baseURL+"/api/update", u); err != nil {
 			return "", "", fmt.Errorf("apply update failed for %s: %w", u.Stack, err)
 		}
 	}
@@ -202,13 +202,13 @@ func SeedScenario(ctx context.Context, baseURL string, bearerToken string) (stri
 		},
 	}
 
-	if err := post(ctx, hc, baseURL+"/api/finalize", bearerToken, applyFinalizeEv); err != nil {
+	if err := post(ctx, hc, baseURL+"/api/finalize", applyFinalizeEv); err != nil {
 		return "", "", fmt.Errorf("apply finalize failed: %w", err)
 	}
 
 	// Force gate check to register awaiting state on fake backends
 	gateCheckEv := events.GateCheck{PR: 42, Environment: "destructive+iam"}
-	if err := postGateCheck(ctx, hc, baseURL+"/api/gate/check", bearerToken, gateCheckEv); err != nil {
+	if err := postGateCheck(ctx, hc, baseURL+"/api/gate/check", gateCheckEv); err != nil {
 		return "", "", fmt.Errorf("gate check failed: %w", err)
 	}
 
@@ -218,14 +218,14 @@ func SeedScenario(ctx context.Context, baseURL string, bearerToken string) (stri
 		Stack: "apps/frontend",
 		Data:  "\x1b[32m✔ yarn install --silent\x1b[0m\n\x1b[34mℹ yarn build\x1b[0m\nCreating static production bundle...\n\x1b[32m✔ Compiled successfully!\x1b[0m\n",
 	}
-	if err := post(ctx, hc, baseURL+"/api/logs", bearerToken, logEv); err != nil {
+	if err := post(ctx, hc, baseURL+"/api/logs", logEv); err != nil {
 		return "", "", fmt.Errorf("apply logs failed: %w", err)
 	}
 
 	return planID, applyID, nil
 }
 
-func post(ctx context.Context, hc *http.Client, url, token string, payload any) error {
+func post(ctx context.Context, hc *http.Client, url string, payload any) error {
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return err
@@ -235,9 +235,6 @@ func post(ctx context.Context, hc *http.Client, url, token string, payload any) 
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	if token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
-	}
 	resp, err := hc.Do(req)
 	if err != nil {
 		return err
@@ -250,7 +247,7 @@ func post(ctx context.Context, hc *http.Client, url, token string, payload any) 
 	return nil
 }
 
-func postGateCheck(ctx context.Context, hc *http.Client, url, token string, gc events.GateCheck) error {
+func postGateCheck(ctx context.Context, hc *http.Client, url string, gc events.GateCheck) error {
 	body, err := json.Marshal(gc)
 	if err != nil {
 		return err
@@ -260,9 +257,6 @@ func postGateCheck(ctx context.Context, hc *http.Client, url, token string, gc e
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	if token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
-	}
 	resp, err := hc.Do(req)
 	if err != nil {
 		return err

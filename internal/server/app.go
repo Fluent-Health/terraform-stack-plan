@@ -7,12 +7,9 @@ package server
 import (
 	"context"
 	"database/sql"
-	"embed"
 	"fmt"
-	"html/template"
 	"log"
 	"net/http"
-	"net/url"
 	"regexp"
 	"slices"
 	"strings"
@@ -24,22 +21,21 @@ import (
 	"github.com/Fluent-Health/terraform-stack-plan/internal/config"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/eventsourcing"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/executor"
-	"github.com/Fluent-Health/terraform-stack-plan/internal/jwtutil"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/reconcile"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
 
-//go:embed templates/*.gohtml
-var templatesFS embed.FS
-
 // Config is the server runtime configuration.
 type Config struct {
-	// WebhookSecret is the bearer token required on /api/* mutations. Empty
-	// disables auth (local/dev only).
-	WebhookSecret string
-	// PublicBaseURL is the public origin used for check-run Details links. Empty
-	// derives it from the inbound request (e.g. behind a TLS-terminating proxy).
+	// PublicBaseURL is the public origin of THIS serve, used for the check-run
+	// embedded DAG image URL (/img — public, GitHub's camo proxy fetches it).
+	// Empty derives it from the inbound request.
 	PublicBaseURL string
+	// UIBaseURL is the central UI service's external base URL. Check-run
+	// details and approval links point there; empty leaves them unset. The
+	// UI's configured tier names must match serve environments (its routes
+	// are /t/<tier>/e/<id> and /pr/<n>).
+	UIBaseURL string
 	// Environment is this serve's tier (e.g. "nonprod"). Run triggering scopes
 	// its ChangeSets to it; empty disables webhook-driven run triggering.
 	Environment string
@@ -101,8 +97,6 @@ type App struct {
 	// (local/dev). It is the only /api/* credential — the legacy shared-secret
 	// HS256 path was removed once every caller migrated to OIDC.
 	APIVerifier func(ctx context.Context, bearer string) (email string, err error)
-	// tmpl holds the page templates (parsed once from the embedded FS in New).
-	tmpl *template.Template
 	// groupRE is the compiled Config.GroupPattern (nil → depth grouping).
 	groupRE *regexp.Regexp
 	// now returns the current time. Injectable so claim-lease and janitor time
@@ -123,9 +117,6 @@ type App struct {
 
 // New builds an App.
 func New(db *sql.DB, gh GitHub, cfg Config) *App {
-	tmpl := template.Must(template.New("").Funcs(template.FuncMap{
-		"statusBadge": statusBadge,
-	}).ParseFS(templatesFS, "templates/*.gohtml"))
 	var groupRE *regexp.Regexp
 	if cfg.GroupPattern != "" {
 		if re, err := regexp.Compile(cfg.GroupPattern); err == nil {
@@ -134,7 +125,7 @@ func New(db *sql.DB, gh GitHub, cfg Config) *App {
 			log.Printf("server: invalid group pattern %q: %v (falling back to depth grouping)", cfg.GroupPattern, err)
 		}
 	}
-	a := &App{db: db, gh: gh, cfg: cfg, hub: newHub(), tmpl: tmpl, groupRE: groupRE, now: time.Now}
+	a := &App{db: db, gh: gh, cfg: cfg, hub: newHub(), groupRE: groupRE, now: time.Now}
 	a.eventStore = store.NewEventStore(db)
 	a.gateDecider = eventsourcing.Decider[reconcile.ChangeSet, reconcile.Event]{
 		Initial:           func() reconcile.ChangeSet { return reconcile.ChangeSet{Gate: reconcile.NotClassified{}} },
@@ -158,24 +149,21 @@ func New(db *sql.DB, gh GitHub, cfg Config) *App {
 
 // Routes returns the HTTP handler. Uses stdlib method-pattern routing (Go 1.22+).
 // Auth model:
-//   - /api/*            require a Google-signed OIDC ID token (aud=serve URL)
-//   - /live/* /pr/ /{$} require a 30-day HS256 JWT (aud=view) via ?token= or cookie
-//   - /img/* /assets/*  public (GitHub camo + CSS must not require auth)
-//   - /logs/*           public (accessed inline by the live page after view auth)
+//   - /api/* /logs/* /plan/*  require a Google-signed OIDC ID token
+//     (aud=serve URL); the central UI proxies them for browsers
+//   - /img/*                  public (GitHub's camo image proxy cannot
+//     authenticate; execution ids are unguessable)
+//
+// The tier serves no longer serve HTML — the central UI (`tfstackplan ui`) is
+// the human surface; the 30-day view-JWT machinery retired with it.
 func (a *App) Routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /ready", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
-	mux.Handle("GET /{$}", a.viewAuth(http.HandlerFunc(a.handleIndex)))
-	mux.Handle("GET /pr/{n}", a.viewAuth(http.HandlerFunc(a.handlePRTimeline)))
 	mux.HandleFunc("GET /img/{name}", a.handleImg)
-	mux.HandleFunc("GET /assets/{file}", a.handleAsset)
-	mux.Handle("GET /live/{id}", a.viewAuth(http.HandlerFunc(a.handleLive)))
-	mux.Handle("GET /live/{id}/events", a.viewAuth(http.HandlerFunc(a.handleLiveEvents)))
-	mux.Handle("POST /live/{id}/rerun", a.viewAuth(http.HandlerFunc(a.handleRerun)))
-	mux.HandleFunc("GET /logs/{exec}/{stack...}", a.handleLogServe)
-	mux.HandleFunc("GET /plan/{exec}/{stack...}", a.handlePlanServe)
+	mux.Handle("GET /logs/{exec}/{stack...}", a.auth(http.HandlerFunc(a.handleLogServe), scopeReport, scopeRead, scopeAdmin))
+	mux.Handle("GET /plan/{exec}/{stack...}", a.auth(http.HandlerFunc(a.handlePlanServe), scopeReport, scopeRead, scopeAdmin))
 	mux.HandleFunc("POST /pubsub/push", a.handlePushEvent)
 	mux.HandleFunc("POST /pubsub/cloud-builds", a.handleCloudBuildPush)
 	mux.HandleFunc("POST /github/webhook", a.handleGitHubWebhook)
@@ -251,41 +239,6 @@ func hasAnyScope(granted, required []string) bool {
 	return slices.ContainsFunc(granted, func(g string) bool { return slices.Contains(required, g) })
 }
 
-// viewAuth enforces a 30-day HS256 JWT (aud=view) on GET routes.
-// Accepts ?token=<jwt> (first access; sets a session cookie so sub-resource
-// requests from the same browser carry auth without the token in every URL) or
-// the view_session cookie set on a prior ?token= access.
-// An empty configured secret disables the check (local/dev).
-func (a *App) viewAuth(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if a.cfg.WebhookSecret != "" {
-			token := ""
-			if c, err := r.Cookie("view_session"); err == nil {
-				token = c.Value
-			}
-			if q := r.URL.Query().Get("token"); q != "" {
-				token = q
-			}
-			if _, err := jwtutil.Validate(token, a.cfg.WebhookSecret, "view"); err != nil {
-				http.Error(w, "unauthorized", http.StatusUnauthorized)
-				return
-			}
-			if r.URL.Query().Get("token") != "" {
-				http.SetCookie(w, &http.Cookie{
-					Name:     "view_session",
-					Value:    token,
-					Path:     "/",
-					MaxAge:   30 * 24 * 3600,
-					HttpOnly: true,
-					Secure:   true,
-					SameSite: http.SameSiteLaxMode,
-				})
-			}
-		}
-		next.ServeHTTP(w, r)
-	})
-}
-
 // statusContext is the per-environment context the server drives for the plan
 // gate: "plan/<environment>" (or "plan" when environment is empty).
 func statusContext(environment string) string {
@@ -354,15 +307,13 @@ func (a *App) supersedeExecution(oldID, newID string) {
 	}
 }
 
-// liveURL builds the per-execution live-page URL. When WebhookSecret is set,
-// appends a 30-day view JWT so GitHub check-run recipients can open the page
-// without additional auth.
-func (a *App) liveURL(base, id string) string {
-	u := fmt.Sprintf("%s/live/%s", base, id)
-	if a.cfg.WebhookSecret != "" {
-		if tok, err := jwtutil.Make(a.cfg.WebhookSecret, "viewer", "view", 30*24*time.Hour); err == nil {
-			u += "?token=" + url.QueryEscape(tok)
-		}
+// uiURL builds the central UI's execution-view URL for check-run Details
+// links ("" when no UI is configured — GitHub omits the link; the check-run
+// body still carries everything). The UI routes by tier name, which matches
+// this serve's environment by convention.
+func (a *App) uiURL(id string) string {
+	if a.cfg.UIBaseURL == "" {
+		return ""
 	}
-	return u
+	return fmt.Sprintf("%s/t/%s/e/%s", a.cfg.UIBaseURL, a.cfg.Environment, id)
 }

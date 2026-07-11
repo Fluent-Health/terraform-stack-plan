@@ -55,7 +55,6 @@ func TestLoadServeBlock(t *testing.T) {
 serve {
   db_path            = "/data/server.db"
   public_base_url    = "https://srv.example"
-  webhook_secret_env = "WEBHOOK_SECRET"
 
   github_app {
     app_id           = "12345"
@@ -77,7 +76,7 @@ serve {
 	if s == nil {
 		t.Fatal("serve block not parsed")
 	}
-	if s.DBPath != "/data/server.db" || s.PublicBaseURL != "https://srv.example" || s.WebhookSecretEnv != "WEBHOOK_SECRET" {
+	if s.DBPath != "/data/server.db" || s.PublicBaseURL != "https://srv.example" {
 		t.Errorf("serve = %+v", s)
 	}
 	if s.GitHubApp == nil || s.GitHubApp.AppID != "12345" || s.GitHubApp.InstallationID != "67890" || s.GitHubApp.PrivateKeyPath != "/secrets/app.pem" {

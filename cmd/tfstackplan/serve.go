@@ -46,7 +46,7 @@ func gcppamConfig(cfg *config.Config) gcppam.Config {
 
 // buildServeApp wires config → store + GitHub client + gcp-pam backend → App.
 // Returns a cleanup that closes the store. The GCP creds are injected.
-func buildServeApp(ctx context.Context, cfg *config.Config, secret, ghWebhookSecret string, creds credsFactory) (*server.App, func(), error) {
+func buildServeApp(ctx context.Context, cfg *config.Config, ghWebhookSecret string, creds credsFactory) (*server.App, func(), error) {
 	if cfg.Serve == nil {
 		return nil, nil, fmt.Errorf("serve: no `serve {}` block in config")
 	}
@@ -79,9 +79,9 @@ func buildServeApp(ctx context.Context, cfg *config.Config, secret, ghWebhookSec
 	fmt.Fprintf(os.Stderr, "tfstackplan serve: log buffers in %s\n", logsDir)
 
 	app := server.New(db, gh, server.Config{
-		WebhookSecret:       secret,
 		GitHubWebhookSecret: ghWebhookSecret,
 		PublicBaseURL:       s.PublicBaseURL,
+		UIBaseURL:           s.UIBaseURL,
 		Environment:         serverEnvironment(cfg),
 		GroupDepth:          groupDepth(s),
 		GroupPattern:        groupPattern(s),
@@ -261,7 +261,7 @@ func runServe(args []string) int {
 			if strings.HasPrefix(hostPort, ":") {
 				hostPort = "127.0.0.1" + hostPort
 			}
-			planID, applyID, err := demo.SeedScenario(ctx, "http://"+hostPort, "demo-secret")
+			planID, applyID, err := demo.SeedScenario(ctx, "http://"+hostPort)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "demo: seed scenario failed: %v\n", err)
 				return
@@ -270,10 +270,9 @@ func runServe(args []string) int {
 			fmt.Fprintf(os.Stderr, "DEMO MODE READY!\n")
 			fmt.Fprintf(os.Stderr, "Seeded Plan ID:      %s\n", planID)
 			fmt.Fprintf(os.Stderr, "Seeded Apply ID:     %s\n", applyID)
-			fmt.Fprintf(os.Stderr, "Browse Plan (Diff):  http://%s/live/%s\n", hostPort, planID)
-			fmt.Fprintf(os.Stderr, "Browse Apply (Log):  http://%s/live/%s\n", hostPort, applyID)
-			fmt.Fprintf(os.Stderr, "Webhook URL:         http://%s/webhook\n", hostPort)
+			fmt.Fprintf(os.Stderr, "Execution API:       http://%s/api/execution/%s\n", hostPort, planID)
 			fmt.Fprintf(os.Stderr, "Ready URL:           http://%s/ready\n", hostPort)
+			fmt.Fprintf(os.Stderr, "Point a `tfstackplan ui` tier at http://%s to browse it.\n", hostPort)
 			fmt.Fprintf(os.Stderr, "=================================================================\n\n")
 		}()
 	} else {
@@ -283,15 +282,11 @@ func runServe(args []string) int {
 			fmt.Fprintln(os.Stderr, "tfstackplan serve:", err)
 			return 1
 		}
-		secret := ""
-		if cfg.Serve != nil && cfg.Serve.WebhookSecretEnv != "" {
-			secret = os.Getenv(cfg.Serve.WebhookSecretEnv)
-		}
 		ghWebhookSecret := ""
 		if cfg.Serve != nil && cfg.Serve.GitHubWebhookSecretEnv != "" {
 			ghWebhookSecret = os.Getenv(cfg.Serve.GitHubWebhookSecretEnv)
 		}
-		app, cleanup, err = buildServeApp(ctx, cfg, secret, ghWebhookSecret, gcpCreds)
+		app, cleanup, err = buildServeApp(ctx, cfg, ghWebhookSecret, gcpCreds)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "tfstackplan serve:", err)
 			return 1

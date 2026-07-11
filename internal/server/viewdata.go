@@ -1,51 +1,13 @@
+// Shared view helpers: pure projections of stack state used by the check-run
+// rendering (risk tags, op summaries, verdict tallies). The HTML live viewer
+// that originally owned them retired in favor of the central UI.
 package server
 
 import (
-	"sort"
 	"strconv"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 )
-
-// stackGroup is a set of stacks sharing a group key.
-type stackGroup struct {
-	Name   string
-	Stacks []events.StackState
-}
-
-// groupByProject folds stacks by their Project (the Google project / grouping
-// target, backfilled at finalize). Stacks with no Project (pre-finalize or
-// unprojected) fall into a trailing "—" bucket. Order: projects alphabetical,
-// then the ungrouped bucket last; stack order within a group is preserved.
-func groupByProject(stacks []events.StackState) []stackGroup {
-	const ungrouped = "—"
-	byName := map[string][]events.StackState{}
-	var order []string
-	for _, s := range stacks {
-		k := s.Project
-		if k == "" {
-			k = ungrouped
-		}
-		if _, ok := byName[k]; !ok {
-			order = append(order, k)
-		}
-		byName[k] = append(byName[k], s)
-	}
-	sort.Slice(order, func(i, j int) bool {
-		if order[i] == ungrouped {
-			return false
-		}
-		if order[j] == ungrouped {
-			return true
-		}
-		return order[i] < order[j]
-	})
-	groups := make([]stackGroup, 0, len(order))
-	for _, n := range order {
-		groups = append(groups, stackGroup{Name: n, Stacks: byName[n]})
-	}
-	return groups
-}
 
 // iamCount is the number of stacks flagged with the gating "iam" category.
 func iamCount(stacks []events.StackState) int {
@@ -189,26 +151,5 @@ func opSummary(c *events.Counts) string {
 		return "↔" + strconv.Itoa(c.Move)
 	default:
 		return ""
-	}
-}
-
-// statusBadge maps a per-stack status to a DaisyUI badge class. Unknown statuses
-// fall back to a neutral ghost badge.
-func statusBadge(s events.Status) string {
-	switch s {
-	case events.StatusPlanned, events.StatusMoving:
-		return "badge-info"
-	case events.StatusGated:
-		return "badge-warning"
-	case events.StatusSafe:
-		return "badge-success"
-	case events.StatusFailed:
-		return "badge-error"
-	case events.StatusNochange:
-		return "badge-ghost"
-	case events.StatusAborted:
-		return "badge-ghost"
-	default: // pending + anything unknown
-		return "badge-ghost"
 	}
 }

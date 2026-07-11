@@ -155,10 +155,10 @@ func applyLockOutput(env string, pr int, v applyLockVerdict) (title, summary, co
 }
 
 func (a *App) applyLockDetailsURL(env string, pr int) string {
-	if a.cfg.PublicBaseURL == "" {
+	if a.cfg.UIBaseURL == "" {
 		return ""
 	}
-	return a.cfg.PublicBaseURL + "/pr/" + strconv.Itoa(pr)
+	return a.cfg.UIBaseURL + "/pr/" + strconv.Itoa(pr)
 }
 
 // handlePRApplyLock drives the auto-merge front-end: on open/sync/reopen it posts

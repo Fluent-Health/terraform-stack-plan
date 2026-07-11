@@ -22,7 +22,6 @@ func buildDemoApp(ctx context.Context, dbPath string) (*server.App, func(), erro
 	logsDir := filepath.Join(filepath.Dir(dbPath), "logs")
 
 	app := server.New(db, gh, server.Config{
-		WebhookSecret:       "demo-secret",
 		GitHubWebhookSecret: "demo-gh-secret",
 		PublicBaseURL:       "http://127.0.0.1:8080",
 		LogsDir:             logsDir,
