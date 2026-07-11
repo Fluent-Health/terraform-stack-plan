@@ -90,6 +90,7 @@ func buildUIConfig(ctx context.Context, u *config.UIConfig) (ui.Config, error) {
 			Scopes:       []string{"openid", "email", "profile"},
 		}
 		out.AllowedDomain = u.OAuth.AllowedDomain
+		out.QuotaProject = u.OAuth.QuotaProject
 		verify, err := gauth.ClaimsVerifier(ctx, []string{u.OAuth.ClientID})
 		if err != nil {
 			return ui.Config{}, fmt.Errorf("ui oauth: build id_token verifier: %w", err)

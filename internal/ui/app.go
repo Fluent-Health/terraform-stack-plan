@@ -36,6 +36,11 @@ type Config struct {
 	// OAuth is the Google authorization-code client. Endpoint is overridable
 	// so tests run against a fake token server.
 	OAuth *oauth2.Config
+	// QuotaProject rides x-goog-user-project on user-token PAM calls (user
+	// credentials attribute API quota to the OAuth client's project; empty
+	// sends no header). PAMBaseURL overrides the PAM endpoint for tests.
+	QuotaProject string
+	PAMBaseURL   string
 	// VerifyIDToken validates the id_token from the code exchange and returns
 	// its claims (signature + audience checked; claim semantics enforced by
 	// the login handler). Injectable for offline tests.
@@ -91,6 +96,8 @@ func (a *App) Routes() http.Handler {
 	mux.HandleFunc("GET /auth/login", a.handleLogin)
 	mux.HandleFunc("GET /auth/callback", a.handleCallback)
 	mux.HandleFunc("POST /auth/logout", a.handleLogout)
+	mux.Handle("GET /auth/approve", a.sessionAuth(http.HandlerFunc(a.handleApproveStart)))
+	mux.Handle("GET /auth/approve/callback", a.sessionAuth(http.HandlerFunc(a.handleApproveCallback)))
 	uiapi.HandlerWithOptions(uiServer{app: a}, uiapi.StdHTTPServerOptions{
 		BaseRouter:  mux,
 		Middlewares: []uiapi.MiddlewareFunc{a.sessionAuth},

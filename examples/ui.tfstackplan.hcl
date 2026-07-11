@@ -31,5 +31,10 @@ ui {
     client_id         = "000000000000-example.apps.googleusercontent.com"
     client_secret_env = "TFSTACKPLAN_UI_OAUTH_SECRET"
     allowed_domain    = "example.com"
+
+    # PAM approve/deny with the user's consented token attributes API quota
+    # to the OAuth client's project — name it here (it must have the
+    # Privileged Access Manager API enabled).
+    quota_project = "example-svc-project"
   }
 }

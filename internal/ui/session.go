@@ -52,9 +52,11 @@ func newSessionCodec(secret string) (*sessionCodec, error) {
 	return &sessionCodec{aead: aead}, nil
 }
 
-// seal encrypts s into a cookie-safe token: base64url(nonce || ciphertext).
-func (c *sessionCodec) seal(s Session) (string, error) {
-	plain, err := json.Marshal(s)
+// sealJSON encrypts any JSON-marshalable value into a URL/cookie-safe token:
+// base64url(nonce || ciphertext). Used for the session cookie and for the
+// approval intent riding the OAuth state parameter.
+func (c *sessionCodec) sealJSON(v any) (string, error) {
+	plain, err := json.Marshal(v)
 	if err != nil {
 		return "", err
 	}
@@ -66,23 +68,34 @@ func (c *sessionCodec) seal(s Session) (string, error) {
 	return base64.RawURLEncoding.EncodeToString(sealed), nil
 }
 
-// open decrypts and validates a token, rejecting expired sessions.
-func (c *sessionCodec) open(token string) (Session, error) {
+// openJSON decrypts a token into out (authenticity from the AEAD seal;
+// expiry is the payload's own concern).
+func (c *sessionCodec) openJSON(token string, out any) error {
 	raw, err := base64.RawURLEncoding.DecodeString(token)
 	if err != nil {
-		return Session{}, fmt.Errorf("session decode: %w", err)
+		return fmt.Errorf("token decode: %w", err)
 	}
 	if len(raw) < c.aead.NonceSize() {
-		return Session{}, errors.New("session token too short")
+		return errors.New("token too short")
 	}
 	nonce, ct := raw[:c.aead.NonceSize()], raw[c.aead.NonceSize():]
 	plain, err := c.aead.Open(nil, nonce, ct, nil)
 	if err != nil {
-		return Session{}, fmt.Errorf("session open: %w", err)
+		return fmt.Errorf("token open: %w", err)
 	}
+	return json.Unmarshal(plain, out)
+}
+
+// seal encrypts a Session into a cookie value.
+func (c *sessionCodec) seal(s Session) (string, error) {
+	return c.sealJSON(s)
+}
+
+// open decrypts and validates a session token, rejecting expired sessions.
+func (c *sessionCodec) open(token string) (Session, error) {
 	var s Session
-	if err := json.Unmarshal(plain, &s); err != nil {
-		return Session{}, err
+	if err := c.openJSON(token, &s); err != nil {
+		return Session{}, fmt.Errorf("session: %w", err)
 	}
 	if time.Now().After(s.Expires) {
 		return Session{}, errors.New("session expired")
