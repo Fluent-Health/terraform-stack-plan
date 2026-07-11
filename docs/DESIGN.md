@@ -2011,6 +2011,52 @@ snake_case shapes, unlike the frozen legacy execution read):
   latest verify execution for the same (pr, environment) — so the validation
   view needs no HTML-only plumbing.
 
+### The central UI face (`tfstackplan ui`)
+
+The single pane of glass over both tier serves: a **stateless aggregator** —
+no domain state of its own — deployed as its own service and configured by the
+top-level `ui {}` block (`tier "<name>" { url }` per tier serve, `oauth {}`,
+`session_secret_env`, `public_base_url`; reference in
+`examples/ui.tfstackplan.hcl`).
+
+- **Human auth — in-app Google OAuth** (Workspace-internal client, no IAP/LB):
+  authorization-code flow with `openid email profile`; the Workspace domain is
+  enforced against the **verified** id_token's `hd` claim (a consumer account
+  carries none → 403), `email_verified` required. The session is an
+  **AES-256-GCM encrypted cookie** (stdlib crypto; key = SHA-256 of the
+  configured secret, so rotating the secret invalidates every session) holding
+  identity only — the SPA never sees Google tokens and the backend stores
+  none. `?next=` is open-redirect-safe (same-origin absolute paths only).
+  Everything except `/healthz` and the SPA shell sits behind the session.
+- **Service auth toward the tiers — Google OIDC** (`gauth.Source` per tier
+  audience, default the tier URL): the UI's service account needs a
+  `read`-scoped principal in each tier's `serve { api_auth {} }`. A
+  credential-less environment (local dev) degrades to unauthenticated tier
+  calls rather than failing startup — an auth-requiring tier then rejects them
+  visibly.
+- **Contract-first JSON API** — `api/ui.openapi.yaml` → `internal/uiapi`
+  (generated router; the SPA's TypeScript types come from the same document):
+  `/api/me`, `/api/tiers`, and tier-scoped proxies
+  (`/api/tiers/{tier}/executions[?pr,limit]`, `/api/tiers/{tier}/approvals`,
+  `/api/tiers/{tier}/executions/{id}`). Proxied schemas are `x-go-type`-bound
+  to `internal/api`, so the UI contract re-exposes the tier contract's shapes
+  and the two cannot drift. Proxies build **typed requests via the generated
+  tier client but relay response bodies verbatim** (no decode/re-encode
+  drift); a dead tier is a `502` naming the tier and never affects the others;
+  an unknown tier is `404`. The OAuth browser flow (`/auth/*`) is deliberately
+  outside the contract.
+- **SPA delivery**: the binary embeds `internal/ui/dist/` (`go:embed`), served
+  with an index.html fallback for client-side routes. The repo commits only a
+  placeholder page; CI/release will overwrite `dist/` with the `web/ui/` Vite
+  build before `go build` — the same committed-asset contract as the serve
+  CSS, keeping `go build` node-free.
+- `gauth` grew `ClaimsVerifier` — `Verifier`'s claims-returning core — for the
+  `hd` check; `Verifier` is now a thin email/verified wrapper over it.
+
+Still to come (tracked increments): the real SolidJS SPA with in-place SSE
+updates, SSE/log proxying, in-UI PAM approve/deny via incremental consent, and
+the tier serves' HTML viewer retirement (check-run links then point here).
+
 ### Serve as the CI driver — webhook-triggered runs (inert until configured)
 
 The second increment of the CI/CD-driver evolution: serve receives the GitHub

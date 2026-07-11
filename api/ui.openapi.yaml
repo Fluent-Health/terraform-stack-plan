@@ -1,0 +1,197 @@
+openapi: 3.0.3
+info:
+  title: tfstackplan central UI API
+  version: "1"
+  description: |
+    The backend API of `tfstackplan ui` — the central UI service: a stateless
+    aggregator over the tier serves. The SPA is its only intended consumer;
+    TypeScript types are generated from this document, and the Go server
+    router/models live in `internal/uiapi`.
+
+    Authentication is the encrypted session cookie set by the Google OAuth
+    login flow. The login endpoints themselves (`/auth/login`,
+    `/auth/callback`, `/auth/logout`) are deliberately outside this contract —
+    they are browser redirect flows, not API calls — as are `/healthz`
+    (public) and the SPA asset routes.
+
+    Tier-scoped reads proxy the tier serve's own contract (`api/openapi.yaml`)
+    over the UI backend's Google OIDC service identity; their response shapes
+    are that contract's schemas, re-exposed here via the same Go types so the
+    two documents cannot drift apart.
+paths:
+  /api/me:
+    get:
+      operationId: getMe
+      summary: The logged-in user
+      security:
+        - session: []
+      responses:
+        "200":
+          description: Session identity.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Me"
+        "401":
+          $ref: "#/components/responses/UnauthorizedText"
+  /api/tiers:
+    get:
+      operationId: listTiers
+      summary: The configured tier serves
+      security:
+        - session: []
+      responses:
+        "200":
+          description: Tiers, in config order.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TierInfo"
+        "401":
+          $ref: "#/components/responses/UnauthorizedText"
+  /api/tiers/{tier}/executions:
+    get:
+      operationId: listTierExecutions
+      summary: One tier's executions (proxied)
+      security:
+        - session: []
+      parameters:
+        - $ref: "#/components/parameters/Tier"
+        - name: pr
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: The tier's execution summaries, newest first.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ExecutionSummary"
+        "401":
+          $ref: "#/components/responses/UnauthorizedText"
+        "404":
+          $ref: "#/components/responses/UnknownTierText"
+        "502":
+          $ref: "#/components/responses/TierUnreachableText"
+  /api/tiers/{tier}/approvals:
+    get:
+      operationId: listTierApprovals
+      summary: One tier's pending approvals (proxied)
+      security:
+        - session: []
+      parameters:
+        - $ref: "#/components/parameters/Tier"
+      responses:
+        "200":
+          description: The tier's gate targets awaiting human action.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PendingApproval"
+        "401":
+          $ref: "#/components/responses/UnauthorizedText"
+        "404":
+          $ref: "#/components/responses/UnknownTierText"
+        "502":
+          $ref: "#/components/responses/TierUnreachableText"
+  /api/tiers/{tier}/executions/{id}:
+    get:
+      operationId: getTierExecution
+      summary: One tier execution's full state (proxied)
+      security:
+        - session: []
+      parameters:
+        - $ref: "#/components/parameters/Tier"
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The execution (the tier contract's ExecutionDetail shape).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExecutionDetail"
+        "401":
+          $ref: "#/components/responses/UnauthorizedText"
+        "404":
+          description: Unknown tier or execution id.
+          content:
+            text/plain: {}
+        "502":
+          $ref: "#/components/responses/TierUnreachableText"
+components:
+  securitySchemes:
+    session:
+      type: apiKey
+      in: cookie
+      name: tfsp_ui_session
+      description: Encrypted session cookie set by the Google OAuth login flow.
+  parameters:
+    Tier:
+      name: tier
+      in: path
+      required: true
+      schema:
+        type: string
+      description: A configured tier name (see listTiers).
+  responses:
+    UnauthorizedText:
+      description: No valid session.
+      content:
+        text/plain: {}
+    UnknownTierText:
+      description: The tier name is not configured.
+      content:
+        text/plain: {}
+    TierUnreachableText:
+      description: The tier serve could not be reached; other tiers are unaffected.
+      content:
+        text/plain: {}
+  schemas:
+    Me:
+      type: object
+      required: [email]
+      properties:
+        email:
+          type: string
+          description: The verified Google identity of the session.
+    TierInfo:
+      type: object
+      required: [name, url]
+      properties:
+        name: { type: string }
+        url: { type: string }
+    ExecutionSummary:
+      type: object
+      description: The tier contract's ExecutionSummary, proxied verbatim.
+      x-go-type: api.ExecutionSummary
+      x-go-type-import:
+        path: github.com/Fluent-Health/terraform-stack-plan/internal/api
+    PendingApproval:
+      type: object
+      description: The tier contract's PendingApproval, proxied verbatim.
+      x-go-type: api.PendingApproval
+      x-go-type-import:
+        path: github.com/Fluent-Health/terraform-stack-plan/internal/api
+    ExecutionDetail:
+      type: object
+      description: The tier contract's ExecutionDetail, proxied verbatim.
+      x-go-type: api.ExecutionDetail
+      x-go-type-import:
+        path: github.com/Fluent-Health/terraform-stack-plan/internal/api

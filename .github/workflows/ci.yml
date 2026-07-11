@@ -37,9 +37,9 @@ jobs:
 
       - name: openapi codegen in sync
         run: |
-          go generate ./internal/api
-          if ! git diff --exit-code -- internal/api; then
-            echo "internal/api is out of sync with api/openapi.yaml — run: go generate ./internal/api"
+          go generate ./internal/api ./internal/uiapi
+          if ! git diff --exit-code -- internal/api internal/uiapi; then
+            echo "generated OpenAPI code is out of sync with api/*.yaml — run: go generate ./internal/api ./internal/uiapi"
             exit 1
           fi
 
