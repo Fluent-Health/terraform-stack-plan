@@ -21,12 +21,13 @@ import (
 // event it revokes orphaned grants only for an abandoned (closed-unmerged) PR;
 // a merged PR's grant is left for its post-merge apply (released by
 // ApplySucceeded, PAM TTL as backstop).
-// Two auth branches: the repository webhook arrives straight from GitHub and
-// authenticates with its HMAC signature; App-scoped deliveries (the Re-run
-// buttons' rerequested events) arrive via the central UI's relay, which
-// verified GitHub's HMAC itself and authenticates here with its Google OIDC
-// identity — a bearer whose principal holds the `webhook` scope. No secret is
-// shared across tiers: the App webhook secret lives only with the UI.
+// Every delivery authenticates with GitHub's HMAC — whether it arrives
+// straight from GitHub (the repository webhook, and App-scoped deliveries in
+// a single-tier setup where the App webhook points directly here) or via the
+// central UI's verbatim relay (multi-tier: the signature headers are
+// forwarded untouched, so authenticity stays END-TO-END — a compromised relay
+// cannot forge events). Operationally this means the GitHub App webhook and
+// the repo webhooks share one secret value; it is GitHub-held either way.
 func (a *App) handleGitHubWebhook(w http.ResponseWriter, r *http.Request) {
 	if a.cfg.GitHubWebhookSecret == "" {
 		http.Error(w, "not found", http.StatusNotFound)
@@ -39,18 +40,7 @@ func (a *App) handleGitHubWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if bearer, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer "); ok {
-		// Relay branch: verified caller identity instead of GitHub's HMAC.
-		if a.APIVerifier == nil {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		email, verr := a.APIVerifier(r.Context(), bearer)
-		if verr != nil || !hasAnyScope(a.cfg.APIPrincipals[strings.ToLower(email)], []string{scopeWebhook}) {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-	} else if !verifyGitHubSig([]byte(a.cfg.GitHubWebhookSecret), r.Header.Get("X-Hub-Signature-256"), body) {
+	if !verifyGitHubSig([]byte(a.cfg.GitHubWebhookSecret), r.Header.Get("X-Hub-Signature-256"), body) {
 		http.Error(w, "invalid signature", http.StatusUnauthorized)
 		return
 	}

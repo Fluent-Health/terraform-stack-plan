@@ -486,13 +486,13 @@ func TestGitHubRelay(t *testing.T) {
 	dead := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 	dead.Close()
 
-	token := func(ctx context.Context) (string, error) { return "relay-token", nil }
-	h := newRelayApp(t, []Tier{{Name: "nonprod", URL: t1.URL, Token: token}, {Name: "prod", URL: t2.URL, Token: token}})
+	h := newRelayApp(t, []Tier{{Name: "nonprod", URL: t1.URL}, {Name: "prod", URL: t2.URL}})
 
 	body := `{"action":"rerequested"}`
+	sig := signBody("gh-app-secret", body)
 	req := httptest.NewRequest("POST", "/github/webhook", strings.NewReader(body))
 	req.Header.Set("X-GitHub-Event", "check_run")
-	req.Header.Set("X-Hub-Signature-256", signBody("gh-app-secret", body))
+	req.Header.Set("X-Hub-Signature-256", sig)
 	rr := httptest.NewRecorder()
 	h.ServeHTTP(rr, req)
 	if rr.Code != http.StatusAccepted {
@@ -504,15 +504,16 @@ func TestGitHubRelay(t *testing.T) {
 		if !ok || s.body != body || s.event != "check_run" {
 			t.Errorf("tier %s got %+v", name, s)
 		}
-		// The relay hop authenticates with the UI's OIDC identity — GitHub's
-		// signature is verified at the relay and deliberately not forwarded.
-		if s.bearer != "Bearer relay-token" || s.sig != "" {
-			t.Errorf("tier %s auth: bearer=%q sig=%q", name, s.bearer, s.sig)
+		// Verbatim pipe: GitHub's signature travels through so each serve
+		// verifies authenticity END-TO-END; no relay-minted credentials.
+		if s.sig != sig || s.bearer != "" {
+			t.Errorf("tier %s auth passthrough: bearer=%q sig=%q", name, s.bearer, s.sig)
 		}
 	}
 	mu.Unlock()
 
-	// A bad GitHub signature is rejected at the relay: nothing is forwarded.
+	// Defense in depth: with a configured secret, a bad GitHub signature is
+	// rejected at the relay and nothing is forwarded.
 	mu.Lock()
 	got = map[string]seen{}
 	mu.Unlock()
@@ -527,12 +528,21 @@ func TestGitHubRelay(t *testing.T) {
 		t.Errorf("bad signature: code=%d forwarded=%d", rrBad.Code, forwarded)
 	}
 
-	// No configured App secret → the relay does not exist.
-	hOff, _ := newSessionApp(t, nil)
-	rrOff := httptest.NewRecorder()
-	hOff.ServeHTTP(rrOff, httptest.NewRequest("POST", "/github/webhook", strings.NewReader("{}")))
-	if rrOff.Code != http.StatusNotFound {
-		t.Errorf("relay without secret: %d", rrOff.Code)
+	// Without a configured secret the relay is a pure pipe: it forwards
+	// blindly (the serves reject bad signatures themselves).
+	hOff, _ := newSessionApp(t, []Tier{{Name: "nonprod", URL: t1.URL}})
+	mu.Lock()
+	got = map[string]seen{}
+	mu.Unlock()
+	reqBlind := httptest.NewRequest("POST", "/github/webhook", strings.NewReader(body))
+	reqBlind.Header.Set("X-Hub-Signature-256", "sha256=deadbeef")
+	rrBlind := httptest.NewRecorder()
+	hOff.ServeHTTP(rrBlind, reqBlind)
+	mu.Lock()
+	blindForwarded := len(got)
+	mu.Unlock()
+	if rrBlind.Code != http.StatusAccepted || blindForwarded != 1 {
+		t.Errorf("secretless relay should forward blindly: code=%d forwarded=%d", rrBlind.Code, blindForwarded)
 	}
 
 	// One tier down still 202 (the other accepted); all down → 502.

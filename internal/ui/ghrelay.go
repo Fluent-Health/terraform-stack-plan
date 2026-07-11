@@ -17,37 +17,38 @@ import (
 // GitHub App webhook relay. check_run.rerequested / check_suite.rerequested
 // (the Re-run buttons) are delivered ONLY to the GitHub App that owns the
 // checks — never to repository webhooks — and an App has exactly one webhook
-// URL while there are two tier serves. The central UI is the App's single
-// ingress: it verifies GitHub's HMAC HERE (the App webhook secret exists
-// nowhere else — no cross-tier shared secret) and relays each delivery to
-// every tier's /github/webhook under its own Google OIDC identity, which the
-// serves verify against a `webhook`-scoped principal. Each serve's handlers
-// already ignore events for the other tier's check names.
+// URL while there may be several tier serves. The relay is a deliberately
+// DUMB pipe: each delivery is forwarded VERBATIM, signature headers included,
+// to every tier's /github/webhook, and each serve verifies GitHub's HMAC
+// itself. Authenticity stays end-to-end — a compromised relay cannot forge
+// events — and a single-tier deployment can skip the relay entirely by
+// pointing the App webhook straight at its serve.
+//
+// Defense in depth (optional): when ui { github_webhook_secret_env } is set,
+// the relay ALSO verifies the HMAC before fanning out, so garbage dies here
+// and shows as a 401 in the App's delivery log. When unset, the relay
+// forwards blindly and the serves reject.
 
-// relayHeaders are the GitHub delivery headers a serve needs to process the
-// event. The signature headers are deliberately NOT forwarded — authenticity
-// of the relay hop is the OIDC bearer, not GitHub's HMAC (verified here).
-var relayHeaders = []string{"Content-Type", "X-GitHub-Event", "X-GitHub-Delivery"}
+// relayHeaders are the GitHub delivery headers the serves need — including
+// the signatures they verify.
+var relayHeaders = []string{"Content-Type", "X-GitHub-Event", "X-GitHub-Delivery", "X-Hub-Signature-256", "X-Hub-Signature"}
 
 const relayBodyLimit = 2 << 20 // GitHub webhook payloads are capped at 25 MB; ours are far smaller
 
 var relayClient = &http.Client{Timeout: 15 * time.Second}
 
-// handleGitHubRelay is POST /github/webhook. Disabled (404) without a
-// configured App webhook secret. 202 when at least one tier accepted the
-// delivery; 502 when none did, so the failure is visible in the GitHub App's
-// delivery log for manual redelivery.
+// handleGitHubRelay is POST /github/webhook (public — authenticity is
+// GitHub's HMAC, verified by every serve and optionally here too). 202 when
+// at least one tier accepted the delivery; 502 when none did, so the failure
+// is visible in the GitHub App's delivery log for manual redelivery.
 func (a *App) handleGitHubRelay(w http.ResponseWriter, r *http.Request) {
-	if a.cfg.GitHubWebhookSecret == "" {
-		http.Error(w, "not found", http.StatusNotFound)
-		return
-	}
 	body, err := io.ReadAll(io.LimitReader(r.Body, relayBodyLimit+1))
 	if err != nil || len(body) > relayBodyLimit {
 		http.Error(w, "payload too large", http.StatusRequestEntityTooLarge)
 		return
 	}
-	if !verifyGitHubSig([]byte(a.cfg.GitHubWebhookSecret), r.Header.Get("X-Hub-Signature-256"), body) {
+	if a.cfg.GitHubWebhookSecret != "" &&
+		!verifyGitHubSig([]byte(a.cfg.GitHubWebhookSecret), r.Header.Get("X-Hub-Signature-256"), body) {
 		http.Error(w, "invalid signature", http.StatusUnauthorized)
 		return
 	}
@@ -57,7 +58,7 @@ func (a *App) handleGitHubRelay(w http.ResponseWriter, r *http.Request) {
 		wg.Add(1)
 		go func(i int, tier Tier) {
 			defer wg.Done()
-			oks[i] = a.relayTo(r.Context(), tier, r.Header, body)
+			oks[i] = relayTo(r.Context(), tier, r.Header, body)
 		}(i, t)
 	}
 	wg.Wait()
@@ -70,7 +71,7 @@ func (a *App) handleGitHubRelay(w http.ResponseWriter, r *http.Request) {
 	http.Error(w, "no tier accepted the delivery", http.StatusBadGateway)
 }
 
-func (a *App) relayTo(ctx context.Context, tier Tier, hdr http.Header, body []byte) bool {
+func relayTo(ctx context.Context, tier Tier, hdr http.Header, body []byte) bool {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tier.URL+"/github/webhook", bytes.NewReader(body))
 	if err != nil {
 		return false
@@ -79,14 +80,6 @@ func (a *App) relayTo(ctx context.Context, tier Tier, hdr http.Header, body []by
 		if v := hdr.Get(h); v != "" {
 			req.Header.Set(h, v)
 		}
-	}
-	if tier.Token != nil {
-		bearer, terr := tier.Token(ctx)
-		if terr != nil {
-			log.Printf("ui: github relay to %s: mint token: %v", tier.Name, terr)
-			return false
-		}
-		req.Header.Set("Authorization", "Bearer "+bearer)
 	}
 	resp, err := relayClient.Do(req)
 	if err != nil {

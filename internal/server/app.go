@@ -198,10 +198,9 @@ func (a *App) Routes() http.Handler {
 // PR it applies, an association the server cannot verify; the verified actor
 // is what gets audited.
 const (
-	scopeReport  = config.ScopeReport  // CI runner: execution lifecycle events, logs, gates, claims
-	scopeRead    = config.ScopeRead    // read-only: execution state/events, claims listing
-	scopeAdmin   = config.ScopeAdmin   // operator surgery: claim release (and future /api/admin/* verbs)
-	scopeWebhook = config.ScopeWebhook // relay GitHub App webhook deliveries (the central UI)
+	scopeReport = config.ScopeReport // CI runner: execution lifecycle events, logs, gates, claims
+	scopeRead   = config.ScopeRead   // read-only: execution state/events, claims listing
+	scopeAdmin  = config.ScopeAdmin  // operator surgery: claim release (and future /api/admin/* verbs)
 )
 
 // actorKey carries the verified /api/* caller identity in the request context.

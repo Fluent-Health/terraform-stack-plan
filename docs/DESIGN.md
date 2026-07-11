@@ -1900,9 +1900,8 @@ already verifying Pub/Sub pushes:
   `idtoken.Validate` under the hood) verifies signature + audience and returns
   the email; the `auth` middleware maps it to scopes — `report` (execution
   lifecycle, logs, gates, claims), `read` (execution/claims reads), `admin`
-  (claim release, future admin verbs), `webhook` (the central UI's GitHub
-  App webhook relay) — each route listing the scopes that may call it
-  (any-of). The verified actor rides the request context (`Actor(r)`)
+  (claim release, future admin verbs) — each route listing the scopes that may
+  call it (any-of). The verified actor rides the request context (`Actor(r)`)
   for audit use by the planned admin unstuck verbs.
 - **Audiences**: service-account callers mint tokens for the serve URL.
   User-ADC callers can't mint custom audiences — their tokens carry the fixed
@@ -2053,12 +2052,12 @@ top-level `ui {}` block (`tier "<name>" { url }` per tier serve, `oauth {}`,
   outside the contract.
 - **GitHub App webhook relay** (`POST /github/webhook`): the single ingress
   for App-scoped webhook deliveries (the Re-run buttons' `rerequested`
-  events). The UI verifies GitHub's HMAC (`github_webhook_secret_env` — the
-  App secret exists nowhere else) and forwards to every tier's
-  `/github/webhook` under its Google OIDC identity; each tier's `api_auth`
-  grants the UI's SA the `webhook` scope. 202 when any tier accepted; 502
-  when none did, so the App's delivery log shows the failure for manual
-  redelivery.
+  events), forwarded **verbatim** — signature headers included — to every
+  tier's `/github/webhook`; each serve verifies GitHub's HMAC itself
+  (end-to-end authenticity). `github_webhook_secret_env` optionally makes
+  the relay verify too (defense in depth: garbage dies here, visible in the
+  App's delivery log). 202 when any tier accepted; 502 when none did, for
+  manual redelivery.
 - **Streaming proxies** (session-authed, outside the contract like their
   tier-side counterparts): `/api/tiers/{tier}/executions/{id}/events` relays
   the tier's SSE change stream, `/api/tiers/{tier}/logs/{exec}/{stack...}`
@@ -2146,13 +2145,14 @@ exactly as before.
   that owns the check — repository webhooks get just `created`/`completed`.
   So the Re-run buttons reach serve via the **App webhook**, pointed at the
   central UI's `/github/webhook` relay (one App URL, two tier serves). The
-  relay verifies GitHub's HMAC — the App webhook secret lives ONLY with the
-  UI, no cross-tier shared secret — and forwards each delivery to every tier
-  under its own Google OIDC identity; serves accept the relay branch from a
-  `webhook`-scoped principal and ignore the other tier's check names. The
-  repo webhook keeps delivering `pull_request`/`push` straight to each serve
-  (per-tier HMAC — the critical CI-driving path never routes through the
-  aggregator). The native Cloud Build check's Re-run
+  relay is a **verbatim pipe**: signature headers travel through and every
+  serve verifies GitHub's HMAC itself, so authenticity stays end-to-end — a
+  compromised relay cannot forge events. Operationally the App webhook and
+  the repo webhooks share one secret value (GitHub-held either way); a
+  single-tier deployment skips the relay and points the App webhook straight
+  at its serve. The repo webhook keeps delivering `pull_request`/`push`
+  straight to each serve — the critical CI-driving path never routes through
+  the aggregator. The native Cloud Build check's Re-run
   does nothing post-cutover (Google's app has no event-triggered build to
   re-run for our API-invoked manual builds) — operators use OUR checks'
   Re-run; the native check is informational.
