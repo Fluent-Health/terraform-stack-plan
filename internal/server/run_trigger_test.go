@@ -524,3 +524,34 @@ func TestRunnerRecoveryAfterFalseStartFailure(t *testing.T) {
 		t.Fatalf("stale start-failure re-applied after runner recovery: %q", e.Status)
 	}
 }
+
+func TestCheckSuiteRerequestedRerunsOnlyFailedRuns(t *testing.T) {
+	a, fe, srv := newRunTriggerApp(t)
+	webhookReq(t, srv, whSecret, "pull_request", prSyncPayload(7, "sha-one")).Body.Close()
+	if len(fe.starts) != 1 {
+		t.Fatalf("setup: starts = %+v", fe.starts)
+	}
+	id, _ := store.LatestExecutionID(a.db, 7, "nonprod")
+
+	suite := map[string]any{
+		"action":      "rerequested",
+		"check_suite": map[string]any{"head_sha": "sha-one"},
+		"repository":  map[string]any{"full_name": "o/r"},
+	}
+
+	// A suite re-request while the run is NOT failed re-runs nothing —
+	// "Re-run failed checks" only touches failures.
+	webhookReq(t, srv, whSecret, "check_suite", suite).Body.Close()
+	if len(fe.starts) != 1 {
+		t.Fatalf("non-failed run must not re-run: starts = %+v", fe.starts)
+	}
+
+	// Fail the run; the same suite re-request now starts a fresh attempt.
+	if err := store.SetExecutionStatus(a.db, id, "failure"); err != nil {
+		t.Fatal(err)
+	}
+	webhookReq(t, srv, whSecret, "check_suite", suite).Body.Close()
+	if len(fe.starts) != 2 {
+		t.Fatalf("failed run should re-run on suite re-request: starts = %+v", fe.starts)
+	}
+}

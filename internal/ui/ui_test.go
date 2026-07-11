@@ -2,6 +2,9 @@ package ui
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -9,6 +12,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -430,5 +434,132 @@ func TestStreamProxies(t *testing.T) {
 	}
 	if rr := get(t, h, "/api/tiers/nope/logs/e1/stacks/a", sess); rr.Code != http.StatusNotFound {
 		t.Errorf("unknown tier stream: %d", rr.Code)
+	}
+}
+
+func signBody(secret, body string) string {
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte(body))
+	return "sha256=" + hex.EncodeToString(mac.Sum(nil))
+}
+
+func newRelayApp(t *testing.T, tiers []Tier) http.Handler {
+	t.Helper()
+	app, err := New(Config{SessionSecret: "s3cret", GitHubWebhookSecret: "gh-app-secret", Tiers: tiers})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return app.Routes()
+}
+
+func TestGitHubRelay(t *testing.T) {
+	type seen struct {
+		body   string
+		event  string
+		bearer string
+		sig    string
+	}
+	var mu sync.Mutex
+	got := map[string]seen{}
+	tierHandler := func(name string) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != "/github/webhook" {
+				http.Error(w, "wrong path "+r.URL.Path, http.StatusTeapot)
+				return
+			}
+			b, _ := io.ReadAll(r.Body)
+			mu.Lock()
+			got[name] = seen{
+				body:   string(b),
+				event:  r.Header.Get("X-GitHub-Event"),
+				bearer: r.Header.Get("Authorization"),
+				sig:    r.Header.Get("X-Hub-Signature-256"),
+			}
+			mu.Unlock()
+			w.WriteHeader(http.StatusNoContent)
+		}
+	}
+	t1 := httptest.NewServer(tierHandler("nonprod"))
+	defer t1.Close()
+	t2 := httptest.NewServer(tierHandler("prod"))
+	defer t2.Close()
+	dead := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	dead.Close()
+
+	h := newRelayApp(t, []Tier{{Name: "nonprod", URL: t1.URL}, {Name: "prod", URL: t2.URL}})
+
+	body := `{"action":"rerequested"}`
+	sig := signBody("gh-app-secret", body)
+	req := httptest.NewRequest("POST", "/github/webhook", strings.NewReader(body))
+	req.Header.Set("X-GitHub-Event", "check_run")
+	req.Header.Set("X-Hub-Signature-256", sig)
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusAccepted {
+		t.Fatalf("relay = %d %s", rr.Code, rr.Body.String())
+	}
+	mu.Lock()
+	for _, name := range []string{"nonprod", "prod"} {
+		s, ok := got[name]
+		if !ok || s.body != body || s.event != "check_run" {
+			t.Errorf("tier %s got %+v", name, s)
+		}
+		// Verbatim pipe: GitHub's signature travels through so each serve
+		// verifies authenticity END-TO-END; no relay-minted credentials.
+		if s.sig != sig || s.bearer != "" {
+			t.Errorf("tier %s auth passthrough: bearer=%q sig=%q", name, s.bearer, s.sig)
+		}
+	}
+	mu.Unlock()
+
+	// Defense in depth: with a configured secret, a bad GitHub signature is
+	// rejected at the relay and nothing is forwarded.
+	mu.Lock()
+	got = map[string]seen{}
+	mu.Unlock()
+	reqBad := httptest.NewRequest("POST", "/github/webhook", strings.NewReader(body))
+	reqBad.Header.Set("X-Hub-Signature-256", "sha256=deadbeef")
+	rrBad := httptest.NewRecorder()
+	h.ServeHTTP(rrBad, reqBad)
+	mu.Lock()
+	forwarded := len(got)
+	mu.Unlock()
+	if rrBad.Code != http.StatusUnauthorized || forwarded != 0 {
+		t.Errorf("bad signature: code=%d forwarded=%d", rrBad.Code, forwarded)
+	}
+
+	// Without a configured secret the relay is a pure pipe: it forwards
+	// blindly (the serves reject bad signatures themselves).
+	hOff, _ := newSessionApp(t, []Tier{{Name: "nonprod", URL: t1.URL}})
+	mu.Lock()
+	got = map[string]seen{}
+	mu.Unlock()
+	reqBlind := httptest.NewRequest("POST", "/github/webhook", strings.NewReader(body))
+	reqBlind.Header.Set("X-Hub-Signature-256", "sha256=deadbeef")
+	rrBlind := httptest.NewRecorder()
+	hOff.ServeHTTP(rrBlind, reqBlind)
+	mu.Lock()
+	blindForwarded := len(got)
+	mu.Unlock()
+	if rrBlind.Code != http.StatusAccepted || blindForwarded != 1 {
+		t.Errorf("secretless relay should forward blindly: code=%d forwarded=%d", rrBlind.Code, blindForwarded)
+	}
+
+	// One tier down still 202 (the other accepted); all down → 502.
+	h2 := newRelayApp(t, []Tier{{Name: "up", URL: t1.URL}, {Name: "down", URL: dead.URL}})
+	req2 := httptest.NewRequest("POST", "/github/webhook", strings.NewReader(body))
+	req2.Header.Set("X-Hub-Signature-256", signBody("gh-app-secret", body))
+	rr2 := httptest.NewRecorder()
+	h2.ServeHTTP(rr2, req2)
+	if rr2.Code != http.StatusAccepted {
+		t.Errorf("one tier down: %d", rr2.Code)
+	}
+	h3 := newRelayApp(t, []Tier{{Name: "down", URL: dead.URL}})
+	req3 := httptest.NewRequest("POST", "/github/webhook", strings.NewReader(body))
+	req3.Header.Set("X-Hub-Signature-256", signBody("gh-app-secret", body))
+	rr3 := httptest.NewRecorder()
+	h3.ServeHTTP(rr3, req3)
+	if rr3.Code != http.StatusBadGateway {
+		t.Errorf("all tiers down: %d", rr3.Code)
 	}
 }

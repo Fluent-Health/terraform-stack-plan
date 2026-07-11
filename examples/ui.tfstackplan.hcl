@@ -14,6 +14,15 @@ ui {
   # string; rotate to invalidate all sessions).
   session_secret_env = "TFSTACKPLAN_UI_SESSION_SECRET"
 
+  # Optional, defense in depth: env var holding the GitHub App's webhook
+  # secret. The relay is a verbatim pipe — signature headers travel through
+  # and every tier serve verifies GitHub's HMAC itself (end-to-end) — but
+  # with this set the relay ALSO verifies before fanning out, so garbage
+  # shows as a 401 in the App's delivery log. Use ONE secret value for the
+  # App webhook and the repo webhooks. Single-tier setups can skip the relay
+  # and point the App webhook straight at the serve.
+  github_webhook_secret_env = "TFSTACKPLAN_UI_GITHUB_WEBHOOK_SECRET"
+
   # The tier serves to aggregate. The UI backend mints Google OIDC ID tokens
   # for each tier's audience (default: the url) — grant its service account a
   # `read`-scoped principal in each tier's serve.api_auth block.

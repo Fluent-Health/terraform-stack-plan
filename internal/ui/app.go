@@ -32,7 +32,11 @@ type Tier struct {
 type Config struct {
 	PublicBaseURL string // external base; the OAuth redirect URI is <base>/auth/callback
 	SessionSecret string
-	AllowedDomain string // required id_token hd claim, lowercase
+	// GitHubWebhookSecret verifies GitHub App webhook deliveries at the relay
+	// (empty disables /github/webhook). The App secret lives only here; the
+	// relay hop to the tiers rides the UI's OIDC identity instead.
+	GitHubWebhookSecret string
+	AllowedDomain       string // required id_token hd claim, lowercase
 	// OAuth is the Google authorization-code client. Endpoint is overridable
 	// so tests run against a fake token server.
 	OAuth *oauth2.Config
@@ -98,6 +102,7 @@ func (a *App) Routes() http.Handler {
 	mux.HandleFunc("POST /auth/logout", a.handleLogout)
 	mux.Handle("GET /auth/approve", a.sessionAuth(http.HandlerFunc(a.handleApproveStart)))
 	mux.Handle("GET /auth/approve/callback", a.sessionAuth(http.HandlerFunc(a.handleApproveCallback)))
+	mux.HandleFunc("POST /github/webhook", a.handleGitHubRelay)
 	uiapi.HandlerWithOptions(uiServer{app: a}, uiapi.StdHTTPServerOptions{
 		BaseRouter:  mux,
 		Middlewares: []uiapi.MiddlewareFunc{a.sessionAuth},

@@ -74,6 +74,12 @@ func buildUIConfig(ctx context.Context, u *config.UIConfig) (ui.Config, error) {
 		PublicBaseURL: u.PublicBaseURL,
 		SessionSecret: sessionSecret,
 	}
+	if u.GitHubWebhookSecretEnv != "" {
+		out.GitHubWebhookSecret = os.Getenv(u.GitHubWebhookSecretEnv)
+		if out.GitHubWebhookSecret == "" {
+			fmt.Fprintf(os.Stderr, "tfstackplan ui: %s is empty — GitHub webhook relay disabled\n", u.GitHubWebhookSecretEnv)
+		}
+	}
 	if u.OAuth != nil {
 		clientSecret := os.Getenv(u.OAuth.ClientSecretEnv)
 		if clientSecret == "" {
