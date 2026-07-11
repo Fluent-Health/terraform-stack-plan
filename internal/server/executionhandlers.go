@@ -13,8 +13,12 @@ import (
 
 type executionResponse struct {
 	store.Execution
-	Graph events.Graph       `json:"graph"`
-	Gates []store.GateTarget `json:"gates"`
+	// VerifyExecutionID is the latest verify execution for the same
+	// (pr, environment), "" when none. Additive (2026-07); snake_case unlike
+	// its frozen PascalCase siblings.
+	VerifyExecutionID string             `json:"verify_execution_id"`
+	Graph             events.Graph       `json:"graph"`
+	Gates             []store.GateTarget `json:"gates"`
 }
 
 func (a *App) handleGetExecution(w http.ResponseWriter, _ *http.Request, id string) {
@@ -32,10 +36,12 @@ func (a *App) handleGetExecution(w http.ResponseWriter, _ *http.Request, id stri
 	if err != nil {
 		gates = []store.GateTarget{}
 	}
+	verifyExec, _ := store.LatestVerifyExecutionID(a.db, e.PR, e.Environment)
 	res := executionResponse{
-		Execution: e,
-		Graph:     g,
-		Gates:     gates,
+		Execution:         e,
+		VerifyExecutionID: verifyExec,
+		Graph:             g,
+		Gates:             gates,
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(res)

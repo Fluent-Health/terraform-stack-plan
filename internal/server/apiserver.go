@@ -32,6 +32,12 @@ func (s apiServer) ReleaseClaims(w http.ResponseWriter, r *http.Request) {
 func (s apiServer) GetExecution(w http.ResponseWriter, r *http.Request, id string) {
 	s.app.handleGetExecution(w, r, id)
 }
+func (s apiServer) ListExecutions(w http.ResponseWriter, r *http.Request, params api.ListExecutionsParams) {
+	s.app.handleListExecutions(w, r, params)
+}
+func (s apiServer) ListApprovals(w http.ResponseWriter, r *http.Request) {
+	s.app.handleListApprovals(w, r)
+}
 
 // apiAuth is the OIDC auth middleware for the generated router. The accepted
 // scopes for the matched operation ride the request context (api.OidcScopes,

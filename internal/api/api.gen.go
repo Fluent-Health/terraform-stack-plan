@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -80,6 +81,31 @@ type ExecutionDetail struct {
 
 	// Graph The changed subgraph for one execution.
 	Graph Graph `json:"graph"`
+
+	// VerifyExecutionId Latest verify execution for the same (pr, environment), "" when none. Additive (2026-07) — snake_case unlike its legacy siblings.
+	VerifyExecutionId string `json:"verify_execution_id"`
+}
+
+// ExecutionSummary One execution in a list view — everything but the graph and the rendered report.
+type ExecutionSummary struct {
+	// Context The commit-status context the run drives (e.g. plan/<env>, apply/<env>, verify/<env>).
+	Context     string    `json:"context"`
+	CreatedAt   time.Time `json:"created_at"`
+	Environment string    `json:"environment"`
+	Id          string    `json:"id"`
+	LogUrl      string    `json:"log_url"`
+
+	// Phase Current lifecycle phase ("" before the first phase event).
+	Phase string `json:"phase"`
+	Pr    int    `json:"pr"`
+	Repo  string `json:"repo"`
+	Sha   string `json:"sha"`
+
+	// Status Execution-level status (in_progress/success/failure).
+	Status string `json:"status"`
+
+	// SupersededBy Id of the execution that superseded this one ("" when live).
+	SupersededBy string `json:"superseded_by"`
 }
 
 // Finalize Records the terminal plan state.
@@ -115,6 +141,26 @@ type NullInt64 struct {
 	Valid bool  `json:"Valid"`
 }
 
+// PendingApproval One gate target awaiting human action, with its PR context.
+type PendingApproval struct {
+	Class       string `json:"class"`
+	Environment string `json:"environment"`
+
+	// GrantName The approval-backend grant resource name ("" until a grant exists).
+	GrantName string `json:"grant_name"`
+	Pr        int    `json:"pr"`
+
+	// Repo Repo of the PR's latest execution in this environment ("" when none).
+	Repo string `json:"repo"`
+
+	// Requester Leased requester SA for this grant.
+	Requester string `json:"requester"`
+
+	// State Backend grant state (e.g. AWAITING, ACTIVATING, DENIED, REVOKED).
+	State  string `json:"state"`
+	Target string `json:"target"`
+}
+
 // Phase Execution-wide lifecycle phase.
 type Phase = events.Phase
 
@@ -147,6 +193,13 @@ type Update = events.Update
 
 // oidcContextKey is the context key for oidc security scheme
 type oidcContextKey string
+
+// ListExecutionsParams defines parameters for ListExecutions.
+type ListExecutionsParams struct {
+	// Pr Only executions for this pull request.
+	Pr    *int `form:"pr,omitempty" json:"pr,omitempty"`
+	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
+}
 
 // ListClaimsJSONRequestBody defines body for ListClaims for application/json ContentType.
 type ListClaimsJSONRequestBody = ClaimsListRequest
@@ -248,6 +301,9 @@ func WithRequestEditorFn(fn RequestEditorFn) ClientOption {
 
 // The interface specification for the client above.
 type ClientInterface interface {
+	// ListApprovals request
+	ListApprovals(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// ListClaimsWithBody request with any body
 	ListClaimsWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -260,6 +316,9 @@ type ClientInterface interface {
 
 	// GetExecution request
 	GetExecution(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListExecutions request
+	ListExecutions(ctx context.Context, params *ListExecutionsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// FinalizeExecutionWithBody request with any body
 	FinalizeExecutionWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -295,6 +354,18 @@ type ClientInterface interface {
 	UpdateStackWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	UpdateStack(ctx context.Context, body UpdateStackJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+}
+
+func (c *Client) ListApprovals(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListApprovalsRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
 }
 
 func (c *Client) ListClaimsWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -347,6 +418,18 @@ func (c *Client) ReleaseClaims(ctx context.Context, body ReleaseClaimsJSONReques
 
 func (c *Client) GetExecution(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetExecutionRequest(c.Server, id)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ListExecutions(ctx context.Context, params *ListExecutionsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListExecutionsRequest(c.Server, params)
 	if err != nil {
 		return nil, err
 	}
@@ -525,6 +608,33 @@ func (c *Client) UpdateStack(ctx context.Context, body UpdateStackJSONRequestBod
 	return c.Client.Do(req)
 }
 
+// NewListApprovalsRequest generates requests for ListApprovals
+func NewListApprovalsRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/approvals")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewListClaimsRequest calls the generic ListClaims builder with application/json body
 func NewListClaimsRequest(server string, body ListClaimsJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -629,6 +739,72 @@ func NewGetExecutionRequest(server string, id string) (*http.Request, error) {
 	queryURL, err := serverURL.Parse(operationPath)
 	if err != nil {
 		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewListExecutionsRequest generates requests for ListExecutions
+func NewListExecutionsRequest(server string, params *ListExecutionsParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/executions")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.Pr != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "pr", *params.Pr, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Limit != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "limit", *params.Limit, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
 	}
 
 	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
@@ -962,6 +1138,9 @@ func WithBaseURL(baseURL string) ClientOption {
 
 // ClientWithResponsesInterface is the interface specification for the client with responses above.
 type ClientWithResponsesInterface interface {
+	// ListApprovalsWithResponse request
+	ListApprovalsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListApprovalsResponse, error)
+
 	// ListClaimsWithBodyWithResponse request with any body
 	ListClaimsWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ListClaimsResponse, error)
 
@@ -974,6 +1153,9 @@ type ClientWithResponsesInterface interface {
 
 	// GetExecutionWithResponse request
 	GetExecutionWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*GetExecutionResponse, error)
+
+	// ListExecutionsWithResponse request
+	ListExecutionsWithResponse(ctx context.Context, params *ListExecutionsParams, reqEditors ...RequestEditorFn) (*ListExecutionsResponse, error)
 
 	// FinalizeExecutionWithBodyWithResponse request with any body
 	FinalizeExecutionWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*FinalizeExecutionResponse, error)
@@ -1009,6 +1191,36 @@ type ClientWithResponsesInterface interface {
 	UpdateStackWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateStackResponse, error)
 
 	UpdateStackWithResponse(ctx context.Context, body UpdateStackJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateStackResponse, error)
+}
+
+type ListApprovalsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *[]PendingApproval
+}
+
+// Status returns HTTPResponse.Status
+func (r ListApprovalsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListApprovalsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListApprovalsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
 }
 
 type ListClaimsResponse struct {
@@ -1094,6 +1306,36 @@ func (r GetExecutionResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r GetExecutionResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ListExecutionsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *[]ExecutionSummary
+}
+
+// Status returns HTTPResponse.Status
+func (r ListExecutionsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListExecutionsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListExecutionsResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -1307,6 +1549,15 @@ func (r UpdateStackResponse) ContentType() string {
 	return ""
 }
 
+// ListApprovalsWithResponse request returning *ListApprovalsResponse
+func (c *ClientWithResponses) ListApprovalsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListApprovalsResponse, error) {
+	rsp, err := c.ListApprovals(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListApprovalsResponse(rsp)
+}
+
 // ListClaimsWithBodyWithResponse request with arbitrary body returning *ListClaimsResponse
 func (c *ClientWithResponses) ListClaimsWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ListClaimsResponse, error) {
 	rsp, err := c.ListClaimsWithBody(ctx, contentType, body, reqEditors...)
@@ -1348,6 +1599,15 @@ func (c *ClientWithResponses) GetExecutionWithResponse(ctx context.Context, id s
 		return nil, err
 	}
 	return ParseGetExecutionResponse(rsp)
+}
+
+// ListExecutionsWithResponse request returning *ListExecutionsResponse
+func (c *ClientWithResponses) ListExecutionsWithResponse(ctx context.Context, params *ListExecutionsParams, reqEditors ...RequestEditorFn) (*ListExecutionsResponse, error) {
+	rsp, err := c.ListExecutions(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListExecutionsResponse(rsp)
 }
 
 // FinalizeExecutionWithBodyWithResponse request with arbitrary body returning *FinalizeExecutionResponse
@@ -1469,6 +1729,32 @@ func (c *ClientWithResponses) UpdateStackWithResponse(ctx context.Context, body 
 	return ParseUpdateStackResponse(rsp)
 }
 
+// ParseListApprovalsResponse parses an HTTP response from a ListApprovalsWithResponse call
+func ParseListApprovalsResponse(rsp *http.Response) (*ListApprovalsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListApprovalsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest []PendingApproval
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseListClaimsResponse parses an HTTP response from a ListClaimsWithResponse call
 func ParseListClaimsResponse(rsp *http.Response) (*ListClaimsResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -1527,6 +1813,32 @@ func ParseGetExecutionResponse(rsp *http.Response) (*GetExecutionResponse, error
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
 		var dest ExecutionDetail
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListExecutionsResponse parses an HTTP response from a ListExecutionsWithResponse call
+func ParseListExecutionsResponse(rsp *http.Response) (*ListExecutionsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListExecutionsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest []ExecutionSummary
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -1682,6 +1994,9 @@ func ParseUpdateStackResponse(rsp *http.Response) (*UpdateStackResponse, error) 
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
+	// List gate targets awaiting human action, across all PRs
+	// (GET /api/approvals)
+	ListApprovals(w http.ResponseWriter, r *http.Request)
 	// List the apply-lock claims for an environment
 	// (POST /api/claims/list)
 	ListClaims(w http.ResponseWriter, r *http.Request)
@@ -1691,6 +2006,9 @@ type ServerInterface interface {
 	// Read one execution's full state
 	// (GET /api/execution/{id})
 	GetExecution(w http.ResponseWriter, r *http.Request, id string)
+	// List executions, newest first
+	// (GET /api/executions)
+	ListExecutions(w http.ResponseWriter, r *http.Request, params ListExecutionsParams)
 	// Record the terminal plan state
 	// (POST /api/finalize)
 	FinalizeExecution(w http.ResponseWriter, r *http.Request)
@@ -1722,6 +2040,26 @@ type ServerInterfaceWrapper struct {
 }
 
 type MiddlewareFunc func(http.Handler) http.Handler
+
+// ListApprovals operation middleware
+func (siw *ServerInterfaceWrapper) ListApprovals(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, OidcScopes, []string{"report", "read", "admin"})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListApprovals(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
 
 // ListClaims operation middleware
 func (siw *ServerInterfaceWrapper) ListClaims(w http.ResponseWriter, r *http.Request) {
@@ -1786,6 +2124,58 @@ func (siw *ServerInterfaceWrapper) GetExecution(w http.ResponseWriter, r *http.R
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetExecution(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListExecutions operation middleware
+func (siw *ServerInterfaceWrapper) ListExecutions(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, OidcScopes, []string{"report", "read", "admin"})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListExecutionsParams
+
+	// ------------- Optional query parameter "pr" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "pr", r.URL.Query(), &params.Pr, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "pr"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "pr", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListExecutions(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -2055,9 +2445,11 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 		ErrorHandlerFunc:   options.ErrorHandlerFunc,
 	}
 
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/approvals", wrapper.ListApprovals)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/claims/list", wrapper.ListClaims)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/claims/release", wrapper.ReleaseClaims)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/execution/{id}", wrapper.GetExecution)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/executions", wrapper.ListExecutions)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/finalize", wrapper.FinalizeExecution)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/gate/check", wrapper.CheckGate)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/gate/revoke", wrapper.RevokeGate)

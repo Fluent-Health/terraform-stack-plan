@@ -196,7 +196,8 @@ func listExecutions(rows *sql.Rows) ([]Execution, error) {
 	var out []Execution
 	for rows.Next() {
 		var e Execution
-		if err := rows.Scan(&e.ID, &e.Repo, &e.PR, &e.Environment, &e.Status, &e.Phase, &e.CreatedAt); err != nil {
+		if err := rows.Scan(&e.ID, &e.Repo, &e.SHA, &e.PR, &e.Environment, &e.Status,
+			&e.StatusContext, &e.Phase, &e.CreatedAt, &e.SupersededBy, &e.LogURL); err != nil {
 			return nil, err
 		}
 		out = append(out, e)
@@ -204,11 +205,16 @@ func listExecutions(rows *sql.Rows) ([]Execution, error) {
 	return out, rows.Err()
 }
 
+// listExecutionColumns is the column set the list queries share — everything a
+// summary needs, deliberately excluding the heavyweight report_markdown.
+const listExecutionColumns = `id, repo, COALESCE(sha,''), COALESCE(pr,0), COALESCE(environment,''),
+	COALESCE(status,''), COALESCE(status_context,''), COALESCE(phase,''), created_at,
+	COALESCE(superseded_by,''), COALESCE(log_url,'')`
+
 // ListExecutions returns the most recent executions, newest first.
 func ListExecutions(db *sql.DB, limit int) ([]Execution, error) {
 	rows, err := db.Query(
-		`SELECT id, repo, COALESCE(pr,0), COALESCE(environment,''), COALESCE(status,''),
-		        COALESCE(phase,''), created_at
+		`SELECT `+listExecutionColumns+`
 		 FROM executions ORDER BY created_at DESC, id DESC LIMIT ?`, limit)
 	if err != nil {
 		return nil, err
@@ -219,8 +225,7 @@ func ListExecutions(db *sql.DB, limit int) ([]Execution, error) {
 // ListExecutionsForPR returns all executions for a PR, newest first.
 func ListExecutionsForPR(db *sql.DB, pr int) ([]Execution, error) {
 	rows, err := db.Query(
-		`SELECT id, repo, COALESCE(pr,0), COALESCE(environment,''), COALESCE(status,''),
-		        COALESCE(phase,''), created_at
+		`SELECT `+listExecutionColumns+`
 		 FROM executions WHERE pr = ? ORDER BY created_at DESC, id DESC`, pr)
 	if err != nil {
 		return nil, err

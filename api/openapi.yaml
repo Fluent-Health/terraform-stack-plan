@@ -259,6 +259,68 @@ paths:
           description: Accepted.
         "400":
           $ref: "#/components/responses/BadRequestText"
+  /api/executions:
+    get:
+      operationId: listExecutions
+      summary: List executions, newest first
+      description: |
+        The recent-executions feed (default 100, cap 1000). `pr` filters to one
+        pull request's full timeline across plan/apply/verify runs. Summaries
+        deliberately exclude the rendered report — fetch one execution for
+        that.
+      security:
+        - oidc: [report, read, admin]
+      parameters:
+        - name: pr
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: Only executions for this pull request.
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+            default: 100
+      responses:
+        "200":
+          description: Execution summaries, newest first. Always an array, never null.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ExecutionSummary"
+        "400":
+          $ref: "#/components/responses/BadRequestText"
+        "500":
+          $ref: "#/components/responses/InternalText"
+  /api/approvals:
+    get:
+      operationId: listApprovals
+      summary: List gate targets awaiting human action, across all PRs
+      description: |
+        Every recorded gate target not yet ACTIVE, with the PR context an
+        approvals surface needs (repo from the PR's latest execution in that
+        environment) and the grant resource name an approval call targets.
+        DENIED/REVOKED targets are included — they need attention even though
+        the action is not "approve".
+      security:
+        - oidc: [report, read, admin]
+      responses:
+        "200":
+          description: Pending approvals. Always an array, never null.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PendingApproval"
+        "500":
+          $ref: "#/components/responses/InternalText"
   /api/execution/{id}:
     get:
       operationId: getExecution
@@ -611,6 +673,74 @@ components:
         stack:
           type: string
           description: Empty releases all of the PR's claims in the environment.
+    ExecutionSummary:
+      type: object
+      description: >-
+        One execution in a list view — everything but the graph and the
+        rendered report.
+      required:
+        - id
+        - repo
+        - sha
+        - pr
+        - environment
+        - context
+        - status
+        - phase
+        - created_at
+        - superseded_by
+        - log_url
+      properties:
+        id: { type: string }
+        repo: { type: string }
+        sha: { type: string }
+        pr: { type: integer }
+        environment: { type: string }
+        context:
+          type: string
+          description: The commit-status context the run drives (e.g. plan/<env>, apply/<env>, verify/<env>).
+        status:
+          type: string
+          description: Execution-level status (in_progress/success/failure).
+        phase:
+          type: string
+          description: Current lifecycle phase ("" before the first phase event).
+        created_at:
+          type: string
+          format: date-time
+        superseded_by:
+          type: string
+          description: Id of the execution that superseded this one ("" when live).
+        log_url: { type: string }
+    PendingApproval:
+      type: object
+      description: One gate target awaiting human action, with its PR context.
+      required:
+        - pr
+        - environment
+        - repo
+        - class
+        - target
+        - grant_name
+        - state
+        - requester
+      properties:
+        pr: { type: integer }
+        environment: { type: string }
+        repo:
+          type: string
+          description: Repo of the PR's latest execution in this environment ("" when none).
+        class: { type: string }
+        target: { type: string }
+        grant_name:
+          type: string
+          description: The approval-backend grant resource name ("" until a grant exists).
+        state:
+          type: string
+          description: Backend grant state (e.g. AWAITING, ACTIVATING, DENIED, REVOKED).
+        requester:
+          type: string
+          description: Leased requester SA for this grant.
     NullInt64:
       type: object
       description: >-
@@ -659,6 +789,7 @@ components:
         - Phase
         - CreatedAt
         - SupersededBy
+        - verify_execution_id
         - graph
         - gates
       properties:
@@ -681,6 +812,11 @@ components:
           type: string
           format: date-time
         SupersededBy: { type: string }
+        verify_execution_id:
+          type: string
+          description: >-
+            Latest verify execution for the same (pr, environment), "" when
+            none. Additive (2026-07) — snake_case unlike its legacy siblings.
         graph:
           $ref: "#/components/schemas/Graph"
         gates:

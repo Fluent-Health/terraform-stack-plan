@@ -33,10 +33,17 @@ jobs:
       - name: Run tests with coverage
         run: go test -covermode=atomic -coverprofile=coverage.out -coverpkg=./... ./...
 
+      # -ignore-gen-files drops files carrying the standard Go
+      # "Code generated ... DO NOT EDIT." header from the report. Generated
+      # code (oapi-codegen) is mostly deliberately-unused surface
+      # (ClientWithResponses, per-op WithBody variants) that would bury
+      # coverage changes in hand-written code; the parts we do use are
+      # exercised through the wire-compat goldens and e2e — they just don't
+      # dilute the reported percentage.
       - name: Convert coverprofile to Cobertura XML
         run: |
           go install github.com/boumenot/gocover-cobertura@v1.4.0
-          gocover-cobertura -by-files < coverage.out > coverage.xml
+          gocover-cobertura -by-files -ignore-gen-files < coverage.out > coverage.xml
       # --- end language-specific part ---
 
       # Upload to GitHub. The `if` guard skips fork PRs, which can't upload.
