@@ -95,6 +95,7 @@ func (a *App) Routes() http.Handler {
 		BaseRouter:  mux,
 		Middlewares: []uiapi.MiddlewareFunc{a.sessionAuth},
 	})
+	a.registerStreamRoutes(mux)
 	mux.Handle("GET /", a.spaHandler())
 	return mux
 }

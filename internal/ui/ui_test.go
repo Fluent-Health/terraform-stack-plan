@@ -363,3 +363,72 @@ func TestPublicSurfaceAndSPA(t *testing.T) {
 		t.Error("logout did not clear the session cookie")
 	}
 }
+
+func TestStreamProxies(t *testing.T) {
+	var gotAuth, gotLastID, gotQuery string
+	tierSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		gotLastID = r.Header.Get("Last-Event-ID")
+		gotQuery = r.URL.RawQuery
+		switch {
+		case r.URL.Path == "/api/execution/e1/events":
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.Header().Set("Cache-Control", "no-cache")
+			fmt.Fprint(w, "data: changed\n\n")
+			if f, ok := w.(http.Flusher); ok {
+				f.Flush()
+			}
+			fmt.Fprint(w, "event: superseded\ndata: e2\n\n")
+		case strings.HasPrefix(r.URL.Path, "/logs/e1/"):
+			w.Header().Set("Content-Type", "text/event-stream")
+			fmt.Fprint(w, "id: 42\ndata: terraform says hi\n\n")
+		case strings.HasPrefix(r.URL.Path, "/plan/e1/"):
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			fmt.Fprint(w, "<h3>stacks/a</h3>")
+		default:
+			http.Error(w, "unexpected "+r.URL.Path, http.StatusTeapot)
+		}
+	}))
+	defer tierSrv.Close()
+
+	token := func(ctx context.Context) (string, error) { return "s2s-token", nil }
+	h, sess := newSessionApp(t, []Tier{{Name: "nonprod", URL: tierSrv.URL, Token: token}})
+
+	// SSE events proxy: bearer attached, both events relayed, headers kept.
+	rr := get(t, h, "/api/tiers/nonprod/executions/e1/events", sess)
+	if rr.Code != 200 || rr.Header().Get("Content-Type") != "text/event-stream" {
+		t.Fatalf("events proxy: %d %q", rr.Code, rr.Header().Get("Content-Type"))
+	}
+	if body := rr.Body.String(); !strings.Contains(body, "data: changed") || !strings.Contains(body, "event: superseded") {
+		t.Errorf("events body: %q", body)
+	}
+	if gotAuth != "Bearer s2s-token" {
+		t.Errorf("events auth: %q", gotAuth)
+	}
+
+	// Log proxy: follow + Last-Event-ID forwarded for resume.
+	req := httptest.NewRequest("GET", "/api/tiers/nonprod/logs/e1/stacks/a?follow=1", nil)
+	req.Header.Set("Last-Event-ID", "17")
+	req.AddCookie(sess)
+	rr2 := httptest.NewRecorder()
+	h.ServeHTTP(rr2, req)
+	if rr2.Code != 200 || !strings.Contains(rr2.Body.String(), "terraform says hi") {
+		t.Errorf("log proxy: %d %s", rr2.Code, rr2.Body.String())
+	}
+	if gotLastID != "17" || gotQuery != "follow=1" {
+		t.Errorf("log resume passthrough: last-id=%q query=%q", gotLastID, gotQuery)
+	}
+
+	// Plan fragment proxy.
+	if rr := get(t, h, "/api/tiers/nonprod/plan/e1/stacks/a", sess); rr.Code != 200 || !strings.Contains(rr.Body.String(), "<h3>stacks/a</h3>") {
+		t.Errorf("plan proxy: %d %s", rr.Code, rr.Body.String())
+	}
+
+	// Session + tier guards hold on the stream routes too.
+	if rr := get(t, h, "/api/tiers/nonprod/executions/e1/events", nil); rr.Code != http.StatusUnauthorized {
+		t.Errorf("events without session: %d", rr.Code)
+	}
+	if rr := get(t, h, "/api/tiers/nope/logs/e1/stacks/a", sess); rr.Code != http.StatusNotFound {
+		t.Errorf("unknown tier stream: %d", rr.Code)
+	}
+}
