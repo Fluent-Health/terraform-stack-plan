@@ -38,14 +38,20 @@ type UIOAuthConfig struct {
 type UIConfig struct {
 	PublicBaseURL    string // external base URL (OAuth redirect URI = <base>/auth/callback)
 	SessionSecretEnv string // env var name holding the session-cookie encryption secret
-	Tiers            []UITierConfig
-	OAuth            *UIOAuthConfig
+	// GitHubWebhookSecretEnv names the env var holding the GitHub App's
+	// webhook secret. The UI is the App's single webhook ingress: it verifies
+	// GitHub's HMAC here and relays deliveries to the tiers under its own
+	// Google OIDC identity — the App secret exists nowhere else.
+	GitHubWebhookSecretEnv string
+	Tiers                  []UITierConfig
+	OAuth                  *UIOAuthConfig
 }
 
 type uiBody struct {
-	PublicBaseURL    string `hcl:"public_base_url,optional"`
-	SessionSecretEnv string `hcl:"session_secret_env,optional"`
-	Tiers            []struct {
+	PublicBaseURL          string `hcl:"public_base_url,optional"`
+	SessionSecretEnv       string `hcl:"session_secret_env,optional"`
+	GitHubWebhookSecretEnv string `hcl:"github_webhook_secret_env,optional"`
+	Tiers                  []struct {
 		Name     string `hcl:"name,label"`
 		URL      string `hcl:"url,optional"`
 		Audience string `hcl:"audience,optional"`
@@ -64,8 +70,9 @@ func decodeUI(blk *hclsyntax.Block) (*UIConfig, error) {
 		return nil, fmt.Errorf("ui block: %s", d.Error())
 	}
 	u := &UIConfig{
-		PublicBaseURL:    strings.TrimRight(b.PublicBaseURL, "/"),
-		SessionSecretEnv: b.SessionSecretEnv,
+		PublicBaseURL:          strings.TrimRight(b.PublicBaseURL, "/"),
+		SessionSecretEnv:       b.SessionSecretEnv,
+		GitHubWebhookSecretEnv: b.GitHubWebhookSecretEnv,
 	}
 	if len(b.Tiers) == 0 {
 		return nil, fmt.Errorf("ui: at least one tier block is required")

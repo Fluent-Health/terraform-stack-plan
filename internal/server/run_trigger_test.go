@@ -555,3 +555,61 @@ func TestCheckSuiteRerequestedRerunsOnlyFailedRuns(t *testing.T) {
 		t.Fatalf("failed run should re-run on suite re-request: starts = %+v", fe.starts)
 	}
 }
+
+// TestWebhookOIDCRelayBranch: the central UI's relay authenticates webhook
+// deliveries with its Google OIDC identity (webhook scope) instead of
+// GitHub's HMAC — the App secret lives only with the UI.
+func TestWebhookOIDCRelayBranch(t *testing.T) {
+	a, fe, srv := newRunTriggerApp(t)
+	a.cfg.APIPrincipals = map[string][]string{
+		"ui@x.iam.gserviceaccount.com":   {"read", "webhook"},
+		"peon@x.iam.gserviceaccount.com": {"read"},
+	}
+	a.APIVerifier = fakeOIDC(map[string]string{
+		"tok-ui":   "ui@x.iam.gserviceaccount.com",
+		"tok-peon": "peon@x.iam.gserviceaccount.com",
+	})
+
+	// Seed a run via the (HMAC-signed) repo webhook, then re-request it over
+	// the OIDC relay branch — unsigned body, bearer instead.
+	webhookReq(t, srv, whSecret, "pull_request", prSyncPayload(7, "sha-one")).Body.Close()
+	payload, _ := json.Marshal(map[string]any{
+		"action": "rerequested",
+		"check_run": map[string]any{
+			"name":          "terraform/nonprod",
+			"head_sha":      "sha-one",
+			"pull_requests": []map[string]any{{"number": 7}},
+		},
+		"repository": map[string]any{"full_name": "o/r"},
+	})
+	send := func(bearer string) int {
+		req, _ := http.NewRequest("POST", srv.URL+"/github/webhook", bytes.NewReader(payload))
+		req.Header.Set("X-GitHub-Event", "check_run")
+		req.Header.Set("Authorization", "Bearer "+bearer)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+
+	if code := send("tok-ui"); code != http.StatusNoContent {
+		t.Fatalf("webhook-scoped relay = %d, want 204", code)
+	}
+	if len(fe.starts) != 2 {
+		t.Fatalf("relayed rerun should start a second build: %+v", fe.starts)
+	}
+
+	// A principal without the webhook scope is rejected before any handling.
+	if code := send("tok-peon"); code != http.StatusUnauthorized {
+		t.Fatalf("scopeless relay = %d, want 401", code)
+	}
+	// A garbage bearer is rejected too — it never falls back to the HMAC path.
+	if code := send("garbage"); code != http.StatusUnauthorized {
+		t.Fatalf("bad bearer = %d, want 401", code)
+	}
+	if len(fe.starts) != 2 {
+		t.Fatalf("rejected relays must not start builds: %+v", fe.starts)
+	}
+}

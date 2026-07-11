@@ -50,9 +50,10 @@ type PubSubConfig struct {
 // server accepts a subset of these (any-of). Validated at config load so a
 // typo'd scope fails at startup, not as runtime 403s.
 const (
-	ScopeReport = "report" // CI runner: execution lifecycle events, logs, gates, claims
-	ScopeRead   = "read"   // read-only: execution state/events, claims listing
-	ScopeAdmin  = "admin"  // operator surgery: claim release (and future admin verbs)
+	ScopeReport  = "report"  // CI runner: execution lifecycle events, logs, gates, claims
+	ScopeRead    = "read"    // read-only: execution state/events, claims listing
+	ScopeAdmin   = "admin"   // operator surgery: claim release (and future admin verbs)
+	ScopeWebhook = "webhook" // relay GitHub App webhook deliveries (the central UI's re-run relay)
 )
 
 // APIAuthPrincipal maps one verified caller identity (an email — service
@@ -206,9 +207,9 @@ func decodeServe(blk *hclsyntax.Block) (*ServeConfig, error) {
 			seen[email] = true
 			for _, sc := range p.Scopes {
 				switch sc {
-				case ScopeReport, ScopeRead, ScopeAdmin:
+				case ScopeReport, ScopeRead, ScopeAdmin, ScopeWebhook:
 				default:
-					return nil, fmt.Errorf("api_auth principal %q: unknown scope %q (valid: %s, %s, %s)", p.Email, sc, ScopeReport, ScopeRead, ScopeAdmin)
+					return nil, fmt.Errorf("api_auth principal %q: unknown scope %q (valid: %s, %s, %s, %s)", p.Email, sc, ScopeReport, ScopeRead, ScopeAdmin, ScopeWebhook)
 				}
 			}
 			aa.Principals = append(aa.Principals, APIAuthPrincipal{Email: p.Email, Scopes: p.Scopes})

@@ -14,6 +14,13 @@ ui {
   # string; rotate to invalidate all sessions).
   session_secret_env = "TFSTACKPLAN_UI_SESSION_SECRET"
 
+  # Env var holding the GitHub App's webhook secret. The UI is the App's
+  # single webhook ingress (the Re-run buttons' rerequested events): it
+  # verifies GitHub's HMAC here and relays deliveries to the tiers under its
+  # own Google OIDC identity — the tiers need a `webhook`-scoped principal
+  # for the UI's service account, not this secret.
+  github_webhook_secret_env = "TFSTACKPLAN_UI_GITHUB_WEBHOOK_SECRET"
+
   # The tier serves to aggregate. The UI backend mints Google OIDC ID tokens
   # for each tier's audience (default: the url) — grant its service account a
   # `read`-scoped principal in each tier's serve.api_auth block.
