@@ -2050,6 +2050,11 @@ top-level `ui {}` block (`tier "<name>" { url }` per tier serve, `oauth {}`,
   drift); a dead tier is a `502` naming the tier and never affects the others;
   an unknown tier is `404`. The OAuth browser flow (`/auth/*`) is deliberately
   outside the contract.
+- **GitHub App webhook relay** (`POST /github/webhook`, public — the serves
+  verify the HMAC): the single ingress for App-scoped webhook deliveries (the
+  Re-run buttons' `rerequested` events), fanned out verbatim to every tier's
+  `/github/webhook`. 202 when any tier accepted; 502 when none did, so the
+  App's delivery log shows the failure for manual redelivery.
 - **Streaming proxies** (session-authed, outside the contract like their
   tier-side counterparts): `/api/tiers/{tier}/executions/{id}/events` relays
   the tier's SSE change stream, `/api/tiers/{tier}/logs/{exec}/{stack...}`
@@ -2126,8 +2131,23 @@ exactly as before.
 - **Ingest**: `pull_request` opened/reopened/synchronize → plan run for the
   head SHA; `push` to main → apply run, PR recovered from the merge-commit
   subject (squash/merge conventions; direct pushes are skipped); `check_run`
-  rerequested (GitHub's native Re-run button) → the same kind again for THIS
-  tier's check names only, bumping the attempt.
+  rerequested (GitHub's per-check Re-run button) → the same kind again for
+  THIS tier's check names only, bumping the attempt; `check_suite`
+  rerequested (the suite-level "Re-run failed checks" button) → re-runs each
+  kind whose latest execution at that (env, sha) concluded failure — green or
+  pending runs are left alone.
+
+  **Re-run delivery (learned the hard way)**: GitHub delivers
+  `check_run.rerequested` / `check_suite.rerequested` ONLY to the GitHub App
+  that owns the check — repository webhooks get just `created`/`completed`.
+  So the Re-run buttons reach serve via the **App webhook**, pointed at the
+  central UI's `/github/webhook` relay (one App URL, two tier serves; the
+  relay fans the delivery out verbatim, each serve verifies the HMAC itself
+  and ignores the other tier's check names). The repo webhook keeps
+  delivering `pull_request`/`push`. The native Cloud Build check's Re-run
+  does nothing post-cutover (Google's app has no event-triggered build to
+  re-run for our API-invoked manual builds) — operators use OUR checks'
+  Re-run; the native check is informational.
 - **Executor seam** (`internal/executor`): `Backend{Start, Cancel, Probe}`.
   Only `cloudbuild` is implemented — gcppam-style injected token func + raw
   REST (`triggers.run` with `commitSha` + substitutions, `builds.cancel`,

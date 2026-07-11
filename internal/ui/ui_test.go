@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -430,5 +431,66 @@ func TestStreamProxies(t *testing.T) {
 	}
 	if rr := get(t, h, "/api/tiers/nope/logs/e1/stacks/a", sess); rr.Code != http.StatusNotFound {
 		t.Errorf("unknown tier stream: %d", rr.Code)
+	}
+}
+
+func TestGitHubRelay(t *testing.T) {
+	type seen struct {
+		body  string
+		event string
+		sig   string
+	}
+	var mu sync.Mutex
+	got := map[string]seen{}
+	tierHandler := func(name string) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != "/github/webhook" {
+				http.Error(w, "wrong path "+r.URL.Path, http.StatusTeapot)
+				return
+			}
+			b, _ := io.ReadAll(r.Body)
+			mu.Lock()
+			got[name] = seen{body: string(b), event: r.Header.Get("X-GitHub-Event"), sig: r.Header.Get("X-Hub-Signature-256")}
+			mu.Unlock()
+			w.WriteHeader(http.StatusNoContent)
+		}
+	}
+	t1 := httptest.NewServer(tierHandler("nonprod"))
+	defer t1.Close()
+	t2 := httptest.NewServer(tierHandler("prod"))
+	defer t2.Close()
+	dead := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	dead.Close()
+
+	h, _ := newSessionApp(t, []Tier{{Name: "nonprod", URL: t1.URL}, {Name: "prod", URL: t2.URL}})
+	req := httptest.NewRequest("POST", "/github/webhook", strings.NewReader(`{"action":"rerequested"}`))
+	req.Header.Set("X-GitHub-Event", "check_run")
+	req.Header.Set("X-Hub-Signature-256", "sha256=abc")
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusAccepted {
+		t.Fatalf("relay = %d %s", rr.Code, rr.Body.String())
+	}
+	mu.Lock()
+	for _, name := range []string{"nonprod", "prod"} {
+		s, ok := got[name]
+		if !ok || s.body != `{"action":"rerequested"}` || s.event != "check_run" || s.sig != "sha256=abc" {
+			t.Errorf("tier %s got %+v", name, s)
+		}
+	}
+	mu.Unlock()
+
+	// One tier down still 202 (the other accepted); all down → 502.
+	h2, _ := newSessionApp(t, []Tier{{Name: "up", URL: t1.URL}, {Name: "down", URL: dead.URL}})
+	rr2 := httptest.NewRecorder()
+	h2.ServeHTTP(rr2, httptest.NewRequest("POST", "/github/webhook", strings.NewReader("{}")))
+	if rr2.Code != http.StatusAccepted {
+		t.Errorf("one tier down: %d", rr2.Code)
+	}
+	h3, _ := newSessionApp(t, []Tier{{Name: "down", URL: dead.URL}})
+	rr3 := httptest.NewRecorder()
+	h3.ServeHTTP(rr3, httptest.NewRequest("POST", "/github/webhook", strings.NewReader("{}")))
+	if rr3.Code != http.StatusBadGateway {
+		t.Errorf("all tiers down: %d", rr3.Code)
 	}
 }

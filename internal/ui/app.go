@@ -98,6 +98,7 @@ func (a *App) Routes() http.Handler {
 	mux.HandleFunc("POST /auth/logout", a.handleLogout)
 	mux.Handle("GET /auth/approve", a.sessionAuth(http.HandlerFunc(a.handleApproveStart)))
 	mux.Handle("GET /auth/approve/callback", a.sessionAuth(http.HandlerFunc(a.handleApproveCallback)))
+	mux.HandleFunc("POST /github/webhook", a.handleGitHubRelay)
 	uiapi.HandlerWithOptions(uiServer{app: a}, uiapi.StdHTTPServerOptions{
 		BaseRouter:  mux,
 		Middlewares: []uiapi.MiddlewareFunc{a.sessionAuth},

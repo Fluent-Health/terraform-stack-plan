@@ -45,6 +45,9 @@ func (a *App) handleGitHubWebhook(w http.ResponseWriter, r *http.Request) {
 	case "check_run":
 		a.handleCheckRunWebhook(w, r, body)
 		return
+	case "check_suite":
+		a.handleCheckSuiteWebhook(w, r, body)
+		return
 	case "merge_group":
 		var mg struct {
 			Action     string `json:"action"`
@@ -291,6 +294,56 @@ func (a *App) handleCheckRunWebhook(w http.ResponseWriter, r *http.Request, body
 		log.Printf("webhook: rerun request pr=%d kind=%s: %v", pr, kind, err)
 		http.Error(w, "run request failed", http.StatusInternalServerError)
 		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleCheckSuiteWebhook re-runs this tier's FAILED runs for a head SHA when
+// GitHub's suite-level "Re-run failed checks" button is pressed. Like
+// check_run.rerequested, GitHub delivers check_suite.rerequested only to the
+// GitHub App that owns the checks — this arrives via the App webhook (relayed
+// through the central UI), never the repository webhook. The suite payload
+// does not say which runs failed, so the store answers: for each run kind,
+// the latest non-superseded execution at (env, sha) re-runs only if it
+// concluded failure — a green or still-pending run is left alone.
+func (a *App) handleCheckSuiteWebhook(w http.ResponseWriter, r *http.Request, body []byte) {
+	if !a.runTriggerArmed() {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	var p struct {
+		Action     string `json:"action"`
+		CheckSuite struct {
+			HeadSHA string `json:"head_sha"`
+		} `json:"check_suite"`
+		Repository struct {
+			FullName string `json:"full_name"`
+		} `json:"repository"`
+	}
+	if err := json.Unmarshal(body, &p); err != nil {
+		http.Error(w, "invalid payload", http.StatusBadRequest)
+		return
+	}
+	if p.Action != "rerequested" || p.CheckSuite.HeadSHA == "" {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	for _, kind := range []string{reconcile.RunKindPlan, reconcile.RunKindApply} {
+		id, ok, err := store.FindExecutionBySHA(a.db, a.cfg.Environment, runContext(kind, a.cfg.Environment), p.CheckSuite.HeadSHA)
+		if err != nil || !ok {
+			continue
+		}
+		e, err := store.GetExecution(a.db, id)
+		if err != nil || e.Status != "failure" || e.PR <= 0 {
+			continue
+		}
+		if herr := a.shell.Handle(r.Context(), e.PR, a.cfg.Environment, p.Repository.FullName, reconcile.RunRequested{
+			Kind:  kind,
+			SHA:   p.CheckSuite.HeadSHA,
+			Rerun: true,
+		}); herr != nil {
+			log.Printf("webhook: suite rerun pr=%d kind=%s: %v", e.PR, kind, herr)
+		}
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
