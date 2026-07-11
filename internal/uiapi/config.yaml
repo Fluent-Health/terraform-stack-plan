@@ -1,0 +1,6 @@
+# oapi-codegen configuration — regenerate with `go generate ./internal/uiapi`.
+package: uiapi
+generate:
+  models: true
+  std-http-server: true
+output: uiapi.gen.go
