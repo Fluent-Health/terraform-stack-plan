@@ -133,10 +133,12 @@ func clearCookie(w http.ResponseWriter, name, path string) {
 	})
 }
 
-// safeLocalPath admits only same-origin absolute paths ("/x", not "//evil"
-// or full URLs), preventing open-redirect via ?next=.
+// safeLocalPath admits only same-origin absolute paths ("/x", not "//evil",
+// "/\evil" or full URLs), preventing open-redirect via ?next=. The check is
+// the canonical leading-slash + second-character form (browsers treat both
+// "//host" and "/\host" as scheme-relative).
 func safeLocalPath(p string) string {
-	if strings.HasPrefix(p, "/") && !strings.HasPrefix(p, "//") && !strings.Contains(p, "\\") {
+	if len(p) > 0 && p[0] == '/' && (len(p) == 1 || (p[1] != '/' && p[1] != '\\')) {
 		return p
 	}
 	return ""
