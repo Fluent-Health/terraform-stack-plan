@@ -125,10 +125,10 @@ func TestFinalizeCleanPlanConcludesSuccess(t *testing.T) {
 	}
 }
 
-func TestFinalizeGatedPlanConcludesActionRequired(t *testing.T) {
+func TestFinalizeGatedPlanStaysPending(t *testing.T) {
 	db := newServerTestDB(t)
 	var mu sync.Mutex
-	var concl string
+	var concl, title string
 	gh := &MockGitHub{
 		CreateCheckRunFn: func(ctx context.Context, repo, sha, env, url string) (int64, error) { return 1, nil },
 		UpdateCheckRunFn: func(ctx context.Context, repo string, id int64, u CheckRunUpdate) error {
@@ -138,6 +138,7 @@ func TestFinalizeGatedPlanConcludesActionRequired(t *testing.T) {
 			}
 			mu.Lock()
 			concl = u.Conclusion
+			title = u.Title
 			mu.Unlock()
 			return nil
 		},
@@ -154,8 +155,13 @@ func TestFinalizeGatedPlanConcludesActionRequired(t *testing.T) {
 	})
 	mu.Lock()
 	defer mu.Unlock()
-	if concl != "action_required" {
-		t.Fatalf("conclusion = %q, want action_required", concl)
+	// Awaiting a human keeps the check in_progress (pending, not the red
+	// action_required); the title names the wait.
+	if concl != "" {
+		t.Fatalf("conclusion = %q, want \"\" (in_progress)", concl)
+	}
+	if title != "awaiting approval — 0 of 1 gates active" {
+		t.Fatalf("title = %q, want awaiting-approval title", title)
 	}
 	g, _ := store.LoadGraph(db, "e1")
 	if g.Stacks[0].Status != events.StatusGated {

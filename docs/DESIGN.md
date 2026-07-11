@@ -899,7 +899,9 @@ land later) — see [PR #19](https://github.com/Fluent-Health/terraform-stack-pl
   client is now implemented (see *Real GitHub client* below).
 - The verdict as a **pure projection of DB state**: a `snapshot` feeds
   `conclusion()` (check-run conclusion: `""` running → `success` / `failure` /
-  `action_required` when a gate is unsatisfied). Re-deriving from the DB is
+  `action_required` when a human rejected a gate; a gate merely awaiting its
+  human keeps the check `in_progress` — waiting is pending, not the red
+  `action_required`). Re-deriving from the DB is
   race-free and eventually consistent.
 - The check-run lifecycle (`ensureCheckRun` idempotent create, `renderAndPatch`,
   and a `drive` dispatch). Check runs are the only surface — the gate gets a
@@ -907,7 +909,9 @@ land later) — see [PR #19](https://github.com/Fluent-Health/terraform-stack-pl
   to a commit status only until that check run exists). `finalize` records the
   payload's `(class, target)` gates, marks gated/moving stacks, marks the run
   classified, then drives the terminal conclusion — so a gated plan concludes
-  `action_required` and waits. (Gate/finalize state is owned by the reconcile
+  stays pending with an awaiting-approval title and waits; a denied/revoked/
+  expired grant concludes `action_required`. (Gate/finalize state is owned by
+  the reconcile
   core; see *Functional reconcile core* below.)
 
 **Real GitHub client** (see [PR #21](https://github.com/Fluent-Health/terraform-stack-plan/pull/21)).
@@ -1141,7 +1145,7 @@ Environment}` and a normalised `GrantState` (AWAITING → ACTIVATING → ACTIVE,
 DENIED/REVOKED/EXPIRED). The server only ever *requests*; humans approve in the
 backing provider. An in-memory `Fake` makes the whole gate flow e2e-testable.
 The server wires it via an optional `App.Approval` field (nil disables gating —
-gates park at `action_required`): at finalize it requests a grant per `(class,
+gates park pending with the awaiting-approval title): at finalize it requests a grant per `(class,
 target)` gate and records the grant name + state; `reconcileGate` refreshes each
 target's state from the backend and, once all are `ACTIVE`, flips the gated
 stacks safe and re-drives the check run to `success`; a periodic `ReconcileLoop`
@@ -1822,7 +1826,8 @@ independent posting path to fall out of sync. Precedence (`conclusion()` +
 the lock fold in `renderAndPatch`):
 
 1. Any stack failed → `failure`.
-2. An unsatisfied PAM approval gate → `action_required` (`gatesSection` names
+2. A rejected PAM approval gate (denied/revoked/expired) → `action_required`;
+   a gate awaiting its human keeps the check `in_progress` (`gatesSection` names
    which gate; unchanged from the unarmed surface).
 3. Still planning/applying → left `in_progress`.
 4. The merge-lock is held (or unverifiable) and would otherwise be the sole

@@ -3,6 +3,7 @@ package server
 import (
 	"database/sql"
 
+	"github.com/Fluent-Health/terraform-stack-plan/internal/approval"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
@@ -17,6 +18,7 @@ type snapshot struct {
 	finalized     bool // finalize has run (report stored)
 	totalGates    int  // distinct (class,target) gates recorded
 	activeGates   int  // gates whose grant is ACTIVE
+	deniedGates   int  // gates whose grant is terminally rejected (DENIED/REVOKED/EXPIRED)
 }
 
 // loadSnapshot derives the verdict input for an execution purely from the DB.
@@ -49,8 +51,11 @@ func loadSnapshot(db *sql.DB, id string) (snapshot, store.Execution, bool) {
 		if targets, terr := store.TargetsFor(db, exec.PR, exec.Environment); terr == nil {
 			snap.totalGates = len(targets)
 			for _, t := range targets {
-				if t.State == "ACTIVE" {
+				switch approval.GrantState(t.State) {
+				case approval.StateActive:
 					snap.activeGates++
+				case approval.StateDenied, approval.StateRevoked, approval.StateExpired:
+					snap.deniedGates++
 				}
 			}
 		}
@@ -60,15 +65,19 @@ func loadSnapshot(db *sql.DB, id string) (snapshot, store.Execution, bool) {
 
 // conclusion projects DB state + the merge-lock verdict onto a GitHub check-run
 // conclusion. "" means leave the run in_progress. Precedence: a failed plan >
-// an unsatisfied gate (action_required) > still planning > merge-lock blocked
-// (in_progress until the overlapping apply releases) > success. The zero-value
-// lock verdict means "not evaluated" (legacy two-check mode) and never blocks.
+// a rejected gate (action_required — a human said no) > a gate awaiting its
+// human (in_progress: waiting is not failure, and GitHub renders
+// action_required red) > still planning > merge-lock blocked (in_progress
+// until the overlapping apply releases) > success. The zero-value lock verdict
+// means "not evaluated" (legacy two-check mode) and never blocks.
 func conclusion(s snapshot, lock applyLockVerdict) string {
 	switch {
 	case s.anyFailed:
 		return "failure"
-	case s.totalGates > 0 && s.activeGates < s.totalGates:
+	case s.deniedGates > 0:
 		return "action_required"
+	case s.totalGates > 0 && s.activeGates < s.totalGates:
+		return ""
 	case !s.finalized:
 		return ""
 	case lockBlocked(lock):
@@ -76,4 +85,11 @@ func conclusion(s snapshot, lock applyLockVerdict) string {
 	default:
 		return "success"
 	}
+}
+
+// awaitingApproval reports whether the snapshot's sole human dependency is an
+// unapproved (but not rejected) gate — the state the check-run title should
+// name instead of reading as a stuck run.
+func (s snapshot) awaitingApproval() bool {
+	return !s.anyFailed && s.deniedGates == 0 && s.totalGates > 0 && s.activeGates < s.totalGates
 }

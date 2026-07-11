@@ -47,9 +47,10 @@ func TestGatedLifecycleE2E(t *testing.T) {
 	post(t, srv, "/api/finalize", events.Finalize{ID: "e1", ReportMarkdown: "# report",
 		Gates: []events.GateTarget{{Class: "iam", Target: "proj-a"}}})
 
-	// Gated finalize completes the check run with action_required.
-	if getConcl() != "action_required" {
-		t.Fatalf("gated plan conclusion = %q, want action_required", getConcl())
+	// Gated finalize leaves the check in_progress — awaiting a human is
+	// pending, not the red action_required.
+	if getConcl() != "" {
+		t.Fatalf("gated plan conclusion = %q, want \"\" (in_progress)", getConcl())
 	}
 	// Stack overlay: proj-a stack is gated.
 	if got := stackStatus(t, &Shell{app: a}, "e1", "stacks/a"); got != "gated" {

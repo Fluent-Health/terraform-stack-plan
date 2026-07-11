@@ -148,12 +148,14 @@ func TestReactCollisionAbandonedRevokesThenRequestsThenRenders(t *testing.T) {
 	}
 }
 
-func TestReactObserveSettledPendingRendersTerminalActionRequired(t *testing.T) {
+func TestReactObserveSettledPendingRendersNonTerminal(t *testing.T) {
 	// Observe batch with only fold facts (no outcome) + Pending post-fold state →
-	// terminal action_required (the awaiting-approval fallthrough).
+	// NON-terminal render: awaiting a human keeps the check in_progress
+	// (pending), never the red action_required — that verdict is reserved for
+	// GateBlocked (denied/revoked/expired).
 	evs := []Event{GrantObserved{Class: "c", Target: "t", Name: "g1", State: approval.StateAwaiting}}
 	got := React(ChangeSet{Gate: Pending{Targets: []Target{{Class: "c", Target: "t", GrantName: "g1", Grant: approval.StateAwaiting}}}}, evs)
-	want := []Action{RenderCheckRun{Terminal: true, Conclusion: "action_required"}, PublishSSE{}}
+	want := []Action{RenderCheckRun{}, PublishSSE{}}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %#v want %#v", got, want)
 	}

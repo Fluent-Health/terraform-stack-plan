@@ -192,8 +192,8 @@ func (a *App) renderAndPatch(ctx context.Context, id, base string, terminal bool
 		return
 	}
 	a.backfillFailureDetail(id, &g)
-	// Surface pending approval gates at the top of the check run so an
-	// action_required conclusion is self-explanatory (which gate, how to approve).
+	// Surface pending approval gates at the top of the check run so the
+	// awaiting-approval state is self-explanatory (which gate, how to approve).
 	targets, _ := store.TargetsFor(a.db, e.PR, e.Environment)
 	// Consolidated mode: the merge-lock verdict is part of THIS check. Evaluate
 	// on terminal renders of the plan gate (stacks are known then), persist the
@@ -259,6 +259,12 @@ func (a *App) renderAndPatch(ctx context.Context, id, base string, terminal bool
 				upd.Title = lockTitle(lock)
 			}
 		}
+	}
+	// A gate awaiting its human keeps the check in_progress (pending, not the
+	// red action_required) — name the wait in the title on every render, or
+	// the check reads as a stuck plan.
+	if snap, _, ok := loadSnapshot(a.db, id); ok && snap.awaitingApproval() {
+		upd.Title = fmt.Sprintf("awaiting approval — %d of %d gates active", snap.activeGates, snap.totalGates)
 	}
 	if err := a.gh.UpdateCheckRun(ctx, e.Repo, e.CheckRunID.Int64, upd); err != nil {
 		log.Printf("update check run %s: %v", id, err)
