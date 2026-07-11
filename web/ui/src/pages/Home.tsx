@@ -24,13 +24,13 @@ export function Home() {
 }
 
 function TierApprovals(props: { tier: string }) {
-  const [approvals] = createResource(() => api.approvals(props.tier));
+  const [approvals, { refetch }] = createResource(() => api.approvals(props.tier));
   return (
     <Show when={(approvals() ?? []).length > 0}>
       <section class="card bg-base-100 shadow-sm border-l-4 border-warning">
         <div class="card-body p-4">
           <h2 class="card-title text-base">⏳ awaiting approval — {props.tier}</h2>
-          <ApprovalsTable approvals={approvals()!} />
+          <ApprovalsTable tier={props.tier} approvals={approvals()!} onDecided={refetch} />
         </div>
       </section>
     </Show>
