@@ -119,7 +119,7 @@ Notes on the scripts:
   for any other (non-zero-change) success.
 - **`--tty` enables ANSI colour in the viewer.** Terraform suppresses colour when
   its stdout is a pipe. Add `--tty` to any `run step` command to run terraform
-  under a PTY so it emits ANSI colour; the live viewer renders it automatically
+  under a PTY so it emits ANSI colour; the central UI renders it automatically
   (including progress spinners). Also drop `-no-color` from the terraform flags —
   both changes together produce colour. If PTY allocation fails (Unix-only),
   `run step` falls back to the normal pipe path — the command still runs and exits
@@ -159,7 +159,7 @@ summary:
 - Apply: `Apply · applied 12/12`
 
 The bar only renders while the run is alive. A finished apply is marked
-terminal, the live viewer stops streaming, and the frozen-bar problem from
+terminal, the log view stops streaming, and the frozen-bar problem from
 earlier versions is gone.
 
 ## Cross-state moves: streaming to the stack log

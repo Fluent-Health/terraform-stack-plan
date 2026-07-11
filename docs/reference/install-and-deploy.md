@@ -125,6 +125,5 @@ Run the Cloud Run service as a dedicated service account with:
 
 Mount the GitHub App private key as a Secret Manager–backed secret file; set
 the path in `github_app { private_key_path }`. Set the bearer secret via the
-env var named in `serve { webhook_secret_env }`.
 
 See `SECURITY.md` for the full IAM reference.

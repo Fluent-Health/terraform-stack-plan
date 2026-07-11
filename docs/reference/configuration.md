@@ -280,7 +280,7 @@ The block label (e.g. `"iam"`) must match a category name produced by a
 ## `progress {}` block
 
 Defines the ordered lifecycle phases each CI operation emits, rendered as a
-single progress bar in the live viewer. Keep in sync with the phases your
+single progress bar in the check-run title and the central UI. Keep in sync with the phases your
 pipelines actually emit via `run phase`. Requires `serve` ≥ v0.16.0.
 
 ```hcl
@@ -318,7 +318,6 @@ Runtime configuration for `tfstackplan serve`. Ignored by `render` and `run`.
 serve {
   db_path            = "/data/tfstackplan.db"
   public_base_url    = "https://tfstackplan.example.com"
-  webhook_secret_env = "TFSTACKPLAN_WEBHOOK_SECRET"
   logs_dir           = "/data/logs"
 
   github_app {
@@ -354,7 +353,7 @@ serve {
 |---|---|---|---|
 | `db_path` | string | — (required) | Path to the SQLite database file (WAL mode; single writer by design) |
 | `public_base_url` | string | — (required) | Public base URL of the serve instance, used in check-run links and as the default Pub/Sub push audience |
-| `webhook_secret_env` | string | none | Name of the environment variable holding the secret that signs the 30-day **view-JWTs** for the live-viewer routes (`/`, `/pr/*`, `/live/*`). It no longer authenticates `/api/*` — that path is OIDC-only (`api_auth {}`); the legacy shared-secret HS256 `/api/*` scheme was removed |
+| `ui_base_url` | string | none | Central UI service base URL: check-run Details and approval links point there (its tier names must match serve environments). Empty = no links |
 | `github_webhook_secret_env` | string | none | Name of the environment variable holding the GitHub webhook HMAC secret used to verify inbound webhook signatures |
 | `logs_dir` | string | none | Directory for per-stack on-disk log buffers. When unset, log ingestion is disabled |
 
@@ -464,12 +463,6 @@ human callers on user ADC present tokens whose audience is the fixed gcloud
 client id — list it in `extra_audiences` to accept them. OIDC is the **only**
 `/api/*` credential — the legacy HS256 shared-secret path was removed once
 every caller had migrated.
-
-> ⚠️ Do **not** drop `webhook_secret_env` yet: the live-viewer routes (`/`,
-> `/pr/{n}`, `/live/*` and the rerun button) are authenticated only by the
-> view JWTs minted from that same secret. Removing it enforces OIDC on
-> `/api/*` but leaves the entire viewer unauthenticated. The secret can go
-> only when the viewer machinery is replaced (the planned central UI).
 
 | Field | Type | Default | Description |
 |---|---|---|---|

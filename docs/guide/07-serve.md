@@ -30,45 +30,30 @@ This matters because it means you can add governance without handing a service
 the keys to your infrastructure. The separation is structural, not a policy
 choice.
 
-## The live UI
+## The live UI — the central `tfstackplan ui` service
 
 When `run plan` registers an execution, `serve` creates a per-environment GitHub
 check run (`plan/<env>` — or the consolidated `terraform/<env>`, see
 [09 — CI integration](09-ci-integration.md), on a tier where serve drives CI
-runs itself) before a single plan has finished. From that moment, anyone
-watching the PR can see a live view.
+runs itself) before a single plan has finished. The check run's Details link
+lands on the **central UI** (`tfstackplan ui`) — a separate service, one pane of
+glass over every tier serve, behind a Google Workspace login:
 
-The UI has two levels:
+- **Home** — recent executions per tier, with pending approvals surfaced on top.
+- **PR view** (`/pr/{n}`) — one PR's full plan/apply/verify story across tiers.
+- **Execution view** — live progress, approval gates (approve/deny in-UI under
+  your own Google identity), and a per-stack list with **Plan** and **Log**
+  tabs, live-tailed via Server-Sent Events with in-place updates — no polling,
+  no page reloads.
+- **Approvals** — every gate awaiting a human, across tiers.
 
-- **DAG view.** Stacks fold into group nodes by their path prefix (configurable
-  with the `group {}` block — depth or regexp). The groups lay out in
-  per-environment swimlanes. Each node shows its stack count, the worst status
-  of any stack in the group, and 🔐/💣 category badges from classification.
-  The layout is a self-contained SVG — inert, no JavaScript, no external
-  dependencies, survives GitHub's image proxy.
-- **Drill-down list.** A folding per-stack list, grouped by the same key. Each
-  stack links to a detail page with **Log / Plan / Verify** tabs, live-tailed
-  via Server-Sent Events. No polling, no refresh — the log pane follows new
-  output in real time as the stack's terraform command runs.
-
-Navigation: an execution index at `/` (most recent first) and a per-PR timeline
-at `/pr/{n}`.
-
-Here is the live DAG view of an active run showing completed, gated, and running stacks:
-
-![The dependency-DAG view mid-run, with a mix of done, in-flight, and blocked stacks](../images/serve-dag.png)
-
-And here is the gated environment view showing required approvals that must be granted to run:
-
-![An environment with a pending approval gate requiring human approval](../images/serve-gate.png)
-
-Below is the drill-down view showing the **Result (Plan) tab** for a selected stack, displaying its formatted Terraform plan diff report:
-
-![A planning run showing the plan diff report of the selected apps/iam stack](../images/serve-plan.png)
-
-Similarly, here is the **Log tab** for a selected stack showing the active, color-coded, live terminal apply logs as they stream in real time:
-
-![An apply run showing the active terminal apply logs of the selected apps/frontend stack](../images/serve-apply.png)
+The tier serves themselves no longer serve HTML; they expose the data (JSON,
+SSE, plan fragments) the UI aggregates. One HTML artifact stays on each tier:
+the check-run body embeds `GET /img/<id>.svg` — the dependency DAG as a
+self-contained, inert SVG (no JavaScript, survives GitHub's image proxy).
+Stacks fold into group nodes by path prefix (the `group {}` block — depth or
+regexp), laid out in per-environment swimlanes, each node showing stack count,
+worst status, and 🔐/💣 category badges from classification.
 
 ## Approval gates
 

@@ -484,7 +484,7 @@ The config also carries optional **server/serve** blocks for the control plane
 entitlement, entitlement_scope, required }` binding a classification class to an
 approval gate (`entitlement_scope` is `projects` by default, or `folders` /
 `organizations` for a class that grants at a higher resource scope); and
-`serve { db_path, public_base_url, webhook_secret_env, github_app {
+`serve { db_path, public_base_url, ui_base_url, github_app {
 app_id, installation_id, private_key_path }, approval "gcp-pam" { location,
 duration, requester_pool } }` for the `serve` runtime. All are optional and
 backward-compatible — a render-only `.tfstackplan.hcl` needs none of them.
@@ -804,11 +804,12 @@ the budget entirely.
   blank stream; the static `GET /logs/<exec>/<stack>` endpoint serves the
   offloaded object and is the correct URL for completed stacks. Not yet fixed
   (see PR: live init-progress & log tweaks).
-- **Apply executions store no per-stack plan diff**, so the Result tab is empty
-  for apply stacks (and hence defaults to the Log tab). The per-stack plan
-  section is populated only by the plan driver's `Finalize.StackReports`.
-- **The live page still full-reloads on state change** (scroll position is
-  preserved via `sessionStorage`); in-place DOM swap is not yet implemented.
+- **Apply executions store no per-stack plan diff**, so the SPA's Plan tab is
+  empty for apply stacks. The per-stack plan section is populated only by the
+  plan driver's `Finalize.StackReports`.
+- ~~The live page still full-reloads on state change~~ — resolved: the tier
+  HTML viewer retired; the central UI's SPA patches the DOM in place on every
+  SSE change.
 
 ## Server foundations (in progress)
 
@@ -928,107 +929,32 @@ JWT is hand-rolled with stdlib `crypto` (no JWT library — `go.mod` stays
 minimal), and the REST base is overridable so the whole client is tested
 offline against an `httptest` fake.
 
-**Live UI (Phase-1 parity)** (see [PR #22](https://github.com/Fluent-Health/terraform-stack-plan/pull/22)).
-The server serves a public, dependency-free live view: `GET /img/<id>.svg`
-renders the execution as a **self-contained, inert** SVG dependency graph
-(nodes in longest-path dependency layers, coloured with GitHub's light-theme
-status hues — no `<script>`/`<foreignObject>`, so it survives GitHub's image
-proxy), and `GET /live/<id>` is an auto-refreshing HTML page embedding that
-diagram,
+**Live viewer (RETIRED) → central UI.** The tier serves grew an HTML live
+viewer over several increments — the `/live` briefing console (header, verdict
+band, weighted progress bar, project-grouped stack list, per-stack
+Result/Log/Validation tabs with SSE log streaming, approval panel), the `/`
+index and `/pr/<n>` timeline pages, and the 30-day view-JWT link auth — all
+retired when the central UI (`tfstackplan ui`, above) became the human
+surface: its SPA rebuilds those views with in-place SSE updates, eliminating
+the viewer's reload-centric bug class by construction. The tier serves no
+longer serve HTML at all; `internal/jwtutil` and `serve { webhook_secret_env }`
+went with it (the `tfstackplan-token` secret's last job). What the viewer
+pioneered still ships through other surfaces: the plan-diff markdown renderer
+serves `/plan` fragments (OIDC-scoped; the SPA injects them), per-stack log
+reads stream from `/logs` (OIDC-scoped, `Last-Event-ID` resume, GCS-offload
+fallback), and the failure-triage + progress helpers feed the check run.
 
-The live DAG (both `/live` and the `/img` GitHub image) now renders at the
-**group** level rather than per-stack: stacks fold into groups by their first
-`GroupDepth` path segments (`Config.GroupDepth`, default 2 → env/kind), each
-group a single node showing its stack-count and **worst status** (with a
-`N failed`/`N gated` tally), and edges are the terramate before/after
-dependencies aggregated to the group level (intra-group and self edges dropped,
-duplicates collapsed). The folding lives in `buildGroupGraph`
-(`internal/server/grouping.go`); `renderGroupSVG` lays the group DAG out in
-**horizontal lanes per environment** (the first segment of the group key,
-e.g. `nonprod`/`prod`), sharing one dependency-depth column grid — so
-duplicated-across-env work reads side by side. Each lane has a bold label at
-its top. The shared `layersOf` helper assigns each node its column; the new
-`laneOf` helper extracts the environment segment. Lanes are sorted
-alphabetically; within a lane, nodes in the same column are sorted
-alphabetically. The existing per-stack `renderSVG` is unchanged (it has no
-lane concept). Each group node also renders a **category-badge line** (e.g.
-`🔐 12  💣 5`, icon when present else name, name-sorted) aggregating its
-stacks' matched classification categories —
-plumbed per-stack from the `run plan` sidecar via `Finalize.Categories` → the
-`stacks.categories` column → `LoadGraph` → `buildGroupGraph`'s per-group
-`catCount` tally → `groupBadges`. Grouping is configurable via a
-`serve { group { depth = N | pattern = "regex" } }` block: `depth` overrides the
-default of 2; `pattern` overrides depth entirely — the group key is the regexp's
-first capture group (or whole match if it has none), and non-matching paths are
-their own group. The pattern is compiled once in `New` into `App.groupRE`; an
-invalid pattern is logged and falls back to depth grouping. The folding stack list
-on `/live` is grouped by the same key, serving as the DAG's per-stack drill-down
-(expand a group → its stacks, each linking to the per-stack detail page). A
-generic **approval panel** (one row per stored `(class, target)` with
-its state — provider-neutral, no console URL; the deep link is added by the
-approval backend), and the plan report (shown as escaped preformatted text — no
-markdown engine). Both routes are public (read-access model: same sensitivity as
-plan output already on the PR, behind unguessable execution ids); `/api/*` stays
-bearer-authed.
-
-The page is rendered with `html/template` from `internal/server/templates/`
-(parsed once into `App.tmpl` in `New`) as a DaisyUI shell that links a committed
-**Tailwind v4 + DaisyUI** stylesheet, served at `GET /assets/app.css`. The SVG
-and approval panel are trusted server-generated HTML, injected un-escaped
-(`template.HTML`); the repo, title and report body are auto-escaped. The live
-page now subscribes to `GET /live/<id>/events` (an SSE endpoint that emits a
-`changed` event on every execution state mutation) via an inline `EventSource`;
-on receipt, a debounced `location.reload()` fires after 800 ms. The 10s
-`<meta http-equiv="refresh">` is retained only as a `<noscript>` fallback for
-environments without JavaScript. Client-side partial re-render (no full reload)
-is a follow-on. Regen contract: the CSS is built in
-`web/` with yarn and the **committed** `internal/server/assets/app.css` (`go:embed`-ed)
-is the source of truth — `web/build.sh` regenerates it on demand; nothing in the
-Go build or CI runs node. (PR #TBD.)
-
-**Live viewer — "Briefing" redesign (PR #83).** The live page is an operator
-console, assembled by pure view-helpers in `internal/server/livedata.go` into a
-typed `liveModel` (`buildLiveModel` in `livepage.go`) from a `liveView` input.
-Top to bottom: a **header** (repo · #PR · short SHA, the kind+environment title,
-and a phase pill — teal `PLANNING` / blue `APPLYING` with an elapsed clock from
-`Execution.CreatedAt`); a **verdict band** — a single-line op-count row
-(`+add ~change ±replace −destroy ↔move` plus a `⚿N` IAM count and a `⚠ Destructive`
-flag) over a full-width **overall progress bar** — the same weighted full-progress
-fraction as the check-run title (shared `runProgress`/`progress`), so the bar
-tracks *whole-operation* progress across the configured phases, with the per-phase
-detail (e.g. `applying 1/4`) shown as a label beside it; a concluded run shows a
-full bar ([PR #99](https://github.com/Fluent-Health/terraform-stack-plan/pull/99)).
-(It previously rendered a per-stack *segmented* blast-radius bar coloured by each
-stack's current status, which visibly **reset to empty at phase boundaries** — e.g.
-re-planned stacks flip `prepared→queued` when the apply starts — and never
-reflected overall progress.) The per-stack list keeps path/group order; the optional
-**approval panel**; a **stack list grouped by Google project** (`groupByProject`
-on `StackState.Project`), each row a per-state colour label + op count + risk
-badges, linking to its detail anchor; a **single selected-stack detail pane** that
-swaps via CSS `:target` (only the clicked stack shows; empty until a row is
-selected) — DaisyUI tabs (**Result · Log · Validation**, apply-only) over the
-stack's `stack_outputs`; and a **demoted collapsible dependency graph**. Failed
-and aborted stacks default to the Log tab; all apply stacks default to the Log
-tab (apply stores no per-stack plan diff, so the Result tab is empty).
-
-**Selected-stack tabs + live log streaming (PR #84).** The separate per-stack page
-(`stack.gohtml`/`handleStackDetail`) is retired — the overview pane is the only
-detail surface. Per stack: **Result** is the native plan diff (`renderMarkdown` of
-the stored `plan` output; a shimmer skeleton while a running stack hasn't produced
-it yet — empty for apply stacks, which store no per-stack diff), **Log** is the
-stack's log, and **Validation** (apply with a verify run) the verify log. Failed/
-aborted stacks and all apply stacks default to the Log tab. Tabs are DaisyUI's
-label-wrapped radios (CSS-only switch). An
-inline JS module keys off the location hash: on select it opens **one**
-`EventSource` to `/logs/{exec}/{stack}?follow=1` for that stack (closing the prior),
-parses ANSI SGR colour/bold into `<span class="a-*">` on the softened `.term`
-surface (HTML-escaping every byte first — logs are attacker-influenceable), and
-shows a pulsing **"● live"** dot on the Log tab while the exec is running. Finished/
-Validation panes (`data-log-url` only) are fetched once. Log chunks publish to a
-separate SSE topic from the page's `changed` events, so the watched log streams
-smoothly between state transitions; a `changed` reload re-renders the truthful state
-(e.g. drops the live dot once the run finishes) and the selected stack re-streams
-via the hash. A `raw log ↗` link points at the plain-text `/logs/{exec}/{stack}`.
+**The DAG image (`GET /img/<id>.svg`, public).** The execution graph renders
+as a self-contained, inert SVG (no `<script>`/`<foreignObject>`) so it
+survives GitHub's camo image proxy in the check-run body — the one surface
+that cannot authenticate, kept public behind unguessable execution ids. Graphs
+≤ 40 stacks render per-stack; larger ones fold to the **group** level
+(`buildGroupGraph`): stacks group by their first `GroupDepth` path segments
+(default 2, or `serve { group { depth | pattern } }` — the regexp's first
+capture group wins; invalid patterns fall back to depth), each group node
+shows a stack count + worst status + category badges, and edges aggregate to
+the group level. `renderGroupSVG` lays groups out in horizontal lanes per
+environment sharing one dependency-depth column grid.
 
 **Failure triage — "Needs attention" (Phase 4).** A failed stack's bare error is
 turned into an actionable triage by one pure classifier, `classifyFailure(detail,
@@ -1039,34 +965,14 @@ still reads as a move), then `quota` before `iam_denied` (both can match `error 
 so the more specific `quota exceeded` wins), then `state_lock`, `already_exists`,
 `provider_auth` — first match wins; an unmatched error falls back to `Class:"error"`
 with an **empty `Cause`** (the raw error is shown, never a fabricated guess) plus
-generic recovery steps. Two renderers consume the *same* diagnosis: the **live page**
-gains a top **"⚠ Needs attention"** section (`Failures []failureCard` on `liveModel`,
-collected for every `StatusFailed` stack) of error-tinted `.triage-*` cards — class
-badge, "Likely cause", the raw error excerpt on the `.term` surface (auto-escaped,
-never `innerHTML`), a "Next steps" list, "State impact", and links to the stack's
-detail anchor + raw log; and the **`apply/<env>` check-run** `failuresSection`
-(`render.go`) mirrors cause + next steps + state impact as GitHub Markdown inside the
-existing per-stack `<details>` (suppressed when there's no captured detail — the
-"see the build log" note is then the only honest advice). Grow the matcher set with a
-row + a test case, never a heuristic DSL. The deeper "grant expired at HH:MM"
-correlation (needs grant timestamps) is intentionally out of scope.
-
-Styling is **DaisyUI components** (`card`, `badge`, `menu`, `collapse`) on a custom
-DaisyUI **theme** (`briefing`) that maps the palette onto the semantic colour slots
-(primary=apply, secondary=plan, success/warning/error/accent/info=op-kinds &
-states), plus Tailwind utilities. The *only* bespoke CSS is the progress
-bar + the dynamic `bs-*`/`sl-*` state colours — authored as plain CSS in
-`web/input.css` (so they survive tree-shaking; the slug is built in Go and never
-appears as a literal for the scanner) but reading their colours from the theme
-slot vars, so there's one colour source of truth. Op counts come from Phase 1
-(`events.Counts` → `stacks.counts`). SVG and approval panel are injected
-un-escaped (`template.HTML`); everything else auto-escapes.
-
-The live page subscribes to `GET /live/<id>/events` (SSE; `changed` on every state
-mutation) via an inline `EventSource` and debounce-reloads after 800 ms; the 10s
-`<meta refresh>` is the `<noscript>` fallback (streaming logs are exempt, above).
-Client-side partial re-render (no full reload of the whole page on every change)
-is a later phase.
+generic recovery steps. The **check-run** `failuresSection` (`render.go`)
+renders cause + next steps + state impact as GitHub Markdown inside the
+per-stack `<details>` (suppressed when there's no captured detail — the "see
+the build log" note is then the only honest advice); the retired live page's
+triage cards live on as a rebuild target for the central UI's execution view.
+Grow the matcher set with a row + a test case, never a heuristic DSL. The
+deeper "grant expired at HH:MM" correlation (needs grant timestamps) is
+intentionally out of scope.
 
 **Colored live logs.** `run step --tty` runs the wrapped terraform command under
 a PTY (`github.com/creack/pty`) so terraform emits ANSI colour — terraform
@@ -1091,12 +997,11 @@ OOM-killed until its limit was raised to 2GB; its RAM scales with terraform
 log/plan volume, not "just JSON". Two Go-heap spikes were cut. (1) The GCS log
 offload now **streams** the file to GCS — `gcsObjectStore.Put` sets
 `Content-Length` from the `*os.File` and passes it as the request body — instead
-of `io.ReadAll`-ing a whole stack log into memory at finalize. (2) The live page
-renders per-stack plan markdown **on demand**: a new public
-`GET /plan/{exec}/{stack...}` endpoint renders one stack's plan to HTML, and the
-Result pane fetches it when opened (mirroring the Log tab's lazy fetch), so a page
-load no longer renders/embeds every stack's plan section (the whole-execution
-report is still rendered once). Residual, by deployment design: the SQLite DB and
+of `io.ReadAll`-ing a whole stack log into memory at finalize. (2) Per-stack
+plan markdown renders **on demand**: `GET /plan/{exec}/{stack...}` (OIDC-scoped
+since the viewer retirement) renders one stack's plan to HTML when the central
+UI's Plan tab opens it, so nothing ever renders every stack's plan section at
+once (the whole-execution report is still rendered once). Residual, by deployment design: the SQLite DB and
 the live per-stack log buffers still live on the 256Mi `medium=MEMORY` (RAM) tmpfs
 volume — moving logs off RAM entirely (a bounded in-memory ring + incremental GCS
 upload) is deferred. The 2GB→1GB walk-back is a separate infra decision.
@@ -1125,11 +1030,10 @@ scale that sat at 0% during warming/init and then jumped to the applying band �
 [PR #101](https://github.com/Fluent-Health/terraform-stack-plan/pull/101).) The title is `bar · label` — the bar is the
 weighted overall fraction and the label carries the per-phase count, so it does
 **not** repeat the count between them (the old `bar k/N · applying k/N` double
-indicator); the live page renders the same bar via the shared `runProgress`
-([PR #99](https://github.com/Fluent-Health/terraform-stack-plan/pull/99)). The rendered report shown in the check-run
-**details** (and the live-viewer report section) uses `render.RenderNoTable` —
+indicator) ([PR #99](https://github.com/Fluent-Health/terraform-stack-plan/pull/99)). The rendered report shown in the check-run
+**details** uses `render.RenderNoTable` —
 header + per-stack change trees, **omitting** the leading summary table, since the
-live per-stack table already covers the overview; the full report (with the
+per-stack view already covers the overview; the full report (with the
 summary table) is still emitted to stdout / the `render` CLI for PR-comment
 output (`run()` returns both variants; `classifyResult.ReportNoTable`; the apply
 path gets the no-table report through the `classifyForGateFn` seam). PAM
@@ -1372,9 +1276,10 @@ The **follow (SSE) path** gets the same fallback ([PR #99](https://github.com/Fl
 when the live buffer is absent (the run concluded — offloaded + deleted at
 finalize), `streamLog` replays the offloaded object (`streamOffloaded`, resuming
 from the byte offset) and emits a terminal `event: done` so the client closes
-instead of auto-retrying a buffer-less stream. Without this, a live page left open
-across finalize re-opens follow connections (as the user switches stacks) that
-replay nothing and hang — the "log briefly shows then disappears" bug. With
+instead of auto-retrying a buffer-less stream. Without this, a viewer left open
+across finalize re-opened follow connections that replayed nothing and hung —
+the "log briefly shows then disappears" bug (the central UI's log tab rides the
+same stream + fallback). With
 `App.Objects` unset, behavior is unchanged (buffer-only; offload no-ops so the
 buffer survives and the follow path still replays it). _Remaining log
 limitation for the UI sub-plan: the SSE **replay** still reads the buffer into
@@ -1400,26 +1305,12 @@ populated by the runner) and calls `store.UpsertStackOutput(id, stack, "plan",
 in the UI v2 (PR #TBD). This loop runs in both the failed and non-failed paths
 (it executes before the `f.Failed` early-return branch).
 
-The sixth increment wired up **per-stack detail pages**: each stack row on the
-`/live/<id>` page now links to `GET /live/<id>/stack/<stack...>`, which serves
-three tabs — **Log**, **Plan** (the stored per-stack plan section from step five),
-and **Verify** (a Phase 4 placeholder). `liveView` carries the execution id
-(`Exec`) so the template can build the hrefs; `handleLive` sets it from `e.ID`.
-
-The Log tab live-tails via `EventSource` on `/logs/<exec>/<stack>?follow=1` (the
-hardened SSE stream from Phase 3's second increment — id-tagged, Last-Event-ID
-resumable, heartbeat-kept, with buffer replay on reconnect). The `<pre
-id="stacklog">` element carries a `data-follow-url` attribute (set in HTML
-context to avoid JS-context escaping), which the inline script reads to open the
-`EventSource` and append each `onmessage` line. A `<noscript>` block falls back
-to the stored tail excerpt (or "No log captured" when absent).
-
-The final UI-v2 increment adds **execution navigation**: a landing index at
-`GET /{$}` (the most recent executions, newest first) and a per-PR timeline at
-`GET /pr/{n}`. Both render a shared `executions.gohtml` DaisyUI table whose rows
-link to `/live/{id}` (and back to `/pr/{n}`), backed by `store.ListExecutions`/
-`store.ListExecutionsForPR` over the indexed `created_at`; `handlePRTimeline`
-returns 400 on a non-numeric PR. This completes Phase 3's UI v2.
+The sixth and final UI-v2 increments added the per-stack detail tabs and the
+index/PR-timeline navigation pages — since retired with the viewer; their data
+paths live on as `store.ListExecutions`/`store.ListExecutionsForPR` behind
+`GET /api/executions` and the `/logs` SSE stream (id-tagged, `Last-Event-ID`
+resumable, heartbeat-kept, buffer replay on reconnect) that the central UI's
+Log tab consumes.
 
 The seventh increment landed **production log-offload wiring**: the
 `serve { logs_dir, objects { backend = "gcs"  bucket  prefix } }` config block
@@ -1490,13 +1381,9 @@ terramate `verify` script across changed stacks — no gate, read-only
 post-apply validation. It streams per-stack logs via the tail-pump (same
 `LogPump` as plan/apply) and registers a `verify/<env>` execution on the
 server, reported under a `PhaseVerifying` phase that joins the execution
-timeline. The per-stack Verify tab on `/live/{id}/stack/{stack...}` shows the
-latest verify run's per-stack output **inline**, live-tailed via a
-`<pre id="verifylog" data-follow-url="/logs/{verifyExec}/{stack}?follow=1">` element
-(the same SSE stream used by the Log tab), with a noscript tail-excerpt fallback
-and a run link to `/live/{verifyExec}`. The follow script now iterates all
-`[data-follow-url]` elements so both `#stacklog` and `#verifylog` are tailed in
-parallel. The latest verify run is resolved via
+timeline. The latest verify run is exposed as `verify_execution_id` on the
+execution read (the central UI links/tails it over the same `/logs` SSE
+stream), resolved via
 `store.LatestVerifyExecutionID(db, pr, env)` and its per-stack log excerpt via
 `store.GetStackOutput(db, verifyExec, stack, "log")`; when no verify run exists
 yet the tab shows "No verify run yet for this PR."
@@ -1885,11 +1772,10 @@ caller — CI runner, human CLI, agent — locally minted an HS256 JWT
 no real identity to audit, possession = full power, and any leak was a
 full-API credential until a global rotation. That shared-secret path is now
 **fully deleted** from `/api/*` — `App.auth` no longer branches on the JOSE
-header `alg` at all; OIDC is the only verified path. `internal/jwtutil`
-(`Make`/`Validate`, HS256) still exists solely for the unrelated 30-day
-view-JWT (`aud="view"`, `?token=` / `view_session` cookie on `/live/*`,
-`/pr/*`, `/{$}`) — `Config.WebhookSecret` now only signs/validates that link
-token and has no bearing on `/api/*` auth.
+header `alg` at all; OIDC is the only verified path. `internal/jwtutil` itself
+is gone too: its last job was the 30-day view-JWT, which retired with the HTML
+viewer (the central UI has its own Google-login sessions), taking
+`serve { webhook_secret_env }` with it.
 
 The replacement is **Google-signed OIDC ID tokens** — the same mechanism
 already verifying Pub/Sub pushes:
@@ -1929,7 +1815,7 @@ already verifying Pub/Sub pushes:
   best-effort tick at either stage.
 - **HS256 deleted from `/api/*` (post-migration)**: every caller flipped to
   OIDC, so the dual-accept migration posture was removed — an HS256 token
-  minted from `webhook_secret_env` (any secret, right or wrong) now gets a
+  minted from any secret (right or wrong) now gets a
   flat 401 on every `/api/*` route once `api_auth {}` (`App.APIVerifier`) is
   configured. `runner.NewClient` dropped its secret parameter entirely
   (`NewClient(baseURL)` is unauthenticated; `NewClientTokenSource(baseURL,

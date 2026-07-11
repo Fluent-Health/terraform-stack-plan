@@ -29,7 +29,7 @@ same terraform commands, the same identities, the same dependency ordering. What
   way regardless of whether you call `render` standalone or `run plan` in CI.
 - **Per-stack progress.** The terramate scripts call `run tick` and `run step`
   between commands. Each call is a lightweight server post — a status tick, a
-  log chunk — that the live viewer reflects immediately.
+  log chunk — that the central UI reflects immediately.
 - **Gate enforcement.** `run apply` is the one place in the whole system that
   is deliberately fail-closed: it calls the server's gate pre-check *before
   touching terramate*, and blocks if the gates are not satisfied.
