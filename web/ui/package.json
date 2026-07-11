@@ -1,0 +1,27 @@
+{
+  "name": "tfstackplan-ui",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "gen:types": "openapi-typescript ../../api/openapi.yaml -o src/api/tier-schema.d.ts"
+  },
+  "dependencies": {
+    "@solidjs/router": "^0.15.3",
+    "solid-js": "^1.9.5"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.1.4",
+    "daisyui": "^5.0.35",
+    "openapi-typescript": "^7.6.1",
+    "tailwindcss": "^4.1.4",
+    "typescript": "^5.8.3",
+    "vite": "^7.1.0",
+    "vite-plugin-solid": "^2.11.6",
+    "vitest": "^3.1.3"
+  }
+}
