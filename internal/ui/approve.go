@@ -163,6 +163,8 @@ func approveResult(w http.ResponseWriter, ok bool, message string) {
 		"Message": message,
 		"JSON":    template.JS(payload),
 	}); err != nil {
-		fmt.Fprint(w, "approval result: ", message)
+		// The Content-Type is already text/html — escape the (PAM-error-
+		// influenced) message on this fallback path too.
+		fmt.Fprint(w, "approval result: ", template.HTMLEscapeString(message))
 	}
 }
