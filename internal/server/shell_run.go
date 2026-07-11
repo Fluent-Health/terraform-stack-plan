@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"log"
-	"strings"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/executor"
@@ -40,12 +39,11 @@ func (sh *Shell) materializeRun(ctx context.Context, cs reconcile.ChangeSet, rep
 	if err := store.UpsertInit(sh.app.db, init); err != nil {
 		return err
 	}
-	base := strings.TrimRight(sh.app.cfg.PublicBaseURL, "/")
 	name := sh.app.planCheckName(cs.Environment)
 	if kind == reconcile.RunKindApply {
 		name = init.Context
 	}
-	if err := sh.app.ensureCheckRun(ctx, execID, repo, sha, name, sh.app.liveURL(base, execID)); err != nil {
+	if err := sh.app.ensureCheckRun(ctx, execID, repo, sha, name, sh.app.uiURL(execID)); err != nil {
 		log.Printf("shell: check run %s: %v", execID, err)
 	}
 	return nil

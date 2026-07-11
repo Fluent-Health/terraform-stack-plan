@@ -65,7 +65,7 @@ type APIAuthPrincipal struct {
 // APIAuthConfig configures Google OIDC bearer auth for /api/*: which token
 // audiences are accepted and the identity → scope allowlist. It is the only
 // /api/* auth — the legacy shared-secret HS256 path was removed once every
-// caller migrated to OIDC. (webhook_secret_env now signs only the view-JWTs.)
+// caller migrated to OIDC.
 type APIAuthConfig struct {
 	Audience       string   // expected OIDC audience (default: public_base_url)
 	ExtraAudiences []string // additional accepted audiences (e.g. the gcloud ADC client id, for user tokens)
@@ -87,16 +87,20 @@ type ExecutorConfig struct {
 type ServeConfig struct {
 	DBPath                 string
 	PublicBaseURL          string
-	WebhookSecretEnv       string // env var name holding the view-JWT signing secret (not the secret itself)
 	GitHubWebhookSecretEnv string // env var name holding the GitHub webhook HMAC secret
-	GitHubApp              *GitHubAppConfig
-	Approval               *ApprovalConfig
-	Group                  *GroupConfig
-	LogsDir                string
-	Objects                *ObjectsConfig
-	PubSub                 *PubSubConfig
-	APIAuth                *APIAuthConfig
-	Executor               *ExecutorConfig
+	// UIBaseURL is the central UI service's external base URL. Check-run
+	// details and approval links point there ("" leaves them unset — the
+	// check-run body still carries everything). The UI's tier names must
+	// match the serve environments for its /t/<tier>/e/<id> routes.
+	UIBaseURL string
+	GitHubApp *GitHubAppConfig
+	Approval  *ApprovalConfig
+	Group     *GroupConfig
+	LogsDir   string
+	Objects   *ObjectsConfig
+	PubSub    *PubSubConfig
+	APIAuth   *APIAuthConfig
+	Executor  *ExecutorConfig
 }
 
 // GitHubAppConfig is the `github_app {}` sub-block.
@@ -118,8 +122,8 @@ type ApprovalConfig struct {
 type serveBody struct {
 	DBPath                 string         `hcl:"db_path,optional"`
 	PublicBaseURL          string         `hcl:"public_base_url,optional"`
-	WebhookSecretEnv       string         `hcl:"webhook_secret_env,optional"`
 	GitHubWebhookSecretEnv string         `hcl:"github_webhook_secret_env,optional"`
+	UIBaseURL              string         `hcl:"ui_base_url,optional"`
 	LogsDir                string         `hcl:"logs_dir,optional"`
 	GitHubApp              *githubAppBody `hcl:"github_app,block"`
 	Approval               *approvalBody  `hcl:"approval,block"`
@@ -176,7 +180,7 @@ func decodeServe(blk *hclsyntax.Block) (*ServeConfig, error) {
 	s := &ServeConfig{
 		DBPath:                 b.DBPath,
 		PublicBaseURL:          b.PublicBaseURL,
-		WebhookSecretEnv:       b.WebhookSecretEnv,
+		UIBaseURL:              strings.TrimRight(b.UIBaseURL, "/"),
 		GitHubWebhookSecretEnv: b.GitHubWebhookSecretEnv,
 		LogsDir:                b.LogsDir,
 	}

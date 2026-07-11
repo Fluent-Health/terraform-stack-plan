@@ -5,12 +5,9 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"testing"
-	"time"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
-	"github.com/Fluent-Health/terraform-stack-plan/internal/jwtutil"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
 
@@ -54,16 +51,17 @@ func TestHealthz(t *testing.T) {
 	}
 }
 
-// TestBearerAuth verifies that malformed/unrecognized bearer values are
-// rejected with 401 once an OIDC verifier is configured (WebhookSecret plays
-// no role in /api/* auth any more — only the 30-day view-JWT uses it).
+// TestBearerAuth verifies that malformed/unrecognized bearer values —
+// including an HS256 JWT shaped like the deleted legacy shared-secret
+// credential — are rejected with 401 once an OIDC verifier is configured.
 func TestBearerAuth(t *testing.T) {
-	a := New(nil, &MockGitHub{}, Config{WebhookSecret: "s3cret"})
+	a := New(nil, &MockGitHub{}, Config{})
 	a.APIVerifier = fakeOIDC(map[string]string{"good-token": "runner@x.iam.gserviceaccount.com"})
 	srv := httptest.NewServer(a.Routes())
 	defer srv.Close()
 
-	for _, h := range []string{"", "Bearer notajwt", "s3cret", "Bearer wrong-token"} {
+	legacyHS256 := "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJydW5uZXIiLCJhdWQiOiJhcGkifQ.3vJ0X1Zb6nYFhZ0m9m0v3wJ8vHc0d9XoJb5r8sQxYQU"
+	for _, h := range []string{"", "Bearer notajwt", "s3cret", "Bearer wrong-token", legacyHS256} {
 		req, _ := http.NewRequest("POST", srv.URL+"/api/init", nil)
 		if h != "" {
 			req.Header.Set("Authorization", h)
@@ -79,33 +77,8 @@ func TestBearerAuth(t *testing.T) {
 	}
 }
 
-// TestHS256TokenRejected verifies that the deleted legacy shared-secret HS256
-// path no longer grants /api/* access: a token minted from the configured
-// WebhookSecret (aud=api) is rejected once an OIDC verifier is wired up.
-func TestHS256TokenRejected(t *testing.T) {
-	a := New(nil, &MockGitHub{}, Config{WebhookSecret: "s3cret"})
-	a.APIVerifier = fakeOIDC(map[string]string{}) // OIDC configured; accepts nothing here
-	srv := httptest.NewServer(a.Routes())
-	defer srv.Close()
-
-	tok, err := jwtutil.Make("s3cret", "runner", "api", time.Hour)
-	if err != nil {
-		t.Fatal(err)
-	}
-	req, _ := http.NewRequest("POST", srv.URL+"/api/init", nil)
-	req.Header.Set("Authorization", "Bearer "+tok)
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	resp.Body.Close()
-	if resp.StatusCode != http.StatusUnauthorized {
-		t.Errorf("legacy HS256 JWT: got %d, want 401 (shared-secret /api/* auth was removed)", resp.StatusCode)
-	}
-}
-
 // TestAuthDisabledWithoutVerifier: with no APIVerifier configured (local/dev),
-// /api/* auth is disabled entirely — WebhookSecret has no bearing on this path.
+// /api/* auth is disabled entirely (local/dev).
 func TestAuthDisabledWithoutVerifier(t *testing.T) {
 	a := New(nil, &MockGitHub{}, Config{})
 	srv := httptest.NewServer(a.Routes())
@@ -189,13 +162,10 @@ func TestOIDCAuthScopes(t *testing.T) {
 	}
 }
 
-// TestHS256RejectedOIDCAccepted verifies the post-HS256-deletion posture: with
-// the (still-configured, view-JWT-only) shared secret and an OIDC verifier
-// both present, a legacy HS256 token is rejected while a scoped OIDC token
-// passes through.
+// TestHS256RejectedOIDCAccepted verifies the post-HS256-deletion posture: a
+// legacy HS256 token is rejected while a scoped OIDC token passes through.
 func TestHS256RejectedOIDCAccepted(t *testing.T) {
 	a := New(nil, &MockGitHub{}, Config{
-		WebhookSecret: "s3cret",
 		APIPrincipals: map[string][]string{"runner@x.iam.gserviceaccount.com": {"report"}},
 	})
 	a.APIVerifier = fakeOIDC(map[string]string{"tok-runner": "runner@x.iam.gserviceaccount.com"})
@@ -214,9 +184,10 @@ func TestHS256RejectedOIDCAccepted(t *testing.T) {
 		t.Errorf("oidc token = %d, want pass-through", resp.StatusCode)
 	}
 
-	// A legacy HS256 token minted from the WebhookSecret must be rejected — the
-	// shared-secret /api/* path is gone (WebhookSecret only signs view-JWTs now).
-	hs, _ := jwtutil.Make("s3cret", "runner", "api", time.Hour)
+	// A legacy HS256-shaped token (the deleted shared-secret credential) is
+	// rejected like any unrecognized bearer — there is no secret-comparison
+	// branch left on /api/*, and no signing secret configured at all.
+	hs := "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJydW5uZXIiLCJhdWQiOiJhcGkifQ.3vJ0X1Zb6nYFhZ0m9m0v3wJ8vHc0d9XoJb5r8sQxYQU"
 	req2, _ := http.NewRequest("POST", srv.URL+"/api/init", nil)
 	req2.Header.Set("Authorization", "Bearer "+hs)
 	resp2, err := http.DefaultClient.Do(req2)
@@ -227,20 +198,6 @@ func TestHS256RejectedOIDCAccepted(t *testing.T) {
 	if resp2.StatusCode != http.StatusUnauthorized {
 		t.Errorf("legacy hs256 token = %d, want 401", resp2.StatusCode)
 	}
-
-	// A wrong-secret HS256 token is rejected the same way (never reaches a
-	// secret-comparison branch — there is none left on /api/*).
-	bad, _ := jwtutil.Make("wrong", "runner", "api", time.Hour)
-	req3, _ := http.NewRequest("POST", srv.URL+"/api/init", nil)
-	req3.Header.Set("Authorization", "Bearer "+bad)
-	resp3, err := http.DefaultClient.Do(req3)
-	if err != nil {
-		t.Fatal(err)
-	}
-	resp3.Body.Close()
-	if resp3.StatusCode != http.StatusUnauthorized {
-		t.Errorf("wrong-secret hs256 = %d, want 401", resp3.StatusCode)
-	}
 }
 
 // TestAuthActorInContext: handlers must see the verified OIDC identity via
@@ -248,7 +205,6 @@ func TestHS256RejectedOIDCAccepted(t *testing.T) {
 // ever runs, so Actor stays unset for it.
 func TestAuthActorInContext(t *testing.T) {
 	a := New(nil, &MockGitHub{}, Config{
-		WebhookSecret: "s3cret",
 		APIPrincipals: map[string][]string{"runner@x.iam.gserviceaccount.com": {"report"}},
 	})
 	a.APIVerifier = fakeOIDC(map[string]string{"tok-runner": "Runner@x.iam.gserviceaccount.com"}) // mixed case → lowered
@@ -272,7 +228,7 @@ func TestAuthActorInContext(t *testing.T) {
 
 	// A legacy HS256 token is rejected before the handler runs — Actor stays unset.
 	gotActor = ""
-	hs, _ := jwtutil.Make("s3cret", "runner", "api", time.Hour)
+	hs := "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJydW5uZXIiLCJhdWQiOiJhcGkifQ.3vJ0X1Zb6nYFhZ0m9m0v3wJ8vHc0d9XoJb5r8sQxYQU"
 	req2, _ := http.NewRequest("POST", srv.URL, nil)
 	req2.Header.Set("Authorization", "Bearer "+hs)
 	resp2, err := http.DefaultClient.Do(req2)
@@ -306,91 +262,33 @@ func TestOIDCOnlyEnforcedWithoutSecret(t *testing.T) {
 	}
 }
 
-func TestViewAuth(t *testing.T) {
+func TestRetiredViewerRoutesGone(t *testing.T) {
 	db := newServerTestDB(t)
 	_ = store.UpsertInit(db, events.Init{
 		ID: "e1", Repo: "o/r", Environment: "staging",
 		Stacks: []events.StackState{{Path: "stacks/a"}},
 	})
 
-	a := New(db, &MockGitHub{}, Config{WebhookSecret: "s3cret"})
+	a := New(db, &MockGitHub{}, Config{})
 	srv := httptest.NewServer(a.Routes())
 	defer srv.Close()
 
-	// No token → 401
-	r1, err := http.Get(srv.URL + "/live/e1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	r1.Body.Close()
-	if r1.StatusCode != http.StatusUnauthorized {
-		t.Errorf("/live without token = %d, want 401", r1.StatusCode)
-	}
-
-	// Wrong-secret token → 401
-	badTok, _ := jwtutil.Make("other", "viewer", "view", 30*24*time.Hour)
-	r2, _ := http.Get(srv.URL + "/live/e1?token=" + badTok)
-	r2.Body.Close()
-	if r2.StatusCode != http.StatusUnauthorized {
-		t.Errorf("/live with wrong-secret token = %d, want 401", r2.StatusCode)
-	}
-
-	// Valid view token → 200 + session cookie
-	tok, _ := jwtutil.Make("s3cret", "viewer", "view", 30*24*time.Hour)
-	r3, err := http.Get(srv.URL + "/live/e1?token=" + tok)
-	if err != nil {
-		t.Fatal(err)
-	}
-	r3.Body.Close()
-	if r3.StatusCode != http.StatusOK {
-		t.Errorf("/live with valid token = %d, want 200", r3.StatusCode)
-	}
-	var cookie *http.Cookie
-	for _, c := range r3.Cookies() {
-		if c.Name == "view_session" {
-			cookie = c
+	// The HTML viewer and its view-JWT machinery retired with the central UI.
+	for _, path := range []string{"/", "/live/e1", "/live/e1/events", "/pr/7", "/assets/app.css"} {
+		r, err := http.Get(srv.URL + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		r.Body.Close()
+		if r.StatusCode != http.StatusNotFound {
+			t.Errorf("%s = %d, want 404 (viewer retired)", path, r.StatusCode)
 		}
 	}
-	if cookie == nil {
-		t.Error("view_session cookie not set after ?token= access")
-	}
 
-	// Cookie path: subsequent request with cookie (no token) → 200
-	jar := &singleCookieJar{cookie: cookie}
-	client := &http.Client{Jar: jar}
-	r4, err := client.Get(srv.URL + "/live/e1")
-	if err != nil {
-		t.Fatal(err)
+	// /img stays public (GitHub camo fetches SVGs without auth).
+	r, _ := http.Get(srv.URL + "/img/e1.svg")
+	r.Body.Close()
+	if r.StatusCode != http.StatusOK {
+		t.Errorf("/img = %d, want 200 (public)", r.StatusCode)
 	}
-	r4.Body.Close()
-	if r4.StatusCode != http.StatusOK {
-		t.Errorf("/live with session cookie = %d, want 200", r4.StatusCode)
-	}
-
-	// /img is always public (GitHub camo fetches SVGs without auth)
-	r5, _ := http.Get(srv.URL + "/img/e1.svg")
-	r5.Body.Close()
-	if r5.StatusCode == http.StatusUnauthorized {
-		t.Error("/img must be public (no view auth)")
-	}
-
-	// No-secret config → all routes open
-	a2 := New(db, &MockGitHub{}, Config{})
-	srv2 := httptest.NewServer(a2.Routes())
-	defer srv2.Close()
-	r6, _ := http.Get(srv2.URL + "/live/e1")
-	r6.Body.Close()
-	if r6.StatusCode == http.StatusUnauthorized {
-		t.Error("/live without secret config must be open")
-	}
-}
-
-// singleCookieJar is a trivial http.CookieJar that holds one cookie for tests.
-type singleCookieJar struct {
-	cookie *http.Cookie
-}
-
-func (j *singleCookieJar) SetCookies(_ *url.URL, _ []*http.Cookie) {}
-func (j *singleCookieJar) Cookies(_ *url.URL) []*http.Cookie {
-	return []*http.Cookie{j.cookie}
 }

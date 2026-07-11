@@ -77,7 +77,6 @@ func TestLogsE2E(t *testing.T) {
 	db := newServerTestDB(t)
 	a := New(db, &MockGitHub{}, Config{
 		LogsDir:       t.TempDir(),
-		WebhookSecret: "s",
 		APIPrincipals: map[string][]string{"runner@x.iam.gserviceaccount.com": {"report"}},
 	})
 	a.APIVerifier = fakeOIDC(map[string]string{"tok-runner": "runner@x.iam.gserviceaccount.com"})
@@ -103,7 +102,11 @@ func TestLogsE2E(t *testing.T) {
 		t.Fatalf("post2 = %d", c)
 	}
 
-	resp, err := http.Get(srv.URL + "/logs/e1/stacks/a")
+	// /logs is OIDC-scoped now (the central UI proxies it) — read with the
+	// same verified identity the ingest used.
+	greq, _ := http.NewRequest("GET", srv.URL+"/logs/e1/stacks/a", nil)
+	greq.Header.Set("Authorization", "Bearer tok-runner")
+	resp, err := http.DefaultClient.Do(greq)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,7 +123,16 @@ func TestLogsE2E(t *testing.T) {
 		t.Errorf("/api/logs without bearer = %d, want 401", resp2.StatusCode)
 	}
 
-	r3, _ := http.Get(srv.URL + "/logs/e1/stacks/nope")
+	// Unauthenticated /logs reads are rejected before any lookup.
+	rAnon, _ := http.Get(srv.URL + "/logs/e1/stacks/a")
+	rAnon.Body.Close()
+	if rAnon.StatusCode != http.StatusUnauthorized {
+		t.Errorf("anonymous /logs = %d, want 401", rAnon.StatusCode)
+	}
+
+	r3req, _ := http.NewRequest("GET", srv.URL+"/logs/e1/stacks/nope", nil)
+	r3req.Header.Set("Authorization", "Bearer tok-runner")
+	r3, _ := http.DefaultClient.Do(r3req)
 	r3.Body.Close()
 	if r3.StatusCode != 404 {
 		t.Errorf("unknown log = %d, want 404", r3.StatusCode)
@@ -308,7 +320,11 @@ func TestOffloadAndServeFromStore(t *testing.T) {
 
 	srv := httptest.NewServer(a.Routes())
 	defer srv.Close()
-	resp, err := http.Get(srv.URL + "/logs/e1/stacks/a")
+	// /logs is OIDC-scoped now (the central UI proxies it) — read with the
+	// same verified identity the ingest used.
+	greq, _ := http.NewRequest("GET", srv.URL+"/logs/e1/stacks/a", nil)
+	greq.Header.Set("Authorization", "Bearer tok-runner")
+	resp, err := http.DefaultClient.Do(greq)
 	if err != nil {
 		t.Fatal(err)
 	}

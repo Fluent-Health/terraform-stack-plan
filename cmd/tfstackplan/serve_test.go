@@ -41,7 +41,7 @@ func TestBuildServeAppBootsReady(t *testing.T) {
 		return func(context.Context) (string, error) { return "tok", nil },
 			func(context.Context, string) (string, error) { return "imp", nil }, nil
 	}
-	app, cleanup, err := buildServeApp(context.Background(), cfg, "secret", "", fakeCreds)
+	app, cleanup, err := buildServeApp(context.Background(), cfg, "", fakeCreds)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,7 +85,7 @@ func TestBuildServeAppAPIAuthNeedsAudience(t *testing.T) {
 			APIAuth:   &config.APIAuthConfig{Principals: []config.APIAuthPrincipal{{Email: "a@b.c", Scopes: []string{"report"}}}},
 		},
 	}
-	if _, _, err := buildServeApp(context.Background(), cfg, "", "", nil); err == nil || !strings.Contains(err.Error(), "audience") {
+	if _, _, err := buildServeApp(context.Background(), cfg, "", nil); err == nil || !strings.Contains(err.Error(), "audience") {
 		t.Fatalf("want audience startup error, got %v", err)
 	}
 }
@@ -101,7 +101,7 @@ func TestBuildServeAppWiresAPIVerifier(t *testing.T) {
 			APIAuth:       &config.APIAuthConfig{Principals: []config.APIAuthPrincipal{{Email: "a@b.c", Scopes: []string{"report"}}}},
 		},
 	}
-	app, cleanup, err := buildServeApp(context.Background(), cfg, "", "", nil)
+	app, cleanup, err := buildServeApp(context.Background(), cfg, "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +122,7 @@ func TestBuildServeAppWiresAPIVerifier(t *testing.T) {
 }
 
 func TestBuildServeAppRequiresServeBlock(t *testing.T) {
-	if _, _, err := buildServeApp(context.Background(), &config.Config{}, "", "", nil); err == nil {
+	if _, _, err := buildServeApp(context.Background(), &config.Config{}, "", nil); err == nil {
 		t.Error("want error when no serve block is configured")
 	}
 }

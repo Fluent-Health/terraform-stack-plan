@@ -78,7 +78,6 @@ func TestDriverE2E(t *testing.T) {
 		},
 	}
 	app := server.New(db, gh, server.Config{
-		WebhookSecret:       apiSecret,
 		GitHubWebhookSecret: whSecret,
 		Environment:         "nonprod",
 		PublicBaseURL:       "https://serve.e2e",

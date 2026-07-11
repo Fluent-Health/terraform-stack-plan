@@ -21,7 +21,7 @@ func TestSeedScenarioHitsEndpoints(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	planID, applyID, err := SeedScenario(ctx, srv.URL, "test-secret")
+	planID, applyID, err := SeedScenario(ctx, srv.URL)
 	if err != nil {
 		t.Fatalf("SeedScenario failed: %v", err)
 	}
@@ -49,7 +49,7 @@ func TestSeedScenarioTransportFailure(t *testing.T) {
 	defer cancel()
 
 	// Calling SeedScenario against a failing server must return a non-nil error
-	_, _, err := SeedScenario(ctx, srv.URL, "test-secret")
+	_, _, err := SeedScenario(ctx, srv.URL)
 	if err == nil {
 		t.Fatal("expected SeedScenario to fail, but it returned no error")
 	}

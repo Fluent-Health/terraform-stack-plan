@@ -17,7 +17,6 @@ import (
 func TestGetExecution(t *testing.T) {
 	db := newServerTestDB(t)
 	a := New(db, &MockGitHub{}, Config{
-		WebhookSecret: "s3cret",
 		APIPrincipals: map[string][]string{"runner@x.iam.gserviceaccount.com": {"report"}},
 	})
 	a.APIVerifier = fakeOIDC(map[string]string{"tok-runner": "runner@x.iam.gserviceaccount.com"})

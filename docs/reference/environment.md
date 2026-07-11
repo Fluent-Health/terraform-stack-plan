@@ -68,7 +68,6 @@ the requester pool so `run apply` can mint the token. See
 
 | Config field | Env var read at startup | Required | Meaning |
 |---|---|---|---|
-| `serve { webhook_secret_env = "…" }` | The name stored in the field (e.g. `TFSTACKPLAN_WEBHOOK_SECRET`) | No | Secret that signs the 30-day **view-JWTs** for the live-viewer routes (`/`, `/pr/*`, `/live/*`). It no longer authenticates `/api/*` — that path is OIDC-only (`api_auth {}`); the legacy shared-secret HS256 `/api/*` scheme was removed. ⚠️ Still cannot be dropped until the viewer machinery is replaced, since it's the only thing gating those routes. |
 | `serve { github_webhook_secret_env = "…" }` | The name stored in the field (e.g. `GITHUB_WEBHOOK_SECRET`) | No | HMAC secret for validating GitHub webhook payloads. If empty, webhook HMAC validation is skipped. |
 
 All other `serve` credentials (GitHub App private key, GCP/PAM, GCS) are
@@ -107,5 +106,4 @@ No other `TFSTACKPLAN_*` variables are read by `state` subcommands.
 | `TFSTACKPLAN_PR` | run, state | Read |
 | `TFSTACKPLAN_STACK` | run | Read |
 | `GOOGLE_OAUTH_ACCESS_TOKEN` | run apply (`--impersonate-requester`) | Written |
-| *(name in `webhook_secret_env`)* | serve | Read |
 | *(name in `github_webhook_secret_env`)* | serve | Read |
