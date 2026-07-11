@@ -264,9 +264,10 @@ func TestMergeGroupCheckNameFollowsArming(t *testing.T) {
 
 // TestConsolidatedGateLockThenReleaseSucceeds: the full gate → lock → success
 // sequencing on the consolidated check. A PAM-gated plan whose stacks overlap
-// another PR's in-flight apply must go action_required (gate pending — the
-// held lock must NOT mask the gate) → "" with the lock's waiting title (gate
-// satisfied, lock still held) → success (claim released).
+// another PR's in-flight apply stays in_progress with the awaiting-approval
+// title (waiting on a human is pending, not action_required; the held lock
+// must NOT mask the gate) → "" with the lock's waiting title (gate satisfied,
+// lock still held) → success (claim released).
 func TestConsolidatedGateLockThenReleaseSucceeds(t *testing.T) {
 	a, fe, srv, snap := consolidatedApp(t)
 	fake := approval.NewFake()
@@ -294,11 +295,14 @@ func TestConsolidatedGateLockThenReleaseSucceeds(t *testing.T) {
 		t.Fatalf("finalize = %d", code)
 	}
 
-	// The gate is pending approval: action_required, even though PR #3's claim
-	// also overlaps — the gate takes precedence over the lock.
+	// The gate is pending approval: the check stays in_progress and the title
+	// names the wait — the gate takes precedence over the (also-waiting) lock.
 	last := snap()[len(snap())-1]
-	if last.Conclusion != "action_required" {
-		t.Fatalf("conclusion while gate pending = %q, want action_required", last.Conclusion)
+	if last.Conclusion != "" {
+		t.Fatalf("conclusion while gate pending = %q, want \"\" (in_progress)", last.Conclusion)
+	}
+	if last.Title != "awaiting approval — 0 of 1 gates active" {
+		t.Fatalf("title while gate pending = %q", last.Title)
 	}
 
 	// Approver grants the gate; the reconcile tick converges it to ACTIVE and

@@ -80,7 +80,8 @@ type App struct {
 	cfg Config
 	hub *hub
 	// Approval is the optional approval-gate backend. nil disables gating
-	// (gates recorded AWAITING are never satisfied → action_required). Set after
+	// (gates recorded AWAITING are never satisfied — the check stays pending
+	// with the awaiting-approval title). Set after
 	// construction (e.g. by the serve command), so New's signature is unchanged.
 	Approval approval.Backend
 	// Objects is the optional object store for completed-log offload. nil keeps

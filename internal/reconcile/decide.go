@@ -262,11 +262,12 @@ func decideObserve(state ChangeSet, obs []ObservedGrant, fullRelist bool) []Even
 	}
 
 	// Awaiting-approval fallthrough: targets exist, all have grants, none ACTIVE,
-	// none re-armable, not was-active → the gate STAYS Pending but renders TERMINAL
-	// action_required (step.go:346-347). We emit NO outcome fact (emitting
-	// GateBlocked would wrongly fold to Blocked); React projects the terminal
-	// action_required from the post-fold Pending state with no outcome event in the
-	// batch. The GrantObserved facts still fold the observation into state.
+	// none re-armable, not was-active → the gate STAYS Pending and the check
+	// renders NON-terminal (in_progress with the awaiting-approval title —
+	// waiting on a human is pending, not a verdict). We emit NO outcome fact
+	// (emitting GateBlocked would wrongly fold to Blocked); React projects the
+	// pending render from the post-fold Pending state with no outcome event in
+	// the batch. The GrantObserved facts still fold the observation into state.
 	return evs
 }
 

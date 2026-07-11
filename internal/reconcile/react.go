@@ -7,16 +7,17 @@ func React(state ChangeSet, evs []Event) []Action {
 	var actions []Action
 
 	// Presentation precedence: 0=none, 1=in-progress, 2=success, 3=failure.
-	// (action_required outcomes are TERMINAL and ride precedence 2.) Higher
-	// precedence wins; exactly one RenderCheckRun+PublishSSE per Step.
+	// (Denied/revoked/expired action_required outcomes are TERMINAL and ride
+	// precedence 2; awaiting-approval renders non-terminal at precedence 1.)
+	// Higher precedence wins; exactly one RenderCheckRun+PublishSSE per Step.
 	renderPrec := 0
 	var renderAction RenderCheckRun
 	sseOnly := false // PR-closed path: SSE without RenderCheckRun
 
 	// Observe-path projection: a GrantObserved/GrantCleared batch with NO outcome
 	// event (GateSatisfied / GateBlocked / GateTargetRequested) is the settled
-	// awaiting-approval fallthrough — it stays Pending but renders TERMINAL
-	// action_required, derived below from the post-fold state.Gate. (The state is
+	// awaiting-approval fallthrough — it stays Pending and renders non-terminal
+	// (in_progress), derived below from the post-fold state.Gate. (The state is
 	// itself derived from these facts, so this is a legitimate CQRS projection.)
 	observeBatch := false
 	gateOutcome := false
@@ -126,12 +127,16 @@ func React(state ChangeSet, evs []Event) []Action {
 			sseOnly = true
 		}
 	}
-	// Settled awaiting-approval fallthrough: an observe batch with no gate outcome
-	// that left the gate Pending renders TERMINAL action_required (step.go:346-347).
+	// Settled awaiting-approval fallthrough: an observe batch with no gate
+	// outcome that left the gate Pending renders NON-terminal — the check stays
+	// in_progress (pending) while a human is being waited on. Waiting is not a
+	// verdict: GitHub renders action_required red, and an unapproved gate has
+	// not failed. The verdict comes later as GateSatisfied (success) or
+	// GateBlocked (action_required for denied/revoked/expired).
 	if observeBatch && !gateOutcome {
-		if _, pending := state.Gate.(Pending); pending && renderPrec < 2 {
-			renderPrec = 2
-			renderAction = RenderCheckRun{Terminal: true, Conclusion: "action_required"}
+		if _, pending := state.Gate.(Pending); pending && renderPrec < 1 {
+			renderPrec = 1
+			renderAction = RenderCheckRun{}
 		}
 	}
 
