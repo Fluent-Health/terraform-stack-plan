@@ -475,11 +475,12 @@ components:
       properties:
         stacks:
           type: array
+          description: Always an array — empty (never null) for a zero-stack execution.
           items:
             $ref: "#/components/schemas/StackState"
         edges:
           type: array
-          nullable: true
+          description: Always an array, never null (serves < v0.25.2 emitted null).
           items:
             $ref: "#/components/schemas/Edge"
       x-go-type: events.Graph

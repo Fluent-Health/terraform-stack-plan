@@ -117,7 +117,10 @@ func UpdateStack(db *sql.DB, id, stack string, status events.Status, detail stri
 
 // LoadGraph loads the stacks (ordered by path) and edges of an execution.
 func LoadGraph(db *sql.DB, id string) (events.Graph, error) {
-	var g events.Graph
+	// Non-nil slices always: a zero-stack execution (a change outside the
+	// stack tree) must serialize as "stacks": [] — the API contract declares
+	// arrays, and a nil slice marshals to null (it crashed the UI live).
+	g := events.Graph{Stacks: []events.StackState{}, Edges: []events.Edge{}}
 	rows, err := db.Query(
 		`SELECT stack_path, COALESCE(project,''), COALESCE(status,''), COALESCE(detail,''), COALESCE(categories,''), COALESCE(counts,'')
 		 FROM stacks WHERE execution_id = ? ORDER BY stack_path`, id)

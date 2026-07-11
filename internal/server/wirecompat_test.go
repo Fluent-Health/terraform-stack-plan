@@ -155,6 +155,22 @@ func TestAPIWireCompat(t *testing.T) {
 			name: "15-execution-404", method: "GET", path: "/api/execution/nope", token: "tok",
 		},
 		{
+			// A change outside the stack tree: zero stacks. The graph arrays
+			// must be [] (never null — it crashed the UI live on run-759).
+			name: "15b-execution-zero-stacks", method: "GET", path: "/api/execution/e3", token: "tok",
+			seed: func(t *testing.T) {
+				if err := store.UpsertInit(db, events.Init{
+					ID: "e3", Repo: "o/r", SHA: "0000aaaa0000", PR: 9, Environment: "staging",
+					LogURL: "https://ci/logs/3",
+				}); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := db.Exec(`UPDATE executions SET created_at = ? WHERE id = 'e3'`, fixed); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
 			name: "16-unauthorized", method: "POST", path: "/api/claims/list", token: "",
 			body: `{"environment":"staging"}`,
 		},

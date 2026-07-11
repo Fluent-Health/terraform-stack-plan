@@ -48,7 +48,9 @@ export function ExecutionView() {
 const DONE = new Set(["planned", "safe", "nochange", "failed", "aborted", "gated", "moving"]);
 
 function Briefing(props: { tier: string; detail: ExecutionDetail }) {
-  const stacks = createMemo(() => props.detail.graph.stacks);
+  // Tolerate nulls from older tiers: pre-v0.25.2 serves marshalled a
+  // zero-stack graph as "stacks": null despite the contract's array.
+  const stacks = createMemo(() => props.detail.graph?.stacks ?? []);
   const progress = createMemo(() => {
     const total = stacks().length || 1;
     const done = stacks().filter((s) => DONE.has(s.status ?? "")).length;
@@ -80,7 +82,7 @@ function Briefing(props: { tier: string; detail: ExecutionDetail }) {
         </div>
       </header>
 
-      <Show when={props.detail.gates.length > 0}>
+      <Show when={(props.detail.gates ?? []).length > 0}>
         <section class="card bg-base-100 shadow-sm border-l-4 border-warning">
           <div class="card-body p-4">
             <h2 class="card-title text-base">approval gates</h2>
