@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
+	"html/template"
 	"log"
 	"net/http"
 	"strings"
@@ -116,8 +117,26 @@ func (a *App) handleCallback(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	clearCookie(w, nextCookie, "/auth")
-	http.Redirect(w, r, next, http.StatusFound)
+	// Land on a 200 interstitial that then navigates, instead of setting the
+	// cookie on a 302: browsers increasingly refuse cookies set on the
+	// return-from-provider redirect hop (bounce-tracking mitigations, strict
+	// third-party-cookie modes), while a cookie set by the top-level document
+	// the user actually lands on is always first-party. Seen live: Chrome
+	// stored the outbound state cookie but dropped the session cookie set on
+	// the callback 302.
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_ = signedInTmpl.Execute(w, next)
 }
+
+// signedInTmpl is the post-login landing page: it exists only to carry the
+// session Set-Cookie on a 200 document response, then continues to the
+// original destination. next is a validated same-origin path.
+var signedInTmpl = template.Must(template.New("signedin").Parse(`<!doctype html>
+<html><head><meta http-equiv="refresh" content="1;url={{.}}"></head>
+<body style="font-family: system-ui; padding: 2em; text-align: center">
+<p>Signed in — continuing…</p>
+<script>location.replace({{.}});</script>
+</body></html>`))
 
 // handleLogout drops the session cookie. POST-only (SameSite=Lax keeps
 // cross-site POSTs cookie-less, so this cannot be triggered cross-origin).
