@@ -1,11 +1,11 @@
 import { For, Show, Suspense, createEffect, createResource, createSignal, onCleanup } from "solid-js";
 import { api, executionEventsURL, type ExecutionSummary, type StackState } from "../api/client";
-import { contextKind, groupByProject } from "../prdata";
-import { Stepper } from "./Stepper";
+import { contextKind, groupByProject, progressCounts } from "../prdata";
+import { ProgressBlocks } from "./ProgressBlocks";
 import { StackDetail } from "./StackDetail";
 import { SEM_DOT, statusSem } from "../status";
 
-/** TierPanel: one tier's current run for a PR — stepper + context chips + project groups + drill-in. */
+/** TierPanel: one tier's current run for a PR — progress blocks + context chips + project groups + drill-in. */
 export function TierPanel(props: {
   tier: string;
   summary: ExecutionSummary;
@@ -42,11 +42,6 @@ export function TierPanel(props: {
           <span class="font-bold text-sm">{props.tier}</span>
           <span class="ml-auto badge badge-ghost badge-sm font-mono">{props.summary.context}</span>
         </div>
-        <Stepper
-          phase={props.summary.phase}
-          status={props.summary.status}
-          caption={`${props.summary.phase || "queued"} · ${new Date(props.summary.created_at).toLocaleTimeString()}`}
-        />
         <div class="flex flex-wrap gap-2">
           <For each={props.contexts}>
             {(c) => (
@@ -60,37 +55,45 @@ export function TierPanel(props: {
         <Suspense fallback={<span class="loading loading-dots loading-sm" />}>
           <Show when={detail()}>
             {(d) => (
-              <For each={groupByProject(d().graph?.stacks ?? [])}>
-                {(g) => (
-                  <div class="rounded-field border border-base-300" classList={{ "border-error/50": g.failed }}>
-                    <div class="px-3 py-2 bg-base-100 text-xs font-mono rounded-t-field">{g.project}</div>
-                    <For each={g.stacks}>
-                      {(s) => (
-                        <div class="border-t border-base-300">
-                          <button
-                            class="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-base-100"
-                            onClick={() => setOpen(open() === s.path ? undefined : s.path)}
-                          >
-                            <span class="font-mono text-xs">{s.path}</span>
-                            <span class="text-xs opacity-50">{countsLabel(s)}</span>
-                            <span
-                              class="ml-auto inline-flex items-center gap-1 text-xs"
-                              style={{ color: SEM_DOT[statusSem(s.status ?? "")] }}
+              <>
+                {(() => {
+                  const stacks = d().graph?.stacks ?? [];
+                  const c = progressCounts(stacks);
+                  const caption = `${props.summary.phase || "queued"} · ${c.done}/${c.total} done${c.failed ? ` · ${c.failed} failed` : ""}`;
+                  return <ProgressBlocks stacks={stacks} caption={caption} />;
+                })()}
+                <For each={groupByProject(d().graph?.stacks ?? [])}>
+                  {(g) => (
+                    <div class="rounded-field border border-base-300" classList={{ "border-error/50": g.failed }}>
+                      <div class="px-3 py-2 bg-base-100 text-xs font-mono rounded-t-field">{g.project}</div>
+                      <For each={g.stacks}>
+                        {(s) => (
+                          <div class="border-t border-base-300">
+                            <button
+                              class="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-base-100"
+                              onClick={() => setOpen(open() === s.path ? undefined : s.path)}
                             >
-                              ● {s.status || "pending"}
-                            </span>
-                          </button>
-                          <Show when={open() === s.path}>
-                            <div class="px-3 pb-3">
-                              <StackDetail tier={props.tier} exec={d().ID} stack={s} />
-                            </div>
-                          </Show>
-                        </div>
-                      )}
-                    </For>
-                  </div>
-                )}
-              </For>
+                              <span class="font-mono text-xs">{s.path}</span>
+                              <span class="text-xs opacity-50">{countsLabel(s)}</span>
+                              <span
+                                class="ml-auto inline-flex items-center gap-1 text-xs"
+                                style={{ color: SEM_DOT[statusSem(s.status ?? "")] }}
+                              >
+                                ● {s.status || "pending"}
+                              </span>
+                            </button>
+                            <Show when={open() === s.path}>
+                              <div class="px-3 pb-3">
+                                <StackDetail tier={props.tier} exec={d().ID} stack={s} />
+                              </div>
+                            </Show>
+                          </div>
+                        )}
+                      </For>
+                    </div>
+                  )}
+                </For>
+              </>
             )}
           </Show>
         </Suspense>

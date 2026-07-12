@@ -60,6 +60,17 @@ export function groupByProject(stacks: StackState[]): ProjectGroup[] {
   });
 }
 
+export function progressCounts(stacks: StackState[]): { done: number; running: number; failed: number; total: number } {
+  let done = 0, running = 0, failed = 0;
+  for (const s of stacks) {
+    const sem = statusSem(s.status ?? "");
+    if (sem === "ok") done++;
+    else if (sem === "running") running++;
+    else if (sem === "failed") failed++;
+  }
+  return { done, running, failed, total: stacks.length };
+}
+
 export function distinctPRs(execs: ExecutionSummary[]): number[] {
   const newest = new Map<number, string>();
   for (const e of execs) {

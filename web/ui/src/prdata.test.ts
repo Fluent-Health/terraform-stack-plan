@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { contextKind, primaryExec, latestPerContext, rollupSem, groupByProject, distinctPRs } from "./prdata";
+import { contextKind, primaryExec, latestPerContext, rollupSem, groupByProject, distinctPRs, progressCounts } from "./prdata";
 import type { ExecutionSummary, StackState } from "./api/client";
 
 const ex = (o: Partial<ExecutionSummary>): ExecutionSummary =>
@@ -67,6 +67,14 @@ describe("groupByProject", () => {
   it("uses (ungrouped) for empty project", () => {
     const g = groupByProject([{ path: "x/", project: "", status: "safe" } as StackState]);
     expect(g[0].project).toBe("(ungrouped)");
+  });
+});
+
+describe("progressCounts", () => {
+  it("tallies done/running/failed/total by semantic", () => {
+    const st = (status: string): StackState => ({ path: "p", status } as StackState);
+    const c = progressCounts([st("safe"), st("planned"), st("failed"), st("running"), st("pending")]);
+    expect(c).toEqual({ done: 2, running: 1, failed: 1, total: 5 });
   });
 });
 
