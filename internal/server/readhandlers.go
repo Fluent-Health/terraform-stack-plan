@@ -358,3 +358,129 @@ func (a *App) handleInspectEvents(w http.ResponseWriter, r *http.Request, stream
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(eventsList)
 }
+
+func (a *App) handleInspectOverview(w http.ResponseWriter, r *http.Request) {
+	// Find all unique PR numbers
+	rows, err := a.db.Query(`
+		SELECT DISTINCT pr FROM (
+			SELECT pr FROM executions
+			UNION
+			SELECT pr FROM gate_targets
+			UNION
+			SELECT pr FROM pr_meta
+		) ORDER BY pr DESC`)
+	if err != nil {
+		http.Error(w, "query prs", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var prs []int
+	for rows.Next() {
+		var pr int
+		if err := rows.Scan(&pr); err == nil {
+			prs = append(prs, pr)
+		}
+	}
+
+	overview := []api.InspectPRSummary{}
+	for _, pr := range prs {
+		execs, err := store.ListExecutionsForPR(a.db, pr)
+		if err != nil {
+			continue
+		}
+		meta, metaOK, err := store.GetPRMetaByPR(a.db, pr)
+		if err != nil {
+			continue
+		}
+
+		repo := ""
+		if len(execs) > 0 {
+			repo = execs[0].Repo
+		} else if metaOK {
+			repo = meta.Repo
+		}
+
+		// Read grants
+		grows, err := a.db.Query(`
+			SELECT pr, environment, class, target, COALESCE(grant_name,''), COALESCE(state,''), COALESCE(requester,'')
+			FROM gate_targets WHERE pr = ?`, pr)
+		var openGrants []api.InspectGrant
+		if err == nil {
+			for grows.Next() {
+				var g api.InspectGrant
+				if err := grows.Scan(&g.Pr, &g.Environment, &g.Class, &g.Target, &g.GrantName, &g.State, &g.Requester); err == nil {
+					openGrants = append(openGrants, g)
+				}
+			}
+			grows.Close()
+		}
+
+		// Read claims across environment
+		env := a.cfg.Environment
+		var claimsList []api.InspectClaim
+		if env != "" {
+			cstate, _, err := a.claimsDecider.Load(a.eventStore, envStreamID(env))
+			if err == nil {
+				for stack, cl := range cstate {
+					if cl.PR == pr {
+						claimsList = append(claimsList, api.InspectClaim{
+							Stack:     stack,
+							Pr:        cl.PR,
+							ExpiresAt: cl.ExpiresAt,
+						})
+					}
+				}
+			}
+		}
+
+		// Load GateState name
+		gateStateStr := "NotClassified"
+		if env != "" {
+			cs, _, err := a.gateDecider.Load(a.eventStore, execStreamID(pr, env))
+			if err == nil && cs.Gate != nil {
+				gateStateStr = strings.TrimPrefix(fmt.Sprintf("%T", cs.Gate), "reconcile.")
+			}
+		}
+
+		summaries := []api.ExecutionSummary{}
+		for _, e := range execs {
+			summaries = append(summaries, api.ExecutionSummary{
+				Id:           e.ID,
+				Repo:         e.Repo,
+				Sha:          e.SHA,
+				Pr:           e.PR,
+				Environment:  e.Environment,
+				Context:      e.StatusContext,
+				Status:       e.Status,
+				Phase:        e.Phase,
+				CreatedAt:    e.CreatedAt,
+				SupersededBy: e.SupersededBy,
+				LogUrl:       e.LogURL,
+			})
+		}
+
+		sum := api.InspectPRSummary{
+			Pr:         pr,
+			Repo:       repo,
+			GateState:  gateStateStr,
+			OpenGrants: openGrants,
+			Claims:     claimsList,
+			Executions: summaries,
+		}
+		if metaOK {
+			sum.Meta = &api.PRMeta{
+				Title:       meta.Title,
+				Body:        meta.Body,
+				AuthorLogin: meta.AuthorLogin,
+				HeadRef:     meta.HeadRef,
+				Url:         meta.URL,
+				AutoMerge:   meta.AutoMerge,
+			}
+		}
+		overview = append(overview, sum)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(overview)
+}

@@ -13,6 +13,7 @@ import (
 	"github.com/Fluent-Health/terraform-stack-plan/internal/claims"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/reconcile"
+	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
 
 func TestInspectGrants(t *testing.T) {
@@ -284,5 +285,56 @@ func TestInspectEvents(t *testing.T) {
 
 	if len(eventsAfter) != 0 {
 		t.Fatalf("len = %d; want 0", len(eventsAfter))
+	}
+}
+
+func TestInspectOverview(t *testing.T) {
+	db := newServerTestDB(t)
+	a := New(db, &MockGitHub{}, Config{Environment: "staging"})
+
+	// Seed PR metadata
+	err := store.UpsertPRMeta(db, store.PRMeta{
+		Repo: "fluent/repo", PR: 7, Title: "Some PR Title", Body: "PR body",
+		AuthorLogin: "author", HeadRef: "branch-a", URL: "url-a", AutoMerge: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Seed an execution
+	initErr := store.UpsertInit(db, events.Init{ID: "exec-123", PR: 7, Environment: "staging", Repo: "fluent/repo", SHA: "abcdef"})
+	if initErr != nil {
+		t.Fatal(initErr)
+	}
+
+	srv := httptest.NewServer(a.Routes())
+	defer srv.Close()
+
+	req, _ := http.NewRequest("GET", srv.URL+"/api/inspect/overview", nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d; want 200", resp.StatusCode)
+	}
+
+	var overview []api.InspectPRSummary
+	if err := json.NewDecoder(resp.Body).Decode(&overview); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(overview) != 1 {
+		t.Fatalf("len = %d; want 1", len(overview))
+	}
+
+	sum := overview[0]
+	if sum.Pr != 7 || sum.Repo != "fluent/repo" {
+		t.Fatalf("summary mismatch: %+v", sum)
+	}
+	if sum.Meta == nil || sum.Meta.Title != "Some PR Title" {
+		t.Fatalf("meta mismatch: %+v", sum.Meta)
 	}
 }

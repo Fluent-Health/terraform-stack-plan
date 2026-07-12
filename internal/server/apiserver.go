@@ -59,7 +59,7 @@ func (s apiServer) InspectGrants(w http.ResponseWriter, r *http.Request, params 
 }
 
 func (s apiServer) InspectOverview(w http.ResponseWriter, r *http.Request) {
-	http.Error(w, "not implemented", http.StatusNotImplemented)
+	s.app.handleInspectOverview(w, r)
 }
 
 // apiAuth is the OIDC auth middleware for the generated router. The accepted
