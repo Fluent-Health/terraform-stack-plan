@@ -85,7 +85,9 @@ func runTick(args []string) int {
 // planning starts.
 func runPhase(args []string) int {
 	fs := flag.NewFlagSet("run phase", flag.ContinueOnError)
-	phase := fs.String("phase", "", "lifecycle phase (warming|linting|initializing|planning|applying|testing|verifying)")
+	phase := fs.String("phase", "", "lifecycle phase name")
+	label := fs.String("label", "", "optional human-readable progress label")
+	pct := fs.Int("progress-pct", -1, "optional progress percentage (0-100)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -97,6 +99,10 @@ func runPhase(args []string) int {
 		fmt.Fprintf(os.Stderr, "tfstackplan run phase: unknown phase %q\n", *phase)
 		return 2
 	}
+	var pctPtr *int
+	if *pct >= 0 && *pct <= 100 {
+		pctPtr = pct
+	}
 	c := runner.ClientFromEnv()
 	_ = c.Phase(context.Background(), events.PhaseEvent{
 		ID:          execID,
@@ -105,6 +111,10 @@ func runPhase(args []string) int {
 		PR:          atoiOr0(os.Getenv("TFSTACKPLAN_PR")),
 		Environment: os.Getenv(runner.EnvEnvironment),
 		Phase:       events.Phase(*phase),
+		Label:       *label,
+		ProgressPct: pctPtr,
 	})
 	return 0
 }
+
+func intPtr(v int) *int { return &v }
