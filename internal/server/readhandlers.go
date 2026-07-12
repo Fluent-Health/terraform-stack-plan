@@ -1,10 +1,17 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"reflect"
+	"strings"
+	"time"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/api"
+	"github.com/Fluent-Health/terraform-stack-plan/internal/claims"
+	"github.com/Fluent-Health/terraform-stack-plan/internal/reconcile"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
 
@@ -145,4 +152,346 @@ func (a *App) handleGetPR(w http.ResponseWriter, _ *http.Request, pr int) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(out)
+}
+
+func (a *App) handleInspectGrants(w http.ResponseWriter, r *http.Request, params api.InspectGrantsParams) {
+	ctx := r.Context()
+	query := "SELECT pr, environment, class, target, COALESCE(grant_name,''), COALESCE(state,''), COALESCE(requester,'') FROM gate_targets"
+	if params.State != nil && *params.State == "open" {
+		query += " WHERE state IN ('AWAITING', 'ACTIVATING', 'ACTIVE')"
+	}
+	rows, err := a.db.Query(query)
+	if err != nil {
+		http.Error(w, "query grants", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	grants := []api.InspectGrant{}
+	for rows.Next() {
+		var g api.InspectGrant
+		if err := rows.Scan(&g.Pr, &g.Environment, &g.Class, &g.Target, &g.GrantName, &g.State, &g.Requester); err != nil {
+			http.Error(w, "scan grant", http.StatusInternalServerError)
+			return
+		}
+		grants = append(grants, g)
+	}
+
+	// Live drift check
+	if params.Live != nil && *params.Live == 1 && a.Approval != nil {
+		triggered := make(map[string]bool)
+		for i := range grants {
+			g := &grants[i]
+			liveGrants, lerr := a.Approval.ListGrants(ctx, g.Class, g.Target)
+			if lerr == nil {
+				for _, lg := range liveGrants {
+					if lg.Request.PR == g.Pr && lg.Request.Environment == g.Environment {
+						actual := string(lg.State)
+						if actual != g.State {
+							g.DriftDetected = ptr(true)
+							g.ActualState = ptr(actual)
+							
+							key := fmt.Sprintf("%d|%s", g.Pr, g.Environment)
+							if !triggered[key] {
+								triggered[key] = true
+								// Trigger self-healing nudge
+								a.reconcileBackground(g.Pr, g.Environment)
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(grants)
+}
+
+func ptr[T any](v T) *T { return &v }
+
+func (a *App) reconcileBackground(pr int, env string) {
+	go func() {
+		_ = a.shell.tick(context.Background(), pr, env)
+	}()
+}
+
+func (a *App) handleInspectGate(w http.ResponseWriter, r *http.Request, pr int, env string) {
+	streamID := execStreamID(pr, env)
+	
+	// Load ChangeSet state
+	cs, _, err := a.gateDecider.Load(a.eventStore, streamID)
+	if err != nil {
+		http.Error(w, "load changeset", http.StatusInternalServerError)
+		return
+	}
+
+	// Fetch raw events and timestamps in one single query
+	rows, err := a.db.Query(`SELECT version, type, occurred_at, data FROM events WHERE stream_id = ? ORDER BY version`, streamID)
+	if err != nil {
+		http.Error(w, "query events", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	type eventRow struct {
+		Version    int
+		Type       string
+		OccurredAt time.Time
+		Data       []byte
+	}
+
+	var stored []eventRow
+	for rows.Next() {
+		var er eventRow
+		if err := rows.Scan(&er.Version, &er.Type, &er.OccurredAt, &er.Data); err == nil {
+			stored = append(stored, er)
+		}
+	}
+
+	var reasons []api.InspectGateReason
+	// Replay and record changes
+	tempCS := a.gateDecider.Initial()
+	for _, se := range stored {
+		ev, derr := a.gateDecider.UnmarshalEvent(se.Type, se.Data)
+		if derr != nil {
+			continue
+		}
+		
+		prevGate := tempCS.Gate
+		tempCS = a.gateDecider.Evolve(tempCS, ev)
+		
+		// If the gate type or target states changed, record a reason
+		gateChanged := prevGate == nil || reflect.TypeOf(prevGate) != reflect.TypeOf(tempCS.Gate)
+		if !gateChanged && prevGate != nil {
+			// Deep state comparison
+			gateChanged = !reflect.DeepEqual(prevGate, tempCS.Gate)
+		}
+		
+		if gateChanged {
+			desc := fmt.Sprintf("Event %s occurred", se.Type)
+			reasons = append(reasons, api.InspectGateReason{
+				EventType:   se.Type,
+				OccurredAt:  se.OccurredAt,
+				Description: desc,
+			})
+		}
+	}
+
+	var targets []api.InspectGateTarget
+	switch v := cs.Gate.(type) {
+	case reconcile.Pending:
+		for _, t := range v.Targets {
+			targets = append(targets, api.InspectGateTarget{Class: t.Class, Target: t.Target, GrantName: t.GrantName, State: string(t.Grant), Requester: v.Lease.Requester})
+		}
+	case reconcile.Satisfied:
+		for _, t := range v.Targets {
+			targets = append(targets, api.InspectGateTarget{Class: t.Class, Target: t.Target, GrantName: t.GrantName, State: string(t.Grant), Requester: v.Lease.Requester})
+		}
+	case reconcile.Blocked:
+		for _, t := range v.Targets {
+			targets = append(targets, api.InspectGateTarget{Class: t.Class, Target: t.Target, GrantName: t.GrantName, State: string(t.Grant), Requester: v.Lease.Requester})
+		}
+	}
+
+	gateStateStr := "NotClassified"
+	if cs.Gate != nil {
+		gateStateStr = strings.TrimPrefix(fmt.Sprintf("%T", cs.Gate), "reconcile.")
+	}
+
+	out := api.InspectGateDetail{
+		Pr:          pr,
+		Environment: env,
+		GateState:   gateStateStr,
+		Targets:     targets,
+		Reasons:     reasons,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(out)
+}
+
+func (a *App) handleInspectClaims(w http.ResponseWriter, r *http.Request, env string) {
+	state, _, err := a.claimsDecider.Load(a.eventStore, envStreamID(env))
+	if err != nil {
+		http.Error(w, "load claims", http.StatusInternalServerError)
+		return
+	}
+
+	var claimsList []api.InspectClaim
+	for stack, cl := range state {
+		claimsList = append(claimsList, api.InspectClaim{
+			Stack:     stack,
+			Pr:        cl.PR,
+			ExpiresAt: cl.ExpiresAt,
+		})
+	}
+
+	out := api.InspectClaimsSet{
+		Environment: env,
+		Claims:      claimsList,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(out)
+}
+
+func (a *App) handleInspectEvents(w http.ResponseWriter, r *http.Request, stream string, params api.InspectEventsParams) {
+	after := 0
+	if params.After != nil {
+		after = *params.After
+	}
+
+	rows, err := a.db.Query(
+		`SELECT version, type, occurred_at, data FROM events WHERE stream_id = ? AND version > ? ORDER BY version`,
+		stream, after)
+	if err != nil {
+		http.Error(w, "query events", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var eventsList []api.InspectEvent
+	for rows.Next() {
+		var ev api.InspectEvent
+		if err := rows.Scan(&ev.Version, &ev.Type, &ev.OccurredAt, &ev.Data); err != nil {
+			http.Error(w, "scan event", http.StatusInternalServerError)
+			return
+		}
+		eventsList = append(eventsList, ev)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(eventsList)
+}
+
+func (a *App) handleInspectOverview(w http.ResponseWriter, r *http.Request) {
+	// Find all unique PR numbers (capped at 100 most recent for performance)
+	rows, err := a.db.Query(`
+		SELECT DISTINCT pr FROM (
+			SELECT pr FROM executions
+			UNION
+			SELECT pr FROM gate_targets
+			UNION
+			SELECT pr FROM pr_meta
+		) ORDER BY pr DESC LIMIT 100`)
+	if err != nil {
+		http.Error(w, "query prs", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var prs []int
+	for rows.Next() {
+		var pr int
+		if err := rows.Scan(&pr); err == nil {
+			prs = append(prs, pr)
+		}
+	}
+
+	// Pre-load claims state for the current environment outside the loop (Fixes N+1 loads)
+	env := a.cfg.Environment
+	var claimsState claims.ClaimSet
+	if env != "" {
+		if state, _, cerr := a.claimsDecider.Load(a.eventStore, envStreamID(env)); cerr == nil {
+			claimsState = state
+		}
+	}
+
+	overview := []api.InspectPRSummary{}
+	for _, pr := range prs {
+		execs, err := store.ListExecutionsForPR(a.db, pr)
+		if err != nil {
+			continue
+		}
+		meta, metaOK, err := store.GetPRMetaByPR(a.db, pr)
+		if err != nil {
+			continue
+		}
+
+		repo := ""
+		if len(execs) > 0 {
+			repo = execs[0].Repo
+		} else if metaOK {
+			repo = meta.Repo
+		}
+
+		// Read grants
+		grows, err := a.db.Query(`
+			SELECT pr, environment, class, target, COALESCE(grant_name,''), COALESCE(state,''), COALESCE(requester,'')
+			FROM gate_targets WHERE pr = ?`, pr)
+		var openGrants []api.InspectGrant
+		if err == nil {
+			for grows.Next() {
+				var g api.InspectGrant
+				if err := grows.Scan(&g.Pr, &g.Environment, &g.Class, &g.Target, &g.GrantName, &g.State, &g.Requester); err == nil {
+					openGrants = append(openGrants, g)
+				}
+			}
+			grows.Close()
+		}
+
+		// Read claims from pre-loaded state
+		var claimsList []api.InspectClaim
+		if env != "" && claimsState != nil {
+			for stack, cl := range claimsState {
+				if cl.PR == pr {
+					claimsList = append(claimsList, api.InspectClaim{
+						Stack:     stack,
+						Pr:        cl.PR,
+						ExpiresAt: cl.ExpiresAt,
+					})
+				}
+			}
+		}
+
+		// Load GateState name
+		gateStateStr := "NotClassified"
+		if env != "" {
+			cs, _, err := a.gateDecider.Load(a.eventStore, execStreamID(pr, env))
+			if err == nil && cs.Gate != nil {
+				gateStateStr = strings.TrimPrefix(fmt.Sprintf("%T", cs.Gate), "reconcile.")
+			}
+		}
+
+		summaries := []api.ExecutionSummary{}
+		for _, e := range execs {
+			summaries = append(summaries, api.ExecutionSummary{
+				Id:           e.ID,
+				Repo:         e.Repo,
+				Sha:          e.SHA,
+				Pr:           e.PR,
+				Environment:  e.Environment,
+				Context:      e.StatusContext,
+				Status:       e.Status,
+				Phase:        e.Phase,
+				CreatedAt:    e.CreatedAt,
+				SupersededBy: e.SupersededBy,
+				LogUrl:       e.LogURL,
+			})
+		}
+
+		sum := api.InspectPRSummary{
+			Pr:         pr,
+			Repo:       repo,
+			GateState:  gateStateStr,
+			OpenGrants: openGrants,
+			Claims:     claimsList,
+			Executions: summaries,
+		}
+		if metaOK {
+			sum.Meta = &api.PRMeta{
+				Title:       meta.Title,
+				Body:        meta.Body,
+				AuthorLogin: meta.AuthorLogin,
+				HeadRef:     meta.HeadRef,
+				Url:         meta.URL,
+				AutoMerge:   meta.AutoMerge,
+			}
+		}
+		overview = append(overview, sum)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(overview)
 }

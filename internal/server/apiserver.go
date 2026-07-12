@@ -42,6 +42,26 @@ func (s apiServer) GetPR(w http.ResponseWriter, r *http.Request, n int) {
 	s.app.handleGetPR(w, r, n)
 }
 
+func (s apiServer) InspectClaims(w http.ResponseWriter, r *http.Request, env string) {
+	s.app.handleInspectClaims(w, r, env)
+}
+
+func (s apiServer) InspectEvents(w http.ResponseWriter, r *http.Request, stream string, params api.InspectEventsParams) {
+	s.app.handleInspectEvents(w, r, stream, params)
+}
+
+func (s apiServer) InspectGate(w http.ResponseWriter, r *http.Request, pr int, env string) {
+	s.app.handleInspectGate(w, r, pr, env)
+}
+
+func (s apiServer) InspectGrants(w http.ResponseWriter, r *http.Request, params api.InspectGrantsParams) {
+	s.app.handleInspectGrants(w, r, params)
+}
+
+func (s apiServer) InspectOverview(w http.ResponseWriter, r *http.Request) {
+	s.app.handleInspectOverview(w, r)
+}
+
 // apiAuth is the OIDC auth middleware for the generated router. The accepted
 // scopes for the matched operation ride the request context (api.OidcScopes,
 // injected by the generated wrapper from the spec's security requirements), so

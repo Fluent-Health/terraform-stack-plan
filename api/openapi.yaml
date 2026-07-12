@@ -383,6 +383,120 @@ paths:
             text/plain: {}
         "500":
           $ref: "#/components/responses/InternalText"
+  /api/inspect/grants:
+    get:
+      operationId: inspectGrants
+      summary: List all recorded grants
+      security:
+        - oidc: [report, read, admin]
+      parameters:
+        - name: state
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: live
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 1
+            default: 0
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/InspectGrant"
+  /api/inspect/gate/{pr}/{env}:
+    get:
+      operationId: inspectGate
+      summary: Get gate state explainer and reason trail
+      security:
+        - oidc: [report, read, admin]
+      parameters:
+        - name: pr
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: env
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InspectGateDetail"
+  /api/inspect/claims/{env}:
+    get:
+      operationId: inspectClaims
+      summary: Get folded claim set for an environment
+      security:
+        - oidc: [report, read, admin]
+      parameters:
+        - name: env
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InspectClaimsSet"
+  /api/inspect/events/{stream}:
+    get:
+      operationId: inspectEvents
+      summary: Get ordered events for a stream
+      security:
+        - oidc: [report, read, admin]
+      parameters:
+        - name: stream
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: after
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 0
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/InspectEvent"
+  /api/inspect/overview:
+    get:
+      operationId: inspectOverview
+      summary: System-wide overview of all active PR states
+      security:
+        - oidc: [report, read, admin]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/InspectPRSummary"
 components:
   securitySchemes:
     oidc:
@@ -912,3 +1026,94 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/StoredGateTarget"
+    InspectGrant:
+      type: object
+      required: [pr, environment, class, target, grant_name, state, requester]
+      properties:
+        pr: { type: integer }
+        environment: { type: string }
+        class: { type: string }
+        target: { type: string }
+        grant_name: { type: string }
+        state: { type: string }
+        requester: { type: string }
+        drift_detected: { type: boolean }
+        actual_state: { type: string }
+    InspectGateDetail:
+      type: object
+      required: [pr, environment, gate_state, targets, reasons]
+      properties:
+        pr: { type: integer }
+        environment: { type: string }
+        gate_state: { type: string }
+        targets:
+          type: array
+          items:
+            $ref: "#/components/schemas/InspectGateTarget"
+        reasons:
+          type: array
+          items:
+            $ref: "#/components/schemas/InspectGateReason"
+    InspectGateTarget:
+      type: object
+      required: [class, target, grant_name, state, requester]
+      properties:
+        class: { type: string }
+        target: { type: string }
+        grant_name: { type: string }
+        state: { type: string }
+        requester: { type: string }
+    InspectGateReason:
+      type: object
+      required: [event_type, occurred_at, description]
+      properties:
+        event_type: { type: string }
+        occurred_at: { type: string, format: date-time }
+        description: { type: string }
+    InspectClaimsSet:
+      type: object
+      required: [environment, claims]
+      properties:
+        environment: { type: string }
+        claims:
+          type: array
+          items:
+            $ref: "#/components/schemas/InspectClaim"
+    InspectClaim:
+      type: object
+      required: [stack, pr, expires_at]
+      properties:
+        stack: { type: string }
+        pr: { type: integer }
+        expires_at: { type: string, format: date-time }
+    InspectEvent:
+      type: object
+      required: [version, type, occurred_at, data]
+      properties:
+        version: { type: integer }
+        type: { type: string }
+        occurred_at: { type: string, format: date-time }
+        data:
+          type: object
+          x-go-type: json.RawMessage
+    InspectPRSummary:
+      type: object
+      required: [pr, repo, gate_state, open_grants, claims, executions]
+      properties:
+        pr: { type: integer }
+        repo: { type: string }
+        meta:
+          $ref: "#/components/schemas/PRMeta"
+        gate_state: { type: string }
+        open_grants:
+          type: array
+          items:
+            $ref: "#/components/schemas/InspectGrant"
+        claims:
+          type: array
+          items:
+            $ref: "#/components/schemas/InspectClaim"
+        executions:
+          type: array
+          items:
+            $ref: "#/components/schemas/ExecutionSummary"
