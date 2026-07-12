@@ -1,6 +1,46 @@
 @import "tailwindcss";
 @plugin "daisyui";
 
+/* Calm control panel — neutral, OSS-safe palette. One indigo accent; a fixed
+   semantic status set; airy radius/rhythm. Two themes: calm-light (default) and
+   calm-dark (prefers-color-scheme: dark). No Fluent Health brand assets. */
+@plugin "daisyui/theme" {
+  name: "calm-light";
+  default: true;
+  color-scheme: light;
+  --color-base-100: #ffffff;
+  --color-base-200: #f5f6f8;
+  --color-base-300: #e7e9ee;
+  --color-base-content: #1b1e26;
+  --color-primary: #5b63e6;
+  --color-primary-content: #ffffff;
+  --color-success: #1f9d57;
+  --color-warning: #b7791f;
+  --color-error: #d24860;
+  --color-info: #2f6fed;
+  --radius-box: 0.75rem;
+  --radius-field: 0.5rem;
+  --border: 1px;
+}
+@plugin "daisyui/theme" {
+  name: "calm-dark";
+  prefersdark: true;
+  color-scheme: dark;
+  --color-base-100: #16191f;
+  --color-base-200: #14161b;
+  --color-base-300: #0f1116;
+  --color-base-content: #eef1f6;
+  --color-primary: #8b93ff;
+  --color-primary-content: #0f1116;
+  --color-success: #57c98a;
+  --color-warning: #e0b15a;
+  --color-error: #e0687a;
+  --color-info: #6ea8ff;
+  --radius-box: 0.75rem;
+  --radius-field: 0.5rem;
+  --border: 1px;
+}
+
 /* ANSI SGR colors for the live log view (mirrors the tier viewer's palette). */
 .a-bold { font-weight: 700; }
 .a-red { color: #f87171; }
