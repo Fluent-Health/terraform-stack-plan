@@ -232,9 +232,9 @@ func (a *App) renderAndPatch(ctx context.Context, id, base string, terminal bool
 	}
 	upd := CheckRunUpdate{
 		Title:      progressTitle(a.cfg.Progress, events.Phase(e.Phase), g.Stacks, terminal, "plan"),
-		Summary:    checkSummary("plan", g.Stacks, a.uiURL(id), events.Phase(e.Phase)),
+		Summary:    checkSummary("plan", g.Stacks, a.uiURL(e.PR, id), events.Phase(e.Phase)),
 		Text:       lockSection(lock) + gatesSection(targets) + failuresSection(g, e.LogURL, "") + e.ReportMarkdown,
-		DetailsURL: a.uiURL(id),
+		DetailsURL: a.uiURL(e.PR, id),
 	}
 	// Serve-queued run (no runner data at all): name the state instead of an
 	// empty progress bar / misleading "no changes" summary.
@@ -353,7 +353,7 @@ func (a *App) driveApply(ctx context.Context, e store.Execution, base string) {
 			conclusion = "failure"
 		}
 		applyTerminal := state == "success" || state == "failure"
-		summary := checkSummary("apply", g.Stacks, a.uiURL(e.ID), events.Phase(e.Phase))
+		summary := checkSummary("apply", g.Stacks, a.uiURL(e.PR, e.ID), events.Phase(e.Phase))
 		if failed > 0 {
 			// Keep the next-steps guidance (fix-forward / re-run) visible in the
 			// summary; the failing-stack detail renders in the Text below.
@@ -362,7 +362,7 @@ func (a *App) driveApply(ctx context.Context, e store.Execution, base string) {
 		upd := CheckRunUpdate{
 			Title:      progressTitle(a.cfg.Progress, events.Phase(e.Phase), g.Stacks, applyTerminal, "apply"),
 			Summary:    summary,
-			DetailsURL: a.uiURL(e.ID),
+			DetailsURL: a.uiURL(e.PR, e.ID),
 			Conclusion: conclusion,
 		}
 		// On failure, attribute the failing stack(s) + phase in the body with a
@@ -375,7 +375,7 @@ func (a *App) driveApply(ctx context.Context, e store.Execution, base string) {
 		}
 		return
 	}
-	if err := a.gh.PostStatus(ctx, e.Repo, e.SHA, e.StatusContext, state, desc, a.uiURL(e.ID)); err != nil {
+	if err := a.gh.PostStatus(ctx, e.Repo, e.SHA, e.StatusContext, state, desc, a.uiURL(e.PR, e.ID)); err != nil {
 		log.Printf("apply status %s: %v", e.ID, err)
 	}
 }

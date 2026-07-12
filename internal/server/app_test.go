@@ -37,6 +37,23 @@ func TestConsolidatedCheckNaming(t *testing.T) {
 	}
 }
 
+func TestUIURL(t *testing.T) {
+	a := New(nil, &MockGitHub{}, Config{UIBaseURL: "https://ui.fh.com", Environment: "nonprod"})
+	// 1. With PR number -> repoints to /pr/{pr}
+	if got := a.uiURL(7, "exec-123"); got != "https://ui.fh.com/pr/7" {
+		t.Errorf("uiURL with PR = %q, want https://ui.fh.com/pr/7", got)
+	}
+	// 2. Without PR number -> falls back to deep route
+	if got := a.uiURL(0, "exec-123"); got != "https://ui.fh.com/t/nonprod/e/exec-123" {
+		t.Errorf("uiURL without PR = %q, want https://ui.fh.com/t/nonprod/e/exec-123", got)
+	}
+	// 3. No UI configured
+	b := New(nil, &MockGitHub{}, Config{})
+	if got := b.uiURL(7, "exec-123"); got != "" {
+		t.Errorf("uiURL with no UI = %q, want empty string", got)
+	}
+}
+
 func TestHealthz(t *testing.T) {
 	a := New(nil, &MockGitHub{}, Config{})
 	srv := httptest.NewServer(a.Routes())
