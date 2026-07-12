@@ -1,5 +1,5 @@
 import { For, Show, Suspense, createMemo, createResource } from "solid-js";
-import { useParams } from "@solidjs/router";
+import { useParams, useSearchParams } from "@solidjs/router";
 import { api } from "../api/client";
 import { primaryExec, latestPerContext } from "../prdata";
 import { TierPanel } from "../components/TierPanel";
@@ -15,13 +15,57 @@ import { MergeStrip } from "../components/MergeStrip";
 export function PrView() {
   const params = useParams();
   const [tiers] = createResource(api.tiers);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTier = () => searchParams.tier;
+
   return (
     <div class="space-y-5">
       <PrIdentity pr={Number(params.n)} tiers={(tiers() ?? []).map((t) => t.name)} />
       <MergeStrip pr={Number(params.n)} tiers={(tiers() ?? []).map((t) => t.name)} />
+      
       <Suspense fallback={<span class="loading loading-dots" />}>
-        <div class="grid gap-4 lg:grid-cols-2">
-          <For each={tiers()}>{(t) => <TierColumn tier={t.name} pr={Number(params.n)} />}</For>
+        <Show when={(tiers() ?? []).length > 0}>
+          <div class="flex gap-2">
+            <button
+              class="btn btn-xs sm:btn-sm rounded-full"
+              classList={{ "btn-primary": !activeTier(), "btn-ghost border border-base-300": !!activeTier() }}
+              onClick={() => setSearchParams({ tier: undefined })}
+            >
+              All Tiers
+            </button>
+            <For each={tiers()}>
+              {(t) => (
+                <button
+                  class="btn btn-xs sm:btn-sm rounded-full"
+                  classList={{ "btn-primary": activeTier() === t.name, "btn-ghost border border-base-300": activeTier() !== t.name }}
+                  onClick={() => setSearchParams({ tier: t.name })}
+                >
+                  {t.name}
+                </button>
+              )}
+            </For>
+          </div>
+        </Show>
+      </Suspense>
+
+      <Suspense fallback={<span class="loading loading-dots" />}>
+        <div
+          class="grid gap-4"
+          classList={{
+            "lg:grid-cols-2": !activeTier(),
+            "grid-cols-1": !!activeTier(),
+          }}
+        >
+          <For each={tiers()}>
+            {(t) => (
+              <div
+                class="w-full"
+                classList={{ hidden: !!activeTier() && activeTier() !== t.name }}
+              >
+                <TierColumn tier={t.name} pr={Number(params.n)} />
+              </div>
+            )}
+          </For>
         </div>
       </Suspense>
     </div>

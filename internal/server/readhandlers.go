@@ -585,7 +585,7 @@ func (a *App) handleInspectPool(w http.ResponseWriter, r *http.Request) {
 
 	// Find waiting PRs currently blocked by slot collisions
 	waitingList := []api.InspectPoolWaitingPR{}
-	
+
 	// Retrieve all unique active/open PR numbers
 	prows, err := a.db.Query(`
 		SELECT DISTINCT pr FROM (
