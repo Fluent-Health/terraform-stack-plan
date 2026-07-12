@@ -279,10 +279,188 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/inspect/grants": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List all recorded grants */
+        get: operations["inspectGrants"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/inspect/gate/{pr}/{env}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get gate state explainer and reason trail */
+        get: operations["inspectGate"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/inspect/claims/{env}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get folded claim set for an environment */
+        get: operations["inspectClaims"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/inspect/events/{stream}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get ordered events for a stream */
+        get: operations["inspectEvents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/inspect/overview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** System-wide overview of all active PR states */
+        get: operations["inspectOverview"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/grants/release": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Admin release a gate grant */
+        post: operations["adminGrantsRelease"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/executions/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Admin cancel a running execution */
+        post: operations["adminExecutionsCancel"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/gates/satisfy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Admin satisfy a gate target manually */
+        post: operations["adminGatesSatisfy"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/checks/override": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Admin override a check conclusion */
+        post: operations["adminChecksOverride"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        AdminGrantsReleaseRequest: {
+            pr: number;
+            environment: string;
+            class: string;
+            target: string;
+            reason: string;
+        };
+        AdminExecutionsCancelRequest: {
+            id: string;
+            reason: string;
+        };
+        AdminGatesSatisfyRequest: {
+            pr: number;
+            environment: string;
+            class: string;
+            target: string;
+            reason: string;
+        };
+        AdminChecksOverrideRequest: {
+            pr: number;
+            environment: string;
+            check: string;
+            conclusion: string;
+            reason: string;
+        };
         /**
          * @description Per-stack lifecycle status. Decoding rejects unknown non-empty values (WIRE-001); an omitted/empty status is tolerated.
          * @enum {string}
@@ -542,6 +720,63 @@ export interface components {
             verify_execution_id: string;
             graph: components["schemas"]["Graph"];
             gates: components["schemas"]["StoredGateTarget"][];
+        };
+        InspectGrant: {
+            pr: number;
+            environment: string;
+            class: string;
+            target: string;
+            grant_name: string;
+            state: string;
+            requester: string;
+            drift_detected?: boolean;
+            actual_state?: string;
+        };
+        InspectGateDetail: {
+            pr: number;
+            environment: string;
+            gate_state: string;
+            targets: components["schemas"]["InspectGateTarget"][];
+            reasons: components["schemas"]["InspectGateReason"][];
+        };
+        InspectGateTarget: {
+            class: string;
+            target: string;
+            grant_name: string;
+            state: string;
+            requester: string;
+        };
+        InspectGateReason: {
+            event_type: string;
+            /** Format: date-time */
+            occurred_at: string;
+            description: string;
+        };
+        InspectClaimsSet: {
+            environment: string;
+            claims: components["schemas"]["InspectClaim"][];
+        };
+        InspectClaim: {
+            stack: string;
+            pr: number;
+            /** Format: date-time */
+            expires_at: string;
+        };
+        InspectEvent: {
+            version: number;
+            type: string;
+            /** Format: date-time */
+            occurred_at: string;
+            data: Record<string, never>;
+        };
+        InspectPRSummary: {
+            pr: number;
+            repo: string;
+            meta?: components["schemas"]["PRMeta"];
+            gate_state: string;
+            open_grants: components["schemas"]["InspectGrant"][];
+            claims: components["schemas"]["InspectClaim"][];
+            executions: components["schemas"]["ExecutionSummary"][];
         };
     };
     responses: {
@@ -941,6 +1176,214 @@ export interface operations {
                     "text/plain": unknown;
                 };
             };
+            500: components["responses"]["InternalText"];
+        };
+    };
+    inspectGrants: {
+        parameters: {
+            query?: {
+                state?: string;
+                live?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InspectGrant"][];
+                };
+            };
+        };
+    };
+    inspectGate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pr: number;
+                env: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InspectGateDetail"];
+                };
+            };
+        };
+    };
+    inspectClaims: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                env: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InspectClaimsSet"];
+                };
+            };
+        };
+    };
+    inspectEvents: {
+        parameters: {
+            query?: {
+                after?: number;
+            };
+            header?: never;
+            path: {
+                stream: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InspectEvent"][];
+                };
+            };
+        };
+    };
+    inspectOverview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InspectPRSummary"][];
+                };
+            };
+        };
+    };
+    adminGrantsRelease: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminGrantsReleaseRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["InternalText"];
+            500: components["responses"]["InternalText"];
+        };
+    };
+    adminExecutionsCancel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminExecutionsCancelRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["InternalText"];
+            500: components["responses"]["InternalText"];
+        };
+    };
+    adminGatesSatisfy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminGatesSatisfyRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["InternalText"];
+            500: components["responses"]["InternalText"];
+        };
+    };
+    adminChecksOverride: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminChecksOverrideRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["InternalText"];
             500: components["responses"]["InternalText"];
         };
     };

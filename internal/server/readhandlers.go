@@ -190,7 +190,7 @@ func (a *App) handleInspectGrants(w http.ResponseWriter, r *http.Request, params
 						if actual != g.State {
 							g.DriftDetected = ptr(true)
 							g.ActualState = ptr(actual)
-							
+
 							key := fmt.Sprintf("%d|%s", g.Pr, g.Environment)
 							if !triggered[key] {
 								triggered[key] = true
@@ -218,7 +218,7 @@ func (a *App) reconcileBackground(pr int, env string) {
 
 func (a *App) handleInspectGate(w http.ResponseWriter, r *http.Request, pr int, env string) {
 	streamID := execStreamID(pr, env)
-	
+
 	// Load ChangeSet state
 	cs, _, err := a.gateDecider.Load(a.eventStore, streamID)
 	if err != nil {
@@ -257,17 +257,17 @@ func (a *App) handleInspectGate(w http.ResponseWriter, r *http.Request, pr int, 
 		if derr != nil {
 			continue
 		}
-		
+
 		prevGate := tempCS.Gate
 		tempCS = a.gateDecider.Evolve(tempCS, ev)
-		
+
 		// If the gate type or target states changed, record a reason
 		gateChanged := prevGate == nil || reflect.TypeOf(prevGate) != reflect.TypeOf(tempCS.Gate)
 		if !gateChanged && prevGate != nil {
 			// Deep state comparison
 			gateChanged = !reflect.DeepEqual(prevGate, tempCS.Gate)
 		}
-		
+
 		if gateChanged {
 			desc := fmt.Sprintf("Event %s occurred", se.Type)
 			reasons = append(reasons, api.InspectGateReason{

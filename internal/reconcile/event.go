@@ -156,3 +156,44 @@ func (RunStartFailed) isEvent()      {}
 func (RunSuperseded) isEvent()       {}
 func (RunAdopted) isEvent()          {}
 func (RunCompleted) isEvent()        {}
+
+// --- admin intervention events ---
+
+type AdminGrantReleased struct {
+	PR          int    `json:"pr"`
+	Environment string `json:"environment"`
+	Class       string `json:"class"`
+	Target      string `json:"target"`
+	Actor       string `json:"actor"`
+	Reason      string `json:"reason"`
+}
+
+type AdminExecutionCancelled struct {
+	Kind        string `json:"kind"`
+	ExecutionID string `json:"execution_id"`
+	Actor       string `json:"actor"`
+	Reason      string `json:"reason"`
+}
+
+type AdminGateSatisfied struct {
+	PR          int    `json:"pr"`
+	Environment string `json:"environment"`
+	Class       string `json:"class"`
+	Target      string `json:"target"`
+	Actor       string `json:"actor"`
+	Reason      string `json:"reason"`
+}
+
+type AdminCheckOverridden struct {
+	PR         int    `json:"pr"`
+	Env        string `json:"env"`
+	CheckName  string `json:"check_name"`
+	Conclusion string `json:"conclusion"`
+	Actor      string `json:"actor"`
+	Reason     string `json:"reason"`
+}
+
+func (AdminGrantReleased) isEvent()      {}
+func (AdminExecutionCancelled) isEvent() {}
+func (AdminGateSatisfied) isEvent()      {}
+func (AdminCheckOverridden) isEvent()    {}

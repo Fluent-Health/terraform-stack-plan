@@ -46,6 +46,36 @@ func TestEvolveGateSatisfied(t *testing.T) {
 	}
 }
 
+func TestEvolveAdminEvents(t *testing.T) {
+	prior := ChangeSet{
+		PR: 7, Environment: "staging",
+		Gate: Pending{Targets: []Target{
+			{Class: "iam", Target: "proj-a", Grant: approval.StateAwaiting},
+			{Class: "iam", Target: "proj-b", Grant: approval.StateAwaiting},
+		}},
+	}
+
+	// 1. AdminGrantReleased
+	got := Evolve(prior, AdminGrantReleased{PR: 7, Environment: "staging", Class: "iam", Target: "proj-a"})
+	gState := got.Gate.(Pending)
+	if gState.Targets[0].Grant != approval.StateRevoked {
+		t.Fatalf("expected revoked, got %s", gState.Targets[0].Grant)
+	}
+
+	// 2. AdminGateSatisfied
+	got2 := Evolve(prior, AdminGateSatisfied{PR: 7, Environment: "staging", Class: "iam", Target: "proj-a"})
+	gState2 := got2.Gate.(Pending)
+	if gState2.Targets[0].Grant != approval.StateActive {
+		t.Fatalf("expected active, got %s", gState2.Targets[0].Grant)
+	}
+
+	// 3. AdminCheckOverridden
+	got3 := Evolve(prior, AdminCheckOverridden{PR: 7, Env: "staging", CheckName: "check-1", Conclusion: "success"})
+	if got3.CheckOverride == nil || got3.CheckOverride.CheckName != "check-1" || got3.CheckOverride.Conclusion != "success" {
+		t.Fatalf("expected check override, got %+v", got3.CheckOverride)
+	}
+}
+
 func TestEvolveGateReleasedAndPassedBothClean(t *testing.T) {
 	for _, e := range []Event{GatePassed{}, GateReleased{}} {
 		got := Evolve(ChangeSet{Gate: Pending{}}, e)
@@ -80,6 +110,10 @@ func corpus() []Event {
 		RunSuperseded{Kind: RunKindPlan, OldExecutionID: "run-1-nonprod-plan-abc123-a1", OldBuildRef: "b-1", NewExecutionID: "run-1-nonprod-plan-def456-a1", NewSHA: "def456"},
 		RunAdopted{Kind: RunKindPlan, ExecutionID: "run-7-nonprod-plan-abc-a2", SHA: "abc", Branch: "feat/x", Attempt: 2, BuildRef: "build-new"},
 		RunCompleted{Kind: RunKindPlan, ExecutionID: "run-1-nonprod-plan-abc123-a1"},
+		AdminGrantReleased{PR: 7, Environment: "staging", Class: "iam", Target: "proj-a", Actor: "admin", Reason: "override"},
+		AdminExecutionCancelled{Kind: "plan", ExecutionID: "exec-1", Actor: "admin", Reason: "stuck"},
+		AdminGateSatisfied{PR: 7, Environment: "staging", Class: "iam", Target: "proj-a", Actor: "admin", Reason: "by phone"},
+		AdminCheckOverridden{PR: 7, Env: "staging", CheckName: "terraform/staging", Conclusion: "success", Actor: "admin", Reason: "bypass"},
 	}
 }
 

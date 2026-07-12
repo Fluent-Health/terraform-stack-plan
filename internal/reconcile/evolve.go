@@ -198,6 +198,45 @@ func Evolve(cs ChangeSet, e Event) ChangeSet {
 		cs.Gate = withTargets(cs.Gate, targets)
 		return cs
 
+	case AdminGrantReleased:
+		targets := gateTargets(cs.Gate)
+		if targets == nil {
+			return cs
+		}
+		for i := range targets {
+			if targets[i].Class == ev.Class && targets[i].Target == ev.Target {
+				targets[i].Grant = approval.StateRevoked
+			}
+		}
+		cs.Gate = withTargets(cs.Gate, targets)
+		return cs
+
+	case AdminExecutionCancelled:
+		// Audit event only, status is aborted by accompanying RunCompleted
+		return cs
+
+	case AdminGateSatisfied:
+		targets := gateTargets(cs.Gate)
+		if targets == nil {
+			return cs
+		}
+		for i := range targets {
+			if targets[i].Class == ev.Class && targets[i].Target == ev.Target {
+				targets[i].Grant = approval.StateActive
+			}
+		}
+		cs.Gate = withTargets(cs.Gate, targets)
+		return cs
+
+	case AdminCheckOverridden:
+		cs.CheckOverride = &CheckOverride{
+			CheckName:  ev.CheckName,
+			Conclusion: ev.Conclusion,
+			Actor:      ev.Actor,
+			Reason:     ev.Reason,
+		}
+		return cs
+
 	case GatePassed:
 		cs.Gate = Clean{}
 		return cs
