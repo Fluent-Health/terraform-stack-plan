@@ -43,7 +43,7 @@ func (sh *Shell) materializeRun(ctx context.Context, cs reconcile.ChangeSet, rep
 	if kind == reconcile.RunKindApply {
 		name = init.Context
 	}
-	if err := sh.app.ensureCheckRun(ctx, execID, repo, sha, name, sh.app.uiURL(execID)); err != nil {
+	if err := sh.app.ensureCheckRun(ctx, execID, repo, sha, name, sh.app.uiURL(cs.PR, execID)); err != nil {
 		log.Printf("shell: check run %s: %v", execID, err)
 	}
 	return nil

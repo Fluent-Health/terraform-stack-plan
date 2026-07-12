@@ -311,9 +311,12 @@ func (a *App) supersedeExecution(oldID, newID string) {
 // links ("" when no UI is configured — GitHub omits the link; the check-run
 // body still carries everything). The UI routes by tier name, which matches
 // this serve's environment by convention.
-func (a *App) uiURL(id string) string {
+func (a *App) uiURL(pr int, id string) string {
 	if a.cfg.UIBaseURL == "" {
 		return ""
+	}
+	if pr > 0 {
+		return fmt.Sprintf("%s/pr/%d", a.cfg.UIBaseURL, pr)
 	}
 	return fmt.Sprintf("%s/t/%s/e/%s", a.cfg.UIBaseURL, a.cfg.Environment, id)
 }
