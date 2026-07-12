@@ -75,9 +75,11 @@ func dispatch(args []string) int {
 			return runState(args[1:])
 		case "claims":
 			return runClaims(args[1:])
+		case "admin":
+			return runAdmin(args[1:])
 		default:
 			fmt.Fprintf(os.Stderr, "tfstackplan: unknown subcommand %q\n", args[0])
-			fmt.Fprintln(os.Stderr, "usage: tfstackplan [render|serve|ui|run|state|claims] [flags]")
+			fmt.Fprintln(os.Stderr, "usage: tfstackplan [render|serve|ui|run|state|claims|admin] [flags]")
 			return 2
 		}
 	}

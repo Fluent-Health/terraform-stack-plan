@@ -200,3 +200,60 @@ func (c *Client) ClaimsRelease(ctx context.Context, env string, pr int, stack st
 	})
 	return c.finish("/api/claims/release", resp, err)
 }
+
+// AdminGrantsRelease requests the server to release/revoke a gate target.
+func (c *Client) AdminGrantsRelease(ctx context.Context, pr int, env, class, target, reason string) error {
+	if !c.Enabled() {
+		return nil
+	}
+	resp, err := c.api.AdminGrantsRelease(ctx, api.AdminGrantsReleaseJSONRequestBody{
+		Class:       class,
+		Environment: env,
+		Pr:          pr,
+		Reason:      reason,
+		Target:      target,
+	})
+	return c.finish("/api/admin/grants/release", resp, err)
+}
+
+// AdminExecutionsCancel requests the server to cancel/abort a running execution.
+func (c *Client) AdminExecutionsCancel(ctx context.Context, id, reason string) error {
+	if !c.Enabled() {
+		return nil
+	}
+	resp, err := c.api.AdminExecutionsCancel(ctx, api.AdminExecutionsCancelJSONRequestBody{
+		Id:     id,
+		Reason: reason,
+	})
+	return c.finish("/api/admin/executions/cancel", resp, err)
+}
+
+// AdminGatesSatisfy requests the server to satisfy a gate target manually.
+func (c *Client) AdminGatesSatisfy(ctx context.Context, pr int, env, class, target, reason string) error {
+	if !c.Enabled() {
+		return nil
+	}
+	resp, err := c.api.AdminGatesSatisfy(ctx, api.AdminGatesSatisfyJSONRequestBody{
+		Class:       class,
+		Environment: env,
+		Pr:          pr,
+		Reason:      reason,
+		Target:      target,
+	})
+	return c.finish("/api/admin/gates/satisfy", resp, err)
+}
+
+// AdminChecksOverride requests the server to override a check conclusion.
+func (c *Client) AdminChecksOverride(ctx context.Context, pr int, env, check, conclusion, reason string) error {
+	if !c.Enabled() {
+		return nil
+	}
+	resp, err := c.api.AdminChecksOverride(ctx, api.AdminChecksOverrideJSONRequestBody{
+		Check:       check,
+		Conclusion:  conclusion,
+		Environment: env,
+		Pr:          pr,
+		Reason:      reason,
+	})
+	return c.finish("/api/admin/checks/override", resp, err)
+}
