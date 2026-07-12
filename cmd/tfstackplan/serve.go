@@ -78,6 +78,11 @@ func buildServeApp(ctx context.Context, cfg *config.Config, ghWebhookSecret stri
 	logsDir := defaultLogsDir(s.LogsDir, s.DBPath)
 	fmt.Fprintf(os.Stderr, "tfstackplan serve: log buffers in %s\n", logsDir)
 
+	pool := []string{}
+	if s.Approval != nil {
+		pool = s.Approval.RequesterPool
+	}
+
 	app := server.New(db, gh, server.Config{
 		GitHubWebhookSecret: ghWebhookSecret,
 		PublicBaseURL:       s.PublicBaseURL,
@@ -90,6 +95,7 @@ func buildServeApp(ctx context.Context, cfg *config.Config, ghWebhookSecret stri
 		APIPrincipals:       apiPrincipals(s),
 		Progress:            cfg.Progress,
 		BuildTriggerNames:   buildTriggerNames(s),
+		RequesterPool:       pool,
 	})
 
 	if s.APIAuth != nil {

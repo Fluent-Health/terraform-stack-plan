@@ -543,3 +543,94 @@ func (a *App) handleInspectOverview(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(overview)
 }
+
+func (a *App) handleInspectPool(w http.ResponseWriter, r *http.Request) {
+	env := a.cfg.Environment
+
+	// Build default empty slots map from config
+	slots := []api.InspectPoolSlot{}
+	pool := a.cfg.RequesterPool
+	for _, sa := range pool {
+		slots = append(slots, api.InspectPoolSlot{
+			Requester: sa,
+			Occupied:  false,
+		})
+	}
+
+	// Query gate_targets table for any active occupants in this environment
+	rows, err := a.db.Query(`
+		SELECT pr, environment, COALESCE(grant_name,''), COALESCE(state,''), COALESCE(requester,''),
+		       strftime('%s', 'now') - strftime('%s', updated_at)
+		FROM gate_targets WHERE state IN ('AWAITING', 'ACTIVATING', 'ACTIVE') AND environment = ?`, env)
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var pr, elapsed int
+			var envStr, name, state, req string
+			if err := rows.Scan(&pr, &envStr, &name, &state, &req, &elapsed); err == nil && req != "" {
+				// Match against configured pool slots
+				for i := range slots {
+					if slots[i].Requester == req {
+						slots[i].Occupied = true
+						slots[i].Pr = ptr(pr)
+						slots[i].Environment = ptr(envStr)
+						slots[i].GrantName = ptr(name)
+						slots[i].State = ptr(state)
+						slots[i].ElapsedSeconds = ptr(elapsed)
+					}
+				}
+			}
+		}
+	}
+
+	// Find waiting PRs currently blocked by slot collisions
+	waitingList := []api.InspectPoolWaitingPR{}
+	
+	// Retrieve all unique active/open PR numbers
+	prows, err := a.db.Query(`
+		SELECT DISTINCT pr FROM (
+			SELECT pr FROM executions
+			UNION
+			SELECT pr FROM gate_targets
+			UNION
+			SELECT pr FROM pr_meta
+		) ORDER BY pr DESC`)
+	if err == nil {
+		defer prows.Close()
+		var prs []int
+		for prows.Next() {
+			var pr int
+			if err := prows.Scan(&pr); err == nil {
+				prs = append(prs, pr)
+			}
+		}
+
+		for _, pr := range prs {
+			streamID := execStreamID(pr, env)
+			cs, _, err := a.gateDecider.Load(a.eventStore, streamID)
+			if err == nil && cs.Gate != nil {
+				if blocked, ok := cs.Gate.(reconcile.Blocked); ok {
+					reason := string(blocked.By.Reason)
+					if reason == "slot_foreign_open" || reason == "slot_self" {
+						waitingList = append(waitingList, api.InspectPoolWaitingPR{
+							Pr:          pr,
+							Environment: env,
+							Reason:      reason,
+							BlockerPr:   blocked.By.ByPR,
+							BlockerEnv:  blocked.By.ByEnv,
+						})
+					}
+				}
+			}
+		}
+	}
+
+	out := api.InspectPoolSet{
+		Environment: env,
+		Slots:       slots,
+		Waiting:     waitingList,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(out)
+}

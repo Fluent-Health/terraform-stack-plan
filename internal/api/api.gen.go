@@ -245,6 +245,33 @@ type InspectPRSummary struct {
 	Repo       string         `json:"repo"`
 }
 
+// InspectPoolSet defines model for InspectPoolSet.
+type InspectPoolSet struct {
+	Environment string                 `json:"environment"`
+	Slots       []InspectPoolSlot      `json:"slots"`
+	Waiting     []InspectPoolWaitingPR `json:"waiting"`
+}
+
+// InspectPoolSlot defines model for InspectPoolSlot.
+type InspectPoolSlot struct {
+	ElapsedSeconds *int    `json:"elapsed_seconds,omitempty"`
+	Environment    *string `json:"environment,omitempty"`
+	GrantName      *string `json:"grant_name,omitempty"`
+	Occupied       bool    `json:"occupied"`
+	Pr             *int    `json:"pr,omitempty"`
+	Requester      string  `json:"requester"`
+	State          *string `json:"state,omitempty"`
+}
+
+// InspectPoolWaitingPR defines model for InspectPoolWaitingPR.
+type InspectPoolWaitingPR struct {
+	BlockerEnv  string `json:"blocker_env"`
+	BlockerPr   int    `json:"blocker_pr"`
+	Environment string `json:"environment"`
+	Pr          int    `json:"pr"`
+	Reason      string `json:"reason"`
+}
+
 // LogChunk A slice of one stack's combined output.
 type LogChunk = events.LogChunk
 
@@ -549,6 +576,9 @@ type ClientInterface interface {
 
 	// InspectOverview request
 	InspectOverview(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// InspectPool request
+	InspectPool(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// AppendLogsWithBody request with any body
 	AppendLogsWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -895,6 +925,18 @@ func (c *Client) InspectGrants(ctx context.Context, params *InspectGrantsParams,
 
 func (c *Client) InspectOverview(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewInspectOverviewRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) InspectPool(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewInspectPoolRequest(c.Server)
 	if err != nil {
 		return nil, err
 	}
@@ -1745,6 +1787,33 @@ func NewInspectOverviewRequest(server string) (*http.Request, error) {
 	return req, nil
 }
 
+// NewInspectPoolRequest generates requests for InspectPool
+func NewInspectPoolRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/inspect/pool")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewAppendLogsRequest calls the generic AppendLogs builder with application/json body
 func NewAppendLogsRequest(server string, body AppendLogsJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -2015,6 +2084,9 @@ type ClientWithResponsesInterface interface {
 
 	// InspectOverviewWithResponse request
 	InspectOverviewWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*InspectOverviewResponse, error)
+
+	// InspectPoolWithResponse request
+	InspectPoolWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*InspectPoolResponse, error)
 
 	// AppendLogsWithBodyWithResponse request with any body
 	AppendLogsWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AppendLogsResponse, error)
@@ -2570,6 +2642,36 @@ func (r InspectOverviewResponse) ContentType() string {
 	return ""
 }
 
+type InspectPoolResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *InspectPoolSet
+}
+
+// Status returns HTTPResponse.Status
+func (r InspectPoolResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r InspectPoolResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r InspectPoolResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type AppendLogsResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -2927,6 +3029,15 @@ func (c *ClientWithResponses) InspectOverviewWithResponse(ctx context.Context, r
 		return nil, err
 	}
 	return ParseInspectOverviewResponse(rsp)
+}
+
+// InspectPoolWithResponse request returning *InspectPoolResponse
+func (c *ClientWithResponses) InspectPoolWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*InspectPoolResponse, error) {
+	rsp, err := c.InspectPool(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseInspectPoolResponse(rsp)
 }
 
 // AppendLogsWithBodyWithResponse request with arbitrary body returning *AppendLogsResponse
@@ -3398,6 +3509,32 @@ func ParseInspectOverviewResponse(rsp *http.Response) (*InspectOverviewResponse,
 	return response, nil
 }
 
+// ParseInspectPoolResponse parses an HTTP response from a InspectPoolWithResponse call
+func ParseInspectPoolResponse(rsp *http.Response) (*InspectPoolResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &InspectPoolResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest InspectPoolSet
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseAppendLogsResponse parses an HTTP response from a AppendLogsWithResponse call
 func ParseAppendLogsResponse(rsp *http.Response) (*AppendLogsResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -3528,6 +3665,9 @@ type ServerInterface interface {
 	// System-wide overview of all active PR states
 	// (GET /api/inspect/overview)
 	InspectOverview(w http.ResponseWriter, r *http.Request)
+	// Get applier-pool slot occupancy and waiting lists
+	// (GET /api/inspect/pool)
+	InspectPool(w http.ResponseWriter, r *http.Request)
 	// Ingest a per-stack output chunk
 	// (POST /api/logs)
 	AppendLogs(w http.ResponseWriter, r *http.Request)
@@ -4048,6 +4188,26 @@ func (siw *ServerInterfaceWrapper) InspectOverview(w http.ResponseWriter, r *htt
 	handler.ServeHTTP(w, r)
 }
 
+// InspectPool operation middleware
+func (siw *ServerInterfaceWrapper) InspectPool(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, OidcScopes, []string{"report", "read", "admin"})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.InspectPool(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // AppendLogs operation middleware
 func (siw *ServerInterfaceWrapper) AppendLogs(w http.ResponseWriter, r *http.Request) {
 
@@ -4278,6 +4438,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/inspect/gate/{pr}/{env}", wrapper.InspectGate)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/inspect/grants", wrapper.InspectGrants)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/inspect/overview", wrapper.InspectOverview)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/inspect/pool", wrapper.InspectPool)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/logs", wrapper.AppendLogs)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/phase", wrapper.ReportPhase)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/pr/{n}", wrapper.GetPR)

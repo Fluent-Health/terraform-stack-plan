@@ -39,18 +39,18 @@ func TestInspectGrants(t *testing.T) {
 
 	// 1. Get all grants
 	req, _ := http.NewRequest("GET", srv.URL+"/api/inspect/grants", nil)
-	resp, err := http.DefaultClient.Do(req)
+	resp1, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer resp1.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("status = %d; want 200", resp.StatusCode)
+	if resp1.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d; want 200", resp1.StatusCode)
 	}
 
 	var grants []api.InspectGrant
-	if err := json.NewDecoder(resp.Body).Decode(&grants); err != nil {
+	if err := json.NewDecoder(resp1.Body).Decode(&grants); err != nil {
 		t.Fatal(err)
 	}
 
@@ -60,14 +60,14 @@ func TestInspectGrants(t *testing.T) {
 
 	// 2. Filter by state=open
 	req, _ = http.NewRequest("GET", srv.URL+"/api/inspect/grants?state=open", nil)
-	resp, err = http.DefaultClient.Do(req)
+	resp2, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer resp2.Body.Close()
 
 	var openGrants []api.InspectGrant
-	if err := json.NewDecoder(resp.Body).Decode(&openGrants); err != nil {
+	if err := json.NewDecoder(resp2.Body).Decode(&openGrants); err != nil {
 		t.Fatal(err)
 	}
 
@@ -88,14 +88,14 @@ func TestInspectGrants(t *testing.T) {
 	})
 
 	req, _ = http.NewRequest("GET", srv.URL+"/api/inspect/grants?live=1", nil)
-	resp, err = http.DefaultClient.Do(req)
+	resp3, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer resp3.Body.Close()
 
 	var liveGrants []api.InspectGrant
-	if err := json.NewDecoder(resp.Body).Decode(&liveGrants); err != nil {
+	if err := json.NewDecoder(resp3.Body).Decode(&liveGrants); err != nil {
 		t.Fatal(err)
 	}
 
@@ -248,18 +248,18 @@ func TestInspectEvents(t *testing.T) {
 
 	// 1. Get all events
 	req, _ := http.NewRequest("GET", srv.URL+"/api/inspect/events/exec:7:staging", nil)
-	resp, err := http.DefaultClient.Do(req)
+	resp1, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer resp1.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("status = %d; want 200", resp.StatusCode)
+	if resp1.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d; want 200", resp1.StatusCode)
 	}
 
 	var events []api.InspectEvent
-	if err := json.NewDecoder(resp.Body).Decode(&events); err != nil {
+	if err := json.NewDecoder(resp1.Body).Decode(&events); err != nil {
 		t.Fatal(err)
 	}
 
@@ -272,14 +272,14 @@ func TestInspectEvents(t *testing.T) {
 
 	// 2. Query with after=1 (should yield 0 events)
 	req, _ = http.NewRequest("GET", srv.URL+"/api/inspect/events/exec:7:staging?after=1", nil)
-	resp, err = http.DefaultClient.Do(req)
+	resp2, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer resp2.Body.Close()
 
 	var eventsAfter []api.InspectEvent
-	if err := json.NewDecoder(resp.Body).Decode(&eventsAfter); err != nil {
+	if err := json.NewDecoder(resp2.Body).Decode(&eventsAfter); err != nil {
 		t.Fatal(err)
 	}
 
@@ -336,5 +336,95 @@ func TestInspectOverview(t *testing.T) {
 	}
 	if sum.Meta == nil || sum.Meta.Title != "Some PR Title" {
 		t.Fatalf("meta mismatch: %+v", sum.Meta)
+	}
+}
+
+func TestInspectPool(t *testing.T) {
+	db := newServerTestDB(t)
+	a := New(db, &MockGitHub{}, Config{
+		Environment:   "staging",
+		RequesterPool: []string{"sa-1@fh.com", "sa-2@fh.com"},
+	})
+
+	// 1. Seed an active occupant in gate_targets projection
+	_, err := db.Exec(`
+		INSERT INTO gate_targets (pr, environment, class, target, grant_name, state, requester, updated_at)
+		VALUES (7, 'staging', 'iam', 'proj-a', 'grant-1', 'ACTIVE', 'sa-1@fh.com', datetime('now', '-10 seconds'))`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 2. Seed a waiting PR blocked by slot collision (slot_foreign_open)
+	err = store.UpsertPRMeta(db, store.PRMeta{
+		Repo: "fluent/repo", PR: 8, Title: "Blocked PR",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	streamID := execStreamID(8, "staging")
+	evs := []reconcile.Event{
+		reconcile.Classified{Gates: []events.GateTarget{{Class: "iam", Target: "proj-b"}}},
+		reconcile.GateBlocked{Reason: "slot_foreign_open", ByPR: 7, ByEnv: "staging"},
+	}
+	state := reconcile.ChangeSet{
+		PR: 8, Environment: "staging",
+		Gate: reconcile.Blocked{
+			Targets: []reconcile.Target{{Class: "iam", Target: "proj-b", Grant: "AWAITING"}},
+			By: reconcile.Blocker{
+				Reason: "slot_foreign_open",
+				ByPR:   7,
+				ByEnv:  "staging",
+			},
+		},
+	}
+	if err := a.gateDecider.Append(a.eventStore, streamID, 0, evs, state); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := httptest.NewServer(a.Routes())
+	defer srv.Close()
+
+	req, _ := http.NewRequest("GET", srv.URL+"/api/inspect/pool", nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d; want 200", resp.StatusCode)
+	}
+
+	var res api.InspectPoolSet
+	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
+		t.Fatal(err)
+	}
+
+	if res.Environment != "staging" {
+		t.Fatalf("env mismatch: %s", res.Environment)
+	}
+
+	// Verify slots occupancy mapping
+	if len(res.Slots) != 2 {
+		t.Fatalf("expected 2 slots, got %d", len(res.Slots))
+	}
+	if !res.Slots[0].Occupied || res.Slots[0].Requester != "sa-1@fh.com" || *res.Slots[0].Pr != 7 {
+		t.Fatalf("slot 0 occupancy mismatch: %+v", res.Slots[0])
+	}
+	if res.Slots[0].ElapsedSeconds == nil || *res.Slots[0].ElapsedSeconds < 5 {
+		t.Fatalf("elapsed seconds mismatch: %v", res.Slots[0].ElapsedSeconds)
+	}
+	if res.Slots[1].Occupied || res.Slots[1].Requester != "sa-2@fh.com" {
+		t.Fatalf("slot 1 occupancy mismatch: %+v", res.Slots[1])
+	}
+
+	// Verify waiting blocked list
+	if len(res.Waiting) != 1 {
+		t.Fatalf("expected 1 waiting PR, got %d", len(res.Waiting))
+	}
+	wpr := res.Waiting[0]
+	if wpr.Pr != 8 || wpr.Reason != "slot_foreign_open" || wpr.BlockerPr != 7 || wpr.BlockerEnv != "staging" {
+		t.Fatalf("waiting PR mismatch: %+v", wpr)
 	}
 }
