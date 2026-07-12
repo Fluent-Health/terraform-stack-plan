@@ -67,6 +67,8 @@ type Config struct {
 	// /pubsub/cloud-builds ingest recognize builds from serve's own triggers and
 	// derive their kind. Empty disables inbound build reconciliation.
 	BuildTriggerNames map[string]string
+	// RequesterPool is the set of service-account identities configured for the applier pool.
+	RequesterPool []string
 }
 
 // App is the HTTP application.

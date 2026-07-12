@@ -62,6 +62,10 @@ func (s apiServer) InspectOverview(w http.ResponseWriter, r *http.Request) {
 	s.app.handleInspectOverview(w, r)
 }
 
+func (s apiServer) InspectPool(w http.ResponseWriter, r *http.Request) {
+	s.app.handleInspectPool(w, r)
+}
+
 func (s apiServer) AdminChecksOverride(w http.ResponseWriter, r *http.Request) {
 	s.app.handleAdminChecksOverride(w, r)
 }
