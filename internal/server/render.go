@@ -138,18 +138,28 @@ func weightedFrac(phases []config.PhaseWeight, phase events.Phase, planned, init
 // configured (preserves the original behavior; lint/test alias warming/verify).
 func legacyFrac(phase events.Phase, planned, initialized, total int) float64 {
 	switch phase {
+	case events.PhaseImage:
+		return 0.02
 	case events.PhaseWarming, events.PhaseLinting:
 		return 0.05
+	case events.PhaseClaim:
+		return 0.10
 	case events.PhaseInitializing:
 		if total > 0 && initialized > 0 {
 			return 0.05 + 0.10*float64(initialized)/float64(total)
 		}
+		return 0.15
+	case events.PhaseMoves:
 		return 0.15
 	case events.PhaseApplying:
 		if total > 0 {
 			return float64(planned) / float64(total)
 		}
 		return 0
+	case events.PhaseClassify:
+		return 0.95
+	case events.PhaseReport:
+		return 0.98
 	case events.PhaseTesting, events.PhaseVerifying:
 		return 1.0
 	default: // planning, or an unset phase treated as planning
@@ -168,20 +178,30 @@ func legacyFrac(phase events.Phase, planned, initialized, total int) float64 {
 // built-in fraction paths.
 func phaseLabel(phase events.Phase, planned, initialized, total int) string {
 	switch phase {
+	case events.PhaseImage:
+		return "preparing runner image…"
 	case events.PhaseWarming:
 		return "warming cache…"
 	case events.PhaseLinting:
 		return "linting modules…"
+	case events.PhaseClaim:
+		return "acquiring apply lock…"
 	case events.PhaseInitializing:
 		if total > 0 && initialized > 0 {
 			return fmt.Sprintf("initialized %d/%d", initialized, total)
 		}
 		return fmt.Sprintf("initializing %d stacks…", total)
+	case events.PhaseMoves:
+		return "executing state moves…"
 	case events.PhaseApplying:
 		if total > 0 && planned == total {
 			return fmt.Sprintf("applied %d/%d", planned, total)
 		}
 		return fmt.Sprintf("applying %d/%d", planned, total)
+	case events.PhaseClassify:
+		return "classifying plans…"
+	case events.PhaseReport:
+		return "generating report…"
 	case events.PhaseTesting:
 		return "testing…"
 	case events.PhaseVerifying:

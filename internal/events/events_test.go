@@ -158,8 +158,8 @@ func TestPhaseTickingAndValid(t *testing.T) {
 	if !PhaseVerifying.Valid() {
 		t.Error("verifying should be a valid phase")
 	}
-	if Phase("invalid").Valid() {
-		t.Error("invalid should not be a valid phase")
+	if Phase("").Valid() {
+		t.Error("empty phase should not be a valid phase")
 	}
 }
 

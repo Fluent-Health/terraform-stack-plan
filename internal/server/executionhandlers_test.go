@@ -99,6 +99,39 @@ func TestGetExecution(t *testing.T) {
 		if len(res.Gates) != 1 || res.Gates[0].Class != "gcp-pam" || res.Gates[0].State != "ACTIVE" {
 			t.Errorf("unexpected gates in response: %+v", res.Gates)
 		}
+
+		// Check fallback progress values (default is non-zero)
+		if res.ProgressPct == 0 {
+			t.Errorf("expected non-zero fallback ProgressPct, got %d", res.ProgressPct)
+		}
+	}
+
+	// 3b. Test GET /api/execution/{id} with seeded dynamic progress
+	{
+		pctVal := 88
+		err := store.UpsertPhase(db, events.PhaseEvent{
+			ID: "e1", Phase: "custom-moves", Label: "custom moving...", ProgressPct: &pctVal,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		req, _ := http.NewRequest("GET", srv.URL+"/api/execution/e1", nil)
+		req.Header.Set("Authorization", "Bearer "+validToken)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+
+		var res executionResponse
+		if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
+			t.Fatalf("decode json: %v", err)
+		}
+
+		if res.ProgressPct != 88 || res.ProgressLabel != "custom moving..." {
+			t.Errorf("unexpected dynamic progress: pct=%d label=%q", res.ProgressPct, res.ProgressLabel)
+		}
 	}
 
 	// 4. Test GET /api/execution/{id}/events without token (unauthorized)

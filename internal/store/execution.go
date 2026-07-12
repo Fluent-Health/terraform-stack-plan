@@ -23,6 +23,8 @@ type Execution struct {
 	Status         string // execution-level commit status (e.g. "in_progress"/"success"/"failure"); written by the serve handler, distinct from per-stack events.Status
 	StatusContext  string
 	Phase          string
+	ProgressLabel  sql.NullString `json:"-"`
+	ProgressPct    sql.NullInt64  `json:"-"`
 	CreatedAt      time.Time
 	SupersededBy   string
 }
@@ -75,17 +77,30 @@ func UpsertInit(db *sql.DB, in events.Init) error {
 // non-zero value, so a bare phase bump never clobbers data set by an earlier
 // Init (and an early phase event survives a later Init).
 func UpsertPhase(db *sql.DB, p events.PhaseEvent) error {
+	var label sql.NullString
+	if p.Label != "" {
+		label.Valid = true
+		label.String = p.Label
+	}
+	var pct sql.NullInt64
+	if p.ProgressPct != nil {
+		pct.Valid = true
+		pct.Int64 = int64(*p.ProgressPct)
+	}
+
 	_, err := db.Exec(
-		`INSERT INTO executions (id, repo, sha, pr, environment, log_url, status_context, phase)
-		 VALUES (?,?,?,?,?,?,?,?)
+		`INSERT INTO executions (id, repo, sha, pr, environment, log_url, status_context, phase, progress_label, progress_pct)
+		 VALUES (?,?,?,?,?,?,?,?,?,?)
 		 ON CONFLICT(id) DO UPDATE SET phase=excluded.phase,
+		   progress_label=CASE WHEN excluded.progress_label IS NULL THEN executions.progress_label ELSE excluded.progress_label END,
+		   progress_pct=CASE WHEN excluded.progress_pct IS NULL THEN executions.progress_pct ELSE excluded.progress_pct END,
 		   repo=CASE WHEN excluded.repo='' THEN executions.repo ELSE excluded.repo END,
 		   sha=CASE WHEN excluded.sha='' THEN executions.sha ELSE excluded.sha END,
 		   pr=CASE WHEN excluded.pr=0 THEN executions.pr ELSE excluded.pr END,
 		   environment=CASE WHEN excluded.environment='' THEN executions.environment ELSE excluded.environment END,
 		   status_context=CASE WHEN excluded.status_context='' THEN executions.status_context ELSE excluded.status_context END,
 		   log_url=CASE WHEN excluded.log_url='' THEN executions.log_url ELSE excluded.log_url END`,
-		p.ID, p.Repo, p.SHA, p.PR, p.Environment, p.LogURL, p.Context, string(p.Phase))
+		p.ID, p.Repo, p.SHA, p.PR, p.Environment, p.LogURL, p.Context, string(p.Phase), label, pct)
 	return err
 }
 
@@ -95,12 +110,12 @@ func GetExecution(db *sql.DB, id string) (Execution, error) {
 	err := db.QueryRow(
 		`SELECT id, repo, sha, COALESCE(pr,0), COALESCE(environment,''), check_run_id,
                         rev, COALESCE(report_markdown,''), COALESCE(log_url,''),
-                        COALESCE(status,''), COALESCE(status_context,''), COALESCE(phase,''), created_at,
-                        COALESCE(superseded_by, '')
+                        COALESCE(status,''), COALESCE(status_context,''), COALESCE(phase,''), 
+                        progress_label, progress_pct, created_at, COALESCE(superseded_by, '')
                  FROM executions WHERE id = ?`, id).
 		Scan(&e.ID, &e.Repo, &e.SHA, &e.PR, &e.Environment, &e.CheckRunID,
-			&e.Rev, &e.ReportMarkdown, &e.LogURL, &e.Status, &e.StatusContext, &e.Phase, &e.CreatedAt,
-			&e.SupersededBy)
+			&e.Rev, &e.ReportMarkdown, &e.LogURL, &e.Status, &e.StatusContext, &e.Phase,
+			&e.ProgressLabel, &e.ProgressPct, &e.CreatedAt, &e.SupersededBy)
 	if err != nil {
 		return Execution{}, err
 	}
@@ -193,14 +208,14 @@ func SetCheckRunID(db *sql.DB, id string, checkRunID int64) error {
 }
 
 // listExecutions scans execution list rows from a query returning, in order:
-// id, repo, pr, environment, status, phase, created_at.
+// id, repo, pr, environment, status, phase, progress_label, progress_pct, created_at.
 func listExecutions(rows *sql.Rows) ([]Execution, error) {
 	defer rows.Close()
 	var out []Execution
 	for rows.Next() {
 		var e Execution
 		if err := rows.Scan(&e.ID, &e.Repo, &e.SHA, &e.PR, &e.Environment, &e.Status,
-			&e.StatusContext, &e.Phase, &e.CreatedAt, &e.SupersededBy, &e.LogURL); err != nil {
+			&e.StatusContext, &e.Phase, &e.ProgressLabel, &e.ProgressPct, &e.CreatedAt, &e.SupersededBy, &e.LogURL); err != nil {
 			return nil, err
 		}
 		out = append(out, e)
@@ -211,7 +226,7 @@ func listExecutions(rows *sql.Rows) ([]Execution, error) {
 // listExecutionColumns is the column set the list queries share — everything a
 // summary needs, deliberately excluding the heavyweight report_markdown.
 const listExecutionColumns = `id, repo, COALESCE(sha,''), COALESCE(pr,0), COALESCE(environment,''),
-	COALESCE(status,''), COALESCE(status_context,''), COALESCE(phase,''), created_at,
+	COALESCE(status,''), COALESCE(status_context,''), COALESCE(phase,''), progress_label, progress_pct, created_at,
 	COALESCE(superseded_by,''), COALESCE(log_url,'')`
 
 // ListExecutions returns the most recent executions, newest first.

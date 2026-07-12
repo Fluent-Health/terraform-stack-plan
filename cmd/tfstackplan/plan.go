@@ -137,12 +137,26 @@ func runPlan(args []string) int {
 
 	// Render + classify the produced plans (shared with the apply-time classify
 	// pass via renderClassification).
+	_ = client.Phase(ctx, events.PhaseEvent{
+		ID:          execID,
+		Phase:       events.PhaseClassify,
+		Label:       "classifying plans…",
+		ProgressPct: intPtr(95),
+	})
+
 	res, rerr := renderClassification(*dir, stacks, *cfgPath)
 	if rerr != nil {
 		fmt.Fprintln(os.Stderr, "tfstackplan run plan:", rerr)
 		return 1
 	}
 	fmt.Print(res.Report)
+
+	_ = client.Phase(ctx, events.PhaseEvent{
+		ID:          execID,
+		Phase:       events.PhaseReport,
+		Label:       "generating report…",
+		ProgressPct: intPtr(98),
+	})
 
 	_ = client.Finalize(ctx, events.Finalize{
 		ID: execID, ReportMarkdown: res.ReportNoTable, StackReports: res.StackReports, Gates: res.Gates, Moving: res.Moving, Failed: scriptErr != nil,

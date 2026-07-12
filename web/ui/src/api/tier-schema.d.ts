@@ -542,6 +542,8 @@ export interface components {
             log_url?: string;
             context?: string;
             phase: components["schemas"]["Phase"];
+            label?: string;
+            progress_pct?: number;
         };
         /** @description Ticks a single stack's status. */
         Update: {
@@ -631,6 +633,10 @@ export interface components {
             status: string;
             /** @description Current lifecycle phase ("" before the first phase event). */
             phase: string;
+            /** @description Dynamic progress percentage (0-100). */
+            progress_pct: number;
+            /** @description Dynamic progress label. */
+            progress_label: string;
             /** Format: date-time */
             created_at: string;
             /** @description Id of the execution that superseded this one ("" when live). */
@@ -713,6 +719,8 @@ export interface components {
             Status: string;
             StatusContext: string;
             Phase: string;
+            ProgressPct: number;
+            ProgressLabel: string;
             /** Format: date-time */
             CreatedAt: string;
             SupersededBy: string;

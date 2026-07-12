@@ -101,6 +101,8 @@ type ExecutionDetail struct {
 	LogURL         string    `json:"LogURL"`
 	PR             int       `json:"PR"`
 	Phase          string    `json:"Phase"`
+	ProgressLabel  string    `json:"ProgressLabel"`
+	ProgressPct    int       `json:"ProgressPct"`
 	Repo           string    `json:"Repo"`
 	ReportMarkdown string    `json:"ReportMarkdown"`
 	Rev            int       `json:"Rev"`
@@ -131,8 +133,14 @@ type ExecutionSummary struct {
 	// Phase Current lifecycle phase ("" before the first phase event).
 	Phase string `json:"phase"`
 	Pr    int    `json:"pr"`
-	Repo  string `json:"repo"`
-	Sha   string `json:"sha"`
+
+	// ProgressLabel Dynamic progress label.
+	ProgressLabel string `json:"progress_label"`
+
+	// ProgressPct Dynamic progress percentage (0-100).
+	ProgressPct int    `json:"progress_pct"`
+	Repo        string `json:"repo"`
+	Sha         string `json:"sha"`
 
 	// Status Execution-level status (in_progress/success/failure).
 	Status string `json:"status"`

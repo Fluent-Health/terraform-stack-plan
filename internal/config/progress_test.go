@@ -63,8 +63,8 @@ progress {
 	}
 }
 
-func TestProgressUnknownPhase(t *testing.T) {
-	_, err := loadHCL(t, `
+func TestProgressCustomPhases(t *testing.T) {
+	cfg, err := loadHCL(t, `
 progress {
   plan {
     phase "warming" {}
@@ -72,8 +72,12 @@ progress {
   }
 }
 `)
-	if err == nil {
-		t.Fatal("expected error for unknown phase")
+	if err != nil {
+		t.Fatalf("expected custom phase to parse successfully, got error: %v", err)
+	}
+	got := cfg.Progress.For("plan")
+	if len(got) != 2 || got[1].Phase != "bogus" {
+		t.Fatalf("expected custom phase 'bogus' in plan phases, got: %+v", got)
 	}
 }
 

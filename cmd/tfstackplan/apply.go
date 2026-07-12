@@ -248,6 +248,13 @@ func runApply(args []string) int {
 		fmt.Fprintln(os.Stderr, "tfstackplan run apply: gate resolved no leased requester — applying under the ambient identity (no gated targets for this PR/env)")
 	}
 
+	_ = client.Phase(ctx, events.PhaseEvent{
+		ID:          execID,
+		Phase:       events.PhaseMoves,
+		Label:       "executing state moves…",
+		ProgressPct: intPtr(15),
+	})
+
 	// 7. Fail-closed cross-state move pre-phase: execute any pending
 	//    `_tfsp_xmove.*.hcl` manifests before the apply runs. No-op when none are
 	//    present. A failure here aborts the apply (the moves must land cleanly,
@@ -297,6 +304,13 @@ func runApply(args []string) int {
 			fmt.Fprintf(os.Stderr, "tfstackplan run apply: cache save: %v\n", err)
 		}
 	}
+
+	_ = client.Phase(ctx, events.PhaseEvent{
+		ID:          execID,
+		Phase:       events.PhaseReport,
+		Label:       "generating report…",
+		ProgressPct: intPtr(98),
+	})
 
 	// 9. Always emit a terminal Finalize. On failure the server marks any
 	//    pending/running stacks failed and concludes the apply check run failure;

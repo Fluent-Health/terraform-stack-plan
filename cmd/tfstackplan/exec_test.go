@@ -21,9 +21,9 @@ func TestRunExecRequiresCommand(t *testing.T) {
 	}
 }
 
-func TestRunExecInvalidPhase(t *testing.T) {
-	if code := runExec([]string{"--phase", "bogus", "--", "echo", "hi"}); code != 2 {
-		t.Errorf("invalid phase: got %d, want 2", code)
+func TestRunExecCustomPhase(t *testing.T) {
+	if code := runExec([]string{"--phase", "custom", "--", "echo", "hi"}); code != 0 {
+		t.Errorf("custom phase: got %d, want 0", code)
 	}
 }
 

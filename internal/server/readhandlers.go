@@ -11,6 +11,8 @@ import (
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/api"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/claims"
+	"github.com/Fluent-Health/terraform-stack-plan/internal/config"
+	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/reconcile"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
@@ -53,18 +55,41 @@ func (a *App) handleListExecutions(w http.ResponseWriter, _ *http.Request, param
 	}
 	out := make([]api.ExecutionSummary, 0, len(execs))
 	for _, e := range execs {
+		progressLabel := ""
+		if e.ProgressLabel.Valid {
+			progressLabel = e.ProgressLabel.String
+		} else {
+			progressLabel = phaseLabel(events.Phase(e.Phase), 0, 0, 0)
+		}
+		progressPct := 0
+		if e.ProgressPct.Valid {
+			progressPct = int(e.ProgressPct.Int64)
+		} else {
+			var weights []config.PhaseWeight
+			if a.cfg.Progress != nil {
+				if isApplyContext(e.StatusContext) {
+					weights = a.cfg.Progress.Apply
+				} else {
+					weights = a.cfg.Progress.Plan
+				}
+			}
+			_, _, progressPct = progress(weights, events.Phase(e.Phase), 0, 0, 0)
+		}
+
 		out = append(out, api.ExecutionSummary{
-			Id:           e.ID,
-			Repo:         e.Repo,
-			Sha:          e.SHA,
-			Pr:           e.PR,
-			Environment:  e.Environment,
-			Context:      e.StatusContext,
-			Status:       e.Status,
-			Phase:        e.Phase,
-			CreatedAt:    e.CreatedAt,
-			SupersededBy: e.SupersededBy,
-			LogUrl:       e.LogURL,
+			Id:            e.ID,
+			Repo:          e.Repo,
+			Sha:           e.SHA,
+			Pr:            e.PR,
+			Environment:   e.Environment,
+			Context:       e.StatusContext,
+			Status:        e.Status,
+			Phase:         e.Phase,
+			ProgressLabel: progressLabel,
+			ProgressPct:   progressPct,
+			CreatedAt:     e.CreatedAt,
+			SupersededBy:  e.SupersededBy,
+			LogUrl:        e.LogURL,
 		})
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -456,18 +481,41 @@ func (a *App) handleInspectOverview(w http.ResponseWriter, r *http.Request) {
 
 		summaries := []api.ExecutionSummary{}
 		for _, e := range execs {
+			progressLabel := ""
+			if e.ProgressLabel.Valid {
+				progressLabel = e.ProgressLabel.String
+			} else {
+				progressLabel = phaseLabel(events.Phase(e.Phase), 0, 0, 0)
+			}
+			progressPct := 0
+			if e.ProgressPct.Valid {
+				progressPct = int(e.ProgressPct.Int64)
+			} else {
+				var weights []config.PhaseWeight
+				if a.cfg.Progress != nil {
+					if isApplyContext(e.StatusContext) {
+						weights = a.cfg.Progress.Apply
+					} else {
+						weights = a.cfg.Progress.Plan
+					}
+				}
+				_, _, progressPct = progress(weights, events.Phase(e.Phase), 0, 0, 0)
+			}
+
 			summaries = append(summaries, api.ExecutionSummary{
-				Id:           e.ID,
-				Repo:         e.Repo,
-				Sha:          e.SHA,
-				Pr:           e.PR,
-				Environment:  e.Environment,
-				Context:      e.StatusContext,
-				Status:       e.Status,
-				Phase:        e.Phase,
-				CreatedAt:    e.CreatedAt,
-				SupersededBy: e.SupersededBy,
-				LogUrl:       e.LogURL,
+				Id:            e.ID,
+				Repo:          e.Repo,
+				Sha:           e.SHA,
+				Pr:            e.PR,
+				Environment:   e.Environment,
+				Context:       e.StatusContext,
+				Status:        e.Status,
+				Phase:         e.Phase,
+				ProgressLabel: progressLabel,
+				ProgressPct:   progressPct,
+				CreatedAt:     e.CreatedAt,
+				SupersededBy:  e.SupersededBy,
+				LogUrl:        e.LogURL,
 			})
 		}
 

@@ -96,6 +96,11 @@ const (
 	PhaseApplying     Phase = "applying"     // sequential apply
 	PhaseTesting      Phase = "testing"      // post-apply contract tests
 	PhaseVerifying    Phase = "verifying"    // post-apply verification
+	PhaseImage        Phase = "image"        // preparing runner image
+	PhaseClaim        Phase = "claim"        // acquiring apply lock
+	PhaseMoves        Phase = "moves"        // executing state moves
+	PhaseClassify     Phase = "classify"     // classifying plans
+	PhaseReport       Phase = "report"       // generating report
 )
 
 // Ticking reports whether a phase advances per-stack (k/N sub-progress) rather
@@ -109,14 +114,9 @@ func (p Phase) Ticking() bool {
 	return false
 }
 
-// Valid reports whether p is a known lifecycle phase.
+// Valid reports whether p is a valid non-empty phase.
 func (p Phase) Valid() bool {
-	switch p {
-	case PhaseWarming, PhaseLinting, PhaseInitializing, PhasePlanning,
-		PhaseApplying, PhaseTesting, PhaseVerifying:
-		return true
-	}
-	return false
+	return p != ""
 }
 
 // Category is a classification label matched by a stack. Alias of the canonical
@@ -181,6 +181,8 @@ type PhaseEvent struct {
 	LogURL      string `json:"log_url,omitempty"`
 	Context     string `json:"context,omitempty"`
 	Phase       Phase  `json:"phase"`
+	Label       string `json:"label,omitempty"`
+	ProgressPct *int   `json:"progress_pct,omitempty"`
 }
 
 // LogChunk is a slice of one stack's combined output, streamed during execution.
