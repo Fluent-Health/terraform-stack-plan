@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 
@@ -145,4 +146,60 @@ func (a *App) handleGetPR(w http.ResponseWriter, _ *http.Request, pr int) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(out)
+}
+
+func (a *App) handleInspectGrants(w http.ResponseWriter, r *http.Request, params api.InspectGrantsParams) {
+	ctx := r.Context()
+	query := "SELECT pr, environment, class, target, COALESCE(grant_name,''), COALESCE(state,''), COALESCE(requester,'') FROM gate_targets"
+	if params.State != nil && *params.State == "open" {
+		query += " WHERE state IN ('AWAITING', 'ACTIVATING', 'ACTIVE')"
+	}
+	rows, err := a.db.Query(query)
+	if err != nil {
+		http.Error(w, "query grants", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	grants := []api.InspectGrant{}
+	for rows.Next() {
+		var g api.InspectGrant
+		if err := rows.Scan(&g.Pr, &g.Environment, &g.Class, &g.Target, &g.GrantName, &g.State, &g.Requester); err != nil {
+			http.Error(w, "scan grant", http.StatusInternalServerError)
+			return
+		}
+		grants = append(grants, g)
+	}
+
+	// Live drift check
+	if params.Live != nil && *params.Live == 1 && a.Approval != nil {
+		for i := range grants {
+			g := &grants[i]
+			liveGrants, lerr := a.Approval.ListGrants(ctx, g.Class, g.Target)
+			if lerr == nil {
+				for _, lg := range liveGrants {
+					if lg.Request.PR == g.Pr && lg.Request.Environment == g.Environment {
+						actual := string(lg.State)
+						if actual != g.State {
+							g.DriftDetected = ptr(true)
+							g.ActualState = ptr(actual)
+							// Trigger self-healing nudge
+							a.reconcileBackground(g.Pr, g.Environment)
+						}
+					}
+				}
+			}
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(grants)
+}
+
+func ptr[T any](v T) *T { return &v }
+
+func (a *App) reconcileBackground(pr int, env string) {
+	go func() {
+		_ = a.shell.tick(context.Background(), pr, env)
+	}()
 }
