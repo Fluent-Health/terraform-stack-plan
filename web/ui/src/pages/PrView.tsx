@@ -3,21 +3,20 @@ import { useParams } from "@solidjs/router";
 import { api } from "../api/client";
 import { primaryExec, latestPerContext } from "../prdata";
 import { TierPanel } from "../components/TierPanel";
+import { PrIdentity } from "../components/PrIdentity";
 
 /**
  * PrView: the hero. One PR across both tiers, newest run per tier side-by-side.
- * Identity is minimal in Plan 1 (PR# only); title/description/author and
- * the merge strip arrive in Plan 2 when serve exposes PR metadata.
+ * The identity header (title/author/branch/GitHub link) is fetched
+ * separately by PrIdentity, which degrades to a minimal "#{n}" header when
+ * no reachable tier has PR metadata.
  */
 export function PrView() {
   const params = useParams();
   const [tiers] = createResource(api.tiers);
   return (
     <div class="space-y-5">
-      <header class="flex items-baseline gap-3">
-        <h1 class="text-2xl font-semibold">#{params.n}</h1>
-        <span class="text-sm opacity-60">this PR across every tier</span>
-      </header>
+      <PrIdentity pr={Number(params.n)} tiers={(tiers() ?? []).map((t) => t.name)} />
       <Suspense fallback={<span class="loading loading-dots" />}>
         <div class="grid gap-4 lg:grid-cols-2">
           <For each={tiers()}>{(t) => <TierColumn tier={t.name} pr={Number(params.n)} />}</For>
