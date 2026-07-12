@@ -176,3 +176,15 @@ func TestReactPRClosedSSEOnly(t *testing.T) {
 		t.Fatalf("got %#v want %#v", got, want)
 	}
 }
+
+func TestReactCheckOverride(t *testing.T) {
+	state := ChangeSet{
+		PR: 7, Environment: "staging",
+		CheckOverride: &CheckOverride{CheckName: "check-1", Conclusion: "success"},
+	}
+	got := React(state, []Event{ExecutionStarted{}})
+	want := []Action{RenderCheckRun{Terminal: true, Conclusion: "success"}, PublishSSE{}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %#v want %#v", got, want)
+	}
+}

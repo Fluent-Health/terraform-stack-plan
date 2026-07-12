@@ -12,14 +12,22 @@ import (
 
 // ChangeSet is the reconciliation unit: one PR's work in one environment.
 type ChangeSet struct {
-	PR          int
-	Environment string
-	Exec        Execution
-	Gate        GateState
+	PR            int
+	Environment   string
+	Exec          Execution
+	Gate          GateState
+	CheckOverride *CheckOverride
 	// Runs tracks serve-initiated CI runs, keyed by kind (plan/apply). Only
 	// the run-start lifecycle lives here (webhook → build started); once the
 	// runner reports, Exec carries the execution facts as before.
 	Runs map[string]Run
+}
+
+type CheckOverride struct {
+	CheckName  string `json:"check_name"`
+	Conclusion string `json:"conclusion"`
+	Actor      string `json:"actor"`
+	Reason     string `json:"reason"`
 }
 
 // Run kinds — the two CI run flavors serve can trigger.

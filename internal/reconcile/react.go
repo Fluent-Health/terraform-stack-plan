@@ -140,6 +140,14 @@ func React(state ChangeSet, evs []Event) []Action {
 		}
 	}
 
+	if state.CheckOverride != nil {
+		renderPrec = 2
+		renderAction = RenderCheckRun{
+			Terminal:   true,
+			Conclusion: state.CheckOverride.Conclusion,
+		}
+	}
+
 	switch {
 	case sseOnly:
 		actions = append(actions, PublishSSE{})

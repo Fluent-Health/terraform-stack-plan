@@ -67,6 +67,14 @@ func eventTag(e Event) string {
 		return "RunCompleted"
 	case RunAdopted:
 		return "RunAdopted"
+	case AdminGrantReleased:
+		return "AdminGrantReleased"
+	case AdminExecutionCancelled:
+		return "AdminExecutionCancelled"
+	case AdminGateSatisfied:
+		return "AdminGateSatisfied"
+	case AdminCheckOverridden:
+		return "AdminCheckOverridden"
 	default:
 		return ""
 	}
@@ -119,6 +127,14 @@ func UnmarshalEvent(tag string, data []byte) (Event, error) {
 		return unmarshalInto[RunCompleted](data)
 	case "RunAdopted":
 		return unmarshalInto[RunAdopted](data)
+	case "AdminGrantReleased":
+		return unmarshalInto[AdminGrantReleased](data)
+	case "AdminExecutionCancelled":
+		return unmarshalInto[AdminExecutionCancelled](data)
+	case "AdminGateSatisfied":
+		return unmarshalInto[AdminGateSatisfied](data)
+	case "AdminCheckOverridden":
+		return unmarshalInto[AdminCheckOverridden](data)
 	default:
 		return nil, fmt.Errorf("reconcile: unknown event tag %q", tag)
 	}
