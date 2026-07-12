@@ -193,6 +193,37 @@ func TestAPIWireCompat(t *testing.T) {
 				seedProjectionTarget(t, db, 8, "staging", "destructive", "proj-c", "", "AWAITING", "req@x.iam.gserviceaccount.com")
 			},
 		},
+		{
+			name: "22-pr-get", method: "GET", path: "/api/pr/7", token: "tok",
+			seed: func(t *testing.T) {
+				if err := store.UpsertPRMeta(db, store.PRMeta{
+					Repo: "o/r", PR: 7, Title: "Add widget", Body: "Does widget things.",
+					AuthorLogin: "octocat", HeadRef: "feature/widget",
+					URL: "https://github.com/o/r/pull/7", AutoMerge: true,
+				}); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name: "23-pr-404", method: "GET", path: "/api/pr/424242", token: "tok",
+		},
+		{
+			// The normal window right after a PR opens: the webhook has
+			// written pr_meta, but the runner has not yet called /api/init
+			// for this PR — no execution exists. Must be 200 with meta
+			// populated, not 404 (the bug this step guards against).
+			name: "24-pr-get-meta-only-no-execution", method: "GET", path: "/api/pr/555", token: "tok",
+			seed: func(t *testing.T) {
+				if err := store.UpsertPRMeta(db, store.PRMeta{
+					Repo: "o/r", PR: 555, Title: "Pre-execution PR", Body: "Meta arrives before init.",
+					AuthorLogin: "octocat", HeadRef: "feature/pre-execution",
+					URL: "https://github.com/o/r/pull/555", AutoMerge: false,
+				}); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
 	}
 
 	for _, s := range steps {

@@ -1,6 +1,7 @@
-import { For, Index, Show, Suspense, createEffect, createResource, createSignal, onCleanup } from "solid-js";
+import { For, Index, Show, Suspense, createEffect, createMemo, createResource, createSignal, onCleanup } from "solid-js";
 import { api, executionEventsURL, type ExecutionSummary, type StackState } from "../api/client";
-import { contextKind, groupByProject, progressCounts } from "../prdata";
+import { approvalsByTarget, contextKind, groupByProject, progressCounts } from "../prdata";
+import { GateApproval } from "./GateApproval";
 import { ProgressBlocks } from "./ProgressBlocks";
 import { StackDetail } from "./StackDetail";
 import { SEM_DOT, statusSem } from "../status";
@@ -12,7 +13,7 @@ export function TierPanel(props: {
   contexts: ExecutionSummary[];
   onSuperseded?: () => void;
 }) {
-  const [detail, { refetch }] = createResource(
+  const [detail, { refetch: refetchDetail }] = createResource(
     () => ({ tier: props.tier, id: props.summary.id }),
     (k) => api.execution(k.tier, k.id),
   );
@@ -21,7 +22,7 @@ export function TierPanel(props: {
     let t: ReturnType<typeof setTimeout> | undefined;
     es.onmessage = () => {
       clearTimeout(t);
-      t = setTimeout(() => refetch(), 300);
+      t = setTimeout(() => refetchDetail(), 300);
     };
     es.addEventListener("superseded", () => props.onSuperseded?.());
     onCleanup(() => {
@@ -30,6 +31,18 @@ export function TierPanel(props: {
     });
   });
   const [open, setOpen] = createSignal<string | undefined>();
+
+  // Pending approvals gating this PR's projects on this tier, for the
+  // in-context Approve/Deny affordance on gated project-group headers.
+  const [approvals, { refetch: refetchApprovals }] = createResource(
+    () => props.tier,
+    (tier) => api.approvals(tier),
+  );
+  const gates = createMemo(() => approvalsByTarget(approvals() ?? [], props.summary.pr));
+  const onDecided = () => {
+    refetchApprovals();
+    refetchDetail();
+  };
 
   return (
     <section class="card bg-base-200 border border-base-300">
@@ -65,7 +78,12 @@ export function TierPanel(props: {
                 <Index each={groupByProject(d().graph?.stacks ?? [])}>
                   {(g) => (
                     <div class="rounded-field border border-base-300" classList={{ "border-error/50": g().failed }}>
-                      <div class="px-3 py-2 bg-base-100 text-xs font-mono rounded-t-field">{g().project}</div>
+                      <div class="px-3 py-2 bg-base-100 rounded-t-field flex items-center gap-2">
+                        <span class="text-xs font-mono">{g().project}</span>
+                        <Show when={gates().get(g().project)}>
+                          {(a) => <GateApproval tier={props.tier} approval={a()} onDecided={onDecided} />}
+                        </Show>
+                      </div>
                       <Index each={g().stacks}>
                         {(s) => (
                           <div class="border-t border-base-300">

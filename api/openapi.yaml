@@ -321,6 +321,38 @@ paths:
                   $ref: "#/components/schemas/PendingApproval"
         "500":
           $ref: "#/components/responses/InternalText"
+  /api/pr/{n}:
+    get:
+      operationId: getPR
+      summary: Read a pull request's identity and per-tier merge state
+      description: |
+        PR identity (title/author/branch/automerge, as last reported by the
+        GitHub webhook) plus this serve tier's merge-readiness verdict (the
+        required check and apply-lock state for `a.cfg.Environment`). `meta`
+        is omitted when no metadata row has been recorded for the PR. 404
+        when the PR is entirely unknown to this tier (no metadata and no
+        execution).
+      security:
+        - oidc: [report, read, admin]
+      parameters:
+        - name: n
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: The PR's identity and merge state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PRView"
+        "404":
+          description: Unknown PR.
+          content:
+            text/plain: {}
+        "500":
+          $ref: "#/components/responses/InternalText"
   /api/execution/{id}:
     get:
       operationId: getExecution
@@ -742,6 +774,62 @@ components:
         requester:
           type: string
           description: Leased requester SA for this grant.
+    PRMeta:
+      type: object
+      description: >-
+        PR-level identity as last reported by the GitHub webhook (title,
+        author, branch, automerge).
+      required:
+        - title
+        - body
+        - author_login
+        - head_ref
+        - url
+        - auto_merge
+      properties:
+        title: { type: string }
+        body: { type: string }
+        author_login: { type: string }
+        head_ref: { type: string }
+        url: { type: string }
+        auto_merge: { type: boolean }
+    PRMergeState:
+      type: object
+      description: A PR's merge-readiness on this serve's tier.
+      required:
+        - environment
+        - required_check
+        - check_conclusion
+        - merge_blocked
+        - blocker
+      properties:
+        environment:
+          type: string
+          description: This serve's tier (empty when the tier has none configured).
+        required_check:
+          type: string
+          description: The check name that gates merge (e.g. apply-lock/<env> or terraform/<env>).
+        check_conclusion:
+          type: string
+          description: GitHub check conclusion vocabulary; "" means still in progress.
+        merge_blocked:
+          type: boolean
+        blocker:
+          type: string
+          description: Short human-readable blocker reason ("" when not blocked).
+    PRView:
+      type: object
+      description: A PR's identity and per-tier merge state.
+      required: [pr, repo, merge]
+      properties:
+        pr: { type: integer }
+        repo:
+          type: string
+          description: Repo of the PR's latest execution ("" when none).
+        meta:
+          $ref: "#/components/schemas/PRMeta"
+        merge:
+          $ref: "#/components/schemas/PRMergeState"
     NullInt64:
       type: object
       description: >-

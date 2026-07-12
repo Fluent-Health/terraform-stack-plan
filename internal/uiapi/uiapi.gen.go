@@ -31,6 +31,9 @@ type Me struct {
 	Email string `json:"email"`
 }
 
+// PRView The tier contract's PRView, proxied verbatim.
+type PRView = api.PRView
+
 // PendingApproval The tier contract's PendingApproval, proxied verbatim.
 type PendingApproval = api.PendingApproval
 
@@ -69,6 +72,9 @@ type ServerInterface interface {
 	// One tier execution's full state (proxied)
 	// (GET /api/tiers/{tier}/executions/{id})
 	GetTierExecution(w http.ResponseWriter, r *http.Request, tier Tier, id string)
+	// One tier's view of a PR's identity and merge state (proxied)
+	// (GET /api/tiers/{tier}/pr/{n})
+	GetTierPR(w http.ResponseWriter, r *http.Request, tier Tier, n int)
 }
 
 // ServerInterfaceWrapper converts contexts to parameters.
@@ -254,6 +260,47 @@ func (siw *ServerInterfaceWrapper) GetTierExecution(w http.ResponseWriter, r *ht
 	handler.ServeHTTP(w, r)
 }
 
+// GetTierPR operation middleware
+func (siw *ServerInterfaceWrapper) GetTierPR(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "tier" -------------
+	var tier Tier
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tier", r.PathValue("tier"), &tier, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tier", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "n" -------------
+	var n int
+
+	err = runtime.BindStyledParameterWithOptions("simple", "n", r.PathValue("n"), &n, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "n", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, SessionScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetTierPR(w, r, tier, n)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 type UnescapedCookieParamError struct {
 	ParamName string
 	Err       error
@@ -379,6 +426,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/tiers/{tier}/approvals", wrapper.ListTierApprovals)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/tiers/{tier}/executions", wrapper.ListTierExecutions)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/tiers/{tier}/executions/{id}", wrapper.GetTierExecution)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/tiers/{tier}/pr/{n}", wrapper.GetTierPR)
 
 	return m
 }

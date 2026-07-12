@@ -2,7 +2,7 @@
  * prdata: pure reshaping of the tier-serve execution data into the PR-centric
  * views. No I/O — callers pass already-fetched summaries/details.
  */
-import type { ExecutionSummary, StackState } from "./api/client";
+import type { ExecutionSummary, PendingApproval, StackState } from "./api/client";
 import { statusSem, type Sem } from "./status";
 
 export type ContextKind = "plan" | "apply" | "verify" | "gate" | "other";
@@ -69,6 +69,17 @@ export function progressCounts(stacks: StackState[]): { done: number; running: n
     else if (sem === "failed") failed++;
   }
   return { done, running, failed, total: stacks.length };
+}
+
+// Index a tier's pending approvals (already PR-unfiltered from the API) by
+// project (== gate target) for this one PR, so a project-group header can do
+// an O(1) lookup for "is this project gated on me right now".
+export function approvalsByTarget(approvals: PendingApproval[], pr: number): Map<string, PendingApproval> {
+  const m = new Map<string, PendingApproval>();
+  for (const a of approvals) {
+    if (a.pr === pr) m.set(a.target, a);
+  }
+  return m;
 }
 
 export function distinctPRs(execs: ExecutionSummary[]): number[] {

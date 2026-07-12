@@ -1980,9 +1980,15 @@ top-level `ui {}` block (`tier "<name>" { url }` per tier serve, `oauth {}`,
   Plan diffs stay server-rendered — the SPA injects the tier's fragment and
   never re-implements the renderer. Payload types are generated from the tier
   contract (`yarn gen:types` → `src/api/tier-schema.d.ts`, committed, CI-checked).
-  Data-dependent richness deferred to follow-on work: a merge-queue/automerge
-  strip + PR identity header, the applier-slot Ops panel, and per-stage progress
-  detail — each needs serve-side additions.
+  The PR view also carries a **PR identity header** (title/description/author/
+  branch/↗GitHub) and a **merge strip** (automerge + per-tier `terraform/<tier>`
+  check status + a "what's blocking merge" line; no queue position), and
+  **in-context approve/deny** on gated projects (reusing the PAM flow). These are
+  fed by serve persisting PR metadata from the `pull_request` webhook (`pr_meta`
+  table) and a per-tier read `GET /api/pr/{n}` (identity + merge state), additive
+  and wire-neutral — an older serve simply lacks the route and the SPA degrades to
+  the minimal `#{n}` header. Still deferred to follow-on work: the applier-slot Ops
+  panel and richer per-stage progress detail (each needs further serve-side additions).
 - **SPA delivery**: the binary embeds `internal/ui/dist/` (`go:embed`), served
   with an index.html fallback for client-side routes. The repo commits only a
   placeholder page; the release workflow builds the SPA once and overwrites

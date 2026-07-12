@@ -231,6 +231,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/pr/{n}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read a pull request's identity and per-tier merge state
+         * @description PR identity (title/author/branch/automerge, as last reported by the
+         *     GitHub webhook) plus this serve tier's merge-readiness verdict (the
+         *     required check and apply-lock state for `a.cfg.Environment`). `meta`
+         *     is omitted when no metadata row has been recorded for the PR. 404
+         *     when the PR is entirely unknown to this tier (no metadata and no
+         *     execution).
+         */
+        get: operations["getPR"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/execution/{id}": {
         parameters: {
             query?: never;
@@ -448,6 +473,35 @@ export interface components {
             state: string;
             /** @description Leased requester SA for this grant. */
             requester: string;
+        };
+        /** @description PR-level identity as last reported by the GitHub webhook (title, author, branch, automerge). */
+        PRMeta: {
+            title: string;
+            body: string;
+            author_login: string;
+            head_ref: string;
+            url: string;
+            auto_merge: boolean;
+        };
+        /** @description A PR's merge-readiness on this serve's tier. */
+        PRMergeState: {
+            /** @description This serve's tier (empty when the tier has none configured). */
+            environment: string;
+            /** @description The check name that gates merge (e.g. apply-lock/<env> or terraform/<env>). */
+            required_check: string;
+            /** @description GitHub check conclusion vocabulary; "" means still in progress. */
+            check_conclusion: string;
+            merge_blocked: boolean;
+            /** @description Short human-readable blocker reason ("" when not blocked). */
+            blocker: string;
+        };
+        /** @description A PR's identity and per-tier merge state. */
+        PRView: {
+            pr: number;
+            /** @description Repo of the PR's latest execution ("" when none). */
+            repo: string;
+            meta?: components["schemas"]["PRMeta"];
+            merge: components["schemas"]["PRMergeState"];
         };
         /** @description A database nullable int64, serialized raw (historical accident, preserved for wire compatibility). */
         NullInt64: {
@@ -821,6 +875,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PendingApproval"][];
+                };
+            };
+            500: components["responses"]["InternalText"];
+        };
+    };
+    getPR: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                n: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The PR's identity and merge state. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PRView"];
+                };
+            };
+            /** @description Unknown PR. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/plain": unknown;
                 };
             };
             500: components["responses"]["InternalText"];

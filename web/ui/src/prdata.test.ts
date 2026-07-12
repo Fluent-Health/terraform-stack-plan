@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { contextKind, primaryExec, latestPerContext, rollupSem, groupByProject, distinctPRs, progressCounts } from "./prdata";
-import type { ExecutionSummary, StackState } from "./api/client";
+import {
+  contextKind,
+  primaryExec,
+  latestPerContext,
+  rollupSem,
+  groupByProject,
+  distinctPRs,
+  progressCounts,
+  approvalsByTarget,
+} from "./prdata";
+import type { ExecutionSummary, PendingApproval, StackState } from "./api/client";
 
 const ex = (o: Partial<ExecutionSummary>): ExecutionSummary =>
   ({ id: "", pr: 0, context: "", phase: "", status: "", superseded_by: "",
@@ -75,6 +84,28 @@ describe("progressCounts", () => {
     const st = (status: string): StackState => ({ path: "p", status } as StackState);
     const c = progressCounts([st("safe"), st("planned"), st("failed"), st("running"), st("pending")]);
     expect(c).toEqual({ done: 2, running: 1, failed: 1, total: 5 });
+  });
+});
+
+describe("approvalsByTarget", () => {
+  const pa = (o: Partial<PendingApproval>): PendingApproval =>
+    ({ pr: 0, environment: "", repo: "", class: "", target: "", grant_name: "", state: "", requester: "", ...o }) as PendingApproval;
+
+  it("indexes by target, filtered to the given PR", () => {
+    const m = approvalsByTarget(
+      [
+        pa({ pr: 1, target: "proj-a", class: "sensitive-project" }),
+        pa({ pr: 2, target: "proj-b", class: "sensitive-project" }),
+      ],
+      1,
+    );
+    expect(m.size).toBe(1);
+    expect(m.get("proj-a")?.class).toBe("sensitive-project");
+    expect(m.get("proj-b")).toBeUndefined();
+  });
+
+  it("returns an empty map when nothing is pending for this PR", () => {
+    expect(approvalsByTarget([pa({ pr: 9, target: "proj-a" })], 1).size).toBe(0);
   });
 });
 

@@ -8,6 +8,9 @@ export type PendingApproval = components["schemas"]["PendingApproval"];
 export type ExecutionDetail = components["schemas"]["ExecutionDetail"];
 export type StackState = components["schemas"]["StackState"];
 export type StoredGateTarget = components["schemas"]["StoredGateTarget"];
+export type PRView = components["schemas"]["PRView"];
+export type PRMeta = components["schemas"]["PRMeta"];
+export type PRMergeState = components["schemas"]["PRMergeState"];
 
 export interface Me {
   email: string;
@@ -43,6 +46,7 @@ export const api = {
   },
   approvals: (tier: string) => j<PendingApproval[]>(`/api/tiers/${tier}/approvals`),
   execution: (tier: string, id: string) => j<ExecutionDetail>(`/api/tiers/${tier}/executions/${id}`),
+  pr: (tier: string, n: number) => j<PRView>(`/api/tiers/${tier}/pr/${n}`),
   planFragment: async (tier: string, exec: string, stack: string): Promise<string> => {
     const r = await fetch(`/api/tiers/${tier}/plan/${exec}/${stack}`);
     if (r.status === 401) throw new Unauthorized();

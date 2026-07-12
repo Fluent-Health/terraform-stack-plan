@@ -141,6 +141,45 @@ type NullInt64 struct {
 	Valid bool  `json:"Valid"`
 }
 
+// PRMergeState A PR's merge-readiness on this serve's tier.
+type PRMergeState struct {
+	// Blocker Short human-readable blocker reason ("" when not blocked).
+	Blocker string `json:"blocker"`
+
+	// CheckConclusion GitHub check conclusion vocabulary; "" means still in progress.
+	CheckConclusion string `json:"check_conclusion"`
+
+	// Environment This serve's tier (empty when the tier has none configured).
+	Environment  string `json:"environment"`
+	MergeBlocked bool   `json:"merge_blocked"`
+
+	// RequiredCheck The check name that gates merge (e.g. apply-lock/<env> or terraform/<env>).
+	RequiredCheck string `json:"required_check"`
+}
+
+// PRMeta PR-level identity as last reported by the GitHub webhook (title, author, branch, automerge).
+type PRMeta struct {
+	AuthorLogin string `json:"author_login"`
+	AutoMerge   bool   `json:"auto_merge"`
+	Body        string `json:"body"`
+	HeadRef     string `json:"head_ref"`
+	Title       string `json:"title"`
+	Url         string `json:"url"`
+}
+
+// PRView A PR's identity and per-tier merge state.
+type PRView struct {
+	// Merge A PR's merge-readiness on this serve's tier.
+	Merge PRMergeState `json:"merge"`
+
+	// Meta PR-level identity as last reported by the GitHub webhook (title, author, branch, automerge).
+	Meta *PRMeta `json:"meta,omitempty"`
+	Pr   int     `json:"pr"`
+
+	// Repo Repo of the PR's latest execution ("" when none).
+	Repo string `json:"repo"`
+}
+
 // PendingApproval One gate target awaiting human action, with its PR context.
 type PendingApproval struct {
 	Class       string `json:"class"`
@@ -349,6 +388,9 @@ type ClientInterface interface {
 	ReportPhaseWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	ReportPhase(ctx context.Context, body ReportPhaseJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetPR request
+	GetPR(ctx context.Context, n int, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// UpdateStackWithBody request with any body
 	UpdateStackWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -574,6 +616,18 @@ func (c *Client) ReportPhaseWithBody(ctx context.Context, contentType string, bo
 
 func (c *Client) ReportPhase(ctx context.Context, body ReportPhaseJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewReportPhaseRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetPR(ctx context.Context, n int, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetPRRequest(c.Server, n)
 	if err != nil {
 		return nil, err
 	}
@@ -1055,6 +1109,40 @@ func NewReportPhaseRequestWithBody(server string, contentType string, body io.Re
 	return req, nil
 }
 
+// NewGetPRRequest generates requests for GetPR
+func NewGetPRRequest(server string, n int) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "n", n, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/pr/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewUpdateStackRequest calls the generic UpdateStack builder with application/json body
 func NewUpdateStackRequest(server string, body UpdateStackJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -1186,6 +1274,9 @@ type ClientWithResponsesInterface interface {
 	ReportPhaseWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ReportPhaseResponse, error)
 
 	ReportPhaseWithResponse(ctx context.Context, body ReportPhaseJSONRequestBody, reqEditors ...RequestEditorFn) (*ReportPhaseResponse, error)
+
+	// GetPRWithResponse request
+	GetPRWithResponse(ctx context.Context, n int, reqEditors ...RequestEditorFn) (*GetPRResponse, error)
 
 	// UpdateStackWithBodyWithResponse request with any body
 	UpdateStackWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateStackResponse, error)
@@ -1520,6 +1611,36 @@ func (r ReportPhaseResponse) ContentType() string {
 	return ""
 }
 
+type GetPRResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *PRView
+}
+
+// Status returns HTTPResponse.Status
+func (r GetPRResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetPRResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetPRResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type UpdateStackResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -1710,6 +1831,15 @@ func (c *ClientWithResponses) ReportPhaseWithResponse(ctx context.Context, body 
 		return nil, err
 	}
 	return ParseReportPhaseResponse(rsp)
+}
+
+// GetPRWithResponse request returning *GetPRResponse
+func (c *ClientWithResponses) GetPRWithResponse(ctx context.Context, n int, reqEditors ...RequestEditorFn) (*GetPRResponse, error) {
+	rsp, err := c.GetPR(ctx, n, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetPRResponse(rsp)
 }
 
 // UpdateStackWithBodyWithResponse request with arbitrary body returning *UpdateStackResponse
@@ -1976,6 +2106,32 @@ func ParseReportPhaseResponse(rsp *http.Response) (*ReportPhaseResponse, error) 
 	return response, nil
 }
 
+// ParseGetPRResponse parses an HTTP response from a GetPRWithResponse call
+func ParseGetPRResponse(rsp *http.Response) (*GetPRResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetPRResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest PRView
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseUpdateStackResponse parses an HTTP response from a UpdateStackWithResponse call
 func ParseUpdateStackResponse(rsp *http.Response) (*UpdateStackResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -2027,6 +2183,9 @@ type ServerInterface interface {
 	// Narrate a lifecycle phase transition
 	// (POST /api/phase)
 	ReportPhase(w http.ResponseWriter, r *http.Request)
+	// Read a pull request's identity and per-tier merge state
+	// (GET /api/pr/{n})
+	GetPR(w http.ResponseWriter, r *http.Request, n int)
 	// Tick a single stack's status
 	// (POST /api/update)
 	UpdateStack(w http.ResponseWriter, r *http.Request)
@@ -2305,6 +2464,38 @@ func (siw *ServerInterfaceWrapper) ReportPhase(w http.ResponseWriter, r *http.Re
 	handler.ServeHTTP(w, r)
 }
 
+// GetPR operation middleware
+func (siw *ServerInterfaceWrapper) GetPR(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "n" -------------
+	var n int
+
+	err = runtime.BindStyledParameterWithOptions("simple", "n", r.PathValue("n"), &n, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "n", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, OidcScopes, []string{"report", "read", "admin"})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetPR(w, r, n)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // UpdateStack operation middleware
 func (siw *ServerInterfaceWrapper) UpdateStack(w http.ResponseWriter, r *http.Request) {
 
@@ -2456,6 +2647,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/init", wrapper.InitExecution)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/logs", wrapper.AppendLogs)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/phase", wrapper.ReportPhase)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/pr/{n}", wrapper.GetPR)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/update", wrapper.UpdateStack)
 
 	return m

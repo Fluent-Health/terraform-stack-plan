@@ -118,6 +118,99 @@ func TestGitHubWebhookLeavesMergedGrant(t *testing.T) {
 	}
 }
 
+func TestGitHubWebhookPersistsPRMetaOnOpened(t *testing.T) {
+	db := newServerTestDB(t)
+	a := New(db, &MockGitHub{}, Config{GitHubWebhookSecret: "s"})
+	srv := httptest.NewServer(a.Routes())
+	defer srv.Close()
+
+	payload := map[string]any{
+		"action": "opened",
+		"pull_request": map[string]any{
+			"number":   3,
+			"merged":   false,
+			"title":    "Add widget",
+			"body":     "Some description",
+			"user":     map[string]any{"login": "octocat"},
+			"html_url": "https://github.com/o/r/pull/3",
+			"head":     map[string]any{"sha": "abc123", "ref": "feature-branch"},
+			"auto_merge": map[string]any{
+				"enabled_by": map[string]any{"login": "octocat"},
+			},
+		},
+		"repository": map[string]any{"full_name": "o/r"},
+	}
+	resp := webhookReq(t, srv, "s", "pull_request", payload)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204", resp.StatusCode)
+	}
+
+	meta, ok, err := store.GetPRMeta(db, "o/r", 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("expected pr_meta row to exist after opened webhook")
+	}
+	if meta.Title != "Add widget" {
+		t.Errorf("Title = %q, want %q", meta.Title, "Add widget")
+	}
+	if meta.Body != "Some description" {
+		t.Errorf("Body = %q, want %q", meta.Body, "Some description")
+	}
+	if meta.AuthorLogin != "octocat" {
+		t.Errorf("AuthorLogin = %q, want %q", meta.AuthorLogin, "octocat")
+	}
+	if meta.HeadRef != "feature-branch" {
+		t.Errorf("HeadRef = %q, want %q", meta.HeadRef, "feature-branch")
+	}
+	if meta.URL != "https://github.com/o/r/pull/3" {
+		t.Errorf("URL = %q, want %q", meta.URL, "https://github.com/o/r/pull/3")
+	}
+	if !meta.AutoMerge {
+		t.Error("AutoMerge = false, want true (auto_merge object present)")
+	}
+}
+
+func TestGitHubWebhookPersistsPRMetaAutoMergeNull(t *testing.T) {
+	db := newServerTestDB(t)
+	a := New(db, &MockGitHub{}, Config{GitHubWebhookSecret: "s"})
+	srv := httptest.NewServer(a.Routes())
+	defer srv.Close()
+
+	payload := map[string]any{
+		"action": "edited",
+		"pull_request": map[string]any{
+			"number":     4,
+			"merged":     false,
+			"title":      "Fix bug",
+			"body":       "",
+			"user":       map[string]any{"login": "someone"},
+			"html_url":   "https://github.com/o/r/pull/4",
+			"head":       map[string]any{"sha": "def456", "ref": "bugfix"},
+			"auto_merge": nil,
+		},
+		"repository": map[string]any{"full_name": "o/r"},
+	}
+	resp := webhookReq(t, srv, "s", "pull_request", payload)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204", resp.StatusCode)
+	}
+
+	meta, ok, err := store.GetPRMeta(db, "o/r", 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("expected pr_meta row to exist after edited webhook")
+	}
+	if meta.AutoMerge {
+		t.Error("AutoMerge = true, want false (auto_merge null)")
+	}
+}
+
 func TestGitHubWebhookIgnoresNonCloseActions(t *testing.T) {
 	db := newServerTestDB(t)
 	a := New(db, &MockGitHub{}, Config{GitHubWebhookSecret: "s"})
