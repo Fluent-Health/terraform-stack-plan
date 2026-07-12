@@ -184,6 +184,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/catalog": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Retrieve the compiled component catalog of the main branch
+         * @description Returns pre-aggregated topology, components, and edges.
+         */
+        get: operations["getCatalog"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/executions": {
         parameters: {
             query?: never;
@@ -745,6 +765,7 @@ export interface components {
             verify_execution_id: string;
             graph: components["schemas"]["Graph"];
             gates: components["schemas"]["StoredGateTarget"][];
+            change_reasons?: components["schemas"]["ChangeReason"][];
         };
         InspectGrant: {
             pr: number;
@@ -823,6 +844,25 @@ export interface components {
             reason: string;
             blocker_pr: number;
             blocker_env: string;
+        };
+        ChangeReason: {
+            stack: string;
+            kind: string;
+            via: string[];
+        };
+        Catalog: {
+            components: components["schemas"]["CatalogComponent"][];
+            edges: components["schemas"]["CatalogEdge"][];
+        };
+        CatalogComponent: {
+            id: string;
+            stacks: string[];
+            watches: string[];
+        };
+        CatalogEdge: {
+            from: string;
+            to: string;
+            kind: string;
         };
     };
     responses: {
@@ -1112,6 +1152,26 @@ export interface operations {
                 content?: never;
             };
             400: components["responses"]["BadRequestText"];
+        };
+    };
+    getCatalog: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The pre-aggregated Component Graph JSON. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Catalog"];
+                };
+            };
         };
     };
     listExecutions: {

@@ -8,6 +8,7 @@ import { Prs } from "./pages/Prs";
 import { Ops } from "./pages/Ops";
 import { PrView } from "./pages/PrView";
 import { ExecutionView } from "./pages/ExecutionView";
+import { Catalog } from "./pages/Catalog";
 
 applyTheme(loadThemeMode()); // apply persisted theme before first paint
 
@@ -18,6 +19,7 @@ render(
       <Route path="/ops" component={Ops} />
       <Route path="/pr/:n" component={PrView} />
       <Route path="/t/:tier/e/:id" component={ExecutionView} />
+      <Route path="/catalog" component={Catalog} />
     </Router>
   ),
   document.getElementById("root")!,

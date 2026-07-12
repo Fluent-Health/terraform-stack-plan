@@ -259,6 +259,20 @@ paths:
           description: Accepted.
         "400":
           $ref: "#/components/responses/BadRequestText"
+  /api/catalog:
+    get:
+      operationId: getCatalog
+      summary: Retrieve the compiled component catalog of the main branch
+      description: Returns pre-aggregated topology, components, and edges.
+      security:
+        - oidc: [report, read, admin]
+      responses:
+        "200":
+          description: The pre-aggregated Component Graph JSON.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Catalog"
   /api/executions:
     get:
       operationId: listExecutions
@@ -1168,6 +1182,10 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/StoredGateTarget"
+        change_reasons:
+          type: array
+          items:
+            $ref: "#/components/schemas/ChangeReason"
     InspectGrant:
       type: object
       required: [pr, environment, class, target, grant_name, state, requester]
@@ -1294,3 +1312,46 @@ components:
         reason: { type: string }
         blocker_pr: { type: integer }
         blocker_env: { type: string }
+
+    ChangeReason:
+      type: object
+      required: [stack, kind, via]
+      properties:
+        stack: { type: string }
+        kind: { type: string }
+        via:
+          type: array
+          items: { type: string }
+
+    Catalog:
+      type: object
+      required: [components, edges]
+      properties:
+        components:
+          type: array
+          items:
+            $ref: "#/components/schemas/CatalogComponent"
+        edges:
+          type: array
+          items:
+            $ref: "#/components/schemas/CatalogEdge"
+
+    CatalogComponent:
+      type: object
+      required: [id, stacks, watches]
+      properties:
+        id: { type: string }
+        stacks:
+          type: array
+          items: { type: string }
+        watches:
+          type: array
+          items: { type: string }
+
+    CatalogEdge:
+      type: object
+      required: [from, to, kind]
+      properties:
+        from: { type: string }
+        to: { type: string }
+        kind: { type: string }

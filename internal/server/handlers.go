@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/Fluent-Health/terraform-stack-plan/internal/catalog"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/reconcile"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
@@ -182,6 +183,10 @@ func (a *App) handleFinalize(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "store report", http.StatusInternalServerError)
 		return
 	}
+	if err := store.SetChangeReasons(a.db, f.ID, f.ChangeReasons); err != nil {
+		http.Error(w, "store change reasons", http.StatusInternalServerError)
+		return
+	}
 	// Persist each stack's rendered plan section (kind='plan') for the per-stack
 	// Plan tab. Markdown is stored inline in the excerpt.
 	for path, md := range f.StackReports {
@@ -300,4 +305,15 @@ func (a *App) handleFinalize(w http.ResponseWriter, r *http.Request) {
 		a.postPlanApplyLock(r.Context(), e)
 	}
 	w.WriteHeader(http.StatusOK)
+}
+
+// handleGetCatalog builds and returns the pre-aggregated component catalog.
+func (a *App) handleGetCatalog(w http.ResponseWriter, r *http.Request) {
+	cat, err := catalog.Build(".")
+	if err != nil {
+		http.Error(w, "build catalog: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(cat)
 }

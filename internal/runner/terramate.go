@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/Fluent-Health/terraform-stack-plan/internal/causality"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 )
 
@@ -73,6 +74,25 @@ func (t *Terramate) ChangedStacks(ctx context.Context, base string) ([]string, e
 		return nil, err
 	}
 	return lines(out), nil
+}
+
+// WhyChanged returns the change reasons for each changed stack relative to base
+// (empty uses terramate's configured default), using terramate list --changed --why.
+func (t *Terramate) WhyChanged(ctx context.Context, base string) ([]events.ChangeReason, error) {
+	args := []string{"list", "--changed", "--why"}
+	if base != "" {
+		args = append(args, "-B", base)
+	}
+	out, err := t.output(ctx, args...)
+	if err != nil {
+		return nil, err
+	}
+	rawLines := lines(out)
+	reasons := make([]events.ChangeReason, len(rawLines))
+	for i, line := range rawLines {
+		reasons[i] = causality.ParseLine(line)
+	}
+	return reasons, nil
 }
 
 // RunGraph returns the stack dependency edges (From must run before To), derived
