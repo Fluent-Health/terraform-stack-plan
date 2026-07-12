@@ -1,7 +1,7 @@
 // web/ui/src/pages/Ops.tsx
 import { For, Show, Suspense, createMemo, createResource } from "solid-js";
 import { A } from "@solidjs/router";
-import { api, type ExecutionSummary, type PendingApproval } from "../api/client";
+import { api, type ExecutionSummary } from "../api/client";
 import { ApprovalsTable } from "../components/ApprovalsTable";
 import { statusSem } from "../status";
 
@@ -46,17 +46,22 @@ function ErroredList(props: { tier: string }) {
     (execs() ?? []).filter((e: ExecutionSummary) => !e.superseded_by && statusSem(e.status) === "failed"),
   );
   return (
-    <Show when={failed().length}>
-      <For each={failed()}>
-        {(e) => (
-          <A href={`/pr/${e.pr}`} class="flex items-center gap-3 py-2 text-sm hover:bg-base-100 rounded px-2">
-            <span class="w-2 h-2 rounded-full bg-error" />
-            <span class="font-mono font-semibold">#{e.pr}</span>
-            <span class="opacity-70 font-mono text-xs">{e.context}</span>
-            <span class="ml-auto opacity-50 text-xs">{new Date(e.created_at).toLocaleTimeString()}</span>
-          </A>
-        )}
-      </For>
+    <Show
+      when={!execs.error}
+      fallback={<div class="alert alert-warning text-sm">{props.tier} unreachable</div>}
+    >
+      <Show when={failed().length}>
+        <For each={failed()}>
+          {(e) => (
+            <A href={`/pr/${e.pr}`} class="flex items-center gap-3 py-2 text-sm hover:bg-base-100 rounded px-2">
+              <span class="w-2 h-2 rounded-full bg-error" />
+              <span class="font-mono font-semibold">#{e.pr}</span>
+              <span class="opacity-70 font-mono text-xs">{e.context}</span>
+              <span class="ml-auto opacity-50 text-xs">{new Date(e.created_at).toLocaleTimeString()}</span>
+            </A>
+          )}
+        </For>
+      </Show>
     </Show>
   );
 }
@@ -64,9 +69,14 @@ function ErroredList(props: { tier: string }) {
 function ApprovalList(props: { tier: string }) {
   const [approvals, { refetch }] = createResource(() => api.approvals(props.tier));
   return (
-    <Show when={(approvals() as PendingApproval[] | undefined)?.length}>
-      <div class="text-xs opacity-60 mt-1">{props.tier}</div>
-      <ApprovalsTable tier={props.tier} approvals={approvals()!} onDecided={refetch} />
+    <Show
+      when={!approvals.error}
+      fallback={<div class="alert alert-warning text-sm">{props.tier} unreachable</div>}
+    >
+      <Show when={approvals()?.length}>
+        <div class="text-xs opacity-60 mt-1">{props.tier}</div>
+        <ApprovalsTable tier={props.tier} approvals={approvals()!} onDecided={refetch} />
+      </Show>
     </Show>
   );
 }
