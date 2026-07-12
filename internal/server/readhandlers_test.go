@@ -228,3 +228,61 @@ func TestInspectClaims(t *testing.T) {
 		t.Fatalf("expected 2 claims, got %d", len(res.Claims))
 	}
 }
+
+func TestInspectEvents(t *testing.T) {
+	db := newServerTestDB(t)
+	a := New(db, &MockGitHub{}, Config{})
+
+	streamID := "exec:7:staging"
+	evs := []reconcile.Event{
+		reconcile.Classified{Gates: []events.GateTarget{{Class: "iam", Target: "proj-a"}}},
+	}
+	state := reconcile.ChangeSet{PR: 7, Environment: "staging", Gate: reconcile.Pending{}}
+	if err := a.gateDecider.Append(a.eventStore, streamID, 0, evs, state); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := httptest.NewServer(a.Routes())
+	defer srv.Close()
+
+	// 1. Get all events
+	req, _ := http.NewRequest("GET", srv.URL+"/api/inspect/events/exec:7:staging", nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d; want 200", resp.StatusCode)
+	}
+
+	var events []api.InspectEvent
+	if err := json.NewDecoder(resp.Body).Decode(&events); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(events) != 1 {
+		t.Fatalf("len = %d; want 1", len(events))
+	}
+	if events[0].Type != "Classified" {
+		t.Fatalf("type = %s; want Classified", events[0].Type)
+	}
+
+	// 2. Query with after=1 (should yield 0 events)
+	req, _ = http.NewRequest("GET", srv.URL+"/api/inspect/events/exec:7:staging?after=1", nil)
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	var eventsAfter []api.InspectEvent
+	if err := json.NewDecoder(resp.Body).Decode(&eventsAfter); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(eventsAfter) != 0 {
+		t.Fatalf("len = %d; want 0", len(eventsAfter))
+	}
+}

@@ -329,3 +329,32 @@ func (a *App) handleInspectClaims(w http.ResponseWriter, r *http.Request, env st
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(out)
 }
+
+func (a *App) handleInspectEvents(w http.ResponseWriter, r *http.Request, stream string, params api.InspectEventsParams) {
+	after := 0
+	if params.After != nil {
+		after = *params.After
+	}
+
+	rows, err := a.db.Query(
+		`SELECT version, type, occurred_at, data FROM events WHERE stream_id = ? AND version > ? ORDER BY version`,
+		stream, after)
+	if err != nil {
+		http.Error(w, "query events", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var eventsList []api.InspectEvent
+	for rows.Next() {
+		var ev api.InspectEvent
+		if err := rows.Scan(&ev.Version, &ev.Type, &ev.OccurredAt, &ev.Data); err != nil {
+			http.Error(w, "scan event", http.StatusInternalServerError)
+			return
+		}
+		eventsList = append(eventsList, ev)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(eventsList)
+}

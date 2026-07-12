@@ -47,7 +47,7 @@ func (s apiServer) InspectClaims(w http.ResponseWriter, r *http.Request, env str
 }
 
 func (s apiServer) InspectEvents(w http.ResponseWriter, r *http.Request, stream string, params api.InspectEventsParams) {
-	http.Error(w, "not implemented", http.StatusNotImplemented)
+	s.app.handleInspectEvents(w, r, stream, params)
 }
 
 func (s apiServer) InspectGate(w http.ResponseWriter, r *http.Request, pr int, env string) {
