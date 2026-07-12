@@ -1,5 +1,6 @@
-import { Show, createResource } from "solid-js";
+import { Show, createEffect, createResource, createSignal } from "solid-js";
 import { api, type PRMeta } from "../api/client";
+import { marked } from "marked";
 
 /**
  * PrIdentity: the PR's identity header — title, description, author, branch,
@@ -12,6 +13,12 @@ import { api, type PRMeta } from "../api/client";
  * blanking or erroring the page.
  */
 export function PrIdentity(props: { pr: number; tiers: string[] }) {
+  const [expanded, setExpanded] = createSignal(false);
+
+  createEffect(() => {
+    props.pr; // track PR changes
+    setExpanded(false);
+  });
   const [meta] = createResource(
     () => (props.tiers.length ? { pr: props.pr, tiers: props.tiers } : undefined),
     async (k): Promise<PRMeta | undefined> => {
@@ -51,7 +58,25 @@ export function PrIdentity(props: { pr: number; tiers: string[] }) {
               </Show>
             </div>
             <Show when={m().body}>
-              <p class="text-sm opacity-70 line-clamp-2">{m().body}</p>
+              <div class="text-sm opacity-70">
+                <Show when={expanded()} fallback={
+                  <div>
+                    <p class="whitespace-pre-wrap">{m().body.length > 200 ? m().body.slice(0, 200) + "..." : m().body}</p>
+                    <Show when={m().body.length > 200}>
+                      <button class="btn btn-link btn-xs p-0 h-auto min-h-0 text-primary mt-1" onClick={() => setExpanded(true)}>
+                        Show more
+                      </button>
+                    </Show>
+                  </div>
+                }>
+                  <div class="space-y-1">
+                    <div class="prose prose-sm max-w-none border border-base-300 bg-base-100 p-3 rounded-field" innerHTML={String(marked.parse(m().body))} />
+                    <button class="btn btn-link btn-xs p-0 h-auto min-h-0 text-primary mt-1" onClick={() => setExpanded(false)}>
+                      Show less
+                    </button>
+                  </div>
+                </Show>
+              </div>
             </Show>
             <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs opacity-60">
               <Show when={m().author_login}>
