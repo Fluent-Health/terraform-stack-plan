@@ -72,7 +72,7 @@ export function TierPanel(props: {
                 {(() => {
                   const stacks = d().graph?.stacks ?? [];
                   const c = progressCounts(stacks);
-                  const caption = `${props.summary.phase || "queued"} · ${c.done}/${c.total} done${c.failed ? ` · ${c.failed} failed` : ""}`;
+                  const caption = `${d().ProgressLabel || props.summary.phase || "queued"} · ${c.done}/${c.total} done${c.failed ? ` · ${c.failed} failed` : ""}`;
                   return <ProgressBlocks stacks={stacks} caption={caption} />;
                 })()}
                 <Index each={groupByProject(d().graph?.stacks ?? [])}>

@@ -52,9 +52,13 @@ function Briefing(props: { tier: string; detail: ExecutionDetail }) {
   // zero-stack graph as "stacks": null despite the contract's array.
   const stacks = createMemo(() => props.detail.graph?.stacks ?? []);
   const progress = createMemo(() => {
-    const total = stacks().length || 1;
     const done = stacks().filter((s) => DONE.has(s.status ?? "")).length;
-    return { done, total, pct: Math.round((100 * done) / total) };
+    return {
+      done,
+      total: stacks().length,
+      pct: props.detail.ProgressPct ?? 0,
+      label: props.detail.ProgressLabel ?? props.detail.Phase ?? ""
+    };
   });
   const [selected, setSelected] = createSignal<StackState | undefined>(undefined);
 
@@ -68,15 +72,15 @@ function Briefing(props: { tier: string; detail: ExecutionDetail }) {
               <span class="font-mono text-sm">{props.detail.SHA.slice(0, 12)}</span>
             </h1>
             <span class="badge badge-outline">{props.detail.StatusContext || props.detail.Environment}</span>
-            <Show when={props.detail.Phase}>
-              <span class="badge badge-info badge-outline uppercase">{props.detail.Phase}</span>
+            <Show when={progress().label}>
+              <span class="badge badge-info badge-outline uppercase">{progress().label}</span>
             </Show>
             <StatusBadge status={props.detail.Status} superseded={props.detail.SupersededBy !== ""} />
           </div>
           <div class="flex items-center gap-3">
             <progress class="progress progress-primary flex-1" value={progress().pct} max="100" />
             <span class="text-sm opacity-70 whitespace-nowrap">
-              {progress().done}/{progress().total} stacks
+              {progress().done}/{progress().total} done
             </span>
           </div>
         </div>
