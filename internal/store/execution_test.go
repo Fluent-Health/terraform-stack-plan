@@ -68,7 +68,11 @@ func TestUpsertPhaseDoesNotClobberIdentity(t *testing.T) {
 	if err := UpsertInit(db, sampleInit()); err != nil {
 		t.Fatal(err)
 	}
-	if err := UpsertPhase(db, events.PhaseEvent{ID: "exec-1", Phase: events.PhasePlanning}); err != nil {
+	pctVal := 45
+	if err := UpsertPhase(db, events.PhaseEvent{
+		ID: "exec-1", Phase: events.PhasePlanning,
+		Label: "planning stacks...", ProgressPct: &pctVal,
+	}); err != nil {
 		t.Fatalf("UpsertPhase: %v", err)
 	}
 	e, err := GetExecution(db, "exec-1")
@@ -80,6 +84,12 @@ func TestUpsertPhaseDoesNotClobberIdentity(t *testing.T) {
 	}
 	if e.Phase != string(events.PhasePlanning) {
 		t.Errorf("phase = %q; want planning", e.Phase)
+	}
+	if !e.ProgressLabel.Valid || e.ProgressLabel.String != "planning stacks..." {
+		t.Errorf("progress label = %v, want planning stacks...", e.ProgressLabel)
+	}
+	if !e.ProgressPct.Valid || e.ProgressPct.Int64 != 45 {
+		t.Errorf("progress pct = %v, want 45", e.ProgressPct)
 	}
 }
 

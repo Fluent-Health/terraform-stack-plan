@@ -181,6 +181,8 @@ type PhaseEvent struct {
 	LogURL      string `json:"log_url,omitempty"`
 	Context     string `json:"context,omitempty"`
 	Phase       Phase  `json:"phase"`
+	Label       string `json:"label,omitempty"`
+	ProgressPct *int   `json:"progress_pct,omitempty"`
 }
 
 // LogChunk is a slice of one stack's combined output, streamed during execution.
