@@ -23,8 +23,8 @@ type Execution struct {
 	Status         string // execution-level commit status (e.g. "in_progress"/"success"/"failure"); written by the serve handler, distinct from per-stack events.Status
 	StatusContext  string
 	Phase          string
-	ProgressLabel  sql.NullString
-	ProgressPct    sql.NullInt64
+	ProgressLabel  sql.NullString `json:"-"`
+	ProgressPct    sql.NullInt64  `json:"-"`
 	CreatedAt      time.Time
 	SupersededBy   string
 }
@@ -114,7 +114,7 @@ func GetExecution(db *sql.DB, id string) (Execution, error) {
                         progress_label, progress_pct, created_at, COALESCE(superseded_by, '')
                  FROM executions WHERE id = ?`, id).
 		Scan(&e.ID, &e.Repo, &e.SHA, &e.PR, &e.Environment, &e.CheckRunID,
-			&e.Rev, &e.ReportMarkdown, &e.LogURL, &e.Status, &e.StatusContext, &e.Phase, 
+			&e.Rev, &e.ReportMarkdown, &e.LogURL, &e.Status, &e.StatusContext, &e.Phase,
 			&e.ProgressLabel, &e.ProgressPct, &e.CreatedAt, &e.SupersededBy)
 	if err != nil {
 		return Execution{}, err

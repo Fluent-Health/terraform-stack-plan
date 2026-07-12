@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Fluent-Health/terraform-stack-plan/internal/config"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
@@ -19,6 +20,8 @@ type executionResponse struct {
 	VerifyExecutionID string             `json:"verify_execution_id"`
 	Graph             events.Graph       `json:"graph"`
 	Gates             []store.GateTarget `json:"gates"`
+	ProgressPct       int                `json:"ProgressPct"`
+	ProgressLabel     string             `json:"ProgressLabel"`
 }
 
 func (a *App) handleGetExecution(w http.ResponseWriter, _ *http.Request, id string) {
@@ -37,11 +40,34 @@ func (a *App) handleGetExecution(w http.ResponseWriter, _ *http.Request, id stri
 		gates = []store.GateTarget{}
 	}
 	verifyExec, _ := store.LatestVerifyExecutionID(a.db, e.PR, e.Environment)
+
+	done, initialized, total := countStacks(g.Stacks)
+	var weights []config.PhaseWeight
+	if a.cfg.Progress != nil {
+		if isApplyContext(e.StatusContext) {
+			weights = a.cfg.Progress.Apply
+		} else {
+			weights = a.cfg.Progress.Plan
+		}
+	}
+	_, fallbackLabel, fallbackPct := progress(weights, events.Phase(e.Phase), done, initialized, total)
+
+	progressLabel := fallbackLabel
+	if e.ProgressLabel.Valid {
+		progressLabel = e.ProgressLabel.String
+	}
+	progressPct := fallbackPct
+	if e.ProgressPct.Valid {
+		progressPct = int(e.ProgressPct.Int64)
+	}
+
 	res := executionResponse{
 		Execution:         e,
 		VerifyExecutionID: verifyExec,
 		Graph:             g,
 		Gates:             gates,
+		ProgressPct:       progressPct,
+		ProgressLabel:     progressLabel,
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(res)
@@ -84,4 +110,18 @@ func (a *App) handleGetExecutionEvents(w http.ResponseWriter, r *http.Request) {
 			flusher.Flush()
 		}
 	}
+}
+
+func countStacks(stacks []events.StackState) (done, initialized, total int) {
+	DONE := map[string]bool{"planned": true, "safe": true, "nochange": true, "failed": true, "aborted": true, "gated": true, "moving": true}
+	for _, s := range stacks {
+		total++
+		if s.Status == events.StatusInitialized || s.Status == events.StatusPlanned || s.Status == events.StatusSafe || s.Status == events.StatusNochange || s.Status == events.StatusMoving || s.Status == events.StatusFailed || s.Status == events.StatusAborted || s.Status == events.StatusGated {
+			initialized++
+		}
+		if DONE[string(s.Status)] {
+			done++
+		}
+	}
+	return
 }
