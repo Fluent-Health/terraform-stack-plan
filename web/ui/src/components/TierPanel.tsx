@@ -1,4 +1,4 @@
-import { For, Show, Suspense, createEffect, createResource, createSignal, onCleanup } from "solid-js";
+import { For, Index, Show, Suspense, createEffect, createResource, createSignal, onCleanup } from "solid-js";
 import { api, executionEventsURL, type ExecutionSummary, type StackState } from "../api/client";
 import { contextKind, groupByProject, progressCounts } from "../prdata";
 import { ProgressBlocks } from "./ProgressBlocks";
@@ -62,37 +62,37 @@ export function TierPanel(props: {
                   const caption = `${props.summary.phase || "queued"} · ${c.done}/${c.total} done${c.failed ? ` · ${c.failed} failed` : ""}`;
                   return <ProgressBlocks stacks={stacks} caption={caption} />;
                 })()}
-                <For each={groupByProject(d().graph?.stacks ?? [])}>
+                <Index each={groupByProject(d().graph?.stacks ?? [])}>
                   {(g) => (
-                    <div class="rounded-field border border-base-300" classList={{ "border-error/50": g.failed }}>
-                      <div class="px-3 py-2 bg-base-100 text-xs font-mono rounded-t-field">{g.project}</div>
-                      <For each={g.stacks}>
+                    <div class="rounded-field border border-base-300" classList={{ "border-error/50": g().failed }}>
+                      <div class="px-3 py-2 bg-base-100 text-xs font-mono rounded-t-field">{g().project}</div>
+                      <Index each={g().stacks}>
                         {(s) => (
                           <div class="border-t border-base-300">
                             <button
                               class="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-base-100"
-                              onClick={() => setOpen(open() === s.path ? undefined : s.path)}
+                              onClick={() => setOpen(open() === s().path ? undefined : s().path)}
                             >
-                              <span class="font-mono text-xs">{s.path}</span>
-                              <span class="text-xs opacity-50">{countsLabel(s)}</span>
+                              <span class="font-mono text-xs">{s().path}</span>
+                              <span class="text-xs opacity-50">{countsLabel(s())}</span>
                               <span
                                 class="ml-auto inline-flex items-center gap-1 text-xs"
-                                style={{ color: SEM_DOT[statusSem(s.status ?? "")] }}
+                                style={{ color: SEM_DOT[statusSem(s().status ?? "")] }}
                               >
-                                ● {s.status || "pending"}
+                                ● {s().status || "pending"}
                               </span>
                             </button>
-                            <Show when={open() === s.path}>
+                            <Show when={open() === s().path}>
                               <div class="px-3 pb-3">
-                                <StackDetail tier={props.tier} exec={d().ID} stack={s} />
+                                <StackDetail tier={props.tier} exec={d().ID} stack={s()} />
                               </div>
                             </Show>
                           </div>
                         )}
-                      </For>
+                      </Index>
                     </div>
                   )}
-                </For>
+                </Index>
               </>
             )}
           </Show>
