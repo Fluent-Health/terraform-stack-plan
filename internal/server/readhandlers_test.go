@@ -6,9 +6,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/api"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/approval"
+	"github.com/Fluent-Health/terraform-stack-plan/internal/claims"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/reconcile"
 )
@@ -178,5 +180,51 @@ func TestInspectGate(t *testing.T) {
 	// Verify reason trail exists and is ordered
 	if len(detail.Reasons) < 2 {
 		t.Fatalf("expected at least 2 reasons, got %d: %+v", len(detail.Reasons), detail.Reasons)
+	}
+}
+
+func TestInspectClaims(t *testing.T) {
+	db := newServerTestDB(t)
+	a := New(db, &MockGitHub{}, Config{})
+
+	stream := "env:staging"
+	expires := time.Now().Add(claims.Lease())
+	
+	// Seed some claim events
+	evs := []claims.Event{
+		claims.ClaimAcquired{PR: 7, Stacks: []string{"stacks/a", "stacks/b"}, ExpiresAt: expires},
+	}
+	state := claims.ClaimSet{
+		"stacks/a": claims.Claim{PR: 7, ExpiresAt: expires},
+		"stacks/b": claims.Claim{PR: 7, ExpiresAt: expires},
+	}
+	if err := a.claimsDecider.Append(a.eventStore, stream, 0, evs, state); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := httptest.NewServer(a.Routes())
+	defer srv.Close()
+
+	req, _ := http.NewRequest("GET", srv.URL+"/api/inspect/claims/staging", nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d; want 200", resp.StatusCode)
+	}
+
+	var res api.InspectClaimsSet
+	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
+		t.Fatal(err)
+	}
+
+	if res.Environment != "staging" {
+		t.Fatalf("env mismatch: %s", res.Environment)
+	}
+	if len(res.Claims) != 2 {
+		t.Fatalf("expected 2 claims, got %d", len(res.Claims))
 	}
 }

@@ -43,7 +43,7 @@ func (s apiServer) GetPR(w http.ResponseWriter, r *http.Request, n int) {
 }
 
 func (s apiServer) InspectClaims(w http.ResponseWriter, r *http.Request, env string) {
-	http.Error(w, "not implemented", http.StatusNotImplemented)
+	s.app.handleInspectClaims(w, r, env)
 }
 
 func (s apiServer) InspectEvents(w http.ResponseWriter, r *http.Request, stream string, params api.InspectEventsParams) {

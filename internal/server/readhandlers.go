@@ -304,3 +304,28 @@ func (a *App) handleInspectGate(w http.ResponseWriter, r *http.Request, pr int, 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(out)
 }
+
+func (a *App) handleInspectClaims(w http.ResponseWriter, r *http.Request, env string) {
+	state, _, err := a.claimsDecider.Load(a.eventStore, envStreamID(env))
+	if err != nil {
+		http.Error(w, "load claims", http.StatusInternalServerError)
+		return
+	}
+
+	var claimsList []api.InspectClaim
+	for stack, cl := range state {
+		claimsList = append(claimsList, api.InspectClaim{
+			Stack:     stack,
+			Pr:        cl.PR,
+			ExpiresAt: cl.ExpiresAt,
+		})
+	}
+
+	out := api.InspectClaimsSet{
+		Environment: env,
+		Claims:      claimsList,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(out)
+}
