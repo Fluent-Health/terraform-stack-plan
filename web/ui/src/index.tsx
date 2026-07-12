@@ -2,19 +2,22 @@
 import { render } from "solid-js/web";
 import { Route, Router } from "@solidjs/router";
 import "./app.css";
+import { loadThemeMode, applyTheme } from "./theme";
 import { Shell } from "./Shell";
-import { Home } from "./pages/Home";
+import { Prs } from "./pages/Prs";
+import { Ops } from "./pages/Ops";
 import { PrView } from "./pages/PrView";
 import { ExecutionView } from "./pages/ExecutionView";
-import { Approvals } from "./pages/Approvals";
+
+applyTheme(loadThemeMode()); // apply persisted theme before first paint
 
 render(
   () => (
     <Router root={Shell}>
-      <Route path="/" component={Home} />
+      <Route path="/" component={Prs} />
+      <Route path="/ops" component={Ops} />
       <Route path="/pr/:n" component={PrView} />
       <Route path="/t/:tier/e/:id" component={ExecutionView} />
-      <Route path="/approvals" component={Approvals} />
     </Router>
   ),
   document.getElementById("root")!,
