@@ -4,6 +4,7 @@ import { api } from "../api/client";
 import { primaryExec, latestPerContext } from "../prdata";
 import { TierPanel } from "../components/TierPanel";
 import { PrIdentity } from "../components/PrIdentity";
+import { MergeStrip } from "../components/MergeStrip";
 
 /**
  * PrView: the hero. One PR across both tiers, newest run per tier side-by-side.
@@ -17,6 +18,7 @@ export function PrView() {
   return (
     <div class="space-y-5">
       <PrIdentity pr={Number(params.n)} tiers={(tiers() ?? []).map((t) => t.name)} />
+      <MergeStrip pr={Number(params.n)} tiers={(tiers() ?? []).map((t) => t.name)} />
       <Suspense fallback={<span class="loading loading-dots" />}>
         <div class="grid gap-4 lg:grid-cols-2">
           <For each={tiers()}>{(t) => <TierColumn tier={t.name} pr={Number(params.n)} />}</For>
