@@ -193,7 +193,7 @@ type AdminCheckOverridden struct {
 	Reason     string `json:"reason"`
 }
 
-func (AdminGrantReleased) isEvent()       {}
+func (AdminGrantReleased) isEvent()      {}
 func (AdminExecutionCancelled) isEvent() {}
-func (AdminGateSatisfied) isEvent()       {}
-func (AdminCheckOverridden) isEvent()     {}
+func (AdminGateSatisfied) isEvent()      {}
+func (AdminCheckOverridden) isEvent()    {}

@@ -121,7 +121,7 @@ func TestInspectGate(t *testing.T) {
 	a := New(db, &MockGitHub{}, Config{})
 
 	streamID := execStreamID(7, "staging")
-	
+
 	// Seed some gate-lifecycle events via a.gateDecider
 	evs1 := []reconcile.Event{
 		reconcile.Classified{Gates: []events.GateTarget{{Class: "iam", Target: "proj-a"}}},
@@ -190,7 +190,7 @@ func TestInspectClaims(t *testing.T) {
 
 	stream := "env:staging"
 	expires := time.Now().Add(claims.Lease())
-	
+
 	// Seed some claim events
 	evs := []claims.Event{
 		claims.ClaimAcquired{PR: 7, Stacks: []string{"stacks/a", "stacks/b"}, ExpiresAt: expires},
