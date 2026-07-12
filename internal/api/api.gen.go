@@ -132,6 +132,78 @@ type Graph = events.Graph
 // Init Registers an execution and its changed subgraph.
 type Init = events.Init
 
+// InspectClaim defines model for InspectClaim.
+type InspectClaim struct {
+	ExpiresAt time.Time `json:"expires_at"`
+	Pr        int       `json:"pr"`
+	Stack     string    `json:"stack"`
+}
+
+// InspectClaimsSet defines model for InspectClaimsSet.
+type InspectClaimsSet struct {
+	Claims      []InspectClaim `json:"claims"`
+	Environment string         `json:"environment"`
+}
+
+// InspectEvent defines model for InspectEvent.
+type InspectEvent struct {
+	Data       json.RawMessage `json:"data"`
+	OccurredAt time.Time       `json:"occurred_at"`
+	Type       string          `json:"type"`
+	Version    int             `json:"version"`
+}
+
+// InspectGateDetail defines model for InspectGateDetail.
+type InspectGateDetail struct {
+	Environment string              `json:"environment"`
+	GateState   string              `json:"gate_state"`
+	Pr          int                 `json:"pr"`
+	Reasons     []InspectGateReason `json:"reasons"`
+	Targets     []InspectGateTarget `json:"targets"`
+}
+
+// InspectGateReason defines model for InspectGateReason.
+type InspectGateReason struct {
+	Description string    `json:"description"`
+	EventType   string    `json:"event_type"`
+	OccurredAt  time.Time `json:"occurred_at"`
+}
+
+// InspectGateTarget defines model for InspectGateTarget.
+type InspectGateTarget struct {
+	Class     string `json:"class"`
+	GrantName string `json:"grant_name"`
+	Requester string `json:"requester"`
+	State     string `json:"state"`
+	Target    string `json:"target"`
+}
+
+// InspectGrant defines model for InspectGrant.
+type InspectGrant struct {
+	ActualState   *string `json:"actual_state,omitempty"`
+	Class         string  `json:"class"`
+	DriftDetected *bool   `json:"drift_detected,omitempty"`
+	Environment   string  `json:"environment"`
+	GrantName     string  `json:"grant_name"`
+	Pr            int     `json:"pr"`
+	Requester     string  `json:"requester"`
+	State         string  `json:"state"`
+	Target        string  `json:"target"`
+}
+
+// InspectPRSummary defines model for InspectPRSummary.
+type InspectPRSummary struct {
+	Claims     []InspectClaim     `json:"claims"`
+	Executions []ExecutionSummary `json:"executions"`
+	GateState  string             `json:"gate_state"`
+
+	// Meta PR-level identity as last reported by the GitHub webhook (title, author, branch, automerge).
+	Meta       *PRMeta        `json:"meta,omitempty"`
+	OpenGrants []InspectGrant `json:"open_grants"`
+	Pr         int            `json:"pr"`
+	Repo       string         `json:"repo"`
+}
+
 // LogChunk A slice of one stack's combined output.
 type LogChunk = events.LogChunk
 
@@ -238,6 +310,17 @@ type ListExecutionsParams struct {
 	// Pr Only executions for this pull request.
 	Pr    *int `form:"pr,omitempty" json:"pr,omitempty"`
 	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// InspectEventsParams defines parameters for InspectEvents.
+type InspectEventsParams struct {
+	After *int `form:"after,omitempty" json:"after,omitempty"`
+}
+
+// InspectGrantsParams defines parameters for InspectGrants.
+type InspectGrantsParams struct {
+	State *string `form:"state,omitempty" json:"state,omitempty"`
+	Live  *int    `form:"live,omitempty" json:"live,omitempty"`
 }
 
 // ListClaimsJSONRequestBody defines body for ListClaims for application/json ContentType.
@@ -378,6 +461,21 @@ type ClientInterface interface {
 	InitExecutionWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	InitExecution(ctx context.Context, body InitExecutionJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// InspectClaims request
+	InspectClaims(ctx context.Context, env string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// InspectEvents request
+	InspectEvents(ctx context.Context, stream string, params *InspectEventsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// InspectGate request
+	InspectGate(ctx context.Context, pr int, env string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// InspectGrants request
+	InspectGrants(ctx context.Context, params *InspectGrantsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// InspectOverview request
+	InspectOverview(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// AppendLogsWithBody request with any body
 	AppendLogsWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -568,6 +666,66 @@ func (c *Client) InitExecutionWithBody(ctx context.Context, contentType string, 
 
 func (c *Client) InitExecution(ctx context.Context, body InitExecutionJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewInitExecutionRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) InspectClaims(ctx context.Context, env string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewInspectClaimsRequest(c.Server, env)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) InspectEvents(ctx context.Context, stream string, params *InspectEventsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewInspectEventsRequest(c.Server, stream, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) InspectGate(ctx context.Context, pr int, env string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewInspectGateRequest(c.Server, pr, env)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) InspectGrants(ctx context.Context, params *InspectGrantsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewInspectGrantsRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) InspectOverview(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewInspectOverviewRequest(c.Server)
 	if err != nil {
 		return nil, err
 	}
@@ -1029,6 +1187,235 @@ func NewInitExecutionRequestWithBody(server string, contentType string, body io.
 	return req, nil
 }
 
+// NewInspectClaimsRequest generates requests for InspectClaims
+func NewInspectClaimsRequest(server string, env string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "env", env, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/inspect/claims/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewInspectEventsRequest generates requests for InspectEvents
+func NewInspectEventsRequest(server string, stream string, params *InspectEventsParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "stream", stream, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/inspect/events/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.After != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "after", *params.After, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewInspectGateRequest generates requests for InspectGate
+func NewInspectGateRequest(server string, pr int, env string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "pr", pr, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "env", env, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/inspect/gate/%s/%s", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewInspectGrantsRequest generates requests for InspectGrants
+func NewInspectGrantsRequest(server string, params *InspectGrantsParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/inspect/grants")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.State != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "state", *params.State, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Live != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "live", *params.Live, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewInspectOverviewRequest generates requests for InspectOverview
+func NewInspectOverviewRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/inspect/overview")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewAppendLogsRequest calls the generic AppendLogs builder with application/json body
 func NewAppendLogsRequest(server string, body AppendLogsJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -1264,6 +1651,21 @@ type ClientWithResponsesInterface interface {
 	InitExecutionWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*InitExecutionResponse, error)
 
 	InitExecutionWithResponse(ctx context.Context, body InitExecutionJSONRequestBody, reqEditors ...RequestEditorFn) (*InitExecutionResponse, error)
+
+	// InspectClaimsWithResponse request
+	InspectClaimsWithResponse(ctx context.Context, env string, reqEditors ...RequestEditorFn) (*InspectClaimsResponse, error)
+
+	// InspectEventsWithResponse request
+	InspectEventsWithResponse(ctx context.Context, stream string, params *InspectEventsParams, reqEditors ...RequestEditorFn) (*InspectEventsResponse, error)
+
+	// InspectGateWithResponse request
+	InspectGateWithResponse(ctx context.Context, pr int, env string, reqEditors ...RequestEditorFn) (*InspectGateResponse, error)
+
+	// InspectGrantsWithResponse request
+	InspectGrantsWithResponse(ctx context.Context, params *InspectGrantsParams, reqEditors ...RequestEditorFn) (*InspectGrantsResponse, error)
+
+	// InspectOverviewWithResponse request
+	InspectOverviewWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*InspectOverviewResponse, error)
 
 	// AppendLogsWithBodyWithResponse request with any body
 	AppendLogsWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AppendLogsResponse, error)
@@ -1553,6 +1955,156 @@ func (r InitExecutionResponse) ContentType() string {
 	return ""
 }
 
+type InspectClaimsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *InspectClaimsSet
+}
+
+// Status returns HTTPResponse.Status
+func (r InspectClaimsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r InspectClaimsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r InspectClaimsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type InspectEventsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *[]InspectEvent
+}
+
+// Status returns HTTPResponse.Status
+func (r InspectEventsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r InspectEventsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r InspectEventsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type InspectGateResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *InspectGateDetail
+}
+
+// Status returns HTTPResponse.Status
+func (r InspectGateResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r InspectGateResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r InspectGateResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type InspectGrantsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *[]InspectGrant
+}
+
+// Status returns HTTPResponse.Status
+func (r InspectGrantsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r InspectGrantsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r InspectGrantsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type InspectOverviewResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *[]InspectPRSummary
+}
+
+// Status returns HTTPResponse.Status
+func (r InspectOverviewResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r InspectOverviewResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r InspectOverviewResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type AppendLogsResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -1797,6 +2349,51 @@ func (c *ClientWithResponses) InitExecutionWithResponse(ctx context.Context, bod
 		return nil, err
 	}
 	return ParseInitExecutionResponse(rsp)
+}
+
+// InspectClaimsWithResponse request returning *InspectClaimsResponse
+func (c *ClientWithResponses) InspectClaimsWithResponse(ctx context.Context, env string, reqEditors ...RequestEditorFn) (*InspectClaimsResponse, error) {
+	rsp, err := c.InspectClaims(ctx, env, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseInspectClaimsResponse(rsp)
+}
+
+// InspectEventsWithResponse request returning *InspectEventsResponse
+func (c *ClientWithResponses) InspectEventsWithResponse(ctx context.Context, stream string, params *InspectEventsParams, reqEditors ...RequestEditorFn) (*InspectEventsResponse, error) {
+	rsp, err := c.InspectEvents(ctx, stream, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseInspectEventsResponse(rsp)
+}
+
+// InspectGateWithResponse request returning *InspectGateResponse
+func (c *ClientWithResponses) InspectGateWithResponse(ctx context.Context, pr int, env string, reqEditors ...RequestEditorFn) (*InspectGateResponse, error) {
+	rsp, err := c.InspectGate(ctx, pr, env, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseInspectGateResponse(rsp)
+}
+
+// InspectGrantsWithResponse request returning *InspectGrantsResponse
+func (c *ClientWithResponses) InspectGrantsWithResponse(ctx context.Context, params *InspectGrantsParams, reqEditors ...RequestEditorFn) (*InspectGrantsResponse, error) {
+	rsp, err := c.InspectGrants(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseInspectGrantsResponse(rsp)
+}
+
+// InspectOverviewWithResponse request returning *InspectOverviewResponse
+func (c *ClientWithResponses) InspectOverviewWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*InspectOverviewResponse, error) {
+	rsp, err := c.InspectOverview(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseInspectOverviewResponse(rsp)
 }
 
 // AppendLogsWithBodyWithResponse request with arbitrary body returning *AppendLogsResponse
@@ -2074,6 +2671,136 @@ func ParseInitExecutionResponse(rsp *http.Response) (*InitExecutionResponse, err
 	return response, nil
 }
 
+// ParseInspectClaimsResponse parses an HTTP response from a InspectClaimsWithResponse call
+func ParseInspectClaimsResponse(rsp *http.Response) (*InspectClaimsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &InspectClaimsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest InspectClaimsSet
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseInspectEventsResponse parses an HTTP response from a InspectEventsWithResponse call
+func ParseInspectEventsResponse(rsp *http.Response) (*InspectEventsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &InspectEventsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest []InspectEvent
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseInspectGateResponse parses an HTTP response from a InspectGateWithResponse call
+func ParseInspectGateResponse(rsp *http.Response) (*InspectGateResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &InspectGateResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest InspectGateDetail
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseInspectGrantsResponse parses an HTTP response from a InspectGrantsWithResponse call
+func ParseInspectGrantsResponse(rsp *http.Response) (*InspectGrantsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &InspectGrantsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest []InspectGrant
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseInspectOverviewResponse parses an HTTP response from a InspectOverviewWithResponse call
+func ParseInspectOverviewResponse(rsp *http.Response) (*InspectOverviewResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &InspectOverviewResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest []InspectPRSummary
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseAppendLogsResponse parses an HTTP response from a AppendLogsWithResponse call
 func ParseAppendLogsResponse(rsp *http.Response) (*AppendLogsResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -2177,6 +2904,21 @@ type ServerInterface interface {
 	// Register an execution and its changed subgraph
 	// (POST /api/init)
 	InitExecution(w http.ResponseWriter, r *http.Request)
+	// Get folded claim set for an environment
+	// (GET /api/inspect/claims/{env})
+	InspectClaims(w http.ResponseWriter, r *http.Request, env string)
+	// Get ordered events for a stream
+	// (GET /api/inspect/events/{stream})
+	InspectEvents(w http.ResponseWriter, r *http.Request, stream string, params InspectEventsParams)
+	// Get gate state explainer and reason trail
+	// (GET /api/inspect/gate/{pr}/{env})
+	InspectGate(w http.ResponseWriter, r *http.Request, pr int, env string)
+	// List all recorded grants
+	// (GET /api/inspect/grants)
+	InspectGrants(w http.ResponseWriter, r *http.Request, params InspectGrantsParams)
+	// System-wide overview of all active PR states
+	// (GET /api/inspect/overview)
+	InspectOverview(w http.ResponseWriter, r *http.Request)
 	// Ingest a per-stack output chunk
 	// (POST /api/logs)
 	AppendLogs(w http.ResponseWriter, r *http.Request)
@@ -2424,6 +3166,199 @@ func (siw *ServerInterfaceWrapper) InitExecution(w http.ResponseWriter, r *http.
 	handler.ServeHTTP(w, r)
 }
 
+// InspectClaims operation middleware
+func (siw *ServerInterfaceWrapper) InspectClaims(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "env" -------------
+	var env string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "env", r.PathValue("env"), &env, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "env", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, OidcScopes, []string{"report", "read", "admin"})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.InspectClaims(w, r, env)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// InspectEvents operation middleware
+func (siw *ServerInterfaceWrapper) InspectEvents(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "stream" -------------
+	var stream string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "stream", r.PathValue("stream"), &stream, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "stream", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, OidcScopes, []string{"report", "read", "admin"})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params InspectEventsParams
+
+	// ------------- Optional query parameter "after" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "after", r.URL.Query(), &params.After, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "after"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "after", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.InspectEvents(w, r, stream, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// InspectGate operation middleware
+func (siw *ServerInterfaceWrapper) InspectGate(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "pr" -------------
+	var pr int
+
+	err = runtime.BindStyledParameterWithOptions("simple", "pr", r.PathValue("pr"), &pr, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "pr", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "env" -------------
+	var env string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "env", r.PathValue("env"), &env, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "env", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, OidcScopes, []string{"report", "read", "admin"})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.InspectGate(w, r, pr, env)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// InspectGrants operation middleware
+func (siw *ServerInterfaceWrapper) InspectGrants(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, OidcScopes, []string{"report", "read", "admin"})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params InspectGrantsParams
+
+	// ------------- Optional query parameter "state" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "state", r.URL.Query(), &params.State, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "state"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "state", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "live" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "live", r.URL.Query(), &params.Live, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "live"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "live", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.InspectGrants(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// InspectOverview operation middleware
+func (siw *ServerInterfaceWrapper) InspectOverview(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, OidcScopes, []string{"report", "read", "admin"})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.InspectOverview(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // AppendLogs operation middleware
 func (siw *ServerInterfaceWrapper) AppendLogs(w http.ResponseWriter, r *http.Request) {
 
@@ -2645,6 +3580,11 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/gate/check", wrapper.CheckGate)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/gate/revoke", wrapper.RevokeGate)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/init", wrapper.InitExecution)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/inspect/claims/{env}", wrapper.InspectClaims)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/inspect/events/{stream}", wrapper.InspectEvents)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/inspect/gate/{pr}/{env}", wrapper.InspectGate)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/inspect/grants", wrapper.InspectGrants)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/inspect/overview", wrapper.InspectOverview)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/logs", wrapper.AppendLogs)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/phase", wrapper.ReportPhase)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/pr/{n}", wrapper.GetPR)
