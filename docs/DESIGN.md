@@ -1953,19 +1953,36 @@ top-level `ui {}` block (`tier "<name>" { url }` per tier serve, `oauth {}`,
   request context), relays flush per read, and headers are flushed
   immediately — an idle SSE stream must still look connected to
   `EventSource`.
-- **The SPA** (`web/ui/`: SolidJS + TypeScript + Vite + Tailwind/daisyUI):
-  Home (per-tier recents + awaiting-approval panels; per-tier fetches are
-  independent so one dead tier never blanks the rest), PR view, Approvals
-  (read-only until the incremental-consent increment), and the live Execution
-  briefing (header + progress, gates, stack list with op counts, per-stack
-  Plan/Log tabs). Live updates are **reload-free by construction**: the
-  payload-less `changed` stream debounces into a JSON refetch and Solid
-  patches only what moved; `superseded` navigates to the successor; logs
-  append in place via a TS port of term.js's ANSI/CR line buffer (all log
-  bytes escaped; vitest-covered). Plan diffs stay server-rendered — the SPA
-  injects the tier's fragment and never re-implements the renderer. Payload
-  types are generated from the tier contract (`yarn gen:types` →
-  `src/api/tier-schema.d.ts`, committed, CI-checked).
+- **The SPA** (`web/ui/`: SolidJS + TypeScript + Vite + Tailwind/daisyUI) is
+  **PR-centric** — the unit of work is a PR, which *contains* its tiers
+  (`nonprod`/`prod` = the data `environment`), not the reverse. Three surfaces
+  behind a persistent nav rail: **PRs** landing (`/`: active PRs newest-first,
+  each with a per-tier worst-of-live status dot; resilient to N tiers),
+  **Ops board** (`/ops`: the debug surface — errored runs + awaiting-approval,
+  each per-tier fetch isolated so a dead tier degrades only its own panel; a
+  placeholder marks the future applier-slot enumeration), and the **PR view**
+  hero (`/pr/{n}`): both tiers side-by-side, each showing its *newest* execution
+  as primary — per-stack **progress blocks** (one block per changed stack,
+  coloured by status, parallel-aware, failures visible) + **context chips** for
+  the other `plan`/`apply`/`verify`/gate executions — with changes grouped by
+  **project** (the stack grouping key *and* PAM gate target), an errored stack's
+  `detail` shown inline, and an inline Plan/Log drill-in. Approvals are not a
+  separate page — they surface on the Ops board and, in context, on the PR the
+  gate belongs to. Visual language is a neutral "calm control panel": a custom
+  daisyUI theme with a system/light/dark switcher, one accent, a fixed semantic
+  status set (dot + word, not loud pills), monospace reserved for identifiers;
+  ships no proprietary brand assets (public repo). Live updates are
+  **reload-free by construction**: the payload-less `changed` stream debounces
+  into a JSON refetch and Solid patches only what moved (list rows keyed by
+  position via `<Index>` so an open drill-in/live-log survives refetch);
+  `superseded` re-picks the tier's current execution in place; logs append via a
+  TS port of term.js's ANSI/CR line buffer (all bytes escaped; vitest-covered).
+  Plan diffs stay server-rendered — the SPA injects the tier's fragment and
+  never re-implements the renderer. Payload types are generated from the tier
+  contract (`yarn gen:types` → `src/api/tier-schema.d.ts`, committed, CI-checked).
+  Data-dependent richness deferred to follow-on work: a merge-queue/automerge
+  strip + PR identity header, the applier-slot Ops panel, and per-stage progress
+  detail — each needs serve-side additions.
 - **SPA delivery**: the binary embeds `internal/ui/dist/` (`go:embed`), served
   with an index.html fallback for client-side routes. The repo commits only a
   placeholder page; the release workflow builds the SPA once and overwrites
