@@ -90,22 +90,23 @@ func (a *App) handleListApprovals(w http.ResponseWriter, _ *http.Request) {
 }
 
 // handleGetPR serves GET /api/pr/{n}: a PR's identity (as last reported by
-// the GitHub webhook, store.GetPRMeta) plus this tier's merge state
-// (a.prMergeState). repo comes from the PR's latest execution — the same
-// "repo of latest execution" idiom store.PendingApprovals uses — env-agnostic
-// since a PR's identity is not scoped to one environment. 404 when the PR is
-// unknown to this tier entirely: no metadata row and no execution.
+// the GitHub webhook, store.GetPRMetaByPR) plus this tier's merge state
+// (a.prMergeState). The metadata lookup is by pr alone — NOT the
+// repo-keyed store.GetPRMeta — because the webhook writes pr_meta on PR
+// open/sync, before any execution exists (executions appear only once the
+// runner calls /api/init); deriving repo from "latest execution" first would
+// make the meta lookup miss the real row in that window. repo in the
+// response prefers the latest execution's repo (env-agnostic, same "repo of
+// latest execution" idiom store.PendingApprovals uses) and falls back to
+// meta.Repo when there is no execution yet. 404 "unknown pr" only when the
+// PR is unknown to this tier entirely: no metadata row AND no execution.
 func (a *App) handleGetPR(w http.ResponseWriter, _ *http.Request, pr int) {
 	execs, err := store.ListExecutionsForPR(a.db, pr)
 	if err != nil {
 		http.Error(w, "get pr", http.StatusInternalServerError)
 		return
 	}
-	repo := ""
-	if len(execs) > 0 {
-		repo = execs[0].Repo
-	}
-	meta, metaOK, err := store.GetPRMeta(a.db, repo, pr)
+	meta, metaOK, err := store.GetPRMetaByPR(a.db, pr)
 	if err != nil {
 		http.Error(w, "get pr", http.StatusInternalServerError)
 		return
@@ -113,6 +114,12 @@ func (a *App) handleGetPR(w http.ResponseWriter, _ *http.Request, pr int) {
 	if !metaOK && len(execs) == 0 {
 		http.Error(w, "unknown pr", http.StatusNotFound)
 		return
+	}
+	repo := ""
+	if len(execs) > 0 {
+		repo = execs[0].Repo
+	} else if metaOK {
+		repo = meta.Repo
 	}
 	merge := a.prMergeState(pr)
 	out := api.PRView{

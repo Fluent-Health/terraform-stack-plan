@@ -54,3 +54,27 @@ func GetPRMeta(db *sql.DB, repo string, pr int) (PRMeta, bool, error) {
 	}
 	return m, true, nil
 }
+
+// GetPRMetaByPR loads the metadata row for pr without requiring the caller
+// to know repo up front. The webhook writes pr_meta on PR open/sync, before
+// any execution exists (executions appear only once the runner calls
+// /api/init) — so a repo-keyed lookup derived from "latest execution's repo"
+// misses real rows in that window. A serve is effectively single-repo, but
+// this queries by pr alone so the meta lookup never depends on an execution
+// existing. When multiple rows exist for pr (should not happen in practice),
+// the most recently updated one wins. ok is false when no row exists (absent
+// is not an error).
+func GetPRMetaByPR(db *sql.DB, pr int) (PRMeta, bool, error) {
+	var m PRMeta
+	err := db.QueryRow(
+		`SELECT repo, pr, title, body, author_login, head_ref, url, auto_merge, updated_at
+		 FROM pr_meta WHERE pr = ? ORDER BY updated_at DESC LIMIT 1`, pr).
+		Scan(&m.Repo, &m.PR, &m.Title, &m.Body, &m.AuthorLogin, &m.HeadRef, &m.URL, &m.AutoMerge, &m.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return PRMeta{}, false, nil
+	}
+	if err != nil {
+		return PRMeta{}, false, fmt.Errorf("get pr_meta by pr: %w", err)
+	}
+	return m, true, nil
+}

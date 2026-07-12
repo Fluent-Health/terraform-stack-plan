@@ -1,0 +1,4 @@
+HTTP 200
+Content-Type: application/json
+
+{"merge":{"blocker":"merge-lock unverifiable — retrying","check_conclusion":"","environment":"","merge_blocked":true,"required_check":"apply-lock"},"meta":{"author_login":"octocat","auto_merge":false,"body":"Meta arrives before init.","head_ref":"feature/pre-execution","title":"Pre-execution PR","url":"https://github.com/o/r/pull/555"},"pr":555,"repo":"o/r"}
