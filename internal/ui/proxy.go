@@ -55,6 +55,16 @@ func (s uiServer) ListTierApprovals(w http.ResponseWriter, r *http.Request, tier
 	s.relay(w, string(tier), resp, err)
 }
 
+func (s uiServer) GetTierPR(w http.ResponseWriter, r *http.Request, tier uiapi.Tier, n int) {
+	c, ok := s.app.clients[string(tier)]
+	if !ok {
+		http.Error(w, "unknown tier", http.StatusNotFound)
+		return
+	}
+	resp, err := c.GetPR(r.Context(), n)
+	s.relay(w, string(tier), resp, err)
+}
+
 func (s uiServer) GetTierExecution(w http.ResponseWriter, r *http.Request, tier uiapi.Tier, id string) {
 	c, ok := s.app.clients[string(tier)]
 	if !ok {

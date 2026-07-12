@@ -107,6 +107,34 @@ paths:
           $ref: "#/components/responses/UnknownTierText"
         "502":
           $ref: "#/components/responses/TierUnreachableText"
+  /api/tiers/{tier}/pr/{n}:
+    get:
+      operationId: getTierPR
+      summary: One tier's view of a PR's identity and merge state (proxied)
+      security:
+        - session: []
+      parameters:
+        - $ref: "#/components/parameters/Tier"
+        - name: n
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: The PR (the tier contract's PRView shape).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PRView"
+        "401":
+          $ref: "#/components/responses/UnauthorizedText"
+        "404":
+          description: Unknown tier or PR.
+          content:
+            text/plain: {}
+        "502":
+          $ref: "#/components/responses/TierUnreachableText"
   /api/tiers/{tier}/executions/{id}:
     get:
       operationId: getTierExecution
@@ -193,5 +221,11 @@ components:
       type: object
       description: The tier contract's ExecutionDetail, proxied verbatim.
       x-go-type: api.ExecutionDetail
+      x-go-type-import:
+        path: github.com/Fluent-Health/terraform-stack-plan/internal/api
+    PRView:
+      type: object
+      description: The tier contract's PRView, proxied verbatim.
+      x-go-type: api.PRView
       x-go-type-import:
         path: github.com/Fluent-Health/terraform-stack-plan/internal/api
