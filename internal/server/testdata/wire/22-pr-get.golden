@@ -1,0 +1,4 @@
+HTTP 200
+Content-Type: application/json
+
+{"merge":{"blocker":"merge-lock unverifiable — retrying","check_conclusion":"","environment":"","merge_blocked":true,"required_check":"apply-lock"},"meta":{"author_login":"octocat","auto_merge":true,"body":"Does widget things.","head_ref":"feature/widget","title":"Add widget","url":"https://github.com/o/r/pull/7"},"pr":7,"repo":"o/r"}

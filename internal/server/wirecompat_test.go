@@ -193,6 +193,21 @@ func TestAPIWireCompat(t *testing.T) {
 				seedProjectionTarget(t, db, 8, "staging", "destructive", "proj-c", "", "AWAITING", "req@x.iam.gserviceaccount.com")
 			},
 		},
+		{
+			name: "22-pr-get", method: "GET", path: "/api/pr/7", token: "tok",
+			seed: func(t *testing.T) {
+				if err := store.UpsertPRMeta(db, store.PRMeta{
+					Repo: "o/r", PR: 7, Title: "Add widget", Body: "Does widget things.",
+					AuthorLogin: "octocat", HeadRef: "feature/widget",
+					URL: "https://github.com/o/r/pull/7", AutoMerge: true,
+				}); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name: "23-pr-404", method: "GET", path: "/api/pr/424242", token: "tok",
+		},
 	}
 
 	for _, s := range steps {
