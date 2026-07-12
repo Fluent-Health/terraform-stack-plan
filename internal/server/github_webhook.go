@@ -85,12 +85,19 @@ func (a *App) handleGitHubWebhook(w http.ResponseWriter, r *http.Request) {
 	var payload struct {
 		Action      string `json:"action"`
 		PullRequest struct {
-			Number int  `json:"number"`
-			Merged bool `json:"merged"`
-			Head   struct {
+			Number  int    `json:"number"`
+			Merged  bool   `json:"merged"`
+			Title   string `json:"title"`
+			Body    string `json:"body"`
+			HTMLURL string `json:"html_url"`
+			Head    struct {
 				SHA string `json:"sha"`
 				Ref string `json:"ref"`
 			} `json:"head"`
+			User struct {
+				Login string `json:"login"`
+			} `json:"user"`
+			AutoMerge *struct{} `json:"auto_merge"` // non-null when automerge enabled
 		} `json:"pull_request"`
 		Repository struct {
 			FullName string `json:"full_name"`
@@ -105,9 +112,24 @@ func (a *App) handleGitHubWebhook(w http.ResponseWriter, r *http.Request) {
 	repoFullName := payload.Repository.FullName
 
 	switch payload.Action {
-	case "opened", "reopened", "synchronize":
+	case "opened", "reopened", "synchronize", "edited":
 		if pr > 0 {
 			a.handlePRApplyLock(r.Context(), repoFullName, pr, false)
+			// Best-effort: PR metadata is a convenience projection, not part of
+			// the gate/execution engine — log and continue on failure rather
+			// than fail the webhook delivery.
+			if err := store.UpsertPRMeta(a.db, store.PRMeta{
+				Repo:        repoFullName,
+				PR:          pr,
+				Title:       payload.PullRequest.Title,
+				Body:        payload.PullRequest.Body,
+				AuthorLogin: payload.PullRequest.User.Login,
+				HeadRef:     payload.PullRequest.Head.Ref,
+				URL:         payload.PullRequest.HTMLURL,
+				AutoMerge:   payload.PullRequest.AutoMerge != nil,
+			}); err != nil {
+				log.Printf("webhook: upsert pr_meta pr=%d: %v", pr, err)
+			}
 			// Serve-as-driver: request the plan run for the new head. Inside the
 			// webhook turnaround, so the check + live link appear before any
 			// build machine spins up. A redelivery no-ops in the decider.
