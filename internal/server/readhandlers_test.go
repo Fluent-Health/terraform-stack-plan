@@ -9,6 +9,8 @@ import (
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/api"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/approval"
+	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
+	"github.com/Fluent-Health/terraform-stack-plan/internal/reconcile"
 )
 
 func TestInspectGrants(t *testing.T) {
@@ -108,5 +110,73 @@ func TestInspectGrants(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("pr 7 not found in live grants")
+	}
+}
+
+func TestInspectGate(t *testing.T) {
+	db := newServerTestDB(t)
+	a := New(db, &MockGitHub{}, Config{})
+
+	streamID := execStreamID(7, "staging")
+	
+	// Seed some gate-lifecycle events via a.gateDecider
+	evs1 := []reconcile.Event{
+		reconcile.Classified{Gates: []events.GateTarget{{Class: "iam", Target: "proj-a"}}},
+	}
+	state1 := reconcile.ChangeSet{
+		PR: 7, Environment: "staging",
+		Gate: reconcile.Pending{
+			Targets: []reconcile.Target{{Class: "iam", Target: "proj-a", Grant: approval.StateAwaiting}},
+		},
+	}
+	if err := a.gateDecider.Append(a.eventStore, streamID, 0, evs1, state1); err != nil {
+		t.Fatal(err)
+	}
+
+	evs2 := []reconcile.Event{
+		reconcile.GrantObserved{Class: "iam", Target: "proj-a", Name: "grant-1", State: approval.StateActive},
+		reconcile.GateSatisfied{},
+	}
+	state2 := reconcile.ChangeSet{
+		PR: 7, Environment: "staging",
+		Gate: reconcile.Satisfied{
+			Targets: []reconcile.Target{{Class: "iam", Target: "proj-a", GrantName: "grant-1", Grant: approval.StateActive}},
+		},
+	}
+	if err := a.gateDecider.Append(a.eventStore, streamID, 1, evs2, state2); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := httptest.NewServer(a.Routes())
+	defer srv.Close()
+
+	req, _ := http.NewRequest("GET", srv.URL+"/api/inspect/gate/7/staging", nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d; want 200", resp.StatusCode)
+	}
+
+	var detail api.InspectGateDetail
+	if err := json.NewDecoder(resp.Body).Decode(&detail); err != nil {
+		t.Fatal(err)
+	}
+
+	if detail.Pr != 7 || detail.Environment != "staging" {
+		t.Fatalf("pr/env mismatch: %+v", detail)
+	}
+	if detail.GateState != "Satisfied" {
+		t.Fatalf("gate_state = %s; want Satisfied", detail.GateState)
+	}
+	if len(detail.Targets) != 1 || detail.Targets[0].State != "ACTIVE" {
+		t.Fatalf("targets mismatch: %+v", detail.Targets)
+	}
+	// Verify reason trail exists and is ordered
+	if len(detail.Reasons) < 2 {
+		t.Fatalf("expected at least 2 reasons, got %d: %+v", len(detail.Reasons), detail.Reasons)
 	}
 }

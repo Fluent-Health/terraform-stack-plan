@@ -3,9 +3,14 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"reflect"
+	"strings"
+	"time"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/api"
+	"github.com/Fluent-Health/terraform-stack-plan/internal/reconcile"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
 
@@ -202,4 +207,100 @@ func (a *App) reconcileBackground(pr int, env string) {
 	go func() {
 		_ = a.shell.tick(context.Background(), pr, env)
 	}()
+}
+
+func (a *App) handleInspectGate(w http.ResponseWriter, r *http.Request, pr int, env string) {
+	streamID := execStreamID(pr, env)
+	
+	// Load ChangeSet state
+	cs, _, err := a.gateDecider.Load(a.eventStore, streamID)
+	if err != nil {
+		http.Error(w, "load changeset", http.StatusInternalServerError)
+		return
+	}
+
+	// Fetch raw events to build reason trail
+	stored, _, err := a.eventStore.Load(streamID)
+	if err != nil {
+		http.Error(w, "load stream", http.StatusInternalServerError)
+		return
+	}
+
+	// Query events table to fetch timestamps
+	rows, err := a.db.Query(`SELECT version, occurred_at FROM events WHERE stream_id = ? ORDER BY version`, streamID)
+	if err != nil {
+		http.Error(w, "query event times", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+	
+	timestamps := make(map[int]time.Time)
+	for rows.Next() {
+		var v int
+		var t time.Time
+		if err := rows.Scan(&v, &t); err == nil {
+			timestamps[v] = t
+		}
+	}
+
+	var reasons []api.InspectGateReason
+	// Replay and record changes
+	tempCS := a.gateDecider.Initial()
+	for i, se := range stored {
+		ev, derr := a.gateDecider.UnmarshalEvent(se.Type, se.Data)
+		if derr != nil {
+			continue
+		}
+		
+		prevGate := tempCS.Gate
+		tempCS = a.gateDecider.Evolve(tempCS, ev)
+		
+		// If the gate type or target states changed, record a reason
+		gateChanged := prevGate == nil || reflect.TypeOf(prevGate) != reflect.TypeOf(tempCS.Gate)
+		if !gateChanged && prevGate != nil {
+			// Deep state comparison
+			gateChanged = !reflect.DeepEqual(prevGate, tempCS.Gate)
+		}
+		
+		if gateChanged {
+			desc := fmt.Sprintf("Event %s occurred", se.Type)
+			reasons = append(reasons, api.InspectGateReason{
+				EventType:  se.Type,
+				OccurredAt: timestamps[i+1],
+				Description: desc,
+			})
+		}
+	}
+
+	var targets []api.InspectGateTarget
+	switch v := cs.Gate.(type) {
+	case reconcile.Pending:
+		for _, t := range v.Targets {
+			targets = append(targets, api.InspectGateTarget{Class: t.Class, Target: t.Target, GrantName: t.GrantName, State: string(t.Grant), Requester: v.Lease.Requester})
+		}
+	case reconcile.Satisfied:
+		for _, t := range v.Targets {
+			targets = append(targets, api.InspectGateTarget{Class: t.Class, Target: t.Target, GrantName: t.GrantName, State: string(t.Grant), Requester: v.Lease.Requester})
+		}
+	case reconcile.Blocked:
+		for _, t := range v.Targets {
+			targets = append(targets, api.InspectGateTarget{Class: t.Class, Target: t.Target, GrantName: t.GrantName, State: string(t.Grant), Requester: v.Lease.Requester})
+		}
+	}
+
+	gateStateStr := "NotClassified"
+	if cs.Gate != nil {
+		gateStateStr = strings.TrimPrefix(fmt.Sprintf("%T", cs.Gate), "reconcile.")
+	}
+
+	out := api.InspectGateDetail{
+		Pr:          pr,
+		Environment: env,
+		GateState:   gateStateStr,
+		Targets:     targets,
+		Reasons:     reasons,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(out)
 }
