@@ -6,7 +6,7 @@ import { StackDetail } from "./StackDetail";
 import { SEM_DOT, statusSem } from "../status";
 
 /** TierPanel: one tier's current run for a PR — stepper + project groups + drill-in. */
-export function TierPanel(props: { tier: string; summary: ExecutionSummary }) {
+export function TierPanel(props: { tier: string; summary: ExecutionSummary; onSuperseded?: () => void }) {
   const [detail, { refetch }] = createResource(
     () => ({ tier: props.tier, id: props.summary.id }),
     (k) => api.execution(k.tier, k.id),
@@ -18,6 +18,7 @@ export function TierPanel(props: { tier: string; summary: ExecutionSummary }) {
       clearTimeout(t);
       t = setTimeout(() => refetch(), 300);
     };
+    es.addEventListener("superseded", () => props.onSuperseded?.());
     onCleanup(() => {
       clearTimeout(t);
       es.close();

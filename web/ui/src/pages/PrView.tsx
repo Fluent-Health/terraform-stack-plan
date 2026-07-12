@@ -6,7 +6,7 @@ import { TierPanel } from "../components/TierPanel";
 
 /**
  * PrView: the hero. One PR across both tiers, newest run per tier side-by-side.
- * Identity is minimal in Plan 1 (PR# + GitHub link); title/description/author and
+ * Identity is minimal in Plan 1 (PR# only); title/description/author and
  * the merge strip arrive in Plan 2 when serve exposes PR metadata.
  */
 export function PrView() {
@@ -28,13 +28,13 @@ export function PrView() {
 }
 
 function TierColumn(props: { tier: string; pr: number }) {
-  const [execs] = createResource(() => api.executions(props.tier, { pr: props.pr }));
+  const [execs, { refetch }] = createResource(() => api.executions(props.tier, { pr: props.pr }));
   const current = createMemo(() => latestPerTier(execs() ?? [])[0]);
   return (
     <Show when={!execs.error} fallback={<div class="alert alert-warning text-sm">{props.tier} unreachable</div>}>
       <Suspense fallback={<span class="loading loading-dots loading-sm" />}>
         <Show when={current()} fallback={<p class="opacity-60 text-sm">No run on {props.tier}.</p>}>
-          {(s) => <TierPanel tier={props.tier} summary={s()} />}
+          {(s) => <TierPanel tier={props.tier} summary={s()} onSuperseded={refetch} />}
         </Show>
       </Suspense>
     </Show>
