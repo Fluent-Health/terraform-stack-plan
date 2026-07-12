@@ -152,12 +152,13 @@ func unmarshalInto[T any](data []byte) (Event, error) {
 // --- snapshot ---
 
 type snapshotDTO struct {
-	PR          int             `json:"pr"`
-	Environment string          `json:"environment"`
-	Exec        Execution       `json:"exec"`
-	GateKind    string          `json:"gate_kind"`
-	Gate        json.RawMessage `json:"gate"`
-	Runs        map[string]Run  `json:"runs,omitempty"`
+	PR            int             `json:"pr"`
+	Environment   string          `json:"environment"`
+	Exec          Execution       `json:"exec"`
+	GateKind      string          `json:"gate_kind"`
+	Gate          json.RawMessage `json:"gate"`
+	Runs          map[string]Run  `json:"runs,omitempty"`
+	CheckOverride *CheckOverride  `json:"check_override,omitempty"`
 }
 
 // MarshalSnapshot serializes a folded ChangeSet (the GateState sum type is encoded
@@ -174,6 +175,7 @@ func MarshalSnapshot(cs ChangeSet) ([]byte, error) {
 	return json.Marshal(snapshotDTO{
 		PR: cs.PR, Environment: cs.Environment, Exec: cs.Exec,
 		GateKind: kind, Gate: gateJSON, Runs: cs.Runs,
+		CheckOverride: cs.CheckOverride,
 	})
 }
 
@@ -200,7 +202,13 @@ func UnmarshalSnapshot(b []byte) (ChangeSet, error) {
 	if err := json.Unmarshal(b, &dto); err != nil {
 		return ChangeSet{}, err
 	}
-	cs := ChangeSet{PR: dto.PR, Environment: dto.Environment, Exec: dto.Exec, Runs: dto.Runs}
+	cs := ChangeSet{
+		PR:            dto.PR,
+		Environment:   dto.Environment,
+		Exec:          dto.Exec,
+		Runs:          dto.Runs,
+		CheckOverride: dto.CheckOverride,
+	}
 	gate, err := decodeGate(dto.GateKind, dto.Gate)
 	if err != nil {
 		return ChangeSet{}, err

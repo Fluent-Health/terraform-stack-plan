@@ -62,6 +62,22 @@ func (s apiServer) InspectOverview(w http.ResponseWriter, r *http.Request) {
 	s.app.handleInspectOverview(w, r)
 }
 
+func (s apiServer) AdminChecksOverride(w http.ResponseWriter, r *http.Request) {
+	s.app.handleAdminChecksOverride(w, r)
+}
+
+func (s apiServer) AdminExecutionsCancel(w http.ResponseWriter, r *http.Request) {
+	s.app.handleAdminExecutionsCancel(w, r)
+}
+
+func (s apiServer) AdminGatesSatisfy(w http.ResponseWriter, r *http.Request) {
+	s.app.handleAdminGatesSatisfy(w, r)
+}
+
+func (s apiServer) AdminGrantsRelease(w http.ResponseWriter, r *http.Request) {
+	s.app.handleAdminGrantsRelease(w, r)
+}
+
 // apiAuth is the OIDC auth middleware for the generated router. The accepted
 // scopes for the matched operation ride the request context (api.OidcScopes,
 // injected by the generated wrapper from the spec's security requirements), so
