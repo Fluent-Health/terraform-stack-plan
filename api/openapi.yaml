@@ -498,6 +498,20 @@ paths:
                 items:
                   $ref: "#/components/schemas/InspectPRSummary"
 
+  /api/inspect/pool:
+    get:
+      operationId: inspectPool
+      summary: Get applier-pool slot occupancy and waiting lists
+      security:
+        - oidc: [report, read, admin]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InspectPoolSet"
+
   /api/admin/grants/release:
     post:
       operationId: adminGrantsRelease
@@ -1231,3 +1245,38 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/ExecutionSummary"
+    InspectPoolSet:
+      type: object
+      required: [environment, slots, waiting]
+      properties:
+        environment: { type: string }
+        slots:
+          type: array
+          items:
+            $ref: "#/components/schemas/InspectPoolSlot"
+        waiting:
+          type: array
+          items:
+            $ref: "#/components/schemas/InspectPoolWaitingPR"
+
+    InspectPoolSlot:
+      type: object
+      required: [requester, occupied]
+      properties:
+        requester: { type: string }
+        occupied: { type: boolean }
+        pr: { type: integer }
+        environment: { type: string }
+        grant_name: { type: string }
+        state: { type: string }
+        elapsed_seconds: { type: integer }
+
+    InspectPoolWaitingPR:
+      type: object
+      required: [pr, environment, reason, blocker_pr, blocker_env]
+      properties:
+        pr: { type: integer }
+        environment: { type: string }
+        reason: { type: string }
+        blocker_pr: { type: integer }
+        blocker_env: { type: string }

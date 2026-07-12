@@ -364,6 +364,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/inspect/pool": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get applier-pool slot occupancy and waiting lists */
+        get: operations["inspectPool"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/admin/grants/release": {
         parameters: {
             query?: never;
@@ -777,6 +794,27 @@ export interface components {
             open_grants: components["schemas"]["InspectGrant"][];
             claims: components["schemas"]["InspectClaim"][];
             executions: components["schemas"]["ExecutionSummary"][];
+        };
+        InspectPoolSet: {
+            environment: string;
+            slots: components["schemas"]["InspectPoolSlot"][];
+            waiting: components["schemas"]["InspectPoolWaitingPR"][];
+        };
+        InspectPoolSlot: {
+            requester: string;
+            occupied: boolean;
+            pr?: number;
+            environment?: string;
+            grant_name?: string;
+            state?: string;
+            elapsed_seconds?: number;
+        };
+        InspectPoolWaitingPR: {
+            pr: number;
+            environment: string;
+            reason: string;
+            blocker_pr: number;
+            blocker_env: string;
         };
     };
     responses: {
@@ -1287,6 +1325,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["InspectPRSummary"][];
+                };
+            };
+        };
+    };
+    inspectPool: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InspectPoolSet"];
                 };
             };
         };
