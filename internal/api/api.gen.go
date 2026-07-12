@@ -25,6 +25,39 @@ const (
 	OidcScopes oidcContextKey = "oidc.Scopes"
 )
 
+// AdminChecksOverrideRequest defines model for AdminChecksOverrideRequest.
+type AdminChecksOverrideRequest struct {
+	Check       string `json:"check"`
+	Conclusion  string `json:"conclusion"`
+	Environment string `json:"environment"`
+	Pr          int    `json:"pr"`
+	Reason      string `json:"reason"`
+}
+
+// AdminExecutionsCancelRequest defines model for AdminExecutionsCancelRequest.
+type AdminExecutionsCancelRequest struct {
+	Id     string `json:"id"`
+	Reason string `json:"reason"`
+}
+
+// AdminGatesSatisfyRequest defines model for AdminGatesSatisfyRequest.
+type AdminGatesSatisfyRequest struct {
+	Class       string `json:"class"`
+	Environment string `json:"environment"`
+	Pr          int    `json:"pr"`
+	Reason      string `json:"reason"`
+	Target      string `json:"target"`
+}
+
+// AdminGrantsReleaseRequest defines model for AdminGrantsReleaseRequest.
+type AdminGrantsReleaseRequest struct {
+	Class       string `json:"class"`
+	Environment string `json:"environment"`
+	Pr          int    `json:"pr"`
+	Reason      string `json:"reason"`
+	Target      string `json:"target"`
+}
+
 // Category A classification label matched by a stack.
 type Category = events.Category
 
@@ -323,6 +356,18 @@ type InspectGrantsParams struct {
 	Live  *int    `form:"live,omitempty" json:"live,omitempty"`
 }
 
+// AdminChecksOverrideJSONRequestBody defines body for AdminChecksOverride for application/json ContentType.
+type AdminChecksOverrideJSONRequestBody = AdminChecksOverrideRequest
+
+// AdminExecutionsCancelJSONRequestBody defines body for AdminExecutionsCancel for application/json ContentType.
+type AdminExecutionsCancelJSONRequestBody = AdminExecutionsCancelRequest
+
+// AdminGatesSatisfyJSONRequestBody defines body for AdminGatesSatisfy for application/json ContentType.
+type AdminGatesSatisfyJSONRequestBody = AdminGatesSatisfyRequest
+
+// AdminGrantsReleaseJSONRequestBody defines body for AdminGrantsRelease for application/json ContentType.
+type AdminGrantsReleaseJSONRequestBody = AdminGrantsReleaseRequest
+
 // ListClaimsJSONRequestBody defines body for ListClaims for application/json ContentType.
 type ListClaimsJSONRequestBody = ClaimsListRequest
 
@@ -423,6 +468,26 @@ func WithRequestEditorFn(fn RequestEditorFn) ClientOption {
 
 // The interface specification for the client above.
 type ClientInterface interface {
+	// AdminChecksOverrideWithBody request with any body
+	AdminChecksOverrideWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	AdminChecksOverride(ctx context.Context, body AdminChecksOverrideJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// AdminExecutionsCancelWithBody request with any body
+	AdminExecutionsCancelWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	AdminExecutionsCancel(ctx context.Context, body AdminExecutionsCancelJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// AdminGatesSatisfyWithBody request with any body
+	AdminGatesSatisfyWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	AdminGatesSatisfy(ctx context.Context, body AdminGatesSatisfyJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// AdminGrantsReleaseWithBody request with any body
+	AdminGrantsReleaseWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	AdminGrantsRelease(ctx context.Context, body AdminGrantsReleaseJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// ListApprovals request
 	ListApprovals(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -494,6 +559,102 @@ type ClientInterface interface {
 	UpdateStackWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	UpdateStack(ctx context.Context, body UpdateStackJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+}
+
+func (c *Client) AdminChecksOverrideWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAdminChecksOverrideRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) AdminChecksOverride(ctx context.Context, body AdminChecksOverrideJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAdminChecksOverrideRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) AdminExecutionsCancelWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAdminExecutionsCancelRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) AdminExecutionsCancel(ctx context.Context, body AdminExecutionsCancelJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAdminExecutionsCancelRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) AdminGatesSatisfyWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAdminGatesSatisfyRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) AdminGatesSatisfy(ctx context.Context, body AdminGatesSatisfyJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAdminGatesSatisfyRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) AdminGrantsReleaseWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAdminGrantsReleaseRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) AdminGrantsRelease(ctx context.Context, body AdminGrantsReleaseJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAdminGrantsReleaseRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
 }
 
 func (c *Client) ListApprovals(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -818,6 +979,166 @@ func (c *Client) UpdateStack(ctx context.Context, body UpdateStackJSONRequestBod
 		return nil, err
 	}
 	return c.Client.Do(req)
+}
+
+// NewAdminChecksOverrideRequest calls the generic AdminChecksOverride builder with application/json body
+func NewAdminChecksOverrideRequest(server string, body AdminChecksOverrideJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewAdminChecksOverrideRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewAdminChecksOverrideRequestWithBody generates requests for AdminChecksOverride with any type of body
+func NewAdminChecksOverrideRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/admin/checks/override")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewAdminExecutionsCancelRequest calls the generic AdminExecutionsCancel builder with application/json body
+func NewAdminExecutionsCancelRequest(server string, body AdminExecutionsCancelJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewAdminExecutionsCancelRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewAdminExecutionsCancelRequestWithBody generates requests for AdminExecutionsCancel with any type of body
+func NewAdminExecutionsCancelRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/admin/executions/cancel")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewAdminGatesSatisfyRequest calls the generic AdminGatesSatisfy builder with application/json body
+func NewAdminGatesSatisfyRequest(server string, body AdminGatesSatisfyJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewAdminGatesSatisfyRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewAdminGatesSatisfyRequestWithBody generates requests for AdminGatesSatisfy with any type of body
+func NewAdminGatesSatisfyRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/admin/gates/satisfy")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewAdminGrantsReleaseRequest calls the generic AdminGrantsRelease builder with application/json body
+func NewAdminGrantsReleaseRequest(server string, body AdminGrantsReleaseJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewAdminGrantsReleaseRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewAdminGrantsReleaseRequestWithBody generates requests for AdminGrantsRelease with any type of body
+func NewAdminGrantsReleaseRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/admin/grants/release")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
 }
 
 // NewListApprovalsRequest generates requests for ListApprovals
@@ -1613,6 +1934,26 @@ func WithBaseURL(baseURL string) ClientOption {
 
 // ClientWithResponsesInterface is the interface specification for the client with responses above.
 type ClientWithResponsesInterface interface {
+	// AdminChecksOverrideWithBodyWithResponse request with any body
+	AdminChecksOverrideWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AdminChecksOverrideResponse, error)
+
+	AdminChecksOverrideWithResponse(ctx context.Context, body AdminChecksOverrideJSONRequestBody, reqEditors ...RequestEditorFn) (*AdminChecksOverrideResponse, error)
+
+	// AdminExecutionsCancelWithBodyWithResponse request with any body
+	AdminExecutionsCancelWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AdminExecutionsCancelResponse, error)
+
+	AdminExecutionsCancelWithResponse(ctx context.Context, body AdminExecutionsCancelJSONRequestBody, reqEditors ...RequestEditorFn) (*AdminExecutionsCancelResponse, error)
+
+	// AdminGatesSatisfyWithBodyWithResponse request with any body
+	AdminGatesSatisfyWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AdminGatesSatisfyResponse, error)
+
+	AdminGatesSatisfyWithResponse(ctx context.Context, body AdminGatesSatisfyJSONRequestBody, reqEditors ...RequestEditorFn) (*AdminGatesSatisfyResponse, error)
+
+	// AdminGrantsReleaseWithBodyWithResponse request with any body
+	AdminGrantsReleaseWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AdminGrantsReleaseResponse, error)
+
+	AdminGrantsReleaseWithResponse(ctx context.Context, body AdminGrantsReleaseJSONRequestBody, reqEditors ...RequestEditorFn) (*AdminGrantsReleaseResponse, error)
+
 	// ListApprovalsWithResponse request
 	ListApprovalsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListApprovalsResponse, error)
 
@@ -1684,6 +2025,122 @@ type ClientWithResponsesInterface interface {
 	UpdateStackWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateStackResponse, error)
 
 	UpdateStackWithResponse(ctx context.Context, body UpdateStackJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateStackResponse, error)
+}
+
+type AdminChecksOverrideResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+}
+
+// Status returns HTTPResponse.Status
+func (r AdminChecksOverrideResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r AdminChecksOverrideResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r AdminChecksOverrideResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type AdminExecutionsCancelResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+}
+
+// Status returns HTTPResponse.Status
+func (r AdminExecutionsCancelResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r AdminExecutionsCancelResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r AdminExecutionsCancelResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type AdminGatesSatisfyResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+}
+
+// Status returns HTTPResponse.Status
+func (r AdminGatesSatisfyResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r AdminGatesSatisfyResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r AdminGatesSatisfyResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type AdminGrantsReleaseResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+}
+
+// Status returns HTTPResponse.Status
+func (r AdminGrantsReleaseResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r AdminGrantsReleaseResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r AdminGrantsReleaseResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
 }
 
 type ListApprovalsResponse struct {
@@ -2222,6 +2679,74 @@ func (r UpdateStackResponse) ContentType() string {
 	return ""
 }
 
+// AdminChecksOverrideWithBodyWithResponse request with arbitrary body returning *AdminChecksOverrideResponse
+func (c *ClientWithResponses) AdminChecksOverrideWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AdminChecksOverrideResponse, error) {
+	rsp, err := c.AdminChecksOverrideWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAdminChecksOverrideResponse(rsp)
+}
+
+func (c *ClientWithResponses) AdminChecksOverrideWithResponse(ctx context.Context, body AdminChecksOverrideJSONRequestBody, reqEditors ...RequestEditorFn) (*AdminChecksOverrideResponse, error) {
+	rsp, err := c.AdminChecksOverride(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAdminChecksOverrideResponse(rsp)
+}
+
+// AdminExecutionsCancelWithBodyWithResponse request with arbitrary body returning *AdminExecutionsCancelResponse
+func (c *ClientWithResponses) AdminExecutionsCancelWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AdminExecutionsCancelResponse, error) {
+	rsp, err := c.AdminExecutionsCancelWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAdminExecutionsCancelResponse(rsp)
+}
+
+func (c *ClientWithResponses) AdminExecutionsCancelWithResponse(ctx context.Context, body AdminExecutionsCancelJSONRequestBody, reqEditors ...RequestEditorFn) (*AdminExecutionsCancelResponse, error) {
+	rsp, err := c.AdminExecutionsCancel(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAdminExecutionsCancelResponse(rsp)
+}
+
+// AdminGatesSatisfyWithBodyWithResponse request with arbitrary body returning *AdminGatesSatisfyResponse
+func (c *ClientWithResponses) AdminGatesSatisfyWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AdminGatesSatisfyResponse, error) {
+	rsp, err := c.AdminGatesSatisfyWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAdminGatesSatisfyResponse(rsp)
+}
+
+func (c *ClientWithResponses) AdminGatesSatisfyWithResponse(ctx context.Context, body AdminGatesSatisfyJSONRequestBody, reqEditors ...RequestEditorFn) (*AdminGatesSatisfyResponse, error) {
+	rsp, err := c.AdminGatesSatisfy(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAdminGatesSatisfyResponse(rsp)
+}
+
+// AdminGrantsReleaseWithBodyWithResponse request with arbitrary body returning *AdminGrantsReleaseResponse
+func (c *ClientWithResponses) AdminGrantsReleaseWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AdminGrantsReleaseResponse, error) {
+	rsp, err := c.AdminGrantsReleaseWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAdminGrantsReleaseResponse(rsp)
+}
+
+func (c *ClientWithResponses) AdminGrantsReleaseWithResponse(ctx context.Context, body AdminGrantsReleaseJSONRequestBody, reqEditors ...RequestEditorFn) (*AdminGrantsReleaseResponse, error) {
+	rsp, err := c.AdminGrantsRelease(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAdminGrantsReleaseResponse(rsp)
+}
+
 // ListApprovalsWithResponse request returning *ListApprovalsResponse
 func (c *ClientWithResponses) ListApprovalsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListApprovalsResponse, error) {
 	rsp, err := c.ListApprovals(ctx, reqEditors...)
@@ -2454,6 +2979,70 @@ func (c *ClientWithResponses) UpdateStackWithResponse(ctx context.Context, body 
 		return nil, err
 	}
 	return ParseUpdateStackResponse(rsp)
+}
+
+// ParseAdminChecksOverrideResponse parses an HTTP response from a AdminChecksOverrideWithResponse call
+func ParseAdminChecksOverrideResponse(rsp *http.Response) (*AdminChecksOverrideResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &AdminChecksOverrideResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	return response, nil
+}
+
+// ParseAdminExecutionsCancelResponse parses an HTTP response from a AdminExecutionsCancelWithResponse call
+func ParseAdminExecutionsCancelResponse(rsp *http.Response) (*AdminExecutionsCancelResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &AdminExecutionsCancelResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	return response, nil
+}
+
+// ParseAdminGatesSatisfyResponse parses an HTTP response from a AdminGatesSatisfyWithResponse call
+func ParseAdminGatesSatisfyResponse(rsp *http.Response) (*AdminGatesSatisfyResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &AdminGatesSatisfyResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	return response, nil
+}
+
+// ParseAdminGrantsReleaseResponse parses an HTTP response from a AdminGrantsReleaseWithResponse call
+func ParseAdminGrantsReleaseResponse(rsp *http.Response) (*AdminGrantsReleaseResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &AdminGrantsReleaseResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	return response, nil
 }
 
 // ParseListApprovalsResponse parses an HTTP response from a ListApprovalsWithResponse call
@@ -2877,6 +3466,18 @@ func ParseUpdateStackResponse(rsp *http.Response) (*UpdateStackResponse, error) 
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
+	// Admin override a check conclusion
+	// (POST /api/admin/checks/override)
+	AdminChecksOverride(w http.ResponseWriter, r *http.Request)
+	// Admin cancel a running execution
+	// (POST /api/admin/executions/cancel)
+	AdminExecutionsCancel(w http.ResponseWriter, r *http.Request)
+	// Admin satisfy a gate target manually
+	// (POST /api/admin/gates/satisfy)
+	AdminGatesSatisfy(w http.ResponseWriter, r *http.Request)
+	// Admin release a gate grant
+	// (POST /api/admin/grants/release)
+	AdminGrantsRelease(w http.ResponseWriter, r *http.Request)
 	// List gate targets awaiting human action, across all PRs
 	// (GET /api/approvals)
 	ListApprovals(w http.ResponseWriter, r *http.Request)
@@ -2941,6 +3542,86 @@ type ServerInterfaceWrapper struct {
 }
 
 type MiddlewareFunc func(http.Handler) http.Handler
+
+// AdminChecksOverride operation middleware
+func (siw *ServerInterfaceWrapper) AdminChecksOverride(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, OidcScopes, []string{"admin"})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AdminChecksOverride(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AdminExecutionsCancel operation middleware
+func (siw *ServerInterfaceWrapper) AdminExecutionsCancel(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, OidcScopes, []string{"admin"})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AdminExecutionsCancel(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AdminGatesSatisfy operation middleware
+func (siw *ServerInterfaceWrapper) AdminGatesSatisfy(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, OidcScopes, []string{"admin"})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AdminGatesSatisfy(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AdminGrantsRelease operation middleware
+func (siw *ServerInterfaceWrapper) AdminGrantsRelease(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, OidcScopes, []string{"admin"})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AdminGrantsRelease(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
 
 // ListApprovals operation middleware
 func (siw *ServerInterfaceWrapper) ListApprovals(w http.ResponseWriter, r *http.Request) {
@@ -3571,6 +4252,10 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 		ErrorHandlerFunc:   options.ErrorHandlerFunc,
 	}
 
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/admin/checks/override", wrapper.AdminChecksOverride)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/admin/executions/cancel", wrapper.AdminExecutionsCancel)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/admin/gates/satisfy", wrapper.AdminGatesSatisfy)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/admin/grants/release", wrapper.AdminGrantsRelease)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/approvals", wrapper.ListApprovals)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/claims/list", wrapper.ListClaims)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/claims/release", wrapper.ReleaseClaims)

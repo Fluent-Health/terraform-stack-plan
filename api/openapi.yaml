@@ -497,6 +497,87 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/InspectPRSummary"
+
+  /api/admin/grants/release:
+    post:
+      operationId: adminGrantsRelease
+      summary: Admin release a gate grant
+      security:
+        - oidc: [admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminGrantsReleaseRequest"
+      responses:
+        "200":
+          description: OK
+        "400":
+          $ref: "#/components/responses/InternalText"
+        "500":
+          $ref: "#/components/responses/InternalText"
+
+  /api/admin/executions/cancel:
+    post:
+      operationId: adminExecutionsCancel
+      summary: Admin cancel a running execution
+      security:
+        - oidc: [admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminExecutionsCancelRequest"
+      responses:
+        "200":
+          description: OK
+        "400":
+          $ref: "#/components/responses/InternalText"
+        "500":
+          $ref: "#/components/responses/InternalText"
+
+  /api/admin/gates/satisfy:
+    post:
+      operationId: adminGatesSatisfy
+      summary: Admin satisfy a gate target manually
+      security:
+        - oidc: [admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminGatesSatisfyRequest"
+      responses:
+        "200":
+          description: OK
+        "400":
+          $ref: "#/components/responses/InternalText"
+        "500":
+          $ref: "#/components/responses/InternalText"
+
+  /api/admin/checks/override:
+    post:
+      operationId: adminChecksOverride
+      summary: Admin override a check conclusion
+      security:
+        - oidc: [admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminChecksOverrideRequest"
+      responses:
+        "200":
+          description: OK
+        "400":
+          $ref: "#/components/responses/InternalText"
+        "500":
+          $ref: "#/components/responses/InternalText"
+
 components:
   securitySchemes:
     oidc:
@@ -513,6 +594,39 @@ components:
       content:
         text/plain: {}
   schemas:
+    AdminGrantsReleaseRequest:
+      type: object
+      required: [pr, environment, class, target, reason]
+      properties:
+        pr: { type: integer }
+        environment: { type: string }
+        class: { type: string }
+        target: { type: string }
+        reason: { type: string }
+    AdminExecutionsCancelRequest:
+      type: object
+      required: [id, reason]
+      properties:
+        id: { type: string }
+        reason: { type: string }
+    AdminGatesSatisfyRequest:
+      type: object
+      required: [pr, environment, class, target, reason]
+      properties:
+        pr: { type: integer }
+        environment: { type: string }
+        class: { type: string }
+        target: { type: string }
+        reason: { type: string }
+    AdminChecksOverrideRequest:
+      type: object
+      required: [pr, environment, check, conclusion, reason]
+      properties:
+        pr: { type: integer }
+        environment: { type: string }
+        check: { type: string }
+        conclusion: { type: string }
+        reason: { type: string }
     Status:
       type: string
       description: >-
