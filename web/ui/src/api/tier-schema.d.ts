@@ -305,8 +305,10 @@ export interface components {
         };
         /** @description The changed subgraph for one execution. */
         Graph: {
+            /** @description Always an array — empty (never null) for a zero-stack execution. */
             stacks: components["schemas"]["StackState"][];
-            edges: components["schemas"]["Edge"][] | null;
+            /** @description Always an array, never null (serves < v0.25.2 emitted null). */
+            edges: components["schemas"]["Edge"][];
         };
         /** @description One thing that must be approved: a classification class against a target (e.g. a cloud project). */
         GateTarget: {
