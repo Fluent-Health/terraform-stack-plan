@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/api"
+	"github.com/Fluent-Health/terraform-stack-plan/internal/claims"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/reconcile"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
@@ -178,6 +179,7 @@ func (a *App) handleInspectGrants(w http.ResponseWriter, r *http.Request, params
 
 	// Live drift check
 	if params.Live != nil && *params.Live == 1 && a.Approval != nil {
+		triggered := make(map[string]bool)
 		for i := range grants {
 			g := &grants[i]
 			liveGrants, lerr := a.Approval.ListGrants(ctx, g.Class, g.Target)
@@ -188,8 +190,13 @@ func (a *App) handleInspectGrants(w http.ResponseWriter, r *http.Request, params
 						if actual != g.State {
 							g.DriftDetected = ptr(true)
 							g.ActualState = ptr(actual)
-							// Trigger self-healing nudge
-							a.reconcileBackground(g.Pr, g.Environment)
+							
+							key := fmt.Sprintf("%d|%s", g.Pr, g.Environment)
+							if !triggered[key] {
+								triggered[key] = true
+								// Trigger self-healing nudge
+								a.reconcileBackground(g.Pr, g.Environment)
+							}
 						}
 					}
 				}
@@ -219,34 +226,33 @@ func (a *App) handleInspectGate(w http.ResponseWriter, r *http.Request, pr int, 
 		return
 	}
 
-	// Fetch raw events to build reason trail
-	stored, _, err := a.eventStore.Load(streamID)
+	// Fetch raw events and timestamps in one single query
+	rows, err := a.db.Query(`SELECT version, type, occurred_at, data FROM events WHERE stream_id = ? ORDER BY version`, streamID)
 	if err != nil {
-		http.Error(w, "load stream", http.StatusInternalServerError)
-		return
-	}
-
-	// Query events table to fetch timestamps
-	rows, err := a.db.Query(`SELECT version, occurred_at FROM events WHERE stream_id = ? ORDER BY version`, streamID)
-	if err != nil {
-		http.Error(w, "query event times", http.StatusInternalServerError)
+		http.Error(w, "query events", http.StatusInternalServerError)
 		return
 	}
 	defer rows.Close()
-	
-	timestamps := make(map[int]time.Time)
+
+	type eventRow struct {
+		Version    int
+		Type       string
+		OccurredAt time.Time
+		Data       []byte
+	}
+
+	var stored []eventRow
 	for rows.Next() {
-		var v int
-		var t time.Time
-		if err := rows.Scan(&v, &t); err == nil {
-			timestamps[v] = t
+		var er eventRow
+		if err := rows.Scan(&er.Version, &er.Type, &er.OccurredAt, &er.Data); err == nil {
+			stored = append(stored, er)
 		}
 	}
 
 	var reasons []api.InspectGateReason
 	// Replay and record changes
 	tempCS := a.gateDecider.Initial()
-	for i, se := range stored {
+	for _, se := range stored {
 		ev, derr := a.gateDecider.UnmarshalEvent(se.Type, se.Data)
 		if derr != nil {
 			continue
@@ -265,8 +271,8 @@ func (a *App) handleInspectGate(w http.ResponseWriter, r *http.Request, pr int, 
 		if gateChanged {
 			desc := fmt.Sprintf("Event %s occurred", se.Type)
 			reasons = append(reasons, api.InspectGateReason{
-				EventType:  se.Type,
-				OccurredAt: timestamps[i+1],
+				EventType:   se.Type,
+				OccurredAt:  se.OccurredAt,
 				Description: desc,
 			})
 		}
@@ -360,7 +366,7 @@ func (a *App) handleInspectEvents(w http.ResponseWriter, r *http.Request, stream
 }
 
 func (a *App) handleInspectOverview(w http.ResponseWriter, r *http.Request) {
-	// Find all unique PR numbers
+	// Find all unique PR numbers (capped at 100 most recent for performance)
 	rows, err := a.db.Query(`
 		SELECT DISTINCT pr FROM (
 			SELECT pr FROM executions
@@ -368,7 +374,7 @@ func (a *App) handleInspectOverview(w http.ResponseWriter, r *http.Request) {
 			SELECT pr FROM gate_targets
 			UNION
 			SELECT pr FROM pr_meta
-		) ORDER BY pr DESC`)
+		) ORDER BY pr DESC LIMIT 100`)
 	if err != nil {
 		http.Error(w, "query prs", http.StatusInternalServerError)
 		return
@@ -380,6 +386,15 @@ func (a *App) handleInspectOverview(w http.ResponseWriter, r *http.Request) {
 		var pr int
 		if err := rows.Scan(&pr); err == nil {
 			prs = append(prs, pr)
+		}
+	}
+
+	// Pre-load claims state for the current environment outside the loop (Fixes N+1 loads)
+	env := a.cfg.Environment
+	var claimsState claims.ClaimSet
+	if env != "" {
+		if state, _, cerr := a.claimsDecider.Load(a.eventStore, envStreamID(env)); cerr == nil {
+			claimsState = state
 		}
 	}
 
@@ -416,20 +431,16 @@ func (a *App) handleInspectOverview(w http.ResponseWriter, r *http.Request) {
 			grows.Close()
 		}
 
-		// Read claims across environment
-		env := a.cfg.Environment
+		// Read claims from pre-loaded state
 		var claimsList []api.InspectClaim
-		if env != "" {
-			cstate, _, err := a.claimsDecider.Load(a.eventStore, envStreamID(env))
-			if err == nil {
-				for stack, cl := range cstate {
-					if cl.PR == pr {
-						claimsList = append(claimsList, api.InspectClaim{
-							Stack:     stack,
-							Pr:        cl.PR,
-							ExpiresAt: cl.ExpiresAt,
-						})
-					}
+		if env != "" && claimsState != nil {
+			for stack, cl := range claimsState {
+				if cl.PR == pr {
+					claimsList = append(claimsList, api.InspectClaim{
+						Stack:     stack,
+						Pr:        cl.PR,
+						ExpiresAt: cl.ExpiresAt,
+					})
 				}
 			}
 		}
