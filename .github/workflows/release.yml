@@ -27,6 +27,7 @@ jobs:
 
       - name: Install, check, build
         run: |
+          corepack enable
           yarn install --frozen-lockfile
           yarn typecheck
           yarn test

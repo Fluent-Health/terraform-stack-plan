@@ -63,7 +63,9 @@ jobs:
           node-version-file: web/ui/.tool-versions
 
       - name: Install
-        run: yarn install --frozen-lockfile
+        run: |
+          corepack enable
+          yarn install --frozen-lockfile
 
       - name: Generated TS types in sync
         run: |
