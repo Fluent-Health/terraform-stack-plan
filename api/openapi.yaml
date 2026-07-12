@@ -800,6 +800,8 @@ components:
         context: { type: string }
         phase:
           $ref: "#/components/schemas/Phase"
+        label: { type: string }
+        progress_pct: { type: integer, minimum: 0, maximum: 100 }
       x-go-type: events.PhaseEvent
       x-go-type-import:
         path: github.com/Fluent-Health/terraform-stack-plan/internal/events
@@ -948,6 +950,8 @@ components:
         - context
         - status
         - phase
+        - progress_pct
+        - progress_label
         - created_at
         - superseded_by
         - log_url
@@ -966,6 +970,12 @@ components:
         phase:
           type: string
           description: Current lifecycle phase ("" before the first phase event).
+        progress_pct:
+          type: integer
+          description: Dynamic progress percentage (0-100).
+        progress_label:
+          type: string
+          description: Dynamic progress label.
         created_at:
           type: string
           format: date-time
@@ -1104,6 +1114,8 @@ components:
         - Status
         - StatusContext
         - Phase
+        - ProgressPct
+        - ProgressLabel
         - CreatedAt
         - SupersededBy
         - verify_execution_id
@@ -1125,6 +1137,8 @@ components:
           description: Execution-level status (in_progress/success/failure).
         StatusContext: { type: string }
         Phase: { type: string }
+        ProgressPct: { type: integer }
+        ProgressLabel: { type: string }
         CreatedAt:
           type: string
           format: date-time
