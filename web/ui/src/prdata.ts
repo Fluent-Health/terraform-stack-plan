@@ -13,7 +13,7 @@ export function contextKind(context: string): ContextKind {
   return "other";
 }
 
-// Renamed from latestPerTier: newest non-superseded execution per full context.
+// Newest non-superseded execution per full context (one entry per plan/apply/verify/gate context, not per tier).
 export function latestPerContext(execs: ExecutionSummary[]): ExecutionSummary[] {
   const best = new Map<string, ExecutionSummary>();
   for (const e of execs) {

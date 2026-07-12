@@ -1,7 +1,7 @@
 import { For, Show, Suspense, createMemo, createResource } from "solid-js";
 import { A } from "@solidjs/router";
 import { api, type ExecutionSummary } from "../api/client";
-import { distinctPRs, latestPerTier } from "../prdata";
+import { distinctPRs, latestPerContext } from "../prdata";
 import { SEM_DOT, statusSem } from "../status";
 
 /** Prs: the landing list of active PRs, newest-first, each a link into the hero. */
@@ -22,7 +22,7 @@ export function Prs() {
           <div class="rounded-box border border-base-300 overflow-hidden bg-base-200">
             <For each={prs()}>
               {(n) => {
-                const runs = () => latestPerTier((all() ?? []).filter((e) => e.pr === n));
+                const runs = () => latestPerContext((all() ?? []).filter((e) => e.pr === n));
                 return (
                   <A href={`/pr/${n}`} class="flex items-center gap-3 px-4 py-3 border-t border-base-300 first:border-t-0 hover:bg-base-100">
                     <span class="font-mono font-semibold">#{n}</span>

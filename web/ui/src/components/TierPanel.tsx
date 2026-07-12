@@ -1,12 +1,17 @@
 import { For, Show, Suspense, createEffect, createResource, createSignal, onCleanup } from "solid-js";
 import { api, executionEventsURL, type ExecutionSummary, type StackState } from "../api/client";
-import { groupByProject } from "../prdata";
+import { contextKind, groupByProject } from "../prdata";
 import { Stepper } from "./Stepper";
 import { StackDetail } from "./StackDetail";
 import { SEM_DOT, statusSem } from "../status";
 
-/** TierPanel: one tier's current run for a PR — stepper + project groups + drill-in. */
-export function TierPanel(props: { tier: string; summary: ExecutionSummary; onSuperseded?: () => void }) {
+/** TierPanel: one tier's current run for a PR — stepper + context chips + project groups + drill-in. */
+export function TierPanel(props: {
+  tier: string;
+  summary: ExecutionSummary;
+  contexts: ExecutionSummary[];
+  onSuperseded?: () => void;
+}) {
   const [detail, { refetch }] = createResource(
     () => ({ tier: props.tier, id: props.summary.id }),
     (k) => api.execution(k.tier, k.id),
@@ -42,6 +47,16 @@ export function TierPanel(props: { tier: string; summary: ExecutionSummary; onSu
           status={props.summary.status}
           caption={`${props.summary.phase || "queued"} · ${new Date(props.summary.created_at).toLocaleTimeString()}`}
         />
+        <div class="flex flex-wrap gap-2">
+          <For each={props.contexts}>
+            {(c) => (
+              <span class="inline-flex items-center gap-1 text-xs badge badge-ghost">
+                <span class="w-1.5 h-1.5 rounded-full" style={{ background: SEM_DOT[statusSem(c.status)] }} />
+                {contextKind(c.context)}
+              </span>
+            )}
+          </For>
+        </div>
         <Suspense fallback={<span class="loading loading-dots loading-sm" />}>
           <Show when={detail()}>
             {(d) => (
