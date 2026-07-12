@@ -1,19 +1,52 @@
 import { describe, expect, it } from "vitest";
-import { latestPerTier, groupByProject, distinctPRs } from "./prdata";
+import { contextKind, primaryExec, latestPerContext, rollupSem, groupByProject, distinctPRs } from "./prdata";
 import type { ExecutionSummary, StackState } from "./api/client";
 
 const ex = (o: Partial<ExecutionSummary>): ExecutionSummary =>
   ({ id: "", pr: 0, context: "", phase: "", status: "", superseded_by: "",
      created_at: "2026-07-12T00:00:00Z", sha: "", log_url: "", ...o } as ExecutionSummary);
 
-describe("latestPerTier", () => {
+describe("latestPerContext", () => {
   it("keeps the newest non-superseded execution per context", () => {
-    const out = latestPerTier([
+    const out = latestPerContext([
       ex({ id: "a", context: "terraform/prod", created_at: "2026-07-12T01:00:00Z" }),
       ex({ id: "b", context: "terraform/prod", created_at: "2026-07-12T02:00:00Z" }),
       ex({ id: "c", context: "terraform/nonprod", created_at: "2026-07-12T01:30:00Z" }),
     ]);
     expect(out.map((e) => e.id).sort()).toEqual(["b", "c"]);
+  });
+});
+
+describe("contextKind", () => {
+  it("parses the context head; terraform is the gate", () => {
+    expect(contextKind("plan/nonprod")).toBe("plan");
+    expect(contextKind("apply/prod")).toBe("apply");
+    expect(contextKind("verify/nonprod")).toBe("verify");
+    expect(contextKind("terraform/prod")).toBe("gate");
+    expect(contextKind("weird")).toBe("other");
+  });
+});
+
+describe("primaryExec", () => {
+  it("returns the newest non-superseded execution", () => {
+    const got = primaryExec([
+      ex({ id: "old", created_at: "2026-07-12T01:00:00Z" }),
+      ex({ id: "new", created_at: "2026-07-12T03:00:00Z" }),
+      ex({ id: "sup", created_at: "2026-07-12T04:00:00Z", superseded_by: "x" }),
+    ]);
+    expect(got?.id).toBe("new");
+  });
+  it("returns undefined when all superseded/empty", () => {
+    expect(primaryExec([])).toBeUndefined();
+  });
+});
+
+describe("rollupSem", () => {
+  it("takes the worst live semantic", () => {
+    expect(rollupSem([ex({ status: "safe" }), ex({ status: "failed" }), ex({ status: "running" })])).toBe("failed");
+    expect(rollupSem([ex({ status: "safe" }), ex({ status: "running" })])).toBe("running");
+    expect(rollupSem([ex({ status: "failed", superseded_by: "y" }), ex({ status: "safe" })])).toBe("ok");
+    expect(rollupSem([])).toBe("idle");
   });
 });
 

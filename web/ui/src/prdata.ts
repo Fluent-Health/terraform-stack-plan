@@ -3,9 +3,18 @@
  * views. No I/O — callers pass already-fetched summaries/details.
  */
 import type { ExecutionSummary, StackState } from "./api/client";
-import { statusSem } from "./status";
+import { statusSem, type Sem } from "./status";
 
-export function latestPerTier(execs: ExecutionSummary[]): ExecutionSummary[] {
+export type ContextKind = "plan" | "apply" | "verify" | "gate" | "other";
+export function contextKind(context: string): ContextKind {
+  const head = context.split("/")[0];
+  if (head === "plan" || head === "apply" || head === "verify") return head;
+  if (head === "terraform") return "gate";
+  return "other";
+}
+
+// Renamed from latestPerTier: newest non-superseded execution per full context.
+export function latestPerContext(execs: ExecutionSummary[]): ExecutionSummary[] {
   const best = new Map<string, ExecutionSummary>();
   for (const e of execs) {
     if (e.superseded_by) continue;
@@ -13,6 +22,26 @@ export function latestPerTier(execs: ExecutionSummary[]): ExecutionSummary[] {
     if (!cur || e.created_at > cur.created_at) best.set(e.context, e);
   }
   return [...best.values()];
+}
+
+export function primaryExec(execs: ExecutionSummary[]): ExecutionSummary | undefined {
+  let best: ExecutionSummary | undefined;
+  for (const e of execs) {
+    if (e.superseded_by) continue;
+    if (!best || e.created_at > best.created_at) best = e;
+  }
+  return best;
+}
+
+const SEM_RANK: Record<Sem, number> = { failed: 4, running: 3, waiting: 2, ok: 1, idle: 0 };
+export function rollupSem(execs: ExecutionSummary[]): Sem {
+  let worst: Sem = "idle";
+  for (const e of execs) {
+    if (e.superseded_by) continue;
+    const s = statusSem(e.status);
+    if (SEM_RANK[s] > SEM_RANK[worst]) worst = s;
+  }
+  return worst;
 }
 
 export type ProjectGroup = { project: string; stacks: StackState[]; failed: boolean };
