@@ -19,7 +19,9 @@ func newPRMergeStateTestApp(t *testing.T) *App {
 func TestPRMergeStateNoPlan(t *testing.T) {
 	a := newPRMergeStateTestApp(t)
 	got := a.prMergeState(42)
-	if got.Environment != "prod" || got.RequiredCheck != "terraform/prod" {
+	// newPRMergeStateTestApp wires no Executor, so this App is unarmed:
+	// mergeGateCheckName("prod") folds to the apply-lock name, not terraform/prod.
+	if got.Environment != "prod" || got.RequiredCheck != "apply-lock/prod" {
 		t.Fatalf("got = %+v", got)
 	}
 	if !got.MergeBlocked {

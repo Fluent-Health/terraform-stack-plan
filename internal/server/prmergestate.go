@@ -28,7 +28,7 @@ type PRMergeState struct {
 // applylock.go/status.go) rather than re-deriving verdict logic.
 func (a *App) prMergeState(pr int) PRMergeState {
 	env := a.cfg.Environment
-	state := PRMergeState{Environment: env, RequiredCheck: "terraform/" + env}
+	state := PRMergeState{Environment: env, RequiredCheck: a.mergeGateCheckName(env)}
 
 	// LatestReportedExecutionID (not LatestExecutionID): a serve-queued row
 	// with no runner data yet must not read as "PR touches nothing" — same
