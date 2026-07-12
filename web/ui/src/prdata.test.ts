@@ -20,9 +20,9 @@ describe("latestPerTier", () => {
 describe("groupByProject", () => {
   it("groups stacks by project in first-seen order and flags failures", () => {
     const stacks: StackState[] = [
-      { path: "gke/", project: "p1", status: "applied" } as StackState,
+      { path: "gke/", project: "p1", status: "safe" } as StackState,
       { path: "redis/", project: "p2", status: "failed" } as StackState,
-      { path: "sql/", project: "p1", status: "applied" } as StackState,
+      { path: "sql/", project: "p1", status: "safe" } as StackState,
     ];
     const g = groupByProject(stacks);
     expect(g.map((x) => x.project)).toEqual(["p1", "p2"]);
@@ -32,7 +32,7 @@ describe("groupByProject", () => {
   });
 
   it("uses (ungrouped) for empty project", () => {
-    const g = groupByProject([{ path: "x/", project: "", status: "applied" } as StackState]);
+    const g = groupByProject([{ path: "x/", project: "", status: "safe" } as StackState]);
     expect(g[0].project).toBe("(ungrouped)");
   });
 });
