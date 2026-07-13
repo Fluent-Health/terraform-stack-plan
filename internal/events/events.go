@@ -200,6 +200,13 @@ type Update struct {
 	Detail string `json:"detail,omitempty"`
 }
 
+// ChangeReason is a stack's Terramate watch/causality trigger reason.
+type ChangeReason struct {
+	Stack string   `json:"stack"`
+	Kind  string   `json:"kind"` // direct, watch, module, unknown
+	Via   []string `json:"via"`
+}
+
 // Finalize records the terminal plan state: the rendered report, per-stack
 // target backfill, the gates that must be approved, and the moving/failed flags.
 type Finalize struct {
@@ -212,6 +219,7 @@ type Finalize struct {
 	Failed         bool                  `json:"failed,omitempty"`
 	Categories     map[string][]Category `json:"categories,omitempty"` // stack path → matched categories
 	Counts         map[string]Counts     `json:"counts,omitempty"`     // stack path → op counts
+	ChangeReasons  []ChangeReason        `json:"change_reasons,omitempty"`
 }
 
 // GateCheck is the apply-time gate pre-check (fail-closed): is every required

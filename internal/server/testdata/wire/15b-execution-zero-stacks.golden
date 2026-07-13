@@ -1,4 +1,4 @@
 HTTP 200
 Content-Type: application/json
 
-{"ID":"e3","Repo":"o/r","SHA":"0000aaaa0000","PR":9,"Environment":"staging","CheckRunID":{"Int64":0,"Valid":false},"Rev":0,"ReportMarkdown":"","LogURL":"https://ci/logs/3","Status":"in_progress","StatusContext":"","Phase":"","CreatedAt":"2030-01-02T03:04:05Z","SupersededBy":"","verify_execution_id":"","graph":{"stacks":[],"edges":[]},"gates":[],"ProgressPct":20,"ProgressLabel":"planning…"}
+{"ID":"e3","Repo":"o/r","SHA":"0000aaaa0000","PR":9,"Environment":"staging","CheckRunID":{"Int64":0,"Valid":false},"Rev":0,"ReportMarkdown":"","LogURL":"https://ci/logs/3","Status":"in_progress","StatusContext":"","Phase":"","CreatedAt":"2030-01-02T03:04:05Z","SupersededBy":"","verify_execution_id":"","graph":{"stacks":[],"edges":[]},"gates":[],"ProgressPct":20,"ProgressLabel":"planning…","change_reasons":[]}

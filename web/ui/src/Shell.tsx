@@ -36,11 +36,14 @@ export function Shell(props: ParentProps) {
             <A href="/" class="font-bold text-sm px-2 py-1 mb-3">
               ▸ tfstack<span class="text-primary">plan</span>
             </A>
-            <A href="/" end class="btn btn-ghost btn-sm justify-start" activeClass="btn-active">
+            <A href="/" class="btn btn-ghost btn-sm justify-start" activeClass="btn-active">
               🔀 PRs
             </A>
             <A href="/ops" class="btn btn-ghost btn-sm justify-start" activeClass="btn-active">
               🛠 Ops board
+            </A>
+            <A href="/catalog" class="btn btn-ghost btn-sm justify-start" activeClass="btn-active">
+              🗺 Component Catalog
             </A>
             <form onSubmit={jump} class="mt-2 px-1">
               <input name="pr" class="input input-xs input-bordered w-full" placeholder="Jump to PR #…" />

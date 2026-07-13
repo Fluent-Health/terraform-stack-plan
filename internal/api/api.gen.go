@@ -58,8 +58,35 @@ type AdminGrantsReleaseRequest struct {
 	Target      string `json:"target"`
 }
 
+// Catalog defines model for Catalog.
+type Catalog struct {
+	Components []CatalogComponent `json:"components"`
+	Edges      []CatalogEdge      `json:"edges"`
+}
+
+// CatalogComponent defines model for CatalogComponent.
+type CatalogComponent struct {
+	Id      string   `json:"id"`
+	Stacks  []string `json:"stacks"`
+	Watches []string `json:"watches"`
+}
+
+// CatalogEdge defines model for CatalogEdge.
+type CatalogEdge struct {
+	From string `json:"from"`
+	Kind string `json:"kind"`
+	To   string `json:"to"`
+}
+
 // Category A classification label matched by a stack.
 type Category = events.Category
+
+// ChangeReason defines model for ChangeReason.
+type ChangeReason struct {
+	Kind  string   `json:"kind"`
+	Stack string   `json:"stack"`
+	Via   []string `json:"via"`
+}
 
 // Claim One apply-lock claim row.
 type Claim = events.Claim
@@ -112,6 +139,7 @@ type ExecutionDetail struct {
 	Status        string             `json:"Status"`
 	StatusContext string             `json:"StatusContext"`
 	SupersededBy  string             `json:"SupersededBy"`
+	ChangeReasons *[]ChangeReason    `json:"change_reasons,omitempty"`
 	Gates         []StoredGateTarget `json:"gates"`
 
 	// Graph The changed subgraph for one execution.
@@ -526,6 +554,9 @@ type ClientInterface interface {
 	// ListApprovals request
 	ListApprovals(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// GetCatalog request
+	GetCatalog(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// ListClaimsWithBody request with any body
 	ListClaimsWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -697,6 +728,18 @@ func (c *Client) AdminGrantsRelease(ctx context.Context, body AdminGrantsRelease
 
 func (c *Client) ListApprovals(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewListApprovalsRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetCatalog(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetCatalogRequest(c.Server)
 	if err != nil {
 		return nil, err
 	}
@@ -1201,6 +1244,33 @@ func NewListApprovalsRequest(server string) (*http.Request, error) {
 	}
 
 	operationPath := fmt.Sprintf("/api/approvals")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetCatalogRequest generates requests for GetCatalog
+func NewGetCatalogRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/catalog")
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -2034,6 +2104,9 @@ type ClientWithResponsesInterface interface {
 	// ListApprovalsWithResponse request
 	ListApprovalsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListApprovalsResponse, error)
 
+	// GetCatalogWithResponse request
+	GetCatalogWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetCatalogResponse, error)
+
 	// ListClaimsWithBodyWithResponse request with any body
 	ListClaimsWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ListClaimsResponse, error)
 
@@ -2247,6 +2320,36 @@ func (r ListApprovalsResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r ListApprovalsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetCatalogResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *Catalog
+}
+
+// Status returns HTTPResponse.Status
+func (r GetCatalogResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetCatalogResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetCatalogResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -2866,6 +2969,15 @@ func (c *ClientWithResponses) ListApprovalsWithResponse(ctx context.Context, req
 	return ParseListApprovalsResponse(rsp)
 }
 
+// GetCatalogWithResponse request returning *GetCatalogResponse
+func (c *ClientWithResponses) GetCatalogWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetCatalogResponse, error) {
+	rsp, err := c.GetCatalog(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetCatalogResponse(rsp)
+}
+
 // ListClaimsWithBodyWithResponse request with arbitrary body returning *ListClaimsResponse
 func (c *ClientWithResponses) ListClaimsWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ListClaimsResponse, error) {
 	rsp, err := c.ListClaimsWithBody(ctx, contentType, body, reqEditors...)
@@ -3180,6 +3292,32 @@ func ParseListApprovalsResponse(rsp *http.Response) (*ListApprovalsResponse, err
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
 		var dest []PendingApproval
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetCatalogResponse parses an HTTP response from a GetCatalogWithResponse call
+func ParseGetCatalogResponse(rsp *http.Response) (*GetCatalogResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetCatalogResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Catalog
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -3626,6 +3764,9 @@ type ServerInterface interface {
 	// List gate targets awaiting human action, across all PRs
 	// (GET /api/approvals)
 	ListApprovals(w http.ResponseWriter, r *http.Request)
+	// Retrieve the compiled component catalog of the main branch
+	// (GET /api/catalog)
+	GetCatalog(w http.ResponseWriter, r *http.Request)
 	// List the apply-lock claims for an environment
 	// (POST /api/claims/list)
 	ListClaims(w http.ResponseWriter, r *http.Request)
@@ -3782,6 +3923,26 @@ func (siw *ServerInterfaceWrapper) ListApprovals(w http.ResponseWriter, r *http.
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListApprovals(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetCatalog operation middleware
+func (siw *ServerInterfaceWrapper) GetCatalog(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, OidcScopes, []string{"report", "read", "admin"})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetCatalog(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4425,6 +4586,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/admin/gates/satisfy", wrapper.AdminGatesSatisfy)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/admin/grants/release", wrapper.AdminGrantsRelease)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/approvals", wrapper.ListApprovals)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/catalog", wrapper.GetCatalog)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/claims/list", wrapper.ListClaims)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/claims/release", wrapper.ReleaseClaims)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/execution/{id}", wrapper.GetExecution)

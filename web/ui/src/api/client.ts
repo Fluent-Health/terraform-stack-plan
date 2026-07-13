@@ -11,6 +11,7 @@ export type StoredGateTarget = components["schemas"]["StoredGateTarget"];
 export type PRView = components["schemas"]["PRView"];
 export type PRMeta = components["schemas"]["PRMeta"];
 export type PRMergeState = components["schemas"]["PRMergeState"];
+export type Catalog = components["schemas"]["Catalog"];
 
 export interface Me {
   email: string;
@@ -37,6 +38,7 @@ async function j<T>(url: string): Promise<T> {
 export const api = {
   me: () => j<Me>("/api/me"),
   tiers: () => j<TierInfo[]>("/api/tiers"),
+  catalog: () => j<Catalog>("/api/catalog"),
   executions: (tier: string, opts: { pr?: number; limit?: number } = {}) => {
     const q = new URLSearchParams();
     if (opts.pr !== undefined) q.set("pr", String(opts.pr));

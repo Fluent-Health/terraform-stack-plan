@@ -27,6 +27,7 @@ type Execution struct {
 	ProgressPct    sql.NullInt64  `json:"-"`
 	CreatedAt      time.Time
 	SupersededBy   string
+	ChangeReasons  string `json:"-"`
 }
 
 // UpsertInit records an execution and its changed subgraph from an Init event.
@@ -111,11 +112,12 @@ func GetExecution(db *sql.DB, id string) (Execution, error) {
 		`SELECT id, repo, sha, COALESCE(pr,0), COALESCE(environment,''), check_run_id,
                         rev, COALESCE(report_markdown,''), COALESCE(log_url,''),
                         COALESCE(status,''), COALESCE(status_context,''), COALESCE(phase,''), 
-                        progress_label, progress_pct, created_at, COALESCE(superseded_by, '')
+                        progress_label, progress_pct, created_at, COALESCE(superseded_by, ''),
+                        COALESCE(change_reasons, '')
                  FROM executions WHERE id = ?`, id).
 		Scan(&e.ID, &e.Repo, &e.SHA, &e.PR, &e.Environment, &e.CheckRunID,
 			&e.Rev, &e.ReportMarkdown, &e.LogURL, &e.Status, &e.StatusContext, &e.Phase,
-			&e.ProgressLabel, &e.ProgressPct, &e.CreatedAt, &e.SupersededBy)
+			&e.ProgressLabel, &e.ProgressPct, &e.CreatedAt, &e.SupersededBy, &e.ChangeReasons)
 	if err != nil {
 		return Execution{}, err
 	}
@@ -183,6 +185,19 @@ func LoadGraph(db *sql.DB, id string) (events.Graph, error) {
 // SetReport stores the rendered plan report markdown for an execution.
 func SetReport(db *sql.DB, id, markdown string) error {
 	_, err := db.Exec(`UPDATE executions SET report_markdown = ? WHERE id = ?`, markdown, id)
+	return err
+}
+
+// SetChangeReasons stores the JSON serialized change reasons for an execution.
+func SetChangeReasons(db *sql.DB, id string, reasons []events.ChangeReason) error {
+	if reasons == nil {
+		reasons = []events.ChangeReason{}
+	}
+	b, err := json.Marshal(reasons)
+	if err != nil {
+		return err
+	}
+	_, err = db.Exec(`UPDATE executions SET change_reasons = ? WHERE id = ?`, string(b), id)
 	return err
 }
 

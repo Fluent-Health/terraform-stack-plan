@@ -17,11 +17,12 @@ type executionResponse struct {
 	// VerifyExecutionID is the latest verify execution for the same
 	// (pr, environment), "" when none. Additive (2026-07); snake_case unlike
 	// its frozen PascalCase siblings.
-	VerifyExecutionID string             `json:"verify_execution_id"`
-	Graph             events.Graph       `json:"graph"`
-	Gates             []store.GateTarget `json:"gates"`
-	ProgressPct       int                `json:"ProgressPct"`
-	ProgressLabel     string             `json:"ProgressLabel"`
+	VerifyExecutionID string                `json:"verify_execution_id"`
+	Graph             events.Graph          `json:"graph"`
+	Gates             []store.GateTarget    `json:"gates"`
+	ProgressPct       int                   `json:"ProgressPct"`
+	ProgressLabel     string                `json:"ProgressLabel"`
+	ChangeReasons     []events.ChangeReason `json:"change_reasons"`
 }
 
 func (a *App) handleGetExecution(w http.ResponseWriter, _ *http.Request, id string) {
@@ -61,6 +62,14 @@ func (a *App) handleGetExecution(w http.ResponseWriter, _ *http.Request, id stri
 		progressPct = int(e.ProgressPct.Int64)
 	}
 
+	var changeReasons []events.ChangeReason
+	if e.ChangeReasons != "" {
+		_ = json.Unmarshal([]byte(e.ChangeReasons), &changeReasons)
+	}
+	if changeReasons == nil {
+		changeReasons = []events.ChangeReason{}
+	}
+
 	res := executionResponse{
 		Execution:         e,
 		VerifyExecutionID: verifyExec,
@@ -68,6 +77,7 @@ func (a *App) handleGetExecution(w http.ResponseWriter, _ *http.Request, id stri
 		Gates:             gates,
 		ProgressPct:       progressPct,
 		ProgressLabel:     progressLabel,
+		ChangeReasons:     changeReasons,
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(res)

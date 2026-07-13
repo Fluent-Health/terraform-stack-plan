@@ -158,9 +158,14 @@ func runPlan(args []string) int {
 		ProgressPct: intPtr(98),
 	})
 
+	var changeReasons []events.ChangeReason
+	if *changed && client.Enabled() {
+		changeReasons, _ = tm.WhyChanged(ctx, *base)
+	}
+
 	_ = client.Finalize(ctx, events.Finalize{
 		ID: execID, ReportMarkdown: res.ReportNoTable, StackReports: res.StackReports, Gates: res.Gates, Moving: res.Moving, Failed: scriptErr != nil,
-		Categories: res.Categories, Counts: res.Counts,
+		Categories: res.Categories, Counts: res.Counts, ChangeReasons: changeReasons,
 	})
 	finalized = true
 

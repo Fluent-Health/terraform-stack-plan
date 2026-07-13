@@ -128,3 +128,39 @@ func TestTerramateScriptRun(t *testing.T) {
 		t.Errorf("expected the noop script to run on all 3 stacks, output:\n%s", buf.String())
 	}
 }
+
+func TestTerramateWhyChanged(t *testing.T) {
+	dir := fixtureRepo(t)
+	run := func(args ...string) {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, out)
+		}
+	}
+	run("checkout", "-qb", "feature")
+	if err := os.WriteFile(filepath.Join(dir, "stacks", "b", "extra.tm.hcl"), []byte("globals {\n  x = 1\n}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run("add", "-A")
+	run("commit", "-qm", "touch b")
+
+	tm := &Terramate{Dir: dir}
+	reasons, err := tm.WhyChanged(context.Background(), "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reasons) != 1 {
+		t.Fatalf("reasons length = %d, want 1. Got: %v", len(reasons), reasons)
+	}
+	r := reasons[0]
+	if r.Stack != "stacks/b" {
+		t.Errorf("expected stack = %q, got %q", "stacks/b", r.Stack)
+	}
+	if r.Kind != "direct" {
+		t.Errorf("expected kind = %q, got %q", "direct", r.Kind)
+	}
+	if len(r.Via) != 1 || r.Via[0] != "stacks/b" {
+		t.Errorf("expected via [\"stacks/b\"], got %v", r.Via)
+	}
+}
