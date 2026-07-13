@@ -75,7 +75,7 @@ describe("groupByProject", () => {
 
   it("uses (ungrouped) for empty project", () => {
     const g = groupByProject([{ path: "x/", project: "", status: "safe" } as StackState]);
-    expect(g[0].project).toBe("(ungrouped)");
+    expect(g[0].project).toBe("Global / Untagged Stacks");
   });
 });
 
