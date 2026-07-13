@@ -412,6 +412,52 @@ func TestEnvironmentsForPR(t *testing.T) {
 	}
 }
 
+func TestUpsertPhaseAppendsHistory(t *testing.T) {
+	db := newTestDB(t)
+	if err := UpsertInit(db, sampleInit()); err != nil {
+		t.Fatal(err)
+	}
+	for _, ph := range []events.Phase{events.PhaseWarming, events.PhasePlanning, events.PhaseReport} {
+		if err := UpsertPhase(db, events.PhaseEvent{ID: "exec-1", Phase: ph}); err != nil {
+			t.Fatalf("UpsertPhase %s: %v", ph, err)
+		}
+	}
+	// Legacy single-column overwrite still holds the latest phase.
+	e, err := GetExecution(db, "exec-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e.Phase != string(events.PhaseReport) {
+		t.Errorf("current phase = %q; want report", e.Phase)
+	}
+	// History records every transition, oldest first.
+	rows, err := PhasesFor(db, "exec-1")
+	if err != nil {
+		t.Fatalf("PhasesFor: %v", err)
+	}
+	if len(rows) != 3 {
+		t.Fatalf("history len = %d; want 3", len(rows))
+	}
+	got := []string{rows[0].Phase, rows[1].Phase, rows[2].Phase}
+	want := []string{"warming", "planning", "report"}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("history[%d] = %q; want %q", i, got[i], want[i])
+		}
+	}
+}
+
+func TestPhasesForEmpty(t *testing.T) {
+	db := newTestDB(t)
+	rows, err := PhasesFor(db, "nope")
+	if err != nil {
+		t.Fatalf("PhasesFor: %v", err)
+	}
+	if len(rows) != 0 {
+		t.Errorf("len = %d; want 0", len(rows))
+	}
+}
+
 func TestFindExecutionBySHA(t *testing.T) {
 	db := newTestDB(t)
 	must := func(err error) {
