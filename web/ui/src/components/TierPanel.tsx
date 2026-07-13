@@ -1,4 +1,5 @@
 import { For, Index, Show, Suspense, createEffect, createMemo, createResource, createSignal, onCleanup } from "solid-js";
+import { useSearchParams } from "@solidjs/router";
 import { api, executionEventsURL, type ExecutionSummary, type StackState } from "../api/client";
 import { approvalsByTarget, contextKind, groupByProject, progressCounts } from "../prdata";
 import { GateApproval } from "./GateApproval";
@@ -13,6 +14,9 @@ export function TierPanel(props: {
   contexts: ExecutionSummary[];
   onSuperseded?: () => void;
 }) {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const isExpanded = () => searchParams.tier === props.tier;
+
   const [detail, { refetch: refetchDetail }] = createResource(
     () => ({ tier: props.tier, id: props.summary.id }),
     (k) => api.execution(k.tier, k.id),
@@ -47,12 +51,24 @@ export function TierPanel(props: {
   return (
     <section class="card bg-base-200 border border-base-300">
       <div class="card-body p-4 gap-3">
-        <div class="flex items-center gap-2">
+        <div class="flex items-center gap-2 border-b border-base-300 pb-2">
           <span
             class="inline-block w-2 h-2 rounded-full"
             style={{ background: SEM_DOT[statusSem(props.summary.status)] }}
           />
-          <span class="font-bold text-sm">{props.tier}</span>
+          <span class="font-bold text-sm uppercase tracking-wide">{props.tier}</span>
+
+          <button
+            class="ml-auto btn btn-xs btn-ghost gap-1 px-2 text-primary"
+            onClick={() => setSearchParams({ tier: isExpanded() ? undefined : props.tier })}
+            title={isExpanded() ? "Show all tiers side-by-side" : `Focus on ${props.tier} tier`}
+          >
+            <Show when={isExpanded()} fallback={
+              <>🔎 <span class="hidden sm:inline">Focus</span></>
+            }>
+              <>🔀 <span class="hidden sm:inline">Show All</span></>
+            </Show>
+          </button>
         </div>
         <div class="flex flex-wrap gap-2">
           <For each={props.contexts}>

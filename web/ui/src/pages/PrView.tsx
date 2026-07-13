@@ -1,4 +1,4 @@
-import { For, Show, Suspense, createMemo, createResource } from "solid-js";
+import { For, Show, Suspense, createEffect, createMemo, createResource } from "solid-js";
 import { useParams, useSearchParams } from "@solidjs/router";
 import { api } from "../api/client";
 import { primaryExec, latestPerContext } from "../prdata";
@@ -14,6 +14,9 @@ import { MergeStrip } from "../components/MergeStrip";
  */
 export function PrView() {
   const params = useParams();
+  createEffect(() => {
+    document.title = `PR #${params.n} · tfstackplan`;
+  });
   const [tiers] = createResource(api.tiers);
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTier = () => searchParams.tier;

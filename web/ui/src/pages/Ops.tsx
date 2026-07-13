@@ -1,5 +1,5 @@
 // web/ui/src/pages/Ops.tsx
-import { For, Show, Suspense, createMemo, createResource } from "solid-js";
+import { For, Show, Suspense, createEffect, createMemo, createResource } from "solid-js";
 import { A } from "@solidjs/router";
 import { api, type ExecutionSummary } from "../api/client";
 import { ApprovalsTable } from "../components/ApprovalsTable";
@@ -10,6 +10,9 @@ import { statusSem } from "../status";
  * approvals from existing endpoints; the applier-slot pool panel arrives in Plan 3.
  */
 export function Ops() {
+  createEffect(() => {
+    document.title = "Ops board · tfstackplan";
+  });
   const [tiers] = createResource(api.tiers);
   return (
     <div class="space-y-5">

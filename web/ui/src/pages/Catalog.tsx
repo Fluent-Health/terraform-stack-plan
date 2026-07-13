@@ -19,6 +19,9 @@ interface PositionedEdge {
 }
 
 export function Catalog() {
+	createEffect(() => {
+		document.title = "Component Catalog · tfstackplan";
+	});
 	const [catalog] = createResource(api.catalog);
 	const [search, setSearch] = createSignal("");
 	const [selected, setSelected] = createSignal<string | null>(null);

@@ -15,6 +15,9 @@ import { PlanFragment } from "../components/PlanFragment";
 export function ExecutionView() {
   const params = useParams();
   const navigate = useNavigate();
+  createEffect(() => {
+    document.title = `${params.tier!.toUpperCase()} Run · tfstackplan`;
+  });
   const [detail, { refetch }] = createResource(
     () => ({ tier: params.tier!, id: params.id! }),
     (k) => api.execution(k.tier, k.id),

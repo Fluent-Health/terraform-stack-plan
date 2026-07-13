@@ -1,4 +1,4 @@
-import { For, Show, Suspense, createMemo, createResource } from "solid-js";
+import { For, Show, Suspense, createEffect, createMemo, createResource } from "solid-js";
 import { A } from "@solidjs/router";
 import { api, type ExecutionSummary } from "../api/client";
 import { distinctPRs, rollupSem } from "../prdata";
@@ -8,6 +8,9 @@ type Tagged = ExecutionSummary & { tier: string };
 
 /** Prs: the landing list of active PRs, newest-first; per-tier worst-of rollup. */
 export function Prs() {
+  createEffect(() => {
+    document.title = "PRs · tfstackplan";
+  });
   const [tiers] = createResource(api.tiers);
   const [all] = createResource(tiers, async (ts) => {
     const per = await Promise.all(
