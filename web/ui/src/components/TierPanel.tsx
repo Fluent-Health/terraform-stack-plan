@@ -53,7 +53,6 @@ export function TierPanel(props: {
             style={{ background: SEM_DOT[statusSem(props.summary.status)] }}
           />
           <span class="font-bold text-sm">{props.tier}</span>
-          <span class="ml-auto badge badge-ghost badge-sm font-mono">{props.summary.context}</span>
         </div>
         <div class="flex flex-wrap gap-2">
           <For each={props.contexts}>

@@ -1,5 +1,5 @@
 import { useNavigate, useParams } from "@solidjs/router";
-import { For, Show, Suspense, createEffect, createMemo, createResource, createSignal, onCleanup } from "solid-js";
+import { For, Show, createEffect, createMemo, createResource, createSignal, onCleanup } from "solid-js";
 import type { ExecutionDetail, StackState } from "../api/client";
 import { api, executionEventsURL } from "../api/client";
 import { StatusBadge } from "../components/ExecTable";
@@ -39,9 +39,9 @@ export function ExecutionView() {
   });
 
   return (
-    <Suspense fallback={<span class="loading loading-dots" />}>
-      <Show when={detail()}>{(d) => <Briefing tier={params.tier!} detail={d()} />}</Show>
-    </Suspense>
+    <Show when={detail.latest} fallback={<span class="loading loading-dots" />}>
+      <Briefing tier={params.tier!} detail={detail.latest!} />
+    </Show>
   );
 }
 
@@ -62,11 +62,15 @@ function Briefing(props: { tier: string; detail: ExecutionDetail }) {
   });
   const [selected, setSelected] = createSignal<StackState | undefined>(undefined);
 
+  const isApply = () => props.detail.StatusContext?.includes("apply") || props.detail.Environment?.includes("apply");
+  const phases = () => isApply() ? ["warming", "initializing", "applying", "verifying"] : ["warming", "linting", "initializing", "planning"];
+  const activeIndex = () => phases().indexOf(props.detail.Phase ?? "warming");
+
   return (
     <div class="space-y-4">
       <header class="card bg-base-100 shadow-sm">
-        <div class="card-body p-4 gap-2">
-          <div class="flex flex-wrap items-center gap-3">
+        <div class="card-body p-4 gap-3">
+          <div class="flex flex-wrap items-center gap-3 border-b border-base-300 pb-2.5">
             <h1 class="text-lg font-bold">
               {props.detail.Repo} · #{props.detail.PR} ·{" "}
               <span class="font-mono text-sm">{props.detail.SHA.slice(0, 12)}</span>
@@ -77,11 +81,40 @@ function Briefing(props: { tier: string; detail: ExecutionDetail }) {
             </Show>
             <StatusBadge status={props.detail.Status} superseded={props.detail.SupersededBy !== ""} />
           </div>
-          <div class="flex items-center gap-3">
-            <progress class="progress progress-primary flex-1" value={progress().pct} max="100" />
-            <span class="text-sm opacity-70 whitespace-nowrap">
-              {progress().done}/{progress().total} done
-            </span>
+
+          {/* Multi-Segmented Left-to-Right Step Progress Bar */}
+          <div class="space-y-1.5 pt-1">
+            <div class="grid grid-cols-4 gap-2 text-[10px] uppercase font-bold tracking-wider opacity-60 text-center select-none">
+              <For each={phases()}>
+                {(p, idx) => (
+                  <span classList={{ "text-primary": idx() <= activeIndex() }}>{p}</span>
+                )}
+              </For>
+            </div>
+            <div class="flex gap-2 w-full">
+              <For each={phases()}>
+                {(p, idx) => {
+                  const isActive = () => idx() === activeIndex();
+                  const isCompleted = () => idx() < activeIndex();
+                  return (
+                    <div
+                      class="flex-1 h-2 rounded-full transition-all duration-500"
+                      classList={{
+                        "bg-primary": isCompleted(),
+                        "bg-info animate-pulse border border-info-content/20": isActive(),
+                        "bg-base-300": !isActive() && !isCompleted(),
+                      }}
+                      title={`${p}${isActive() ? " (active)" : isCompleted() ? " (completed)" : " (upcoming)"}`}
+                    />
+                  );
+                }}
+              </For>
+            </div>
+            <div class="text-right">
+              <span class="text-xs opacity-70 font-mono">
+                {progress().done}/{progress().total} stacks completed
+              </span>
+            </div>
           </div>
         </div>
       </header>

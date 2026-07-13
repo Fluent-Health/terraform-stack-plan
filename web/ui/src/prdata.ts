@@ -50,7 +50,7 @@ export function groupByProject(stacks: StackState[]): ProjectGroup[] {
   const order: string[] = [];
   const by = new Map<string, StackState[]>();
   for (const s of stacks) {
-    const key = s.project || "(ungrouped)";
+    const key = s.project || "Global / Untagged Stacks";
     if (!by.has(key)) { by.set(key, []); order.push(key); }
     by.get(key)!.push(s);
   }

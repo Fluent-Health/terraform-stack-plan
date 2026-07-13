@@ -74,15 +74,15 @@ export function PrView() {
 
 function TierColumn(props: { tier: string; pr: number }) {
   const [execs, { refetch }] = createResource(() => api.executions(props.tier, { pr: props.pr }));
-  const primary = createMemo(() => primaryExec(execs() ?? []));
-  const contexts = createMemo(() => latestPerContext(execs() ?? []));
+  const primary = createMemo(() => primaryExec(execs.latest ?? []));
+  const contexts = createMemo(() => latestPerContext(execs.latest ?? []));
   return (
     <Show when={!execs.error} fallback={<div class="alert alert-warning text-sm">{props.tier} unreachable</div>}>
-      <Suspense fallback={<span class="loading loading-dots loading-sm" />}>
+      <Show when={execs.latest} fallback={<span class="loading loading-dots loading-sm" />}>
         <Show when={primary()} fallback={<p class="opacity-60 text-sm">No run on {props.tier}.</p>}>
           {(p) => <TierPanel tier={props.tier} summary={p()} contexts={contexts()} onSuperseded={refetch} />}
         </Show>
-      </Suspense>
+      </Show>
     </Show>
   );
 }
