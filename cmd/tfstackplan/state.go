@@ -14,6 +14,7 @@ import (
 
 	tfjson "github.com/hashicorp/terraform-json"
 
+	"github.com/Fluent-Health/terraform-stack-plan/internal/plan"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/statemove"
 )
 
@@ -579,9 +580,17 @@ Flags:
 			}
 		}
 
+		// Build Destination AddressSet
 		dstAddrs := statemove.AddressSet{}
-		for a, p := range dstPriorAddrs {
-			dstAddrs[a] = p
+		if dstPlanBytes, derr := os.ReadFile(dstPlanPath); derr == nil {
+			if rs, perr := plan.Parse(fx.DestStack, dstPlanBytes); perr == nil {
+				for _, c := range rs.Changes {
+					dstAddrs[c.Address] = c.ProviderName
+					if c.PreviousAddress != "" {
+						dstAddrs[c.PreviousAddress] = c.ProviderName
+					}
+				}
+			}
 		}
 		destStackDir := filepath.Join(*dir, filepath.FromSlash(fx.DestStack))
 		destProviders := statemove.DiscoverDestProviders(destStackDir)
