@@ -2,7 +2,7 @@
  * prdata: pure reshaping of the tier-serve execution data into the PR-centric
  * views. No I/O — callers pass already-fetched summaries/details.
  */
-import type { ExecutionSummary, PendingApproval, StackState } from "./api/client";
+import type { ExecutionSummary, PendingApproval, StackState, PRView } from "./api/client";
 import { statusSem, type Sem } from "./status";
 
 export type ContextKind = "plan" | "apply" | "verify" | "gate" | "other";
@@ -154,4 +154,57 @@ export function distinctPRs(execs: ExecutionSummary[]): number[] {
     if (!cur || e.created_at > cur) newest.set(e.pr, e.created_at);
   }
   return [...newest.entries()].sort((a, b) => (a[1] < b[1] ? 1 : -1)).map(([pr]) => pr);
+}
+
+// relativeTime renders a compact "Xm/Xh/Xd ago" for the PRs list; beyond ~30d
+// it falls back to a locale date. Empty/invalid input renders nothing.
+export function relativeTime(iso: string, now: Date = new Date()): string {
+  if (!iso) return "";
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return "";
+  const secs = Math.max(0, Math.floor((now.getTime() - t) / 1000));
+  if (secs < 45) return "just now";
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days <= 30) return `${days}d ago`;
+  return new Date(t).toLocaleDateString();
+}
+
+// rollupChangeCounts sums per-kind operation counts across stacks into the
+// reviewer glyph label "+a ~b ±c −d ↔e" (same vocabulary as the tier panel).
+export function rollupChangeCounts(stacks: StackState[]): string {
+  let add = 0, change = 0, replace = 0, destroy = 0, move = 0;
+  for (const s of stacks) {
+    const c = s.counts;
+    if (!c) continue;
+    add += c.add ?? 0;
+    change += c.change ?? 0;
+    replace += c.replace ?? 0;
+    destroy += c.destroy ?? 0;
+    move += c.move ?? 0;
+  }
+  const p: string[] = [];
+  if (add) p.push(`+${add}`);
+  if (change) p.push(`~${change}`);
+  if (replace) p.push(`±${replace}`);
+  if (destroy) p.push(`−${destroy}`);
+  if (move) p.push(`↔${move}`);
+  return p.join(" ");
+}
+
+// mergeBadge derives the row's merge/automerge chip from a tier's PRView.
+export function mergeBadge(view: PRView | undefined): { label: string; sem: Sem } | undefined {
+  if (!view) return undefined;
+  if (view.merge?.merge_blocked) return { label: view.merge.blocker || "merge blocked", sem: "waiting" };
+  if (view.meta?.auto_merge) return { label: "automerge on", sem: "ok" };
+  if (statusSem(view.merge?.check_conclusion ?? "") === "ok") return { label: "mergeable", sem: "ok" };
+  return { label: "open", sem: "idle" };
+}
+
+// sortedQueueEntries orders merge-queue entries by position ascending.
+export function sortedQueueEntries<T extends { position: number }>(entries: T[]): T[] {
+  return [...entries].sort((a, b) => a.position - b.position);
 }
