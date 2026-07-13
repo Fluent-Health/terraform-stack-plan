@@ -275,6 +275,8 @@ func TestTierProxy(t *testing.T) {
 			fmt.Fprint(w, `{"n":7}`)
 		case r.URL.Path == "/api/inspect/pool":
 			fmt.Fprint(w, `{"environment":"nonprod","slots":[{"requester":"sa-1@fh.com","occupied":false}],"waiting":[]}`)
+		case r.URL.Path == "/api/merge-queue":
+			fmt.Fprint(w, `{"branch":"main","entries":[{"position":1,"pr":774,"state":"MERGEABLE"}]}`)
 		case strings.HasPrefix(r.URL.Path, "/api/execution/"):
 			if strings.HasSuffix(r.URL.Path, "/nope") {
 				http.Error(w, "not found", http.StatusNotFound)
@@ -323,6 +325,11 @@ func TestTierProxy(t *testing.T) {
 		strings.TrimSpace(rr.Body.String()) != `{"environment":"nonprod","slots":[{"requester":"sa-1@fh.com","occupied":false}],"waiting":[]}` {
 		t.Errorf("pool proxy: %d %s", rr.Code, rr.Body.String())
 	}
+	// Merge-queue proxy: body passthrough.
+	if rr := get(t, h, "/api/tiers/nonprod/merge-queue", sess); rr.Code != 200 ||
+		strings.TrimSpace(rr.Body.String()) != `{"branch":"main","entries":[{"position":1,"pr":774,"state":"MERGEABLE"}]}` {
+		t.Errorf("merge-queue proxy: %d %s", rr.Code, rr.Body.String())
+	}
 	// Tier-side non-2xx statuses pass through untouched.
 	if rr := get(t, h, "/api/tiers/nonprod/executions/nope", sess); rr.Code != http.StatusNotFound {
 		t.Errorf("tier 404 should pass through: %d", rr.Code)
@@ -344,6 +351,9 @@ func TestTierProxy(t *testing.T) {
 	}
 	if rr := get(t, h, "/api/tiers/prod/inspect/pool", sess); rr.Code != http.StatusBadGateway || !strings.Contains(rr.Body.String(), "prod unreachable") {
 		t.Errorf("dead tier pool proxy: %d %s", rr.Code, rr.Body.String())
+	}
+	if rr := get(t, h, "/api/tiers/prod/merge-queue", sess); rr.Code != http.StatusBadGateway || !strings.Contains(rr.Body.String(), "prod unreachable") {
+		t.Errorf("dead tier merge-queue proxy: %d %s", rr.Code, rr.Body.String())
 	}
 	// Unknown tier → 404.
 	if rr := get(t, h, "/api/tiers/stage/executions", sess); rr.Code != http.StatusNotFound {

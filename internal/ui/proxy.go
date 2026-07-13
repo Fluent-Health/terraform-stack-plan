@@ -85,6 +85,16 @@ func (s uiServer) GetTierPool(w http.ResponseWriter, r *http.Request, tier uiapi
 	s.relay(w, string(tier), resp, err)
 }
 
+func (s uiServer) GetTierMergeQueue(w http.ResponseWriter, r *http.Request, tier uiapi.Tier) {
+	c, ok := s.app.clients[string(tier)]
+	if !ok {
+		http.Error(w, "unknown tier", http.StatusNotFound)
+		return
+	}
+	resp, err := c.MergeQueue(r.Context())
+	s.relay(w, string(tier), resp, err)
+}
+
 // relay copies a tier response through: status, Content-Type, body. A
 // transport failure becomes 502 naming the tier — one tier down must not
 // look like a UI failure, and must not affect the others.

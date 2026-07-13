@@ -184,6 +184,29 @@ paths:
             text/plain: {}
         "502":
           $ref: "#/components/responses/TierUnreachableText"
+  /api/tiers/{tier}/merge-queue:
+    get:
+      operationId: getTierMergeQueue
+      summary: One tier's view of the repo's GitHub merge queue (proxied)
+      security:
+        - session: []
+      parameters:
+        - $ref: "#/components/parameters/Tier"
+      responses:
+        "200":
+          description: The merge queue (the tier contract's MergeQueue shape).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MergeQueue"
+        "401":
+          $ref: "#/components/responses/UnauthorizedText"
+        "404":
+          description: Unknown tier.
+          content:
+            text/plain: {}
+        "502":
+          $ref: "#/components/responses/TierUnreachableText"
 components:
   securitySchemes:
     session:
@@ -248,6 +271,12 @@ components:
       type: object
       description: The tier contract's PRView, proxied verbatim.
       x-go-type: api.PRView
+      x-go-type-import:
+        path: github.com/Fluent-Health/terraform-stack-plan/internal/api
+    MergeQueue:
+      type: object
+      description: The tier contract's MergeQueue, proxied verbatim.
+      x-go-type: api.MergeQueue
       x-go-type-import:
         path: github.com/Fluent-Health/terraform-stack-plan/internal/api
     InspectPoolSet:
