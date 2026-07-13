@@ -99,6 +99,10 @@ func (r *recordingGitHub) ReRequestCheckRun(_ context.Context, _ string, _ int64
 	return nil
 }
 
+func (r *recordingGitHub) MergeQueue(_ context.Context, _ string) (MergeQueueResult, error) {
+	return MergeQueueResult{}, nil
+}
+
 func TestClaimsEndpoints(t *testing.T) {
 	a, _ := newApplyLockTestApp(t)
 	// Seed through the ledger (the source of truth) so adminReleaseClaims —

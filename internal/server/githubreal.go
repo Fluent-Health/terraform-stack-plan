@@ -308,3 +308,66 @@ func (c *RealClient) ReRequestCheckRun(ctx context.Context, repo string, checkRu
 	_, err = c.do(ctx, http.MethodPost, url, nil)
 	return err
 }
+
+// MergeQueue queries the repository's merge queue for its default branch via
+// the GraphQL API. A null repository/mergeQueue (no queue configured, or the
+// field is not visible to the installation token) or any GraphQL-level error
+// degrades to an empty result rather than failing — the merge queue is an
+// optional feature and its absence is normal.
+func (c *RealClient) MergeQueue(ctx context.Context, repo string) (MergeQueueResult, error) {
+	owner, name, err := splitRepo(repo)
+	if err != nil {
+		return MergeQueueResult{}, err
+	}
+	const query = `query($owner:String!,$name:String!){repository(owner:$owner,name:$name){defaultBranchRef{name} mergeQueue{entries(first:50){nodes{position state pullRequest{number}}}}}}`
+	payload := map[string]any{
+		"query":     query,
+		"variables": map[string]string{"owner": owner, "name": name},
+	}
+	rb, err := c.do(ctx, http.MethodPost, apiBase+"/graphql", payload)
+	if err != nil {
+		return MergeQueueResult{}, err
+	}
+	var out struct {
+		Data struct {
+			Repository *struct {
+				DefaultBranchRef *struct {
+					Name string `json:"name"`
+				} `json:"defaultBranchRef"`
+				MergeQueue *struct {
+					Entries struct {
+						Nodes []struct {
+							Position    int    `json:"position"`
+							State       string `json:"state"`
+							PullRequest *struct {
+								Number int `json:"number"`
+							} `json:"pullRequest"`
+						} `json:"nodes"`
+					} `json:"entries"`
+				} `json:"mergeQueue"`
+			} `json:"repository"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rb, &out); err != nil {
+		return MergeQueueResult{}, err
+	}
+	var res MergeQueueResult
+	if out.Data.Repository == nil {
+		return res, nil // repo not visible → empty
+	}
+	if ref := out.Data.Repository.DefaultBranchRef; ref != nil {
+		res.Branch = ref.Name
+	}
+	mq := out.Data.Repository.MergeQueue
+	if mq == nil {
+		return res, nil // no merge queue configured → empty entries
+	}
+	for _, n := range mq.Entries.Nodes {
+		pr := 0
+		if n.PullRequest != nil {
+			pr = n.PullRequest.Number
+		}
+		res.Entries = append(res.Entries, MergeQueueEntry{Position: n.Position, PR: pr, State: n.State})
+	}
+	return res, nil
+}
