@@ -251,6 +251,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/lifecycle": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A PR's folded phase-timeline for this tier
+         * @description Folds this tier's non-superseded plan/apply/verify executions for the
+         *     PR into one ordered lifecycle timeline against the canonical phase
+         *     template. Observed phases render in time order; unobserved template
+         *     phases past the frontier render as pending; unknown/dynamic phases
+         *     pass through as generic working segments. Always a JSON array, never null.
+         */
+        get: operations["getLifecycle"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/pr/{n}": {
         parameters: {
             query?: never;
@@ -718,6 +742,23 @@ export interface components {
             state: string;
             /** @description Leased requester SA for this grant. */
             requester: string;
+        };
+        /** @description One phase of a PR/tier's folded lifecycle timeline. key is a canonical template key or a raw dynamic phase name; result is derived server-side (never stored). */
+        LifecyclePhase: {
+            /** @description Canonical template key (prepare/init/moves/plan/classify/report/approve/apply/verify) or a raw dynamic phase name. */
+            key: string;
+            /** @description Human caption for the phase. */
+            label: string;
+            /** @description done | now | pending | failed */
+            state: string;
+            /** @description plan | apply | verify | gate */
+            context?: string;
+            /** Format: date-time */
+            started_at?: string;
+            /** Format: date-time */
+            ended_at?: string;
+            /** @description Derived summary (rollup counts / gate count / wait reason). */
+            result?: string;
         };
         /** @description PR-level identity as last reported by the GitHub webhook (title, author, branch, automerge). */
         PRMeta: {
@@ -1255,6 +1296,30 @@ export interface operations {
                     "application/json": components["schemas"]["PendingApproval"][];
                 };
             };
+            500: components["responses"]["InternalText"];
+        };
+    };
+    getLifecycle: {
+        parameters: {
+            query: {
+                pr: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The ordered lifecycle phases. Always an array, never null. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LifecyclePhase"][];
+                };
+            };
+            400: components["responses"]["BadRequestText"];
             500: components["responses"]["InternalText"];
         };
     };

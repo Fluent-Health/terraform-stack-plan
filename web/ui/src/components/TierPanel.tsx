@@ -1,9 +1,9 @@
 import { For, Index, Show, Suspense, createEffect, createMemo, createResource, createSignal, onCleanup } from "solid-js";
 import { useSearchParams } from "@solidjs/router";
 import { api, executionEventsURL, type ExecutionSummary, type StackState } from "../api/client";
-import { approvalsByTarget, contextKind, groupByProject, progressCounts } from "../prdata";
+import { approvalsByTarget, contextKind, groupByProject } from "../prdata";
 import { GateApproval } from "./GateApproval";
-import { ProgressBlocks } from "./ProgressBlocks";
+import { LifecycleStepper } from "./LifecycleStepper";
 import { StackDetail } from "./StackDetail";
 import { SEM_DOT, statusSem } from "../status";
 
@@ -21,12 +21,19 @@ export function TierPanel(props: {
     () => ({ tier: props.tier, id: props.summary.id }),
     (k) => api.execution(k.tier, k.id),
   );
+  const [lifecycle, { refetch: refetchLifecycle }] = createResource(
+    () => ({ tier: props.tier, pr: props.summary.pr }),
+    (k) => api.lifecycle(k.tier, k.pr),
+  );
   createEffect(() => {
     const es = new EventSource(executionEventsURL(props.tier, props.summary.id));
     let t: ReturnType<typeof setTimeout> | undefined;
     es.onmessage = () => {
       clearTimeout(t);
-      t = setTimeout(() => refetchDetail(), 300);
+      t = setTimeout(() => {
+        refetchDetail();
+        refetchLifecycle();
+      }, 300);
     };
     es.addEventListener("superseded", () => props.onSuperseded?.());
     onCleanup(() => {
@@ -84,12 +91,9 @@ export function TierPanel(props: {
           <Show when={detail()}>
             {(d) => (
               <>
-                {(() => {
-                  const stacks = d().graph?.stacks ?? [];
-                  const c = progressCounts(stacks);
-                  const caption = `${d().ProgressLabel || props.summary.phase || "queued"} · ${c.done}/${c.total} done${c.failed ? ` · ${c.failed} failed` : ""}`;
-                  return <ProgressBlocks stacks={stacks} caption={caption} />;
-                })()}
+                <Show when={lifecycle()} fallback={<span class="loading loading-dots loading-sm" />}>
+                  {(lp) => <LifecycleStepper phases={lp()} />}
+                </Show>
                 <Index each={groupByProject(d().graph?.stacks ?? [])}>
                   {(g) => (
                     <div class="rounded-field border border-base-300" classList={{ "border-error/50": g().failed }}>

@@ -12,6 +12,7 @@ export type PRView = components["schemas"]["PRView"];
 export type PRMeta = components["schemas"]["PRMeta"];
 export type PRMergeState = components["schemas"]["PRMergeState"];
 export type Catalog = components["schemas"]["Catalog"];
+export type LifecyclePhase = components["schemas"]["LifecyclePhase"];
 export type MergeQueue = components["schemas"]["MergeQueue"];
 export type MergeQueueEntry = components["schemas"]["MergeQueueEntry"];
 export type InspectPoolSet = components["schemas"]["InspectPoolSet"];
@@ -54,6 +55,7 @@ export const api = {
   approvals: (tier: string) => j<PendingApproval[]>(`/api/tiers/${tier}/approvals`),
   execution: (tier: string, id: string) => j<ExecutionDetail>(`/api/tiers/${tier}/executions/${id}`),
   pr: (tier: string, n: number) => j<PRView>(`/api/tiers/${tier}/pr/${n}`),
+  lifecycle: (tier: string, pr: number) => j<LifecyclePhase[]>(`/api/tiers/${tier}/lifecycle?pr=${pr}`),
   mergeQueue: (tier: string) => j<MergeQueue>(`/api/tiers/${tier}/merge-queue`),
   pool: (tier: string) => j<InspectPoolSet>(`/api/tiers/${tier}/inspect/pool`),
   planFragment: async (tier: string, exec: string, stack: string): Promise<string> => {
