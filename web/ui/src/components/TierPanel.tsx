@@ -1,17 +1,16 @@
-import { For, Index, Show, Suspense, createEffect, createMemo, createResource, createSignal, onCleanup } from "solid-js";
+import { Index, Show, Suspense, createEffect, createMemo, createResource, createSignal, onCleanup } from "solid-js";
 import { useSearchParams } from "@solidjs/router";
 import { api, executionEventsURL, type ExecutionSummary, type StackState } from "../api/client";
-import { approvalsByTarget, contextKind, groupByProject } from "../prdata";
+import { approvalsByTarget, groupByProject } from "../prdata";
 import { GateApproval } from "./GateApproval";
 import { LifecycleStepper } from "./LifecycleStepper";
 import { StackDetail } from "./StackDetail";
 import { SEM_DOT, statusSem } from "../status";
 
-/** TierPanel: one tier's current run for a PR — progress blocks + context chips + project groups + drill-in. */
+/** TierPanel: one tier's current run for a PR — lifecycle stepper + project groups + drill-in. */
 export function TierPanel(props: {
   tier: string;
   summary: ExecutionSummary;
-  contexts: ExecutionSummary[];
   onSuperseded?: () => void;
 }) {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -76,16 +75,6 @@ export function TierPanel(props: {
               <>🔀 <span class="hidden sm:inline">Show All</span></>
             </Show>
           </button>
-        </div>
-        <div class="flex flex-wrap gap-2">
-          <For each={props.contexts}>
-            {(c) => (
-              <span class="inline-flex items-center gap-1 text-xs badge badge-ghost">
-                <span class="w-1.5 h-1.5 rounded-full" style={{ background: SEM_DOT[statusSem(c.status)] }} />
-                {contextKind(c.context)}
-              </span>
-            )}
-          </For>
         </div>
         <Suspense fallback={<span class="loading loading-dots loading-sm" />}>
           <Show when={detail()}>

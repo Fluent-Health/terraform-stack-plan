@@ -1,7 +1,7 @@
 import { For, Show, Suspense, createEffect, createMemo, createResource } from "solid-js";
 import { useParams, useSearchParams } from "@solidjs/router";
 import { api } from "../api/client";
-import { primaryExec, latestPerContext } from "../prdata";
+import { primaryExec } from "../prdata";
 import { TierPanel } from "../components/TierPanel";
 import { PrIdentity } from "../components/PrIdentity";
 import { MergeStrip } from "../components/MergeStrip";
@@ -78,12 +78,11 @@ export function PrView() {
 function TierColumn(props: { tier: string; pr: number }) {
   const [execs, { refetch }] = createResource(() => api.executions(props.tier, { pr: props.pr }));
   const primary = createMemo(() => primaryExec(execs.latest ?? []));
-  const contexts = createMemo(() => latestPerContext(execs.latest ?? []));
   return (
     <Show when={!execs.error} fallback={<div class="alert alert-warning text-sm">{props.tier} unreachable</div>}>
       <Show when={execs.latest} fallback={<span class="loading loading-dots loading-sm" />}>
         <Show when={primary()} fallback={<p class="opacity-60 text-sm">No run on {props.tier}.</p>}>
-          {(p) => <TierPanel tier={props.tier} summary={p()} contexts={contexts()} onSuperseded={refetch} />}
+          {(p) => <TierPanel tier={props.tier} summary={p()} onSuperseded={refetch} />}
         </Show>
       </Show>
     </Show>
