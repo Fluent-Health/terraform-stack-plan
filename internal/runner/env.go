@@ -5,6 +5,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/Fluent-Health/terraform-stack-plan/internal/config"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/gauth"
 )
 
@@ -41,11 +42,25 @@ func APITokenFunc(audience string) (gauth.TokenFunc, error) {
 func ClientFromEnv() *Client {
 	base := os.Getenv(EnvServer)
 	if base == "" {
+		// Attempt to auto-discover server URL from local repo .tfstackplan.hcl configuration
+		if p, ok := config.Discover("."); ok {
+			if cfg, err := config.Load(p); err == nil && cfg.Server != nil {
+				base = cfg.Server.URL
+			}
+		}
+	}
+	if base == "" {
 		return NewClient("")
 	}
-	tok, err := APITokenFunc(os.Getenv(EnvAudience))
+
+	aud := os.Getenv(EnvAudience)
+	if aud == "" {
+		aud = base // default OIDC audience to the server base URL
+	}
+
+	tok, err := APITokenFunc(aud)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "tfstackplan: %s is set but Google ADC is unavailable (%v) — reporting unauthenticated\n", EnvAudience, err)
+		fmt.Fprintf(os.Stderr, "tfstackplan: OIDC audience is set but Google ADC is unavailable (%v) — reporting unauthenticated\n", err)
 	}
 	return NewClientTokenSource(base, tok)
 }
