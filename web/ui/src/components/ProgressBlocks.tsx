@@ -16,10 +16,11 @@ export function ProgressBlocks(props: { stacks: StackState[]; caption?: string }
       <div class="flex flex-wrap gap-1">
         <For each={props.stacks}>
           {(s) => (
-            <div
-              class={`h-6 flex-1 min-w-[26px] rounded ${BLK[statusSem(s.status ?? "")]}`}
-              title={`${s.path} — ${s.status || "pending"}`}
-            />
+            <div class="tooltip tooltip-bottom flex-1 min-w-[26px]" data-tip={`${s.path} — ${s.status || "pending"}`}>
+              <div
+                class={`h-6 w-full rounded ${BLK[statusSem(s.status ?? "")]}`}
+              />
+            </div>
           )}
         </For>
       </div>
