@@ -180,6 +180,7 @@ describe("relativeTime", () => {
   const now = new Date("2026-07-12T12:00:00Z");
   it("renders coarse buckets", () => {
     expect(relativeTime("2026-07-12T11:59:50Z", now)).toBe("just now");
+    expect(relativeTime("2026-07-12T11:59:15Z", now)).toBe("just now"); // 45s → still "just now"
     expect(relativeTime("2026-07-12T11:55:00Z", now)).toBe("5m ago");
     expect(relativeTime("2026-07-12T09:00:00Z", now)).toBe("3h ago");
     expect(relativeTime("2026-07-10T12:00:00Z", now)).toBe("2d ago");
@@ -197,6 +198,10 @@ describe("rollupChangeCounts", () => {
   });
   it("is empty when nothing changed", () => {
     expect(rollupChangeCounts([{ path: "p" } as StackState])).toBe("");
+  });
+  it("includes replace and move glyphs", () => {
+    const s = (counts: Record<string, number>): StackState => ({ path: "p", counts } as StackState);
+    expect(rollupChangeCounts([s({ replace: 2, move: 3 })])).toBe("±2 ↔3");
   });
 });
 
@@ -218,6 +223,13 @@ describe("mergeBadge", () => {
   });
   it("open by default", () => {
     expect(mergeBadge(view({}))).toEqual({ label: "open", sem: "idle" });
+  });
+  it("blocked wins over automerge when both are set", () => {
+    const b = mergeBadge(view({
+      merge: { environment: "", required_check: "", check_conclusion: "", merge_blocked: true, blocker: "waits on prod approval" },
+      meta: { title: "t", body: "", author_login: "a", head_ref: "h", url: "", auto_merge: true },
+    }))!;
+    expect(b).toEqual({ label: "waits on prod approval", sem: "waiting" });
   });
 });
 
