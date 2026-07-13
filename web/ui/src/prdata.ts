@@ -142,8 +142,8 @@ export function progressCounts(stacks: StackState[]): { done: number; running: n
 }
 
 // Index a tier's pending approvals (already PR-unfiltered from the API) by
-// project (== gate target) for this one PR, so a project-group header can do
-// an O(1) lookup for "is this project gated on me right now".
+// gate target for this one PR, so the gates strip can enumerate every pending
+// approval (keyed by target) independent of how changes are grouped.
 export function approvalsByTarget(approvals: PendingApproval[], pr: number): Map<string, PendingApproval> {
   const m = new Map<string, PendingApproval>();
   for (const a of approvals) {
