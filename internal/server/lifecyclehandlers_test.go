@@ -90,6 +90,58 @@ func TestGetLifecycleFold(t *testing.T) {
 	}
 }
 
+func TestGetLifecycleTerminalSuccessIsDone(t *testing.T) {
+	db := newServerTestDB(t)
+	a := New(db, &MockGitHub{}, Config{Environment: "staging"})
+
+	// A plan execution that progressed warming -> planning -> report, then
+	// reached terminal success.
+	plan := events.Init{
+		ID: "plan-1", Repo: "o/r", SHA: "sha", PR: 42, Environment: "staging",
+		Context: "plan/staging",
+		Stacks: []events.StackState{
+			{Path: "projects/a", Status: events.StatusPlanned, Counts: &events.Counts{Add: 2}},
+		},
+	}
+	if err := store.UpsertInit(db, plan); err != nil {
+		t.Fatal(err)
+	}
+	for _, ph := range []events.Phase{events.PhaseWarming, events.PhasePlanning, events.PhaseReport} {
+		if err := store.UpsertPhase(db, events.PhaseEvent{ID: "plan-1", Phase: ph, PR: 42, Environment: "staging", Context: "plan/staging"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := store.SetExecutionStatus(db, "plan-1", "success"); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := httptest.NewServer(a.Routes())
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/api/lifecycle?pr=42")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d; want 200", resp.StatusCode)
+	}
+	var out []api.LifecyclePhase
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatal(err)
+	}
+
+	byKey := map[string]api.LifecyclePhase{}
+	for _, p := range out {
+		byKey[p.Key] = p
+	}
+	// report is the last observed phase, but its execution reached terminal
+	// success → done, not now.
+	if p, ok := byKey["report"]; !ok || p.State != "done" {
+		t.Errorf("report = %+v; want state done", p)
+	}
+}
+
 func TestGetLifecycleUnknownPhasePassesThrough(t *testing.T) {
 	db := newServerTestDB(t)
 	a := New(db, &MockGitHub{}, Config{Environment: "staging"})

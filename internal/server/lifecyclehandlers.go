@@ -198,9 +198,11 @@ func (a *App) handleGetLifecycle(w http.ResponseWriter, _ *http.Request, params 
 // template phases as pending, with derived per-phase result.
 func lifecycleFold(execs []store.Execution, phasesByExec map[string][]store.PhaseRow, planCounts, applyCounts events.Counts, gate gateSummary) []api.LifecyclePhase {
 	failedByExec := map[string]bool{}
+	succeededByExec := map[string]bool{}
 	ctxByExec := map[string]string{}
 	for _, e := range execs {
 		failedByExec[e.ID] = e.Status == "failure"
+		succeededByExec[e.ID] = e.Status == "success"
 		ctxByExec[e.ID] = execContextKind(e.StatusContext)
 	}
 
@@ -234,9 +236,12 @@ func lifecycleFold(execs []store.Execution, phasesByExec map[string][]store.Phas
 		ctx := ctxByExec[f.execID]
 		state := "done"
 		if i == len(all)-1 {
-			if failedByExec[f.execID] {
+			switch {
+			case failedByExec[f.execID]:
 				state = "failed"
-			} else {
+			case succeededByExec[f.execID]:
+				state = "done"
+			default:
 				state = "now"
 			}
 		}
