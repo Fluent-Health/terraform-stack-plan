@@ -108,19 +108,25 @@ export const STAGE_LABEL: Record<PrStage, string> = {
   idle: "idle",
 };
 
-export type ProjectGroup = { project: string; stacks: StackState[]; failed: boolean };
+export type ComponentGroup = { component: string; stacks: StackState[]; failed: boolean };
 
-export function groupByProject(stacks: StackState[]): ProjectGroup[] {
+// groupByComponent keys stacks by their path-derived component: the stack path
+// with its leaf segment dropped (projects/fh-dev-svc → projects;
+// workloads/backend/fh-dev-svc → workloads/backend). Always present — no
+// "untagged" fallback. A leafless path keys under itself.
+export function groupByComponent(stacks: StackState[]): ComponentGroup[] {
   const order: string[] = [];
   const by = new Map<string, StackState[]>();
   for (const s of stacks) {
-    const key = s.project || "Global / Untagged Stacks";
+    const trimmed = s.path.replace(/\/+$/, "");
+    const slash = trimmed.lastIndexOf("/");
+    const key = slash > 0 ? trimmed.slice(0, slash) : trimmed;
     if (!by.has(key)) { by.set(key, []); order.push(key); }
     by.get(key)!.push(s);
   }
-  return order.map((project) => {
-    const grp = by.get(project)!;
-    return { project, stacks: grp, failed: grp.some((s) => statusSem(s.status ?? "") === "failed") };
+  return order.map((component) => {
+    const grp = by.get(component)!;
+    return { component, stacks: grp, failed: grp.some((s) => statusSem(s.status ?? "") === "failed") };
   });
 }
 
@@ -136,8 +142,8 @@ export function progressCounts(stacks: StackState[]): { done: number; running: n
 }
 
 // Index a tier's pending approvals (already PR-unfiltered from the API) by
-// project (== gate target) for this one PR, so a project-group header can do
-// an O(1) lookup for "is this project gated on me right now".
+// gate target for this one PR, so the gates strip can enumerate every pending
+// approval (keyed by target) independent of how changes are grouped.
 export function approvalsByTarget(approvals: PendingApproval[], pr: number): Map<string, PendingApproval> {
   const m = new Map<string, PendingApproval>();
   for (const a of approvals) {

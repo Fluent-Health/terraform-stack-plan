@@ -184,6 +184,34 @@ paths:
             text/plain: {}
         "502":
           $ref: "#/components/responses/TierUnreachableText"
+  /api/tiers/{tier}/lifecycle:
+    get:
+      operationId: getTierLifecycle
+      summary: One tier's folded PR lifecycle timeline (proxied)
+      security:
+        - session: []
+      parameters:
+        - $ref: "#/components/parameters/Tier"
+        - name: pr
+          in: query
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: The tier's ordered lifecycle phases.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/LifecyclePhase"
+        "401":
+          $ref: "#/components/responses/UnauthorizedText"
+        "404":
+          $ref: "#/components/responses/UnknownTierText"
+        "502":
+          $ref: "#/components/responses/TierUnreachableText"
   /api/tiers/{tier}/merge-queue:
     get:
       operationId: getTierMergeQueue
@@ -283,5 +311,11 @@ components:
       type: object
       description: The tier contract's InspectPoolSet, proxied verbatim.
       x-go-type: api.InspectPoolSet
+      x-go-type-import:
+        path: github.com/Fluent-Health/terraform-stack-plan/internal/api
+    LifecyclePhase:
+      type: object
+      description: The tier contract's LifecyclePhase, proxied verbatim.
+      x-go-type: api.LifecyclePhase
       x-go-type-import:
         path: github.com/Fluent-Health/terraform-stack-plan/internal/api

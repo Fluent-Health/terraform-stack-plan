@@ -300,6 +300,26 @@ type InspectPoolWaitingPR struct {
 	Reason      string `json:"reason"`
 }
 
+// LifecyclePhase One phase of a PR/tier's folded lifecycle timeline. key is a canonical template key or a raw dynamic phase name; result is derived server-side (never stored).
+type LifecyclePhase struct {
+	// Context plan | apply | verify | gate
+	Context *string    `json:"context,omitempty"`
+	EndedAt *time.Time `json:"ended_at,omitempty"`
+
+	// Key Canonical template key (prepare/init/moves/plan/classify/report/approve/apply/verify) or a raw dynamic phase name.
+	Key string `json:"key"`
+
+	// Label Human caption for the phase.
+	Label string `json:"label"`
+
+	// Result Derived summary (rollup counts / gate count / wait reason).
+	Result    *string    `json:"result,omitempty"`
+	StartedAt *time.Time `json:"started_at,omitempty"`
+
+	// State done | now | pending | failed
+	State string `json:"state"`
+}
+
 // LogChunk A slice of one stack's combined output.
 type LogChunk = events.LogChunk
 
@@ -433,6 +453,11 @@ type InspectEventsParams struct {
 type InspectGrantsParams struct {
 	State *string `form:"state,omitempty" json:"state,omitempty"`
 	Live  *int    `form:"live,omitempty" json:"live,omitempty"`
+}
+
+// GetLifecycleParams defines parameters for GetLifecycle.
+type GetLifecycleParams struct {
+	Pr int `form:"pr" json:"pr"`
 }
 
 // AdminChecksOverrideJSONRequestBody defines body for AdminChecksOverride for application/json ContentType.
@@ -626,6 +651,9 @@ type ClientInterface interface {
 
 	// InspectPool request
 	InspectPool(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetLifecycle request
+	GetLifecycle(ctx context.Context, params *GetLifecycleParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// AppendLogsWithBody request with any body
 	AppendLogsWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -999,6 +1027,18 @@ func (c *Client) InspectOverview(ctx context.Context, reqEditors ...RequestEdito
 
 func (c *Client) InspectPool(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewInspectPoolRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetLifecycle(ctx context.Context, params *GetLifecycleParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetLifecycleRequest(c.Server, params)
 	if err != nil {
 		return nil, err
 	}
@@ -1915,6 +1955,56 @@ func NewInspectPoolRequest(server string) (*http.Request, error) {
 	return req, nil
 }
 
+// NewGetLifecycleRequest generates requests for GetLifecycle
+func NewGetLifecycleRequest(server string, params *GetLifecycleParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/lifecycle")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if queryFrag, err := runtime.StyleParamWithOptions("form", true, "pr", params.Pr, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: ""}); err != nil {
+			return nil, err
+		} else {
+			for _, qp := range strings.Split(queryFrag, "&") {
+				rawQueryFragments = append(rawQueryFragments, qp)
+			}
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewAppendLogsRequest calls the generic AppendLogs builder with application/json body
 func NewAppendLogsRequest(server string, body AppendLogsJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -2218,6 +2308,9 @@ type ClientWithResponsesInterface interface {
 
 	// InspectPoolWithResponse request
 	InspectPoolWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*InspectPoolResponse, error)
+
+	// GetLifecycleWithResponse request
+	GetLifecycleWithResponse(ctx context.Context, params *GetLifecycleParams, reqEditors ...RequestEditorFn) (*GetLifecycleResponse, error)
 
 	// AppendLogsWithBodyWithResponse request with any body
 	AppendLogsWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AppendLogsResponse, error)
@@ -2836,6 +2929,36 @@ func (r InspectPoolResponse) ContentType() string {
 	return ""
 }
 
+type GetLifecycleResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *[]LifecyclePhase
+}
+
+// Status returns HTTPResponse.Status
+func (r GetLifecycleResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetLifecycleResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetLifecycleResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type AppendLogsResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -3241,6 +3364,15 @@ func (c *ClientWithResponses) InspectPoolWithResponse(ctx context.Context, reqEd
 		return nil, err
 	}
 	return ParseInspectPoolResponse(rsp)
+}
+
+// GetLifecycleWithResponse request returning *GetLifecycleResponse
+func (c *ClientWithResponses) GetLifecycleWithResponse(ctx context.Context, params *GetLifecycleParams, reqEditors ...RequestEditorFn) (*GetLifecycleResponse, error) {
+	rsp, err := c.GetLifecycle(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetLifecycleResponse(rsp)
 }
 
 // AppendLogsWithBodyWithResponse request with arbitrary body returning *AppendLogsResponse
@@ -3773,6 +3905,32 @@ func ParseInspectPoolResponse(rsp *http.Response) (*InspectPoolResponse, error) 
 	return response, nil
 }
 
+// ParseGetLifecycleResponse parses an HTTP response from a GetLifecycleWithResponse call
+func ParseGetLifecycleResponse(rsp *http.Response) (*GetLifecycleResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetLifecycleResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest []LifecyclePhase
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseAppendLogsResponse parses an HTTP response from a AppendLogsWithResponse call
 func ParseAppendLogsResponse(rsp *http.Response) (*AppendLogsResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -3935,6 +4093,9 @@ type ServerInterface interface {
 	// Get applier-pool slot occupancy and waiting lists
 	// (GET /api/inspect/pool)
 	InspectPool(w http.ResponseWriter, r *http.Request)
+	// A PR's folded phase-timeline for this tier
+	// (GET /api/lifecycle)
+	GetLifecycle(w http.ResponseWriter, r *http.Request, params GetLifecycleParams)
 	// Ingest a per-stack output chunk
 	// (POST /api/logs)
 	AppendLogs(w http.ResponseWriter, r *http.Request)
@@ -4498,6 +4659,45 @@ func (siw *ServerInterfaceWrapper) InspectPool(w http.ResponseWriter, r *http.Re
 	handler.ServeHTTP(w, r)
 }
 
+// GetLifecycle operation middleware
+func (siw *ServerInterfaceWrapper) GetLifecycle(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, OidcScopes, []string{"report", "read", "admin"})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetLifecycleParams
+
+	// ------------- Required query parameter "pr" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "pr", r.URL.Query(), &params.Pr, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "pr"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "pr", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetLifecycle(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // AppendLogs operation middleware
 func (siw *ServerInterfaceWrapper) AppendLogs(w http.ResponseWriter, r *http.Request) {
 
@@ -4750,6 +4950,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/inspect/grants", wrapper.InspectGrants)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/inspect/overview", wrapper.InspectOverview)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/inspect/pool", wrapper.InspectPool)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/lifecycle", wrapper.GetLifecycle)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/logs", wrapper.AppendLogs)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/merge-queue", wrapper.MergeQueue)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/phase", wrapper.ReportPhase)

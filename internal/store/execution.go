@@ -51,11 +51,23 @@ func UpsertInit(db *sql.DB, in events.Init) error {
 			if status == "" {
 				status = events.StatusPending
 			}
+			// Counts are normally nil at Init (finalize backfills them via its
+			// own UPDATE), but honor an inline value when the caller has one
+			// up front — harmless in production, and lets tests seed a graph's
+			// op counts without a full finalize round-trip.
+			var counts string
+			if s.Counts != nil {
+				data, err := json.Marshal(s.Counts)
+				if err != nil {
+					return fmt.Errorf("marshal counts %q: %w", s.Path, err)
+				}
+				counts = string(data)
+			}
 			if _, err := tx.Exec(
-				`INSERT INTO stacks (execution_id, stack_path, project, status) VALUES (?,?,?,?)
+				`INSERT INTO stacks (execution_id, stack_path, project, status, counts) VALUES (?,?,?,?,?)
 				 ON CONFLICT(execution_id, stack_path) DO UPDATE SET
 				   project=excluded.project`,
-				in.ID, s.Path, s.Project, string(status)); err != nil {
+				in.ID, s.Path, s.Project, string(status), counts); err != nil {
 				return fmt.Errorf("insert stack %q: %w", s.Path, err)
 			}
 		}
@@ -86,20 +98,60 @@ func UpsertPhase(db *sql.DB, p events.PhaseEvent) error {
 		pct.Int64 = int64(*p.ProgressPct)
 	}
 
-	_, err := db.Exec(
-		`INSERT INTO executions (id, repo, sha, pr, environment, log_url, status_context, phase, progress_label, progress_pct)
-		 VALUES (?,?,?,?,?,?,?,?,?,?)
-		 ON CONFLICT(id) DO UPDATE SET phase=excluded.phase,
-		   progress_label=CASE WHEN excluded.progress_label IS NULL THEN executions.progress_label ELSE excluded.progress_label END,
-		   progress_pct=CASE WHEN excluded.progress_pct IS NULL THEN executions.progress_pct ELSE excluded.progress_pct END,
-		   repo=CASE WHEN excluded.repo='' THEN executions.repo ELSE excluded.repo END,
-		   sha=CASE WHEN excluded.sha='' THEN executions.sha ELSE excluded.sha END,
-		   pr=CASE WHEN excluded.pr=0 THEN executions.pr ELSE excluded.pr END,
-		   environment=CASE WHEN excluded.environment='' THEN executions.environment ELSE excluded.environment END,
-		   status_context=CASE WHEN excluded.status_context='' THEN executions.status_context ELSE excluded.status_context END,
-		   log_url=CASE WHEN excluded.log_url='' THEN executions.log_url ELSE excluded.log_url END`,
-		p.ID, p.Repo, p.SHA, p.PR, p.Environment, p.LogURL, p.Context, string(p.Phase), label, pct)
-	return err
+	return Transact(db, func(tx *sql.Tx) error {
+		if _, err := tx.Exec(
+			`INSERT INTO executions (id, repo, sha, pr, environment, log_url, status_context, phase, progress_label, progress_pct)
+			 VALUES (?,?,?,?,?,?,?,?,?,?)
+			 ON CONFLICT(id) DO UPDATE SET phase=excluded.phase,
+			   progress_label=CASE WHEN excluded.progress_label IS NULL THEN executions.progress_label ELSE excluded.progress_label END,
+			   progress_pct=CASE WHEN excluded.progress_pct IS NULL THEN executions.progress_pct ELSE excluded.progress_pct END,
+			   repo=CASE WHEN excluded.repo='' THEN executions.repo ELSE excluded.repo END,
+			   sha=CASE WHEN excluded.sha='' THEN executions.sha ELSE excluded.sha END,
+			   pr=CASE WHEN excluded.pr=0 THEN executions.pr ELSE excluded.pr END,
+			   environment=CASE WHEN excluded.environment='' THEN executions.environment ELSE excluded.environment END,
+			   status_context=CASE WHEN excluded.status_context='' THEN executions.status_context ELSE excluded.status_context END,
+			   log_url=CASE WHEN excluded.log_url='' THEN executions.log_url ELSE excluded.log_url END`,
+			p.ID, p.Repo, p.SHA, p.PR, p.Environment, p.LogURL, p.Context, string(p.Phase), label, pct); err != nil {
+			return err
+		}
+		// Append an immutable history row so the lifecycle read model can derive
+		// per-phase durations (this phase's `at` = its start; the next phase's
+		// `at` = this phase's end). The single `phase` column above stays the
+		// current-phase overwrite for legacy reads.
+		_, err := tx.Exec(
+			`INSERT INTO execution_phases (execution_id, phase, label, progress_pct)
+			 VALUES (?,?,?,?)`,
+			p.ID, string(p.Phase), label, pct)
+		return err
+	})
+}
+
+// PhaseRow is one recorded lifecycle phase transition of an execution.
+type PhaseRow struct {
+	Phase string
+	Label string
+	At    time.Time
+}
+
+// PhasesFor returns an execution's recorded phase transitions, oldest first
+// (by insert time, rowid as a stable tiebreaker for same-second inserts).
+func PhasesFor(db *sql.DB, executionID string) ([]PhaseRow, error) {
+	rows, err := db.Query(
+		`SELECT phase, COALESCE(label,''), at FROM execution_phases
+		 WHERE execution_id = ? ORDER BY at, rowid`, executionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []PhaseRow
+	for rows.Next() {
+		var r PhaseRow
+		if err := rows.Scan(&r.Phase, &r.Label, &r.At); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
 }
 
 // GetExecution loads one execution row.

@@ -658,6 +658,14 @@ the budget entirely.
 - **Canonical plan filename is hardcoded `tfplan.json`** — matches Terragrunt's
   `--json-out-dir`; Terramate is scripted to emit the same. A tool that writes a
   different name needs a rename step.
+- **Lifecycle-stepper fold has a few known rough edges** (all cosmetic, none
+  affect gate/apply correctness): a folded plan+apply timeline shows two
+  `prepare`/`report` segments (both contexts emit those phases), with the
+  apply-side `report` landing after the ┆ divider; the synthetic `approve`
+  segment does not special-case the `EXPIRED` grant state (it reads as
+  pending, understating a lapsed grant); and `approvalsByTarget` keys the gates
+  strip by target alone, so two pending approvals for the same target but
+  different class would collapse. Tracked for a follow-up pass.
 - **Merge-queue hero depends on GitHub-App token visibility of `mergeQueue`.**
   `GET /api/merge-queue` reads the queue via GraphQL with the serve App's
   installation token; whether that token can see the `repository.mergeQueue`
@@ -1925,6 +1933,18 @@ snake_case shapes, unlike the frozen legacy execution read):
   see the field; a transport/auth error is logged and still returns empty. Feeds
   the PRs-list merge-queue hero (`api.mergeQueue`, proxied as
   `/api/tiers/{tier}/merge-queue`).
+- `GET /api/lifecycle?pr={n}` — folds this tier's non-superseded
+  plan/apply/verify executions for the PR into one ordered `LifecyclePhase[]`
+  against the canonical phase template. Backed by an append-only
+  `execution_phases` history table (migration 015; `UpsertPhase` appends a row
+  per transition inside the same `Transact` as the current-phase overwrite);
+  per-phase `result` (rollup counts / gate count / apply wait-reason) and the
+  synthetic `approve` phase are **derived on read**, never stored. Observed
+  phases render in timestamp order (last = now, or done on terminal success, or
+  failed); unobserved template keys append as pending; unknown/dynamic phases
+  pass through as generic segments. Always an array, never null. Feeds the PR
+  view's lifecycle stepper (`api.lifecycle`, proxied as
+  `/api/tiers/{tier}/lifecycle`).
 
 ### The central UI face (`tfstackplan ui`)
 
@@ -1996,13 +2016,25 @@ top-level `ui {}` block (`tier "<name>" { url }` per tier serve, `oauth {}`,
   central-UI backend), errored runs, and awaiting-approval; each per-tier fetch
   isolated so a dead tier degrades only its own panel), and the **PR view**
   hero (`/pr/{n}`): both tiers side-by-side, each showing its *newest* execution
-  as primary — per-stack **progress blocks** (one block per changed stack,
-  coloured by status, parallel-aware, failures visible) + **context chips** for
-  the other `plan`/`apply`/`verify`/gate executions — with changes grouped by
-  **project** (the stack grouping key *and* PAM gate target), an errored stack's
-  `detail` shown inline, and an inline Plan/Log drill-in. Approvals are not a
-  separate page — they surface on the Ops board and, in context, on the PR the
-  gate belongs to. Visual language is a neutral "calm control panel": a custom
+  as primary — a **unified lifecycle stepper** per tier: one thin row of
+  colour-only segments, one per lifecycle *phase* (not per stack), folded from
+  the tier's plan/apply/verify executions against a fixed canonical template
+  (`prepare · init · [moves] · plan · classify · report ┆ approve · apply ·
+  verify`) with a ┆ divider before the gate/apply side, a "happening now"
+  caption below, and rich per-phase hover (done ✓ + result / now ▸ running /
+  pending ○ + wait reason). A terminally-succeeded last phase renders done, not
+  a perpetual "now". Fed by `GET /api/lifecycle?pr={n}` (below). Changes are
+  grouped by **path-derived component** (the stack path minus its leaf, always
+  present — no "untagged" catch-all), each group listing its stacks (path,
+  counts, status) with an errored stack's `detail` inline and an inline Plan/Log
+  drill-in. Pending PAM approvals surface in a dedicated **gates strip** above
+  the groups — enumerated from the PR-filtered `/api/approvals`, decoupled from
+  grouping so an approval always shows regardless of its target (this fixed a
+  bug where an approval whose target matched no group was invisible on the PR
+  view). A collapsible per-tier **dependency graph** (elkjs, reusing the Catalog
+  renderer) renders the changed subgraph, nodes coloured by status, a node click
+  surfacing its why-changed (`change_reasons`). Approvals are not a separate
+  page — they surface on the Ops board and, in context, in the PR's gates strip. Visual language is a neutral "calm control panel": a custom
   daisyUI theme with a system/light/dark switcher, one accent, a fixed semantic
   status set (dot + word, not loud pills), monospace reserved for identifiers;
   ships no proprietary brand assets (public repo). Live updates are
@@ -2021,9 +2053,7 @@ top-level `ui {}` block (`tier "<name>" { url }` per tier serve, `oauth {}`,
   fed by serve persisting PR metadata from the `pull_request` webhook (`pr_meta`
   table) and a per-tier read `GET /api/pr/{n}` (identity + merge state), additive
   and wire-neutral — an older serve simply lacks the route and the SPA degrades to
-  the minimal `#{n}` header. Still deferred to follow-on work: richer per-stage
-  progress detail (the tick-segment lifecycle stepper) and the per-tier execution
-  causality DAG on the PR view (each needs further serve-side additions).
+  the minimal `#{n}` header.
 - **SPA delivery**: the binary embeds `internal/ui/dist/` (`go:embed`), served
   with an index.html fallback for client-side routes. The repo commits only a
   placeholder page; the release workflow builds the SPA once and overwrites

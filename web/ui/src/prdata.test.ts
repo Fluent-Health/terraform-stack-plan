@@ -5,7 +5,7 @@ import {
   latestPerContext,
   rollupSem,
   prLifecycleStage,
-  groupByProject,
+  groupByComponent,
   distinctPRs,
   progressCounts,
   approvalsByTarget,
@@ -64,23 +64,28 @@ describe("rollupSem", () => {
   });
 });
 
-describe("groupByProject", () => {
-  it("groups stacks by project in first-seen order and flags failures", () => {
+describe("groupByComponent", () => {
+  it("groups by path minus the leaf segment, first-seen order, flags failures", () => {
     const stacks: StackState[] = [
-      { path: "gke/", project: "p1", status: "safe" } as StackState,
-      { path: "redis/", project: "p2", status: "failed" } as StackState,
-      { path: "sql/", project: "p1", status: "safe" } as StackState,
+      { path: "projects/fh-dev-svc", status: "safe" } as StackState,
+      { path: "workloads/backend/fh-dev-svc", status: "failed" } as StackState,
+      { path: "projects/fh-prod-svc", status: "safe" } as StackState,
     ];
-    const g = groupByProject(stacks);
-    expect(g.map((x) => x.project)).toEqual(["p1", "p2"]);
+    const g = groupByComponent(stacks);
+    expect(g.map((x) => x.component)).toEqual(["projects", "workloads/backend"]);
     expect(g[0].stacks).toHaveLength(2);
-    expect(g[1].failed).toBe(true);
     expect(g[0].failed).toBe(false);
+    expect(g[1].failed).toBe(true);
   });
 
-  it("uses (ungrouped) for empty project", () => {
-    const g = groupByProject([{ path: "x/", project: "", status: "safe" } as StackState]);
-    expect(g[0].project).toBe("Global / Untagged Stacks");
+  it("handles a leafless path without an 'untagged' fallback", () => {
+    const g = groupByComponent([{ path: "root", status: "safe" } as StackState]);
+    expect(g[0].component).toBe("root");
+  });
+
+  it("tolerates a trailing slash on the path", () => {
+    const g = groupByComponent([{ path: "projects/svc/", status: "safe" } as StackState]);
+    expect(g[0].component).toBe("projects");
   });
 });
 

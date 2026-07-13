@@ -47,6 +47,9 @@ func (s apiServer) MergeQueue(w http.ResponseWriter, r *http.Request) {
 func (s apiServer) GetCatalog(w http.ResponseWriter, r *http.Request) {
 	s.app.handleGetCatalog(w, r)
 }
+func (s apiServer) GetLifecycle(w http.ResponseWriter, r *http.Request, params api.GetLifecycleParams) {
+	s.app.handleGetLifecycle(w, r, params)
+}
 
 func (s apiServer) InspectClaims(w http.ResponseWriter, r *http.Request, env string) {
 	s.app.handleInspectClaims(w, r, env)

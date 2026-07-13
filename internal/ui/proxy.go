@@ -85,6 +85,16 @@ func (s uiServer) GetTierPool(w http.ResponseWriter, r *http.Request, tier uiapi
 	s.relay(w, string(tier), resp, err)
 }
 
+func (s uiServer) GetTierLifecycle(w http.ResponseWriter, r *http.Request, tier uiapi.Tier, params uiapi.GetTierLifecycleParams) {
+	c, ok := s.app.clients[string(tier)]
+	if !ok {
+		http.Error(w, "unknown tier", http.StatusNotFound)
+		return
+	}
+	resp, err := c.GetLifecycle(r.Context(), &api.GetLifecycleParams{Pr: params.Pr})
+	s.relay(w, string(tier), resp, err)
+}
+
 func (s uiServer) GetTierMergeQueue(w http.ResponseWriter, r *http.Request, tier uiapi.Tier) {
 	c, ok := s.app.clients[string(tier)]
 	if !ok {

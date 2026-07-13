@@ -28,6 +28,9 @@ type ExecutionSummary = api.ExecutionSummary
 // InspectPoolSet The tier contract's InspectPoolSet, proxied verbatim.
 type InspectPoolSet = api.InspectPoolSet
 
+// LifecyclePhase The tier contract's LifecyclePhase, proxied verbatim.
+type LifecyclePhase = api.LifecyclePhase
+
 // Me defines model for Me.
 type Me struct {
 	// Email The verified Google identity of the session.
@@ -61,6 +64,11 @@ type ListTierExecutionsParams struct {
 	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
+// GetTierLifecycleParams defines parameters for GetTierLifecycle.
+type GetTierLifecycleParams struct {
+	Pr int `form:"pr" json:"pr"`
+}
+
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
 	// The logged-in user
@@ -81,6 +89,9 @@ type ServerInterface interface {
 	// One tier's applier-pool slot occupancy and waiting list (proxied)
 	// (GET /api/tiers/{tier}/inspect/pool)
 	GetTierPool(w http.ResponseWriter, r *http.Request, tier Tier)
+	// One tier's folded PR lifecycle timeline (proxied)
+	// (GET /api/tiers/{tier}/lifecycle)
+	GetTierLifecycle(w http.ResponseWriter, r *http.Request, tier Tier, params GetTierLifecycleParams)
 	// One tier's view of the repo's GitHub merge queue (proxied)
 	// (GET /api/tiers/{tier}/merge-queue)
 	GetTierMergeQueue(w http.ResponseWriter, r *http.Request, tier Tier)
@@ -304,6 +315,54 @@ func (siw *ServerInterfaceWrapper) GetTierPool(w http.ResponseWriter, r *http.Re
 	handler.ServeHTTP(w, r)
 }
 
+// GetTierLifecycle operation middleware
+func (siw *ServerInterfaceWrapper) GetTierLifecycle(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "tier" -------------
+	var tier Tier
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tier", r.PathValue("tier"), &tier, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tier", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, SessionScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetTierLifecycleParams
+
+	// ------------- Required query parameter "pr" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "pr", r.URL.Query(), &params.Pr, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "pr"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "pr", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetTierLifecycle(w, r, tier, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetTierMergeQueue operation middleware
 func (siw *ServerInterfaceWrapper) GetTierMergeQueue(w http.ResponseWriter, r *http.Request) {
 
@@ -503,6 +562,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/tiers/{tier}/executions", wrapper.ListTierExecutions)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/tiers/{tier}/executions/{id}", wrapper.GetTierExecution)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/tiers/{tier}/inspect/pool", wrapper.GetTierPool)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/tiers/{tier}/lifecycle", wrapper.GetTierLifecycle)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/tiers/{tier}/merge-queue", wrapper.GetTierMergeQueue)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/tiers/{tier}/pr/{n}", wrapper.GetTierPR)
 
