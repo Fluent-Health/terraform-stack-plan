@@ -310,10 +310,14 @@ func (c *RealClient) ReRequestCheckRun(ctx context.Context, repo string, checkRu
 }
 
 // MergeQueue queries the repository's merge queue for its default branch via
-// the GraphQL API. A null repository/mergeQueue (no queue configured, or the
-// field is not visible to the installation token) or any GraphQL-level error
-// degrades to an empty result rather than failing — the merge queue is an
-// optional feature and its absence is normal.
+// the GraphQL API. A successful response with null repository or null
+// mergeQueue (no queue configured or not visible to the installation token)
+// degrades to an empty result within this method. Transport errors, token-mint
+// failures, or non-2xx HTTP responses are returned to the caller (the
+// /api/merge-queue HTTP handler degrades them to an empty queue and logs them).
+// GraphQL-level errors are handled implicitly: GitHub returns HTTP 200 with
+// null data.repository when the request has GraphQL errors, and the nil checks
+// below handle this case — there is no explicit errors-array inspection.
 func (c *RealClient) MergeQueue(ctx context.Context, repo string) (MergeQueueResult, error) {
 	owner, name, err := splitRepo(repo)
 	if err != nil {
