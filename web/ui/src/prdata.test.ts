@@ -13,7 +13,6 @@ import {
   rollupChangeCounts,
   mergeBadge,
   sortedQueueEntries,
-  type PrStage,
 } from "./prdata";
 import type { ExecutionSummary, PendingApproval, StackState, PRView } from "./api/client";
 
