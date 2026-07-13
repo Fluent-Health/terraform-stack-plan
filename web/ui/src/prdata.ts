@@ -44,6 +44,70 @@ export function rollupSem(execs: ExecutionSummary[]): Sem {
   return worst;
 }
 
+export type PrStage =
+  | "planning"
+  | "planned"
+  | "awaiting-approval"
+  | "applying"
+  | "applied"
+  | "failed"
+  | "idle";
+
+// prLifecycleStage derives one tier's PR lifecycle stage from its executions +
+// pending approvals. Terminal / later-phase state wins: the newest apply-or-
+// verify execution is consulted before the plan, so a stale in_progress plan
+// never masks an applied result. See the precedence table in the plan.
+export function prLifecycleStage(execs: ExecutionSummary[], approvals: PendingApproval[]): PrStage {
+  const live = execs.filter((e) => !e.superseded_by);
+  const newestOf = (...kinds: ContextKind[]): ExecutionSummary | undefined => {
+    let best: ExecutionSummary | undefined;
+    for (const e of live) {
+      if (!kinds.includes(contextKind(e.context))) continue;
+      if (!best || e.created_at > best.created_at) best = e;
+    }
+    return best;
+  };
+  const applyOrVerify = newestOf("apply", "verify");
+  if (applyOrVerify) {
+    const s = statusSem(applyOrVerify.status);
+    if (s === "failed") return "failed";
+    if (s === "running") return "applying";
+    if (s === "ok") return "applied";
+    if (s === "waiting") return "awaiting-approval";
+  }
+  if (approvals.length > 0) return "awaiting-approval";
+  const plan = newestOf("plan");
+  if (plan) {
+    const s = statusSem(plan.status);
+    if (s === "failed") return "failed";
+    if (s === "ok") return "planned";
+    return "planning";
+  }
+  return "idle";
+}
+
+const STAGE_SEM: Record<PrStage, Sem> = {
+  planning: "running",
+  planned: "ok",
+  "awaiting-approval": "waiting",
+  applying: "running",
+  applied: "ok",
+  failed: "failed",
+  idle: "idle",
+};
+export function stageSem(stage: PrStage): Sem {
+  return STAGE_SEM[stage];
+}
+export const STAGE_LABEL: Record<PrStage, string> = {
+  planning: "planning",
+  planned: "planned",
+  "awaiting-approval": "awaiting approval",
+  applying: "applying",
+  applied: "applied",
+  failed: "failed",
+  idle: "idle",
+};
+
 export type ProjectGroup = { project: string; stacks: StackState[]; failed: boolean };
 
 export function groupByProject(stacks: StackState[]): ProjectGroup[] {

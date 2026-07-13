@@ -4,10 +4,12 @@ import {
   primaryExec,
   latestPerContext,
   rollupSem,
+  prLifecycleStage,
   groupByProject,
   distinctPRs,
   progressCounts,
   approvalsByTarget,
+  type PrStage,
 } from "./prdata";
 import type { ExecutionSummary, PendingApproval, StackState } from "./api/client";
 
@@ -117,5 +119,56 @@ describe("distinctPRs", () => {
       ex({ pr: 5, created_at: "2026-07-12T02:00:00Z" }),
       ex({ pr: 0 }),
     ])).toEqual([7, 5]);
+  });
+});
+
+describe("prLifecycleStage", () => {
+  const noApprovals: PendingApproval[] = [];
+  const pa = (o: Partial<PendingApproval>): PendingApproval =>
+    ({ pr: 0, environment: "", repo: "", class: "", target: "", grant_name: "", state: "", requester: "", ...o }) as PendingApproval;
+
+  it("applying wins over a stale in_progress plan (terminal/later-phase precedence)", () => {
+    expect(prLifecycleStage([
+      ex({ context: "plan/prod", status: "in_progress", created_at: "2026-07-12T01:00:00Z" }),
+      ex({ context: "apply/prod", status: "in_progress", created_at: "2026-07-12T03:00:00Z" }),
+    ], noApprovals)).toBe("applying");
+  });
+
+  it("applied wins over a stale in_progress plan", () => {
+    expect(prLifecycleStage([
+      ex({ context: "plan/prod", status: "in_progress", created_at: "2026-07-12T01:00:00Z" }),
+      ex({ context: "apply/prod", status: "applied", created_at: "2026-07-12T03:00:00Z" }),
+    ], noApprovals)).toBe("applied");
+  });
+
+  it("failed apply is terminal", () => {
+    expect(prLifecycleStage([
+      ex({ context: "apply/prod", status: "failed", created_at: "2026-07-12T03:00:00Z" }),
+    ], noApprovals)).toBe("failed");
+  });
+
+  it("planned then pending approval reads as awaiting-approval", () => {
+    expect(prLifecycleStage([
+      ex({ context: "plan/prod", status: "planned", created_at: "2026-07-12T01:00:00Z" }),
+    ], [pa({ pr: 0, target: "proj-a" })])).toBe("awaiting-approval");
+  });
+
+  it("plan success without a gate reads as planned", () => {
+    expect(prLifecycleStage([
+      ex({ context: "plan/prod", status: "planned", created_at: "2026-07-12T01:00:00Z" }),
+    ], noApprovals)).toBe("planned");
+  });
+
+  it("plan in_progress reads as planning", () => {
+    expect(prLifecycleStage([
+      ex({ context: "plan/prod", status: "in_progress", created_at: "2026-07-12T01:00:00Z" }),
+    ], noApprovals)).toBe("planning");
+  });
+
+  it("ignores superseded executions and empties to idle", () => {
+    expect(prLifecycleStage([
+      ex({ context: "apply/prod", status: "failed", superseded_by: "x", created_at: "2026-07-12T03:00:00Z" }),
+    ], noApprovals)).toBe("idle");
+    expect(prLifecycleStage([], noApprovals)).toBe("idle");
   });
 });
