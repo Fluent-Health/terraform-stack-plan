@@ -5,7 +5,9 @@ import { approvalsByTarget, groupByComponent } from "../prdata";
 import { GateApproval } from "./GateApproval";
 import { LifecycleStepper } from "./LifecycleStepper";
 import { StackDetail } from "./StackDetail";
+import { DepGraph } from "./DepGraph";
 import { SEM_DOT, statusSem } from "../status";
+import { graphCounts } from "../dag";
 
 /** TierPanel: one tier's current run for a PR — lifecycle stepper + gates strip + component groups + drill-in. */
 export function TierPanel(props: {
@@ -41,6 +43,7 @@ export function TierPanel(props: {
     });
   });
   const [open, setOpen] = createSignal<string | undefined>();
+  const [dagOpen, setDagOpen] = createSignal(false);
 
   // Pending approvals gating this PR's targets on this tier, rendered in a
   // standalone gates strip decoupled from component-group headers so every
@@ -131,6 +134,29 @@ export function TierPanel(props: {
                     </div>
                   )}
                 </Index>
+                {(() => {
+                  const gc = graphCounts(d().graph);
+                  return (
+                    <Show when={gc.stacks > 0}>
+                      <div class="rounded-field border border-base-300">
+                        <button
+                          class="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-base-100"
+                          onClick={() => setDagOpen(!dagOpen())}
+                        >
+                          <span>{dagOpen() ? "▾" : "▸"}</span>
+                          <span>
+                            Dependency graph ({gc.stacks} stacks, {gc.edges} edges)
+                          </span>
+                        </button>
+                        <Show when={dagOpen()}>
+                          <div class="p-2">
+                            <DepGraph detail={d()} />
+                          </div>
+                        </Show>
+                      </div>
+                    </Show>
+                  );
+                })()}
               </>
             )}
           </Show>
