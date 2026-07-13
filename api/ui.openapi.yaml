@@ -107,6 +107,27 @@ paths:
           $ref: "#/components/responses/UnknownTierText"
         "502":
           $ref: "#/components/responses/TierUnreachableText"
+  /api/tiers/{tier}/inspect/pool:
+    get:
+      operationId: getTierPool
+      summary: One tier's applier-pool slot occupancy and waiting list (proxied)
+      security:
+        - session: []
+      parameters:
+        - $ref: "#/components/parameters/Tier"
+      responses:
+        "200":
+          description: The tier contract's InspectPoolSet shape.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InspectPoolSet"
+        "401":
+          $ref: "#/components/responses/UnauthorizedText"
+        "404":
+          $ref: "#/components/responses/UnknownTierText"
+        "502":
+          $ref: "#/components/responses/TierUnreachableText"
   /api/tiers/{tier}/pr/{n}:
     get:
       operationId: getTierPR
@@ -227,5 +248,11 @@ components:
       type: object
       description: The tier contract's PRView, proxied verbatim.
       x-go-type: api.PRView
+      x-go-type-import:
+        path: github.com/Fluent-Health/terraform-stack-plan/internal/api
+    InspectPoolSet:
+      type: object
+      description: The tier contract's InspectPoolSet, proxied verbatim.
+      x-go-type: api.InspectPoolSet
       x-go-type-import:
         path: github.com/Fluent-Health/terraform-stack-plan/internal/api

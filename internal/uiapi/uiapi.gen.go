@@ -25,6 +25,9 @@ type ExecutionDetail = api.ExecutionDetail
 // ExecutionSummary The tier contract's ExecutionSummary, proxied verbatim.
 type ExecutionSummary = api.ExecutionSummary
 
+// InspectPoolSet The tier contract's InspectPoolSet, proxied verbatim.
+type InspectPoolSet = api.InspectPoolSet
+
 // Me defines model for Me.
 type Me struct {
 	// Email The verified Google identity of the session.
@@ -72,6 +75,9 @@ type ServerInterface interface {
 	// One tier execution's full state (proxied)
 	// (GET /api/tiers/{tier}/executions/{id})
 	GetTierExecution(w http.ResponseWriter, r *http.Request, tier Tier, id string)
+	// One tier's applier-pool slot occupancy and waiting list (proxied)
+	// (GET /api/tiers/{tier}/inspect/pool)
+	GetTierPool(w http.ResponseWriter, r *http.Request, tier Tier)
 	// One tier's view of a PR's identity and merge state (proxied)
 	// (GET /api/tiers/{tier}/pr/{n})
 	GetTierPR(w http.ResponseWriter, r *http.Request, tier Tier, n int)
@@ -260,6 +266,38 @@ func (siw *ServerInterfaceWrapper) GetTierExecution(w http.ResponseWriter, r *ht
 	handler.ServeHTTP(w, r)
 }
 
+// GetTierPool operation middleware
+func (siw *ServerInterfaceWrapper) GetTierPool(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "tier" -------------
+	var tier Tier
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tier", r.PathValue("tier"), &tier, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tier", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, SessionScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetTierPool(w, r, tier)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetTierPR operation middleware
 func (siw *ServerInterfaceWrapper) GetTierPR(w http.ResponseWriter, r *http.Request) {
 
@@ -426,6 +464,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/tiers/{tier}/approvals", wrapper.ListTierApprovals)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/tiers/{tier}/executions", wrapper.ListTierExecutions)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/tiers/{tier}/executions/{id}", wrapper.GetTierExecution)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/tiers/{tier}/inspect/pool", wrapper.GetTierPool)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/tiers/{tier}/pr/{n}", wrapper.GetTierPR)
 
 	return m
