@@ -25,3 +25,10 @@ web/ui/dist/
 
 # git worktrees (isolated dev workspaces; see using-git-worktrees)
 .worktrees/
+
+# Yarn Berry cache and install state
+web/ui/.yarn/*
+!web/ui/.yarn/patches/
+!web/ui/.yarn/plugins/
+!web/ui/.yarn/releases/
+!web/ui/.yarn/sdks/
