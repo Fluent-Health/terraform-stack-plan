@@ -1,7 +1,7 @@
 import { For, Show, Suspense, createEffect, createMemo, createResource, createSignal, onCleanup, onMount } from "solid-js";
 import { A } from "@solidjs/router";
-import { api, type ExecutionDetail, type ExecutionSummary, type PendingApproval, type PRView, type StackState } from "../api/client";
-import { STAGE_LABEL, contextKind, distinctPRs, mergeBadge, prLifecycleStage, primaryExec, relativeTime, rollupChangeCounts, stageSem } from "../prdata";
+import { api, type ExecutionDetail, type ExecutionSummary, type MergeQueue, type PendingApproval, type PRView, type StackState } from "../api/client";
+import { STAGE_LABEL, contextKind, distinctPRs, mergeBadge, prLifecycleStage, primaryExec, relativeTime, rollupChangeCounts, sortedQueueEntries, stageSem } from "../prdata";
 import { SEM_DOT } from "../status";
 
 type Tagged = ExecutionSummary & { tier: string };
@@ -48,9 +48,30 @@ export function Prs() {
 
   const prs = createMemo(() => distinctPRs(all()?.rows ?? []));
 
+  // Merge-queue hero: first tier with a live queue wins (degrade-through-tiers,
+  // same pattern as PrIdentity); an unreachable tier or old serve build just
+  // falls through to the next one.
+  const [queue] = createResource(
+    () => (tiers() ? { ts: tiers()!.map((t) => t.name), tick: tick() } : undefined),
+    async (k): Promise<MergeQueue | undefined> => {
+      for (const t of k.ts) {
+        try {
+          const q = await api.mergeQueue(t);
+          if (q.entries.length) return q;
+        } catch {
+          // unreachable tier or old serve build — try the next tier.
+        }
+      }
+      return undefined;
+    },
+  );
+
   return (
     <div class="space-y-4">
       <h1 class="text-2xl font-semibold">PRs</h1>
+      <Show when={queue()?.entries.length}>
+        <MergeQueueHero queue={queue()!} titles={new Map()} />
+      </Show>
       <Suspense fallback={<span class="loading loading-dots" />}>
         <Show when={prs().length} fallback={<p class="opacity-60 text-sm">No active PRs.</p>}>
           <div class="rounded-box border border-base-300 overflow-hidden bg-base-200">
@@ -60,6 +81,34 @@ export function Prs() {
           </div>
         </Show>
       </Suspense>
+    </div>
+  );
+}
+
+/** MergeQueueHero: a live strip of the repo's merge queue above the PR list,
+ * ordered by queue position. Titles are a nicety (looked up from a shared
+ * pr→title map when the caller has one); an empty map just renders `#pr`. */
+function MergeQueueHero(props: { queue: MergeQueue; titles: Map<number, string> }) {
+  const entries = createMemo(() => sortedQueueEntries(props.queue.entries));
+  return (
+    <div class="rounded-box border border-primary/40 bg-base-100 p-4 space-y-2">
+      <div class="flex items-center gap-2 text-sm">
+        <span class="font-semibold">Merge queue</span>
+        <span class="opacity-60 font-mono">{props.queue.branch}</span>
+      </div>
+      <div class="flex flex-wrap gap-2">
+        <For each={entries()}>
+          {(e, i) => (
+            <A href={`/pr/${e.pr}`} class="badge badge-lg gap-2" classList={{ "badge-primary": i() === 0, "badge-ghost": i() !== 0 }}>
+              <span class="font-mono">#{e.pr}</span>
+              <Show when={props.titles.get(e.pr)}>
+                <span class="max-w-[16rem] truncate">{props.titles.get(e.pr)}</span>
+              </Show>
+              <span class="opacity-70 text-xs">{i() === 0 ? "merging" : `#${e.position}`}</span>
+            </A>
+          )}
+        </For>
+      </div>
     </div>
   );
 }

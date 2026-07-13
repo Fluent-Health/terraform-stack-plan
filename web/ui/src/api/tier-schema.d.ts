@@ -276,6 +276,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/merge-queue": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read the repository's live GitHub merge queue (default branch)
+         * @description The repository's merge-queue entries for its default branch, via the
+         *     GitHub GraphQL API. Tier-agnostic (per-repo); repo is taken from this
+         *     tier's newest execution. Degrades to an empty queue (HTTP 200) when
+         *     the repo has no merge queue, the token cannot see it, or no execution
+         *     has been recorded yet.
+         */
+        get: operations["mergeQueue"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/execution/{id}": {
         parameters: {
             query?: never;
@@ -723,6 +747,19 @@ export interface components {
             repo: string;
             meta?: components["schemas"]["PRMeta"];
             merge: components["schemas"]["PRMergeState"];
+        };
+        /** @description A repository's GitHub merge queue for its default branch. */
+        MergeQueue: {
+            /** @description The queued branch (default branch); "" when unknown. */
+            branch: string;
+            entries: components["schemas"]["MergeQueueEntry"][];
+        };
+        /** @description One PR queued on the merge queue. */
+        MergeQueueEntry: {
+            position: number;
+            pr: number;
+            /** @description GitHub MergeQueueEntryState (QUEUED, MERGEABLE, AWAITING_CHECKS, LOCKED, UNMERGEABLE). */
+            state: string;
         };
         /** @description A database nullable int64, serialized raw (historical accident, preserved for wire compatibility). */
         NullInt64: {
@@ -1248,6 +1285,27 @@ export interface operations {
                 };
                 content: {
                     "text/plain": unknown;
+                };
+            };
+            500: components["responses"]["InternalText"];
+        };
+    };
+    mergeQueue: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The merge queue (possibly empty). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MergeQueue"];
                 };
             };
             500: components["responses"]["InternalText"];
