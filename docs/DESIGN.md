@@ -658,6 +658,21 @@ the budget entirely.
 - **Canonical plan filename is hardcoded `tfplan.json`** — matches Terragrunt's
   `--json-out-dir`; Terramate is scripted to emit the same. A tool that writes a
   different name needs a rename step.
+- **Merge-queue hero depends on GitHub-App token visibility of `mergeQueue`.**
+  `GET /api/merge-queue` reads the queue via GraphQL with the serve App's
+  installation token; whether that token can see the `repository.mergeQueue`
+  field is **unverified in prod** and repo/permission-dependent. By design this
+  is invisible-fail: every layer degrades to an empty queue and the hero hides,
+  so the worst case is "the hero never appears," never a broken page or 5xx.
+  Verify against a repo with a live queue during rollout; a transport/auth
+  failure is logged serve-side for diagnosis.
+- **PRs-list currency is a bounded fan-out poll, not push.** The landing list
+  builds each row from a per-PR fan-out (`api.pr` + a change-summary
+  `api.execution` per (PR, tier)) re-run on a 10s timer — roughly
+  `#activePRs × #tiers × 2` requests per tick. Fine for the small active-PR
+  count in practice; the change-summary column is `<Show>`-gated and can be
+  dropped if it ever proves heavy. It deliberately does not use the SSE
+  nudge→refetch model (that stays scoped to the PR/execution views).
 - **Per-stack log streaming for plan still requires the script to tee output to
   `--log-file`.** The `LogPump` tails `<stack>/tfstackplan.log` (the default) in
   each stack dir; nothing is streamed unless the stack's terramate script writes
@@ -1901,6 +1916,15 @@ snake_case shapes, unlike the frozen legacy execution read):
 - `GET /api/execution/{id}` additionally carries `verify_execution_id` — the
   latest verify execution for the same (pr, environment) — so the validation
   view needs no HTML-only plumbing.
+- `GET /api/merge-queue` — the repository's live GitHub merge queue for its
+  default branch (`{ branch, entries: [{ position, pr, state }] }`), via a
+  hand-rolled GraphQL `repository.mergeQueue` query on the serve GitHub client
+  (no new dependency; reuses the App-installation token). Tier-agnostic — repo is
+  taken from this tier's newest execution. **Degrades to an empty queue (HTTP
+  200)** when no execution exists yet, the repo has no queue, or the token can't
+  see the field; a transport/auth error is logged and still returns empty. Feeds
+  the PRs-list merge-queue hero (`api.mergeQueue`, proxied as
+  `/api/tiers/{tier}/merge-queue`).
 
 ### The central UI face (`tfstackplan ui`)
 
@@ -1957,7 +1981,14 @@ top-level `ui {}` block (`tier "<name>" { url }` per tier serve, `oauth {}`,
   **PR-centric** — the unit of work is a PR, which *contains* its tiers
   (`nonprod`/`prod` = the data `environment`), not the reverse. Three surfaces
   behind a persistent nav rail: **PRs** landing (`/`: active PRs newest-first,
-  each with a per-tier worst-of-live status dot; resilient to N tiers),
+  each row with title/author/last-updated, a rolled-up change summary, a
+  merge/automerge badge, and a **per-tier lifecycle stage** — planning → planned
+  → awaiting-approval → applying → applied → failed, derived so a terminal/later
+  phase wins over a stale in-progress earlier one, replacing the old worst-of dot
+  that pinned a PR to "running"; fed by a per-PR fan-out over the shipped
+  `api.pr`/`api.executions`/`api.approvals` with a light 10s poll; resilient to N
+  tiers; topped by a **live merge-queue hero** (from `GET /api/merge-queue`,
+  below) that hides when the queue is empty),
   **Ops board** (`/ops`: the debug surface — an **applier-slot panel** per tier
   (capacity `used/total`, one card per pool slot showing the occupying PR ·
   grant · elapsed or a dashed free slot, and waiting-for-slot PRs under a
