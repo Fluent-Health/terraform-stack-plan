@@ -36,41 +36,38 @@ type Execution struct {
 // before Init. Stack status is set only on first insert; a repeat Init (e.g.
 // run register followed by run plan) never regresses an already-advanced stack.
 func UpsertInit(db *sql.DB, in events.Init) error {
-	tx, err := db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	if _, err := tx.Exec(
-		`INSERT INTO executions (id, repo, sha, pr, environment, log_url, status_context)
-		 VALUES (?,?,?,?,?,?,?)
-		 ON CONFLICT(id) DO UPDATE SET repo=excluded.repo, sha=excluded.sha, pr=excluded.pr,
-		   environment=excluded.environment, log_url=excluded.log_url,
-		   status_context=excluded.status_context`,
-		in.ID, in.Repo, in.SHA, in.PR, in.Environment, in.LogURL, in.Context); err != nil {
-		return fmt.Errorf("insert execution: %w", err)
-	}
-	for _, s := range in.Stacks {
-		status := s.Status
-		if status == "" {
-			status = events.StatusPending
-		}
+	return Transact(db, func(tx *sql.Tx) error {
 		if _, err := tx.Exec(
-			`INSERT INTO stacks (execution_id, stack_path, project, status) VALUES (?,?,?,?)
-			 ON CONFLICT(execution_id, stack_path) DO UPDATE SET
-			   project=excluded.project`,
-			in.ID, s.Path, s.Project, string(status)); err != nil {
-			return fmt.Errorf("insert stack %q: %w", s.Path, err)
+			`INSERT INTO executions (id, repo, sha, pr, environment, log_url, status_context)
+			 VALUES (?,?,?,?,?,?,?)
+			 ON CONFLICT(id) DO UPDATE SET repo=excluded.repo, sha=excluded.sha, pr=excluded.pr,
+			   environment=excluded.environment, log_url=excluded.log_url,
+			   status_context=excluded.status_context`,
+			in.ID, in.Repo, in.SHA, in.PR, in.Environment, in.LogURL, in.Context); err != nil {
+			return fmt.Errorf("insert execution: %w", err)
 		}
-	}
-	for _, e := range in.Edges {
-		if _, err := tx.Exec(
-			`INSERT OR IGNORE INTO edges (execution_id, from_stack, to_stack) VALUES (?,?,?)`,
-			in.ID, e.From, e.To); err != nil {
-			return fmt.Errorf("insert edge: %w", err)
+		for _, s := range in.Stacks {
+			status := s.Status
+			if status == "" {
+				status = events.StatusPending
+			}
+			if _, err := tx.Exec(
+				`INSERT INTO stacks (execution_id, stack_path, project, status) VALUES (?,?,?,?)
+				 ON CONFLICT(execution_id, stack_path) DO UPDATE SET
+				   project=excluded.project`,
+				in.ID, s.Path, s.Project, string(status)); err != nil {
+				return fmt.Errorf("insert stack %q: %w", s.Path, err)
+			}
 		}
-	}
-	return tx.Commit()
+		for _, e := range in.Edges {
+			if _, err := tx.Exec(
+				`INSERT OR IGNORE INTO edges (execution_id, from_stack, to_stack) VALUES (?,?,?)`,
+				in.ID, e.From, e.To); err != nil {
+				return fmt.Errorf("insert edge: %w", err)
+			}
+		}
+		return nil
+	})
 }
 
 // UpsertPhase sets the execution's lifecycle phase, creating a bare row if Init
