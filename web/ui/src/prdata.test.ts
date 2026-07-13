@@ -4,12 +4,17 @@ import {
   primaryExec,
   latestPerContext,
   rollupSem,
+  prLifecycleStage,
   groupByProject,
   distinctPRs,
   progressCounts,
   approvalsByTarget,
+  relativeTime,
+  rollupChangeCounts,
+  mergeBadge,
+  sortedQueueEntries,
 } from "./prdata";
-import type { ExecutionSummary, PendingApproval, StackState } from "./api/client";
+import type { ExecutionSummary, PendingApproval, StackState, PRView } from "./api/client";
 
 const ex = (o: Partial<ExecutionSummary>): ExecutionSummary =>
   ({ id: "", pr: 0, context: "", phase: "", status: "", superseded_by: "",
@@ -117,5 +122,119 @@ describe("distinctPRs", () => {
       ex({ pr: 5, created_at: "2026-07-12T02:00:00Z" }),
       ex({ pr: 0 }),
     ])).toEqual([7, 5]);
+  });
+});
+
+describe("prLifecycleStage", () => {
+  const noApprovals: PendingApproval[] = [];
+  const pa = (o: Partial<PendingApproval>): PendingApproval =>
+    ({ pr: 0, environment: "", repo: "", class: "", target: "", grant_name: "", state: "", requester: "", ...o }) as PendingApproval;
+
+  it("applying wins over a stale in_progress plan (terminal/later-phase precedence)", () => {
+    expect(prLifecycleStage([
+      ex({ context: "plan/prod", status: "in_progress", created_at: "2026-07-12T01:00:00Z" }),
+      ex({ context: "apply/prod", status: "in_progress", created_at: "2026-07-12T03:00:00Z" }),
+    ], noApprovals)).toBe("applying");
+  });
+
+  it("applied wins over a stale in_progress plan", () => {
+    expect(prLifecycleStage([
+      ex({ context: "plan/prod", status: "in_progress", created_at: "2026-07-12T01:00:00Z" }),
+      ex({ context: "apply/prod", status: "applied", created_at: "2026-07-12T03:00:00Z" }),
+    ], noApprovals)).toBe("applied");
+  });
+
+  it("failed apply is terminal", () => {
+    expect(prLifecycleStage([
+      ex({ context: "apply/prod", status: "failed", created_at: "2026-07-12T03:00:00Z" }),
+    ], noApprovals)).toBe("failed");
+  });
+
+  it("planned then pending approval reads as awaiting-approval", () => {
+    expect(prLifecycleStage([
+      ex({ context: "plan/prod", status: "planned", created_at: "2026-07-12T01:00:00Z" }),
+    ], [pa({ pr: 0, target: "proj-a" })])).toBe("awaiting-approval");
+  });
+
+  it("plan success without a gate reads as planned", () => {
+    expect(prLifecycleStage([
+      ex({ context: "plan/prod", status: "planned", created_at: "2026-07-12T01:00:00Z" }),
+    ], noApprovals)).toBe("planned");
+  });
+
+  it("plan in_progress reads as planning", () => {
+    expect(prLifecycleStage([
+      ex({ context: "plan/prod", status: "in_progress", created_at: "2026-07-12T01:00:00Z" }),
+    ], noApprovals)).toBe("planning");
+  });
+
+  it("ignores superseded executions and empties to idle", () => {
+    expect(prLifecycleStage([
+      ex({ context: "apply/prod", status: "failed", superseded_by: "x", created_at: "2026-07-12T03:00:00Z" }),
+    ], noApprovals)).toBe("idle");
+    expect(prLifecycleStage([], noApprovals)).toBe("idle");
+  });
+});
+
+describe("relativeTime", () => {
+  const now = new Date("2026-07-12T12:00:00Z");
+  it("renders coarse buckets", () => {
+    expect(relativeTime("2026-07-12T11:59:50Z", now)).toBe("just now");
+    expect(relativeTime("2026-07-12T11:59:15Z", now)).toBe("just now"); // 45s → still "just now"
+    expect(relativeTime("2026-07-12T11:55:00Z", now)).toBe("5m ago");
+    expect(relativeTime("2026-07-12T09:00:00Z", now)).toBe("3h ago");
+    expect(relativeTime("2026-07-10T12:00:00Z", now)).toBe("2d ago");
+  });
+  it("returns empty for empty/invalid input", () => {
+    expect(relativeTime("", now)).toBe("");
+    expect(relativeTime("not-a-date", now)).toBe("");
+  });
+});
+
+describe("rollupChangeCounts", () => {
+  it("rolls up per-kind counts across stacks", () => {
+    const s = (counts: Record<string, number>): StackState => ({ path: "p", counts } as StackState);
+    expect(rollupChangeCounts([s({ add: 1, change: 2 }), s({ add: 2, destroy: 1 })])).toBe("+3 ~2 −1");
+  });
+  it("is empty when nothing changed", () => {
+    expect(rollupChangeCounts([{ path: "p" } as StackState])).toBe("");
+  });
+  it("includes replace and move glyphs", () => {
+    const s = (counts: Record<string, number>): StackState => ({ path: "p", counts } as StackState);
+    expect(rollupChangeCounts([s({ replace: 2, move: 3 })])).toBe("±2 ↔3");
+  });
+});
+
+describe("mergeBadge", () => {
+  const view = (o: Partial<PRView>): PRView =>
+    ({ pr: 1, repo: "o/r", merge: { environment: "", required_check: "", check_conclusion: "", merge_blocked: false, blocker: "" }, ...o } as PRView);
+  it("undefined for no view", () => expect(mergeBadge(undefined)).toBeUndefined());
+  it("blocked wins with amber", () => {
+    const b = mergeBadge(view({ merge: { environment: "", required_check: "", check_conclusion: "", merge_blocked: true, blocker: "waits on prod approval" } }))!;
+    expect(b).toEqual({ label: "waits on prod approval", sem: "waiting" });
+  });
+  it("automerge on when not blocked", () => {
+    const b = mergeBadge(view({ meta: { title: "t", body: "", author_login: "a", head_ref: "h", url: "", auto_merge: true } }))!;
+    expect(b).toEqual({ label: "automerge on", sem: "ok" });
+  });
+  it("mergeable when the check passed", () => {
+    const b = mergeBadge(view({ merge: { environment: "", required_check: "terraform/prod", check_conclusion: "success", merge_blocked: false, blocker: "" } }))!;
+    expect(b).toEqual({ label: "mergeable", sem: "ok" });
+  });
+  it("open by default", () => {
+    expect(mergeBadge(view({}))).toEqual({ label: "open", sem: "idle" });
+  });
+  it("blocked wins over automerge when both are set", () => {
+    const b = mergeBadge(view({
+      merge: { environment: "", required_check: "", check_conclusion: "", merge_blocked: true, blocker: "waits on prod approval" },
+      meta: { title: "t", body: "", author_login: "a", head_ref: "h", url: "", auto_merge: true },
+    }))!;
+    expect(b).toEqual({ label: "waits on prod approval", sem: "waiting" });
+  });
+});
+
+describe("sortedQueueEntries", () => {
+  it("orders ascending by position", () => {
+    expect(sortedQueueEntries([{ position: 3 }, { position: 1 }, { position: 2 }]).map((e) => e.position)).toEqual([1, 2, 3]);
   });
 });

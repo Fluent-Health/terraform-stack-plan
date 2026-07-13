@@ -11,6 +11,19 @@ type CheckRunUpdate struct {
 	Conclusion string // "" while running; otherwise success|failure|action_required|neutral
 }
 
+// MergeQueueEntry is one PR queued on a branch's GitHub merge queue.
+type MergeQueueEntry struct {
+	Position int
+	PR       int
+	State    string // GitHub MergeQueueEntryState (QUEUED, MERGEABLE, AWAITING_CHECKS, LOCKED, UNMERGEABLE)
+}
+
+// MergeQueueResult is a repository's merge queue for its default branch.
+type MergeQueueResult struct {
+	Branch  string
+	Entries []MergeQueueEntry
+}
+
 // GitHub is the surface the server needs from GitHub. A rich check run requires
 // a GitHub App with checks:write; the commit-status fallback (statuses:write)
 // posts a status whose target URL points at the live page, used only until an
@@ -35,6 +48,10 @@ type GitHub interface {
 	MergeGroupPRs(ctx context.Context, repo, headSHA string) ([]int, error)
 	// ReRequestCheckRun re-requests a GitHub check-run.
 	ReRequestCheckRun(ctx context.Context, repo string, checkRunID int64) error
+	// MergeQueue returns the repository's merge-queue entries for the default
+	// branch (GraphQL). A missing/invisible queue returns an empty result, not
+	// an error, so the UI simply hides the hero.
+	MergeQueue(ctx context.Context, repo string) (MergeQueueResult, error)
 }
 
 // MockGitHub is a test double for GitHub. Unset funcs are no-ops.
@@ -46,6 +63,7 @@ type MockGitHub struct {
 	PRAbandonedFn       func(ctx context.Context, repo string, pr int) (bool, error)
 	MergeGroupPRsFn     func(ctx context.Context, repo, headSHA string) ([]int, error)
 	ReRequestCheckRunFn func(ctx context.Context, repo string, checkRunID int64) error
+	MergeQueueFn        func(ctx context.Context, repo string) (MergeQueueResult, error)
 	// CreateCheckRunCalls counts CreateCheckRun invocations so tests can assert
 	// the check run is created exactly once (idempotency).
 	CreateCheckRunCalls int
@@ -100,4 +118,11 @@ func (m *MockGitHub) ReRequestCheckRun(ctx context.Context, repo string, checkRu
 		return m.ReRequestCheckRunFn(ctx, repo, checkRunID)
 	}
 	return nil
+}
+
+func (m *MockGitHub) MergeQueue(ctx context.Context, repo string) (MergeQueueResult, error) {
+	if m.MergeQueueFn != nil {
+		return m.MergeQueueFn(ctx, repo)
+	}
+	return MergeQueueResult{}, nil
 }

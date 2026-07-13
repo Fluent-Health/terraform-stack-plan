@@ -34,6 +34,9 @@ type Me struct {
 	Email string `json:"email"`
 }
 
+// MergeQueue The tier contract's MergeQueue, proxied verbatim.
+type MergeQueue = api.MergeQueue
+
 // PRView The tier contract's PRView, proxied verbatim.
 type PRView = api.PRView
 
@@ -78,6 +81,9 @@ type ServerInterface interface {
 	// One tier's applier-pool slot occupancy and waiting list (proxied)
 	// (GET /api/tiers/{tier}/inspect/pool)
 	GetTierPool(w http.ResponseWriter, r *http.Request, tier Tier)
+	// One tier's view of the repo's GitHub merge queue (proxied)
+	// (GET /api/tiers/{tier}/merge-queue)
+	GetTierMergeQueue(w http.ResponseWriter, r *http.Request, tier Tier)
 	// One tier's view of a PR's identity and merge state (proxied)
 	// (GET /api/tiers/{tier}/pr/{n})
 	GetTierPR(w http.ResponseWriter, r *http.Request, tier Tier, n int)
@@ -298,6 +304,38 @@ func (siw *ServerInterfaceWrapper) GetTierPool(w http.ResponseWriter, r *http.Re
 	handler.ServeHTTP(w, r)
 }
 
+// GetTierMergeQueue operation middleware
+func (siw *ServerInterfaceWrapper) GetTierMergeQueue(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "tier" -------------
+	var tier Tier
+
+	err = runtime.BindStyledParameterWithOptions("simple", "tier", r.PathValue("tier"), &tier, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tier", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, SessionScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetTierMergeQueue(w, r, tier)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetTierPR operation middleware
 func (siw *ServerInterfaceWrapper) GetTierPR(w http.ResponseWriter, r *http.Request) {
 
@@ -465,6 +503,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/tiers/{tier}/executions", wrapper.ListTierExecutions)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/tiers/{tier}/executions/{id}", wrapper.GetTierExecution)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/tiers/{tier}/inspect/pool", wrapper.GetTierPool)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/tiers/{tier}/merge-queue", wrapper.GetTierMergeQueue)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/tiers/{tier}/pr/{n}", wrapper.GetTierPR)
 
 	return m

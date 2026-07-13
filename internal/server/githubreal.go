@@ -308,3 +308,70 @@ func (c *RealClient) ReRequestCheckRun(ctx context.Context, repo string, checkRu
 	_, err = c.do(ctx, http.MethodPost, url, nil)
 	return err
 }
+
+// MergeQueue queries the repository's merge queue for its default branch via
+// the GraphQL API. A successful response with null repository or null
+// mergeQueue (no queue configured or not visible to the installation token)
+// degrades to an empty result within this method. Transport errors, token-mint
+// failures, or non-2xx HTTP responses are returned to the caller (the
+// /api/merge-queue HTTP handler degrades them to an empty queue and logs them).
+// GraphQL-level errors are handled implicitly: GitHub returns HTTP 200 with
+// null data.repository when the request has GraphQL errors, and the nil checks
+// below handle this case — there is no explicit errors-array inspection.
+func (c *RealClient) MergeQueue(ctx context.Context, repo string) (MergeQueueResult, error) {
+	owner, name, err := splitRepo(repo)
+	if err != nil {
+		return MergeQueueResult{}, err
+	}
+	const query = `query($owner:String!,$name:String!){repository(owner:$owner,name:$name){defaultBranchRef{name} mergeQueue{entries(first:50){nodes{position state pullRequest{number}}}}}}`
+	payload := map[string]any{
+		"query":     query,
+		"variables": map[string]string{"owner": owner, "name": name},
+	}
+	rb, err := c.do(ctx, http.MethodPost, apiBase+"/graphql", payload)
+	if err != nil {
+		return MergeQueueResult{}, err
+	}
+	var out struct {
+		Data struct {
+			Repository *struct {
+				DefaultBranchRef *struct {
+					Name string `json:"name"`
+				} `json:"defaultBranchRef"`
+				MergeQueue *struct {
+					Entries struct {
+						Nodes []struct {
+							Position    int    `json:"position"`
+							State       string `json:"state"`
+							PullRequest *struct {
+								Number int `json:"number"`
+							} `json:"pullRequest"`
+						} `json:"nodes"`
+					} `json:"entries"`
+				} `json:"mergeQueue"`
+			} `json:"repository"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rb, &out); err != nil {
+		return MergeQueueResult{}, err
+	}
+	var res MergeQueueResult
+	if out.Data.Repository == nil {
+		return res, nil // repo not visible → empty
+	}
+	if ref := out.Data.Repository.DefaultBranchRef; ref != nil {
+		res.Branch = ref.Name
+	}
+	mq := out.Data.Repository.MergeQueue
+	if mq == nil {
+		return res, nil // no merge queue configured → empty entries
+	}
+	for _, n := range mq.Entries.Nodes {
+		pr := 0
+		if n.PullRequest != nil {
+			pr = n.PullRequest.Number
+		}
+		res.Entries = append(res.Entries, MergeQueueEntry{Position: n.Position, PR: pr, State: n.State})
+	}
+	return res, nil
+}
