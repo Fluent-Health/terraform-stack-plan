@@ -51,11 +51,23 @@ func UpsertInit(db *sql.DB, in events.Init) error {
 			if status == "" {
 				status = events.StatusPending
 			}
+			// Counts are normally nil at Init (finalize backfills them via its
+			// own UPDATE), but honor an inline value when the caller has one
+			// up front — harmless in production, and lets tests seed a graph's
+			// op counts without a full finalize round-trip.
+			var counts string
+			if s.Counts != nil {
+				data, err := json.Marshal(s.Counts)
+				if err != nil {
+					return fmt.Errorf("marshal counts %q: %w", s.Path, err)
+				}
+				counts = string(data)
+			}
 			if _, err := tx.Exec(
-				`INSERT INTO stacks (execution_id, stack_path, project, status) VALUES (?,?,?,?)
+				`INSERT INTO stacks (execution_id, stack_path, project, status, counts) VALUES (?,?,?,?,?)
 				 ON CONFLICT(execution_id, stack_path) DO UPDATE SET
 				   project=excluded.project`,
-				in.ID, s.Path, s.Project, string(status)); err != nil {
+				in.ID, s.Path, s.Project, string(status), counts); err != nil {
 				return fmt.Errorf("insert stack %q: %w", s.Path, err)
 			}
 		}

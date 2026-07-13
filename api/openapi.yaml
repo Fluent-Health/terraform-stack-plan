@@ -335,6 +335,37 @@ paths:
                   $ref: "#/components/schemas/PendingApproval"
         "500":
           $ref: "#/components/responses/InternalText"
+  /api/lifecycle:
+    get:
+      operationId: getLifecycle
+      summary: A PR's folded phase-timeline for this tier
+      description: |
+        Folds this tier's non-superseded plan/apply/verify executions for the
+        PR into one ordered lifecycle timeline against the canonical phase
+        template. Observed phases render in time order; unobserved template
+        phases past the frontier render as pending; unknown/dynamic phases
+        pass through as generic working segments. Always a JSON array, never null.
+      security:
+        - oidc: [report, read, admin]
+      parameters:
+        - name: pr
+          in: query
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: The ordered lifecycle phases. Always an array, never null.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/LifecyclePhase"
+        "400":
+          $ref: "#/components/responses/BadRequestText"
+        "500":
+          $ref: "#/components/responses/InternalText"
   /api/pr/{n}:
     get:
       operationId: getPR
@@ -1061,6 +1092,35 @@ components:
         requester:
           type: string
           description: Leased requester SA for this grant.
+    LifecyclePhase:
+      type: object
+      description: >-
+        One phase of a PR/tier's folded lifecycle timeline. key is a canonical
+        template key or a raw dynamic phase name; result is derived server-side
+        (never stored).
+      required: [key, label, state]
+      properties:
+        key:
+          type: string
+          description: Canonical template key (prepare/init/moves/plan/classify/report/approve/apply/verify) or a raw dynamic phase name.
+        label:
+          type: string
+          description: Human caption for the phase.
+        state:
+          type: string
+          description: "done | now | pending | failed"
+        context:
+          type: string
+          description: "plan | apply | verify | gate"
+        started_at:
+          type: string
+          format: date-time
+        ended_at:
+          type: string
+          format: date-time
+        result:
+          type: string
+          description: Derived summary (rollup counts / gate count / wait reason).
     PRMeta:
       type: object
       description: >-
