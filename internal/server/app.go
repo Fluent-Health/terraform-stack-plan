@@ -307,6 +307,24 @@ func (a *App) supersedeExecution(oldID, newID string) {
 	if a.hub != nil {
 		a.hub.publish("exec:"+oldID, "superseded:"+newID)
 	}
+	go a.closeSupersededCheckRun(context.Background(), oldID, newID)
+}
+
+// closeSupersededCheckRun terminally updates a check-run on GitHub to completed/neutral
+// if it was marked as in_progress, so it doesn't get stranded forever.
+func (a *App) closeSupersededCheckRun(ctx context.Context, id, supersededBy string) {
+	e, err := store.GetExecution(a.db, id)
+	if err != nil || !e.CheckRunID.Valid || e.CheckRunID.Int64 == 0 {
+		return
+	}
+	upd := CheckRunUpdate{
+		Title:      "Superseded",
+		Summary:    fmt.Sprintf("This execution was superseded by a newer run: %s", supersededBy),
+		Conclusion: "neutral",
+	}
+	if err := a.gh.UpdateCheckRun(ctx, e.Repo, e.CheckRunID.Int64, upd); err != nil {
+		log.Printf("close superseded check run %s: %v", id, err)
+	}
 }
 
 // uiURL builds the central UI's execution-view URL for check-run Details
