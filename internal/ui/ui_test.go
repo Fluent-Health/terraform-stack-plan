@@ -318,7 +318,7 @@ func TestTierProxy(t *testing.T) {
 	if rr := get(t, h, "/api/tiers/nonprod/pr/7", sess); rr.Code != 200 || strings.TrimSpace(rr.Body.String()) != `{"n":7}` {
 		t.Errorf("PR proxy: %d %s", rr.Code, rr.Body.String())
 	}
-	// Pool proxy: body + bearer passthrough.
+	// Pool proxy: body passthrough.
 	if rr := get(t, h, "/api/tiers/nonprod/inspect/pool", sess); rr.Code != 200 ||
 		strings.TrimSpace(rr.Body.String()) != `{"environment":"nonprod","slots":[{"requester":"sa-1@fh.com","occupied":false}],"waiting":[]}` {
 		t.Errorf("pool proxy: %d %s", rr.Code, rr.Body.String())
