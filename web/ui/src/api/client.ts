@@ -12,6 +12,9 @@ export type PRView = components["schemas"]["PRView"];
 export type PRMeta = components["schemas"]["PRMeta"];
 export type PRMergeState = components["schemas"]["PRMergeState"];
 export type Catalog = components["schemas"]["Catalog"];
+export type InspectPoolSet = components["schemas"]["InspectPoolSet"];
+export type InspectPoolSlot = components["schemas"]["InspectPoolSlot"];
+export type InspectPoolWaitingPR = components["schemas"]["InspectPoolWaitingPR"];
 
 export interface Me {
   email: string;
@@ -49,6 +52,7 @@ export const api = {
   approvals: (tier: string) => j<PendingApproval[]>(`/api/tiers/${tier}/approvals`),
   execution: (tier: string, id: string) => j<ExecutionDetail>(`/api/tiers/${tier}/executions/${id}`),
   pr: (tier: string, n: number) => j<PRView>(`/api/tiers/${tier}/pr/${n}`),
+  pool: (tier: string) => j<InspectPoolSet>(`/api/tiers/${tier}/inspect/pool`),
   planFragment: async (tier: string, exec: string, stack: string): Promise<string> => {
     const r = await fetch(`/api/tiers/${tier}/plan/${exec}/${stack}`);
     if (r.status === 401) throw new Unauthorized();

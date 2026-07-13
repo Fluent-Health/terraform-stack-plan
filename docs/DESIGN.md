@@ -1958,9 +1958,12 @@ top-level `ui {}` block (`tier "<name>" { url }` per tier serve, `oauth {}`,
   (`nonprod`/`prod` = the data `environment`), not the reverse. Three surfaces
   behind a persistent nav rail: **PRs** landing (`/`: active PRs newest-first,
   each with a per-tier worst-of-live status dot; resilient to N tiers),
-  **Ops board** (`/ops`: the debug surface — errored runs + awaiting-approval,
-  each per-tier fetch isolated so a dead tier degrades only its own panel; a
-  placeholder marks the future applier-slot enumeration), and the **PR view**
+  **Ops board** (`/ops`: the debug surface — an **applier-slot panel** per tier
+  (capacity `used/total`, one card per pool slot showing the occupying PR ·
+  grant · elapsed or a dashed free slot, and waiting-for-slot PRs under a
+  saturated pool — from the tier's `GET /api/inspect/pool`, proxied through the
+  central-UI backend), errored runs, and awaiting-approval; each per-tier fetch
+  isolated so a dead tier degrades only its own panel), and the **PR view**
   hero (`/pr/{n}`): both tiers side-by-side, each showing its *newest* execution
   as primary — per-stack **progress blocks** (one block per changed stack,
   coloured by status, parallel-aware, failures visible) + **context chips** for
@@ -1987,8 +1990,9 @@ top-level `ui {}` block (`tier "<name>" { url }` per tier serve, `oauth {}`,
   fed by serve persisting PR metadata from the `pull_request` webhook (`pr_meta`
   table) and a per-tier read `GET /api/pr/{n}` (identity + merge state), additive
   and wire-neutral — an older serve simply lacks the route and the SPA degrades to
-  the minimal `#{n}` header. Still deferred to follow-on work: the applier-slot Ops
-  panel and richer per-stage progress detail (each needs further serve-side additions).
+  the minimal `#{n}` header. Still deferred to follow-on work: richer per-stage
+  progress detail (the tick-segment lifecycle stepper) and the per-tier execution
+  causality DAG on the PR view (each needs further serve-side additions).
 - **SPA delivery**: the binary embeds `internal/ui/dist/` (`go:embed`), served
   with an index.html fallback for client-side routes. The repo commits only a
   placeholder page; the release workflow builds the SPA once and overwrites

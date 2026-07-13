@@ -273,6 +273,8 @@ func TestTierProxy(t *testing.T) {
 			fmt.Fprint(w, `[{"pr":7}]`)
 		case r.URL.Path == "/api/pr/7":
 			fmt.Fprint(w, `{"n":7}`)
+		case r.URL.Path == "/api/inspect/pool":
+			fmt.Fprint(w, `{"environment":"nonprod","slots":[{"requester":"sa-1@fh.com","occupied":false}],"waiting":[]}`)
 		case strings.HasPrefix(r.URL.Path, "/api/execution/"):
 			if strings.HasSuffix(r.URL.Path, "/nope") {
 				http.Error(w, "not found", http.StatusNotFound)
@@ -316,6 +318,11 @@ func TestTierProxy(t *testing.T) {
 	if rr := get(t, h, "/api/tiers/nonprod/pr/7", sess); rr.Code != 200 || strings.TrimSpace(rr.Body.String()) != `{"n":7}` {
 		t.Errorf("PR proxy: %d %s", rr.Code, rr.Body.String())
 	}
+	// Pool proxy: body passthrough.
+	if rr := get(t, h, "/api/tiers/nonprod/inspect/pool", sess); rr.Code != 200 ||
+		strings.TrimSpace(rr.Body.String()) != `{"environment":"nonprod","slots":[{"requester":"sa-1@fh.com","occupied":false}],"waiting":[]}` {
+		t.Errorf("pool proxy: %d %s", rr.Code, rr.Body.String())
+	}
 	// Tier-side non-2xx statuses pass through untouched.
 	if rr := get(t, h, "/api/tiers/nonprod/executions/nope", sess); rr.Code != http.StatusNotFound {
 		t.Errorf("tier 404 should pass through: %d", rr.Code)
@@ -334,6 +341,9 @@ func TestTierProxy(t *testing.T) {
 	}
 	if rr := get(t, h, "/api/tiers/prod/pr/7", sess); rr.Code != http.StatusBadGateway || !strings.Contains(rr.Body.String(), "prod unreachable") {
 		t.Errorf("dead tier PR proxy: %d %s", rr.Code, rr.Body.String())
+	}
+	if rr := get(t, h, "/api/tiers/prod/inspect/pool", sess); rr.Code != http.StatusBadGateway || !strings.Contains(rr.Body.String(), "prod unreachable") {
+		t.Errorf("dead tier pool proxy: %d %s", rr.Code, rr.Body.String())
 	}
 	// Unknown tier → 404.
 	if rr := get(t, h, "/api/tiers/stage/executions", sess); rr.Code != http.StatusNotFound {
