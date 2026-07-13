@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"reflect"
 	"strings"
@@ -173,6 +174,26 @@ func (a *App) handleGetPR(w http.ResponseWriter, _ *http.Request, pr int) {
 			HeadRef:     meta.HeadRef,
 			Url:         meta.URL,
 			AutoMerge:   meta.AutoMerge,
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(out)
+}
+
+// handleMergeQueue serves GET /api/merge-queue: the repository's live GitHub
+// merge queue for its default branch, tier-agnostic. Repo comes from this
+// tier's newest execution; no execution, or any GitHub error, degrades to an
+// empty queue (still HTTP 200) so the UI simply hides the hero.
+func (a *App) handleMergeQueue(w http.ResponseWriter, r *http.Request) {
+	out := api.MergeQueue{Entries: []api.MergeQueueEntry{}}
+	if execs, err := store.ListExecutions(a.db, 1); err == nil && len(execs) > 0 {
+		if res, err := a.gh.MergeQueue(r.Context(), execs[0].Repo); err != nil {
+			log.Printf("serve: merge-queue read for %s failed: %v", execs[0].Repo, err)
+		} else {
+			out.Branch = res.Branch
+			for _, e := range res.Entries {
+				out.Entries = append(out.Entries, api.MergeQueueEntry{Position: e.Position, Pr: e.PR, State: e.State})
+			}
 		}
 	}
 	w.Header().Set("Content-Type", "application/json")

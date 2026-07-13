@@ -367,6 +367,27 @@ paths:
             text/plain: {}
         "500":
           $ref: "#/components/responses/InternalText"
+  /api/merge-queue:
+    get:
+      operationId: mergeQueue
+      summary: Read the repository's live GitHub merge queue (default branch)
+      description: |
+        The repository's merge-queue entries for its default branch, via the
+        GitHub GraphQL API. Tier-agnostic (per-repo); repo is taken from this
+        tier's newest execution. Degrades to an empty queue (HTTP 200) when
+        the repo has no merge queue, the token cannot see it, or no execution
+        has been recorded yet.
+      security:
+        - oidc: [report, read, admin]
+      responses:
+        "200":
+          description: The merge queue (possibly empty).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MergeQueue"
+        "500":
+          $ref: "#/components/responses/InternalText"
   /api/execution/{id}:
     get:
       operationId: getExecution
@@ -1096,6 +1117,28 @@ components:
           $ref: "#/components/schemas/PRMeta"
         merge:
           $ref: "#/components/schemas/PRMergeState"
+    MergeQueue:
+      type: object
+      description: A repository's GitHub merge queue for its default branch.
+      required: [branch, entries]
+      properties:
+        branch:
+          type: string
+          description: The queued branch (default branch); "" when unknown.
+        entries:
+          type: array
+          items:
+            $ref: "#/components/schemas/MergeQueueEntry"
+    MergeQueueEntry:
+      type: object
+      description: One PR queued on the merge queue.
+      required: [position, pr, state]
+      properties:
+        position: { type: integer }
+        pr: { type: integer }
+        state:
+          type: string
+          description: GitHub MergeQueueEntryState (QUEUED, MERGEABLE, AWAITING_CHECKS, LOCKED, UNMERGEABLE).
     NullInt64:
       type: object
       description: >-

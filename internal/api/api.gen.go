@@ -303,6 +303,22 @@ type InspectPoolWaitingPR struct {
 // LogChunk A slice of one stack's combined output.
 type LogChunk = events.LogChunk
 
+// MergeQueue A repository's GitHub merge queue for its default branch.
+type MergeQueue struct {
+	// Branch The queued branch (default branch); "" when unknown.
+	Branch  string            `json:"branch"`
+	Entries []MergeQueueEntry `json:"entries"`
+}
+
+// MergeQueueEntry One PR queued on the merge queue.
+type MergeQueueEntry struct {
+	Position int `json:"position"`
+	Pr       int `json:"pr"`
+
+	// State GitHub MergeQueueEntryState (QUEUED, MERGEABLE, AWAITING_CHECKS, LOCKED, UNMERGEABLE).
+	State string `json:"state"`
+}
+
 // NullInt64 A database nullable int64, serialized raw (historical accident, preserved for wire compatibility).
 type NullInt64 struct {
 	Int64 int64 `json:"Int64"`
@@ -615,6 +631,9 @@ type ClientInterface interface {
 	AppendLogsWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	AppendLogs(ctx context.Context, body AppendLogsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// MergeQueue request
+	MergeQueue(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ReportPhaseWithBody request with any body
 	ReportPhaseWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -1004,6 +1023,18 @@ func (c *Client) AppendLogsWithBody(ctx context.Context, contentType string, bod
 
 func (c *Client) AppendLogs(ctx context.Context, body AppendLogsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewAppendLogsRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) MergeQueue(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewMergeQueueRequest(c.Server)
 	if err != nil {
 		return nil, err
 	}
@@ -1924,6 +1955,33 @@ func NewAppendLogsRequestWithBody(server string, contentType string, body io.Rea
 	return req, nil
 }
 
+// NewMergeQueueRequest generates requests for MergeQueue
+func NewMergeQueueRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/merge-queue")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewReportPhaseRequest calls the generic ReportPhase builder with application/json body
 func NewReportPhaseRequest(server string, body ReportPhaseJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -2165,6 +2223,9 @@ type ClientWithResponsesInterface interface {
 	AppendLogsWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AppendLogsResponse, error)
 
 	AppendLogsWithResponse(ctx context.Context, body AppendLogsJSONRequestBody, reqEditors ...RequestEditorFn) (*AppendLogsResponse, error)
+
+	// MergeQueueWithResponse request
+	MergeQueueWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*MergeQueueResponse, error)
 
 	// ReportPhaseWithBodyWithResponse request with any body
 	ReportPhaseWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ReportPhaseResponse, error)
@@ -2804,6 +2865,36 @@ func (r AppendLogsResponse) ContentType() string {
 	return ""
 }
 
+type MergeQueueResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *MergeQueue
+}
+
+// Status returns HTTPResponse.Status
+func (r MergeQueueResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r MergeQueueResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r MergeQueueResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type ReportPhaseResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -3167,6 +3258,15 @@ func (c *ClientWithResponses) AppendLogsWithResponse(ctx context.Context, body A
 		return nil, err
 	}
 	return ParseAppendLogsResponse(rsp)
+}
+
+// MergeQueueWithResponse request returning *MergeQueueResponse
+func (c *ClientWithResponses) MergeQueueWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*MergeQueueResponse, error) {
+	rsp, err := c.MergeQueue(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseMergeQueueResponse(rsp)
 }
 
 // ReportPhaseWithBodyWithResponse request with arbitrary body returning *ReportPhaseResponse
@@ -3689,6 +3789,32 @@ func ParseAppendLogsResponse(rsp *http.Response) (*AppendLogsResponse, error) {
 	return response, nil
 }
 
+// ParseMergeQueueResponse parses an HTTP response from a MergeQueueWithResponse call
+func ParseMergeQueueResponse(rsp *http.Response) (*MergeQueueResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &MergeQueueResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest MergeQueue
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseReportPhaseResponse parses an HTTP response from a ReportPhaseWithResponse call
 func ParseReportPhaseResponse(rsp *http.Response) (*ReportPhaseResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -3812,6 +3938,9 @@ type ServerInterface interface {
 	// Ingest a per-stack output chunk
 	// (POST /api/logs)
 	AppendLogs(w http.ResponseWriter, r *http.Request)
+	// Read the repository's live GitHub merge queue (default branch)
+	// (GET /api/merge-queue)
+	MergeQueue(w http.ResponseWriter, r *http.Request)
 	// Narrate a lifecycle phase transition
 	// (POST /api/phase)
 	ReportPhase(w http.ResponseWriter, r *http.Request)
@@ -4389,6 +4518,26 @@ func (siw *ServerInterfaceWrapper) AppendLogs(w http.ResponseWriter, r *http.Req
 	handler.ServeHTTP(w, r)
 }
 
+// MergeQueue operation middleware
+func (siw *ServerInterfaceWrapper) MergeQueue(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, OidcScopes, []string{"report", "read", "admin"})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.MergeQueue(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ReportPhase operation middleware
 func (siw *ServerInterfaceWrapper) ReportPhase(w http.ResponseWriter, r *http.Request) {
 
@@ -4602,6 +4751,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/inspect/overview", wrapper.InspectOverview)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/inspect/pool", wrapper.InspectPool)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/logs", wrapper.AppendLogs)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/merge-queue", wrapper.MergeQueue)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/phase", wrapper.ReportPhase)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/pr/{n}", wrapper.GetPR)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/update", wrapper.UpdateStack)

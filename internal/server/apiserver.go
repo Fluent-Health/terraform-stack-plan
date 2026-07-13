@@ -41,6 +41,9 @@ func (s apiServer) ListApprovals(w http.ResponseWriter, r *http.Request) {
 func (s apiServer) GetPR(w http.ResponseWriter, r *http.Request, n int) {
 	s.app.handleGetPR(w, r, n)
 }
+func (s apiServer) MergeQueue(w http.ResponseWriter, r *http.Request) {
+	s.app.handleMergeQueue(w, r)
+}
 func (s apiServer) GetCatalog(w http.ResponseWriter, r *http.Request) {
 	s.app.handleGetCatalog(w, r)
 }

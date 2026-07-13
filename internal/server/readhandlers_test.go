@@ -428,3 +428,66 @@ func TestInspectPool(t *testing.T) {
 		t.Fatalf("waiting PR mismatch: %+v", wpr)
 	}
 }
+
+func TestHandleMergeQueue(t *testing.T) {
+	db := newServerTestDB(t)
+	a := New(db, &MockGitHub{
+		MergeQueueFn: func(_ context.Context, repo string) (MergeQueueResult, error) {
+			if repo != "octo/repo" {
+				t.Errorf("repo = %q; want octo/repo", repo)
+			}
+			return MergeQueueResult{Branch: "main", Entries: []MergeQueueEntry{{Position: 1, PR: 774, State: "MERGEABLE"}}}, nil
+		},
+	}, Config{})
+	if _, err := db.Exec(
+		`INSERT INTO executions (id, repo, sha, pr, environment) VALUES (?,?,?,?,?)`,
+		"e1", "octo/repo", "sha1", 774, "prod"); err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(a.Routes())
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/api/merge-queue")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d; want 200", resp.StatusCode)
+	}
+	var mq api.MergeQueue
+	if err := json.NewDecoder(resp.Body).Decode(&mq); err != nil {
+		t.Fatal(err)
+	}
+	if mq.Branch != "main" || len(mq.Entries) != 1 || mq.Entries[0].Pr != 774 {
+		t.Fatalf("mq = %+v", mq)
+	}
+}
+
+func TestHandleMergeQueueDegradesWithoutExecutions(t *testing.T) {
+	db := newServerTestDB(t)
+	a := New(db, &MockGitHub{
+		MergeQueueFn: func(context.Context, string) (MergeQueueResult, error) {
+			t.Error("MergeQueue must not be called when no execution exists")
+			return MergeQueueResult{}, nil
+		},
+	}, Config{})
+	srv := httptest.NewServer(a.Routes())
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/api/merge-queue")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d; want 200", resp.StatusCode)
+	}
+	var mq api.MergeQueue
+	if err := json.NewDecoder(resp.Body).Decode(&mq); err != nil {
+		t.Fatal(err)
+	}
+	if len(mq.Entries) != 0 {
+		t.Fatalf("entries = %+v; want empty", mq.Entries)
+	}
+}
