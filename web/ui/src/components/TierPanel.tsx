@@ -1,13 +1,13 @@
-import { Index, Show, Suspense, createEffect, createMemo, createResource, createSignal, onCleanup } from "solid-js";
+import { For, Index, Show, Suspense, createEffect, createMemo, createResource, createSignal, onCleanup } from "solid-js";
 import { useSearchParams } from "@solidjs/router";
 import { api, executionEventsURL, type ExecutionSummary, type StackState } from "../api/client";
-import { approvalsByTarget, groupByProject } from "../prdata";
+import { approvalsByTarget, groupByComponent } from "../prdata";
 import { GateApproval } from "./GateApproval";
 import { LifecycleStepper } from "./LifecycleStepper";
 import { StackDetail } from "./StackDetail";
 import { SEM_DOT, statusSem } from "../status";
 
-/** TierPanel: one tier's current run for a PR — lifecycle stepper + project groups + drill-in. */
+/** TierPanel: one tier's current run for a PR — lifecycle stepper + gates strip + component groups + drill-in. */
 export function TierPanel(props: {
   tier: string;
   summary: ExecutionSummary;
@@ -42,8 +42,9 @@ export function TierPanel(props: {
   });
   const [open, setOpen] = createSignal<string | undefined>();
 
-  // Pending approvals gating this PR's projects on this tier, for the
-  // in-context Approve/Deny affordance on gated project-group headers.
+  // Pending approvals gating this PR's targets on this tier, rendered in a
+  // standalone gates strip decoupled from component-group headers so every
+  // pending approval for this PR/tier is visible regardless of grouping.
   const [approvals, { refetch: refetchApprovals }] = createResource(
     () => props.tier,
     (tier) => api.approvals(tier),
@@ -83,14 +84,25 @@ export function TierPanel(props: {
                 <Show when={lifecycle()} fallback={<span class="loading loading-dots loading-sm" />}>
                   {(lp) => <LifecycleStepper phases={lp()} />}
                 </Show>
-                <Index each={groupByProject(d().graph?.stacks ?? [])}>
+                <Show when={[...gates().values()].length > 0}>
+                  <div class="rounded-field border border-warning/40 bg-warning/5 p-2 flex flex-col gap-2">
+                    <span class="text-xs font-semibold text-warning">⚠ needs approval</span>
+                    <For each={[...gates().values()]}>
+                      {(a) => (
+                        <div class="flex items-center gap-2 text-xs">
+                          <span class="font-mono">{a.target}</span>
+                          <GateApproval tier={props.tier} approval={a} onDecided={onDecided} />
+                        </div>
+                      )}
+                    </For>
+                  </div>
+                </Show>
+                <Index each={groupByComponent(d().graph?.stacks ?? [])}>
                   {(g) => (
                     <div class="rounded-field border border-base-300" classList={{ "border-error/50": g().failed }}>
                       <div class="px-3 py-2 bg-base-100 rounded-t-field flex items-center gap-2">
-                        <span class="text-xs font-mono">{g().project}</span>
-                        <Show when={gates().get(g().project)}>
-                          {(a) => <GateApproval tier={props.tier} approval={a()} onDecided={onDecided} />}
-                        </Show>
+                        <span class="text-xs font-mono">{g().component}</span>
+                        <span class="text-xs opacity-50 ml-auto">{g().stacks.length}</span>
                       </div>
                       <Index each={g().stacks}>
                         {(s) => (
