@@ -86,6 +86,18 @@ function Briefing(props: { tier: string; detail: ExecutionDetail }) {
         </div>
       </header>
 
+      {/* Dependency DAG SVG representation */}
+      <Show when={stacks().length > 0}>
+        <section class="card bg-base-100 shadow-sm overflow-hidden">
+          <div class="card-body p-4 gap-2">
+            <h2 class="card-title text-base">dependency dag</h2>
+            <div class="flex justify-center bg-base-100 p-4 rounded-box border border-base-300 overflow-auto">
+              <img src={`/img/${props.detail.ID}.svg`} class="max-w-full h-auto dark:invert" alt="Execution DAG" />
+            </div>
+          </div>
+        </section>
+      </Show>
+
       <Show when={(props.detail.gates ?? []).length > 0}>
         <section class="card bg-base-100 shadow-sm border-l-4 border-warning">
           <div class="card-body p-4">
