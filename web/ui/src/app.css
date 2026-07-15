@@ -61,3 +61,25 @@ a,
 .cursor-pointer {
   cursor: pointer;
 }
+
+/* Stack drill-in: animate the detail open (grid-rows 0fr→1fr keeps the page
+   from jumping; the inner wrapper must be allowed to shrink). */
+.stack-open {
+  display: grid;
+  grid-template-rows: 1fr;
+  animation: stack-open 200ms ease-out;
+}
+.stack-open > * {
+  overflow: hidden;
+  min-height: 0;
+}
+@keyframes stack-open {
+  from {
+    grid-template-rows: 0fr;
+    opacity: 0;
+  }
+  to {
+    grid-template-rows: 1fr;
+    opacity: 1;
+  }
+}

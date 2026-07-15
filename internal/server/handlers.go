@@ -306,6 +306,19 @@ func (a *App) handleFinalize(w http.ResponseWriter, r *http.Request) {
 	if g, gerr := store.LoadGraph(a.db, f.ID); gerr == nil {
 		a.finalizeLogs(r.Context(), f.ID, g.Stacks)
 	}
+	// A non-failed finalize is terminal for plan and verify runs — persist the
+	// run-level success or the execution reads in_progress forever (lifecycle
+	// bar stuck on its last phase, PRs list stuck "planning"). Gate state is
+	// tracked separately (gate_targets), so a still-gated plan is a succeeded
+	// RUN awaiting approval, not a running one. Apply contexts are excluded:
+	// the classify pass emits a mid-apply Finalize; driveApply owns their
+	// terminal status.
+	if !isApplyContext(e.StatusContext) {
+		if err := store.SetExecutionStatus(a.db, f.ID, "success"); err != nil {
+			http.Error(w, "set success", http.StatusInternalServerError)
+			return
+		}
+	}
 	if !isApplyContext(e.StatusContext) && e.PR > 0 && !a.runTriggerArmed() {
 		// Legacy two-check mode only: consolidated tiers render the lock
 		// verdict inside terraform/<env> during the terminal RenderCheckRun.

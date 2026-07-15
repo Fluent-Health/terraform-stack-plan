@@ -98,6 +98,17 @@ func SeedScenario(ctx context.Context, baseURL string) (string, string, error) {
 		return "", "", fmt.Errorf("plan init failed: %w", err)
 	}
 
+	// Narrate the real CI phase sequence, including the double `warming` a real
+	// run emits (the early CI tick and run plan's provider-cache warm) with
+	// linting between — the lifecycle fold must coalesce both into one
+	// "prepare" segment. This keeps demo mode a regression playground for the
+	// repeated-segment bug.
+	for _, ph := range []events.Phase{events.PhaseWarming, events.PhaseLinting, events.PhaseWarming, events.PhasePlanning} {
+		if err := post(ctx, hc, baseURL+"/api/phase", events.PhaseEvent{ID: planID, Phase: ph}); err != nil {
+			return "", "", fmt.Errorf("plan phase %s failed: %w", ph, err)
+		}
+	}
+
 	planUpdates := []events.Update{
 		{ID: planID, Stack: "infra/vpc", Status: events.StatusNochange},
 		{ID: planID, Stack: "infra/dns", Status: events.StatusNochange},
@@ -140,6 +151,12 @@ func SeedScenario(ctx context.Context, baseURL string) (string, string, error) {
 		},
 	}
 
+	for _, ph := range []events.Phase{events.PhaseClassify, events.PhaseReport} {
+		if err := post(ctx, hc, baseURL+"/api/phase", events.PhaseEvent{ID: planID, Phase: ph}); err != nil {
+			return "", "", fmt.Errorf("plan phase %s failed: %w", ph, err)
+		}
+	}
+
 	if err := post(ctx, hc, baseURL+"/api/finalize", planFinalizeEv); err != nil {
 		return "", "", fmt.Errorf("plan finalize failed: %w", err)
 	}
@@ -161,6 +178,12 @@ func SeedScenario(ctx context.Context, baseURL string) (string, string, error) {
 
 	if err := post(ctx, hc, baseURL+"/api/init", applyInitEv); err != nil {
 		return "", "", fmt.Errorf("apply init failed: %w", err)
+	}
+
+	for _, ph := range []events.Phase{events.PhaseWarming, events.PhaseMoves, events.PhaseApplying} {
+		if err := post(ctx, hc, baseURL+"/api/phase", events.PhaseEvent{ID: applyID, Phase: ph}); err != nil {
+			return "", "", fmt.Errorf("apply phase %s failed: %w", ph, err)
+		}
 	}
 
 	applyUpdates := []events.Update{

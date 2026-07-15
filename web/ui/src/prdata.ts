@@ -179,6 +179,20 @@ export function relativeTime(iso: string, now: Date = new Date()): string {
   return new Date(t).toLocaleDateString();
 }
 
+// stackHasChanges reports whether a stack's plan carries any operation — the
+// scan axis of the tier panel: changed stacks read loud, no-change stacks
+// recede.
+export function stackHasChanges(s: StackState): boolean {
+  const c = s.counts;
+  if (!c) return false;
+  return Boolean(c.add || c.change || c.replace || c.destroy || c.move);
+}
+
+// changedStackCount counts the stacks with at least one operation.
+export function changedStackCount(stacks: StackState[]): number {
+  return stacks.filter(stackHasChanges).length;
+}
+
 // rollupChangeCounts sums per-kind operation counts across stacks into the
 // reviewer glyph label "+a ~b ±c −d ↔e" (same vocabulary as the tier panel).
 export function rollupChangeCounts(stacks: StackState[]): string {

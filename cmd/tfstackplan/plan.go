@@ -54,7 +54,8 @@ func runPlan(args []string) int {
 		fmt.Fprintln(os.Stderr, "tfstackplan run plan:", err)
 		return 1
 	}
-	edges, _ := tm.RunGraph(ctx) // best-effort; edges only enrich the graph
+	rawEdges, _ := tm.RunGraph(ctx) // best-effort; edges only enrich the graph
+	edges := runner.NormalizeEdges(stacks, rawEdges)
 
 	repo, sha := os.Getenv("TFSTACKPLAN_REPO"), os.Getenv("TFSTACKPLAN_SHA")
 	pr := atoiOr0(os.Getenv("TFSTACKPLAN_PR"))

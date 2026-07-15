@@ -658,14 +658,33 @@ the budget entirely.
 - **Canonical plan filename is hardcoded `tfplan.json`** — matches Terragrunt's
   `--json-out-dir`; Terramate is scripted to emit the same. A tool that writes a
   different name needs a rename step.
-- **Lifecycle-stepper fold has a few known rough edges** (all cosmetic, none
-  affect gate/apply correctness): a folded plan+apply timeline shows two
-  `prepare`/`report` segments (both contexts emit those phases), with the
-  apply-side `report` landing after the ┆ divider; the synthetic `approve`
-  segment does not special-case the `EXPIRED` grant state (it reads as
-  pending, understating a lapsed grant); and `approvalsByTarget` keys the gates
-  strip by target alone, so two pending approvals for the same target but
-  different class would collapse. Tracked for a follow-up pass.
+- **Lifecycle-stepper fold: one segment per canonical key, newest run per
+  context.** The fold keeps only the newest non-superseded execution per status
+  context (supersession only links same-SHA reruns, so each push leaves its
+  predecessor live — folding them all repeated the whole plan side once per
+  push), and a re-observed canonical key coalesces into its first segment
+  (e.g. the two `warming` ticks a real plan run emits — the early CI tick and
+  `run plan`'s provider-cache warm — render as ONE `prepare`). Same-second
+  phase-row ties across executions keep execution order (oldest exec first),
+  not id order. Remaining rough edges (cosmetic): the synthetic `approve`
+  segment does not special-case the `EXPIRED` grant state (reads as pending),
+  and `approvalsByTarget` keys the gates strip by target alone, so two pending
+  approvals for the same target but different class would collapse.
+- **Plan/verify executions conclude at finalize.** A non-failed `/api/finalize`
+  for a non-apply context persists execution status `success` (gate state is
+  tracked separately in `gate_targets`); without this, plan rows stayed
+  `in_progress` forever — stepper stuck at `report · now`, PRs list stuck
+  "planning". Apply contexts are excluded (the classify pass emits a mid-apply
+  Finalize); `driveApply` owns their terminal status.
+- **Dependency-graph edges are normalized to the stack namespace at record
+  time.** `terramate list` under `--dir stacks/<tier>` yields tier-relative
+  stack paths while `experimental run-graph` labels nodes project-root-relative
+  — stored raw, every edge dangled and the UI graph rendered blank.
+  `runner.NormalizeEdges` (applied by all five `run *` drivers before Init)
+  suffix-matches endpoints onto the listed stacks and drops edges touching
+  stacks outside the run's set. The SPA applies the same normalization
+  defensively (`normalizedEdges` in `dag.ts`) so executions stored by older
+  runners still render.
 - **Merge-queue hero depends on GitHub-App token visibility of `mergeQueue`.**
   `GET /api/merge-queue` reads the queue via GraphQL with the serve App's
   installation token; whether that token can see the `repository.mergeQueue`
@@ -1933,18 +1952,21 @@ snake_case shapes, unlike the frozen legacy execution read):
   see the field; a transport/auth error is logged and still returns empty. Feeds
   the PRs-list merge-queue hero (`api.mergeQueue`, proxied as
   `/api/tiers/{tier}/merge-queue`).
-- `GET /api/lifecycle?pr={n}` — folds this tier's non-superseded
-  plan/apply/verify executions for the PR into one ordered `LifecyclePhase[]`
-  against the canonical phase template. Backed by an append-only
-  `execution_phases` history table (migration 015; `UpsertPhase` appends a row
-  per transition inside the same `Transact` as the current-phase overwrite);
-  per-phase `result` (rollup counts / gate count / apply wait-reason) and the
-  synthetic `approve` phase are **derived on read**, never stored. Observed
-  phases render in timestamp order (last = now, or done on terminal success, or
-  failed); unobserved template keys append as pending; unknown/dynamic phases
-  pass through as generic segments. Always an array, never null. Feeds the PR
-  view's lifecycle stepper (`api.lifecycle`, proxied as
-  `/api/tiers/{tier}/lifecycle`).
+- `GET /api/lifecycle?pr={n}` — folds the PR's **newest non-superseded
+  execution per status context** (plan/apply/verify each contribute one run;
+  older pushes' still-live runs are excluded) into one ordered
+  `LifecyclePhase[]` against the canonical phase template. Backed by an
+  append-only `execution_phases` history table (migration 015; `UpsertPhase`
+  appends a row per transition inside the same `Transact` as the current-phase
+  overwrite); per-phase `result` (rollup counts / gate count / apply
+  wait-reason) and the synthetic `approve` phase are **derived on read**, never
+  stored. Observed phases render in timestamp order with **at most one segment
+  per canonical key** (a re-observed key — e.g. a run's second `warming` —
+  coalesces into its first segment, adopting the latest end/state); last = now,
+  or done on terminal success, or failed; unobserved template keys append as
+  pending; unknown/dynamic phases pass through as generic segments. Always an
+  array, never null. Feeds the PR view's lifecycle stepper (`api.lifecycle`,
+  proxied as `/api/tiers/{tier}/lifecycle`).
 
 ### The central UI face (`tfstackplan ui`)
 
@@ -2023,11 +2045,19 @@ top-level `ui {}` block (`tier "<name>" { url }` per tier serve, `oauth {}`,
   verify`) with a ┆ divider before the gate/apply side, a "happening now"
   caption below, and rich per-phase hover (done ✓ + result / now ▸ running /
   pending ○ + wait reason). A terminally-succeeded last phase renders done, not
-  a perpetual "now". Fed by `GET /api/lifecycle?pr={n}` (below). Changes are
+  a perpetual "now". Fed by `GET /api/lifecycle?pr={n}` (below). A prominent
+  **change-summary tagline** sits under the stepper (`+a ~b ±c −d ↔e · k of N
+  stacks changed`, or a muted "No changes across N stacks"). Changes are
   grouped by **path-derived component** (the stack path minus its leaf, always
-  present — no "untagged" catch-all), each group listing its stacks (path,
+  present — no "untagged" catch-all), each group header carrying its rolled-up
+  counts (or a dimmed "no changes"), each group listing its stacks (path,
   counts, status) with an errored stack's `detail` inline and an inline Plan/Log
-  drill-in. Pending PAM approvals surface in a dedicated **gates strip** above
+  drill-in. **No-change stacks read visually distinct** (dimmed row, "— no
+  changes" instead of a counts chip) so the changed set scans at a glance; the
+  drill-in opens with a grid-rows expand animation and its own Suspense
+  boundary + fixed-height skeleton, and the tier panel reads every resource via
+  `.latest`, so neither an SSE-driven refetch nor opening a stack ever
+  collapses the panel to a loading fallback (the v0.26 flicker). Pending PAM approvals surface in a dedicated **gates strip** above
   the groups — enumerated from the PR-filtered `/api/approvals`, decoupled from
   grouping so an approval always shows regardless of its target (this fixed a
   bug where an approval whose target matched no group was invisible on the PR

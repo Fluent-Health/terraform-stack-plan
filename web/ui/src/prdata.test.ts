@@ -11,6 +11,8 @@ import {
   approvalsByTarget,
   relativeTime,
   rollupChangeCounts,
+  stackHasChanges,
+  changedStackCount,
   mergeBadge,
   sortedQueueEntries,
 } from "./prdata";
@@ -193,6 +195,23 @@ describe("relativeTime", () => {
   it("returns empty for empty/invalid input", () => {
     expect(relativeTime("", now)).toBe("");
     expect(relativeTime("not-a-date", now)).toBe("");
+  });
+});
+
+describe("stackHasChanges / changedStackCount", () => {
+  const s = (counts?: Record<string, number>): StackState => ({ path: "p", counts } as StackState);
+  it("false without counts or with all-zero counts", () => {
+    expect(stackHasChanges(s())).toBe(false);
+    expect(stackHasChanges(s({}))).toBe(false);
+    expect(stackHasChanges(s({ add: 0, change: 0 }))).toBe(false);
+  });
+  it("true for any operation kind", () => {
+    for (const k of ["add", "change", "replace", "destroy", "move"]) {
+      expect(stackHasChanges(s({ [k]: 1 }))).toBe(true);
+    }
+  });
+  it("counts changed stacks", () => {
+    expect(changedStackCount([s({ add: 1 }), s({}), s(), s({ move: 2 })])).toBe(2);
   });
 });
 

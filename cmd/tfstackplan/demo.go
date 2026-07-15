@@ -25,6 +25,9 @@ func buildDemoApp(ctx context.Context, dbPath string) (*server.App, func(), erro
 		GitHubWebhookSecret: "demo-gh-secret",
 		PublicBaseURL:       "http://127.0.0.1:8080",
 		LogsDir:             logsDir,
+		// Must match the environment the seeded scenario events carry, or the
+		// tier-scoped reads (e.g. /api/lifecycle) filter them all out.
+		Environment: "destructive+iam",
 	})
 
 	app.Approval = approval.NewFake()

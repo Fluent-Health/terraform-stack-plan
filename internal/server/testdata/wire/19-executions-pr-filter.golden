@@ -1,4 +1,4 @@
 HTTP 200
 Content-Type: application/json
 
-[{"context":"plan/staging","created_at":"2030-01-02T03:04:05Z","environment":"staging","id":"e1","log_url":"https://ci/logs/1","phase":"planning","pr":7,"progress_label":"planning…","progress_pct":20,"repo":"o/r","sha":"cafe1234cafe","status":"in_progress","superseded_by":""}]
+[{"context":"plan/staging","created_at":"2030-01-02T03:04:05Z","environment":"staging","id":"e1","log_url":"https://ci/logs/1","phase":"planning","pr":7,"progress_label":"planning…","progress_pct":20,"repo":"o/r","sha":"cafe1234cafe","status":"success","superseded_by":""}]

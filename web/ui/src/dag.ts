@@ -23,6 +23,32 @@ export function changeReasonFor(reasons: Reason[] | undefined, stack: string): s
   }
 }
 
+export type GraphEdge = { from: string; to: string };
+
+/**
+ * normalizedEdges maps stored edge endpoints onto the graph's stack namespace
+ * and drops edges touching stacks outside the set. Older runners recorded
+ * run-graph edges project-root-relative (stacks/nonprod/cluster/x) while stack
+ * paths are tier-relative (cluster/x) — rendered as-is every edge dangles and
+ * the ELK layout fails. Exact match wins; otherwise an endpoint matches the
+ * listed stack it path-suffixes ("…/" + stack).
+ */
+export function normalizedEdges(graph: Graph | undefined): GraphEdge[] {
+  const stacks = (graph?.stacks ?? []).map((s) => s.path);
+  const exact = new Set(stacks);
+  const resolve = (endpoint: string): string | undefined => {
+    if (exact.has(endpoint)) return endpoint;
+    return stacks.find((s) => endpoint.endsWith("/" + s));
+  };
+  const out: GraphEdge[] = [];
+  for (const e of graph?.edges ?? []) {
+    const from = resolve(e.from);
+    const to = resolve(e.to);
+    if (from !== undefined && to !== undefined) out.push({ from, to });
+  }
+  return out;
+}
+
 export function graphCounts(graph: Graph | undefined): { stacks: number; edges: number } {
-  return { stacks: graph?.stacks?.length ?? 0, edges: graph?.edges?.length ?? 0 };
+  return { stacks: graph?.stacks?.length ?? 0, edges: normalizedEdges(graph).length };
 }
