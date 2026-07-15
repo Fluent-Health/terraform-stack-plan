@@ -1121,6 +1121,18 @@ components:
         result:
           type: string
           description: Derived summary (rollup counts / gate count / wait reason).
+        detail:
+          type: string
+          description: >-
+            Human sub-phase currently running inside this segment (e.g.
+            "warming caches" while the apply segment prepares). Only set on the
+            "now" segment when the raw phase is finer than the segment.
+        progress_pct:
+          type: integer
+          description: >-
+            Within-segment completion percentage, derived from per-stack
+            terminal statuses (k of N stacks). Only set on the "now" segment
+            when real per-stack progress is known.
     PRMeta:
       type: object
       description: >-

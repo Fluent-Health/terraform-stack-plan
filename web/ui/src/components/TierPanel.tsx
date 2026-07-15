@@ -1,7 +1,8 @@
 import { For, Index, Show, Suspense, createEffect, createMemo, createResource, createSignal, onCleanup } from "solid-js";
 import { useSearchParams } from "@solidjs/router";
-import { api, executionEventsURL, type ExecutionSummary, type StackState } from "../api/client";
-import { approvalsByTarget, changedStackCount, groupByComponent, rollupChangeCounts, stackHasChanges } from "../prdata";
+import { api, executionEventsURL, type ExecutionSummary, type LifecyclePhase, type StackState } from "../api/client";
+import { approvalsByTarget, changedStackCount, countsKnown, groupByComponent, rollupChangeCounts, stackHasChanges } from "../prdata";
+import { stageFromLifecycle, type LifecycleStage } from "../stepper";
 import { GateApproval } from "./GateApproval";
 import { LifecycleStepper } from "./LifecycleStepper";
 import { StackDetail } from "./StackDetail";
@@ -67,6 +68,8 @@ export function TierPanel(props: {
     refetchDetail();
   };
 
+  const stage = createMemo(() => stageFromLifecycle(lifecycle.latest ?? []));
+
   return (
     <section class="card bg-base-200 border border-base-300">
       <div class="card-body p-4 gap-3">
@@ -76,6 +79,9 @@ export function TierPanel(props: {
             style={{ background: SEM_DOT[statusSem(props.summary.status)] }}
           />
           <span class="font-bold text-sm uppercase tracking-wide">{props.tier}</span>
+          <Show when={stage() || undefined}>
+            {(st) => <StageBadge stage={st() as Exclude<LifecycleStage, "">} />}
+          </Show>
 
           <button
             class="ml-auto btn btn-xs btn-ghost gap-1 px-2 text-primary"
@@ -95,7 +101,7 @@ export function TierPanel(props: {
               <Show when={lifecycle.latest} fallback={<div class="skeleton h-2 w-full rounded" />}>
                 {(lp) => <LifecycleStepper phases={lp()} />}
               </Show>
-              <ChangeSummary stacks={d().graph?.stacks ?? []} />
+              <ChangeSummary stacks={d().graph?.stacks ?? []} lifecycle={lifecycle.latest ?? []} />
               <Show when={[...gates().values()].length > 0}>
                 <div class="rounded-field border border-warning/40 bg-warning/5 p-2 flex flex-col gap-2">
                   <span class="text-xs font-semibold text-warning">⚠ needs approval</span>
@@ -112,16 +118,23 @@ export function TierPanel(props: {
               <Index each={groupByComponent(d().graph?.stacks ?? [])}>
                 {(g) => {
                   const groupChanged = () => changedStackCount(g().stacks);
+                  // Only claim "no changes" once counts are actually known —
+                  // an apply's stacks carry none until its classify pass.
+                  const known = () => countsKnown(d().graph?.stacks ?? []);
                   return (
                     <div class="rounded-field border border-base-300" classList={{ "border-error/50": g().failed }}>
                       <div
                         class="px-3 py-2 bg-base-100 rounded-t-field flex items-center gap-2"
-                        classList={{ "opacity-60": groupChanged() === 0 && !g().failed }}
+                        classList={{ "opacity-60": known() && groupChanged() === 0 && !g().failed }}
                       >
                         <span class="text-xs font-mono">{g().component}</span>
                         <Show
                           when={rollupChangeCounts(g().stacks)}
-                          fallback={<span class="text-xs opacity-50">no changes</span>}
+                          fallback={
+                            <Show when={known()}>
+                              <span class="text-xs opacity-50">no changes</span>
+                            </Show>
+                          }
                         >
                           {(c) => <span class="text-xs font-mono font-semibold">{c()}</span>}
                         </Show>
@@ -132,14 +145,14 @@ export function TierPanel(props: {
                           <div class="border-t border-base-300">
                             <button
                               class="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-base-100"
-                              classList={{ "opacity-60": !stackHasChanges(s()) && statusSem(s().status ?? "") === "ok" }}
+                              classList={{ "opacity-60": s().counts != null && !stackHasChanges(s()) && statusSem(s().status ?? "") === "ok" }}
                               onClick={() => setOpen(open() === s().path ? undefined : s().path)}
                             >
                               <span class="font-mono text-xs">{s().path}</span>
                               <Show
                                 when={stackHasChanges(s())}
                                 fallback={
-                                  <Show when={statusSem(s().status ?? "") === "ok"}>
+                                  <Show when={s().counts != null && statusSem(s().status ?? "") === "ok"}>
                                     <span class="text-xs opacity-50">— no changes</span>
                                   </Show>
                                 }
@@ -202,16 +215,38 @@ export function TierPanel(props: {
   );
 }
 
-/** ChangeSummary: the scannable "what changed" tagline under the stepper. */
-function ChangeSummary(props: { stacks: StackState[] }) {
+/**
+ * ChangeSummary: the scannable "what changed" tagline under the stepper.
+ * While counts are unknown (an apply before its classify pass) it falls back
+ * to the plan segment's rollup from the lifecycle instead of claiming
+ * "no changes".
+ */
+function ChangeSummary(props: { stacks: StackState[]; lifecycle: LifecyclePhase[] }) {
   const rollup = () => rollupChangeCounts(props.stacks);
   const changed = () => changedStackCount(props.stacks);
+  const known = () => countsKnown(props.stacks);
+  const planResult = () =>
+    props.lifecycle.find((p) => (p.key === "plan" || p.key === "report") && p.result)?.result ?? "";
   return (
     <Show
       when={rollup()}
       fallback={
-        <Show when={props.stacks.length > 0}>
-          <div class="text-sm opacity-60">No changes across {props.stacks.length} stacks</div>
+        <Show
+          when={known()}
+          fallback={
+            <Show when={planResult()}>
+              {(r) => (
+                <div class="flex items-baseline gap-2">
+                  <span class="font-mono text-base font-semibold">{r()}</span>
+                  <span class="text-xs opacity-60">from the plan · applying across {props.stacks.length} stacks</span>
+                </div>
+              )}
+            </Show>
+          }
+        >
+          <Show when={props.stacks.length > 0}>
+            <div class="text-sm opacity-60">No changes across {props.stacks.length} stacks</div>
+          </Show>
         </Show>
       }
     >
@@ -224,6 +259,25 @@ function ChangeSummary(props: { stacks: StackState[] }) {
         </div>
       )}
     </Show>
+  );
+}
+
+const STAGE_BADGE: Record<Exclude<LifecycleStage, "">, string> = {
+  planning: "badge-info",
+  planned: "badge-success badge-outline",
+  "awaiting approval": "badge-warning",
+  applying: "badge-info",
+  applied: "badge-success",
+  verifying: "badge-info",
+  failed: "badge-error",
+};
+
+/** StageBadge: the prominent "is this planning or applying?" answer. */
+function StageBadge(props: { stage: Exclude<LifecycleStage, ""> }) {
+  return (
+    <span class={`badge badge-sm font-semibold uppercase tracking-wide ${STAGE_BADGE[props.stage]}`}>
+      {props.stage}
+    </span>
   );
 }
 

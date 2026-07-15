@@ -80,14 +80,18 @@ func TestGetLifecycleFold(t *testing.T) {
 	if p, ok := byKey["classify"]; !ok || p.Result == nil || *p.Result != "1 gate required" {
 		t.Errorf("classify = %+v; want result \"1 gate required\"", p)
 	}
-	// approve + apply + verify are unobserved template phases → pending.
-	for _, k := range []string{"approve", "apply", "verify"} {
-		if p, ok := byKey[k]; !ok || p.State != "pending" {
-			t.Errorf("%s = %+v; want pending", k, p)
-		}
+	// approve is pending (one AWAITING gate) and carries the wait reason; the
+	// apply-side segments are irrelevant on a plan-only PR and must be absent.
+	if p, ok := byKey["approve"]; !ok || p.State != "pending" {
+		t.Errorf("approve = %+v; want pending", p)
 	}
-	if p := byKey["apply"]; p.Result == nil || *p.Result != "waits on approval" {
-		t.Errorf("apply result = %v; want \"waits on approval\"", p.Result)
+	if p := byKey["approve"]; p.Result == nil || *p.Result != "waits on approval" {
+		t.Errorf("approve result = %v; want \"waits on approval\"", p.Result)
+	}
+	for _, k := range []string{"apply", "verify", "moves", "init"} {
+		if _, ok := byKey[k]; ok {
+			t.Errorf("%s rendered on a plan-only PR; want absent (got %v)", k, keys(out))
+		}
 	}
 }
 
@@ -255,6 +259,194 @@ func keys(ps []api.LifecyclePhase) []string {
 	out := make([]string, len(ps))
 	for i, p := range ps {
 		out[i] = p.Key
+	}
+	return out
+}
+
+// A plan-only PR (no apply/verify execution) must not render apply-side
+// segments — no init/moves/apply/verify noise on a pre-merge plan.
+func TestGetLifecyclePlanOnlyHidesApplySide(t *testing.T) {
+	db := newServerTestDB(t)
+	a := New(db, &MockGitHub{}, Config{Environment: "staging"})
+
+	if err := store.UpsertInit(db, events.Init{
+		ID: "plan-1", Repo: "o/r", SHA: "sha", PR: 42, Environment: "staging",
+		Context: "plan/staging",
+		Stacks: []events.StackState{
+			{Path: "projects/a", Status: events.StatusPlanned, Counts: &events.Counts{Add: 1}},
+			{Path: "projects/b", Status: events.StatusPending},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, ph := range []events.Phase{events.PhaseWarming, events.PhaseLinting, events.PhasePlanning} {
+		if err := store.UpsertPhase(db, events.PhaseEvent{ID: "plan-1", Phase: ph, PR: 42, Environment: "staging", Context: "plan/staging"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	out := getLifecycle(t, a, 42)
+	byKey := map[string]api.LifecyclePhase{}
+	for _, p := range out {
+		byKey[p.Key] = p
+	}
+	for _, k := range []string{"init", "moves", "apply", "verify", "approve"} {
+		if _, ok := byKey[k]; ok {
+			t.Errorf("plan-only lifecycle must not contain %q (got %v)", k, keys(out))
+		}
+	}
+	// classify/report are still ahead → pending.
+	for _, k := range []string{"classify", "report"} {
+		if p, ok := byKey[k]; !ok || p.State != "pending" {
+			t.Errorf("%s = %+v; want pending", k, p)
+		}
+	}
+	// plan is running with one of two stacks planned → now, 50%.
+	p := byKey["plan"]
+	if p.State != "now" {
+		t.Errorf("plan = %+v; want now", p)
+	}
+	if p.ProgressPct == nil || *p.ProgressPct != 50 {
+		t.Errorf("plan progress = %v; want 50", p.ProgressPct)
+	}
+}
+
+// An apply run's own warming/classify/report phases belong to the APPLY
+// segment (with a sub-phase detail), not to the plan-side segments — the bar
+// must stay monotonic: plan side done, apply side progressing.
+func TestGetLifecycleApplyPhasesStayOnApplySide(t *testing.T) {
+	db := newServerTestDB(t)
+	a := New(db, &MockGitHub{}, Config{Environment: "staging"})
+
+	// Finished plan.
+	if err := store.UpsertInit(db, events.Init{
+		ID: "plan-1", Repo: "o/r", SHA: "sha", PR: 42, Environment: "staging",
+		Context: "plan/staging",
+		Stacks:  []events.StackState{{Path: "projects/a", Status: events.StatusPlanned, Counts: &events.Counts{Add: 1}}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, ph := range []events.Phase{events.PhaseWarming, events.PhasePlanning, events.PhaseClassify, events.PhaseReport} {
+		if err := store.UpsertPhase(db, events.PhaseEvent{ID: "plan-1", Phase: ph, PR: 42, Environment: "staging", Context: "plan/staging"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := store.SetExecutionStatus(db, "plan-1", "success"); err != nil {
+		t.Fatal(err)
+	}
+	// Apply run mid-warming.
+	if err := store.UpsertInit(db, events.Init{
+		ID: "apply-1", Repo: "o/r", SHA: "sha", PR: 42, Environment: "staging",
+		Context: "apply/staging",
+		Stacks: []events.StackState{
+			{Path: "projects/a", Status: events.StatusSafe},
+			{Path: "projects/b", Status: events.StatusPending},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpsertPhase(db, events.PhaseEvent{ID: "apply-1", Phase: events.PhaseWarming, PR: 42, Environment: "staging", Context: "apply/staging"}); err != nil {
+		t.Fatal(err)
+	}
+
+	out := getLifecycle(t, a, 42)
+	byKey := map[string]api.LifecyclePhase{}
+	for _, p := range out {
+		byKey[p.Key] = p
+	}
+	// The plan-side segments stay done — the apply's warming must NOT
+	// re-activate prepare.
+	for _, k := range []string{"prepare", "plan", "classify", "report"} {
+		if p := byKey[k]; p.State != "done" {
+			t.Errorf("%s = %+v; want done", k, p)
+		}
+	}
+	ap := byKey["apply"]
+	if ap.State != "now" {
+		t.Errorf("apply = %+v; want now", ap)
+	}
+	if ap.Detail == nil || *ap.Detail != "warming caches" {
+		t.Errorf("apply detail = %v; want \"warming caches\"", ap.Detail)
+	}
+	// One of two stacks already safe → 50% within the apply segment.
+	if ap.ProgressPct == nil || *ap.ProgressPct != 50 {
+		t.Errorf("apply progress = %v; want 50", ap.ProgressPct)
+	}
+	// verify is ahead → pending; moves absent (no moving stacks anywhere).
+	if p, ok := byKey["verify"]; !ok || p.State != "pending" {
+		t.Errorf("verify = %+v; want pending", p)
+	}
+	if _, ok := byKey["moves"]; ok {
+		t.Errorf("moves rendered without any moving stacks: %v", keys(out))
+	}
+	// Segment order stays canonical: report before apply, apply before verify.
+	idx := map[string]int{}
+	for i, p := range out {
+		idx[p.Key] = i
+	}
+	if !(idx["report"] < idx["apply"] && idx["apply"] < idx["verify"]) {
+		t.Errorf("order wrong: %v", keys(out))
+	}
+}
+
+// moves renders (pending) during an apply when the plan detected moving
+// stacks — known from the start, absent otherwise.
+func TestGetLifecycleMovesOnlyWhenMovingStacksKnown(t *testing.T) {
+	db := newServerTestDB(t)
+	a := New(db, &MockGitHub{}, Config{Environment: "staging"})
+
+	if err := store.UpsertInit(db, events.Init{
+		ID: "plan-1", Repo: "o/r", SHA: "sha", PR: 42, Environment: "staging",
+		Context: "plan/staging",
+		Stacks:  []events.StackState{{Path: "projects/a", Status: events.StatusMoving}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpsertPhase(db, events.PhaseEvent{ID: "plan-1", Phase: events.PhaseReport, PR: 42, Environment: "staging", Context: "plan/staging"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetExecutionStatus(db, "plan-1", "success"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpsertInit(db, events.Init{
+		ID: "apply-1", Repo: "o/r", SHA: "sha", PR: 42, Environment: "staging",
+		Context: "apply/staging",
+		Stacks:  []events.StackState{{Path: "projects/a", Status: events.StatusPending}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpsertPhase(db, events.PhaseEvent{ID: "apply-1", Phase: events.PhaseWarming, PR: 42, Environment: "staging", Context: "apply/staging"}); err != nil {
+		t.Fatal(err)
+	}
+
+	out := getLifecycle(t, a, 42)
+	found := false
+	for _, p := range out {
+		if p.Key == "moves" && p.State == "pending" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("moves pending expected when the plan holds moving stacks: %v", keys(out))
+	}
+}
+
+// getLifecycle GETs /api/lifecycle for one PR against a test server.
+func getLifecycle(t *testing.T, a *App, pr int) []api.LifecyclePhase {
+	t.Helper()
+	srv := httptest.NewServer(a.Routes())
+	defer srv.Close()
+	resp, err := http.Get(fmt.Sprintf("%s/api/lifecycle?pr=%d", srv.URL, pr))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d; want 200", resp.StatusCode)
+	}
+	var out []api.LifecyclePhase
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatal(err)
 	}
 	return out
 }

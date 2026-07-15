@@ -13,6 +13,7 @@ import {
   rollupChangeCounts,
   stackHasChanges,
   changedStackCount,
+  countsKnown,
   mergeBadge,
   sortedQueueEntries,
 } from "./prdata";
@@ -212,6 +213,18 @@ describe("stackHasChanges / changedStackCount", () => {
   });
   it("counts changed stacks", () => {
     expect(changedStackCount([s({ add: 1 }), s({}), s(), s({ move: 2 })])).toBe(2);
+  });
+});
+
+describe("countsKnown", () => {
+  const s = (counts?: Record<string, number>): StackState => ({ path: "p", counts } as StackState);
+  it("false when no stack carries counts (fresh apply, pre-classify)", () => {
+    expect(countsKnown([s(), s()])).toBe(false);
+    expect(countsKnown([])).toBe(false);
+  });
+  it("true once any stack carries counts — even empty ones (a real no-change plan)", () => {
+    expect(countsKnown([s(), s({})])).toBe(true);
+    expect(countsKnown([s({ add: 1 })])).toBe(true);
   });
 });
 
