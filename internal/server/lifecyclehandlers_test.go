@@ -431,6 +431,122 @@ func TestGetLifecycleMovesOnlyWhenMovingStacksKnown(t *testing.T) {
 	}
 }
 
+// When the apply has terminally succeeded and no verify execution ever ran
+// (verify runs only for some components), the trailing verify segment must
+// render as done (the run is complete), not sit pending/grey forever.
+func TestGetLifecycleVerifyDoneWhenApplied(t *testing.T) {
+	db := newServerTestDB(t)
+	a := New(db, &MockGitHub{}, Config{Environment: "staging"})
+
+	// Finished plan.
+	if err := store.UpsertInit(db, events.Init{
+		ID: "plan-1", Repo: "o/r", SHA: "sha", PR: 42, Environment: "staging",
+		Context: "plan/staging",
+		Stacks:  []events.StackState{{Path: "projects/a", Status: events.StatusPlanned, Counts: &events.Counts{Add: 1}}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, ph := range []events.Phase{events.PhaseWarming, events.PhasePlanning, events.PhaseReport} {
+		if err := store.UpsertPhase(db, events.PhaseEvent{ID: "plan-1", Phase: ph, PR: 42, Environment: "staging", Context: "plan/staging"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := store.SetExecutionStatus(db, "plan-1", "success"); err != nil {
+		t.Fatal(err)
+	}
+	// Finished apply that reached terminal success. No verify execution.
+	if err := store.UpsertInit(db, events.Init{
+		ID: "apply-1", Repo: "o/r", SHA: "sha", PR: 42, Environment: "staging",
+		Context: "apply/staging",
+		Stacks:  []events.StackState{{Path: "projects/a", Status: events.StatusSafe}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpsertPhase(db, events.PhaseEvent{ID: "apply-1", Phase: events.PhaseApplying, PR: 42, Environment: "staging", Context: "apply/staging"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetExecutionStatus(db, "apply-1", "success"); err != nil {
+		t.Fatal(err)
+	}
+
+	out := getLifecycle(t, a, 42)
+	byKey := map[string]api.LifecyclePhase{}
+	for _, p := range out {
+		byKey[p.Key] = p
+	}
+	if p, ok := byKey["apply"]; !ok || p.State != "done" {
+		t.Fatalf("apply = %+v; want done", p)
+	}
+	if p, ok := byKey["verify"]; !ok || p.State != "done" {
+		t.Errorf("verify = %+v; want done (apply succeeded, no verify step for these components)", p)
+	}
+}
+
+// A new push leaves the previous cycle's apply execution live (apply runs are
+// never superseded; supersession only links same-SHA reruns). The fold must
+// scope to the PR's current head SHA — the newest execution's SHA — so the new
+// plan run does not render alongside the prior SHA's apply-side segments.
+func TestGetLifecycleScopesToHeadSHA(t *testing.T) {
+	db := newServerTestDB(t)
+	a := New(db, &MockGitHub{}, Config{Environment: "staging"})
+
+	// Previous cycle: plan + apply on sha1, both created earlier.
+	if err := store.UpsertInit(db, events.Init{
+		ID: "plan-old", Repo: "o/r", SHA: "sha1", PR: 42, Environment: "staging",
+		Context: "plan/staging",
+		Stacks:  []events.StackState{{Path: "projects/a", Status: events.StatusPlanned}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpsertInit(db, events.Init{
+		ID: "apply-old", Repo: "o/r", SHA: "sha1", PR: 42, Environment: "staging",
+		Context: "apply/staging",
+		Stacks:  []events.StackState{{Path: "projects/a", Status: events.StatusSafe}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpsertPhase(db, events.PhaseEvent{ID: "apply-old", Phase: events.PhaseApplying, PR: 42, Environment: "staging", Context: "apply/staging"}); err != nil {
+		t.Fatal(err)
+	}
+	// New push: a fresh plan on sha2, created latest.
+	if err := store.UpsertInit(db, events.Init{
+		ID: "plan-new", Repo: "o/r", SHA: "sha2", PR: 42, Environment: "staging",
+		Context: "plan/staging",
+		Stacks:  []events.StackState{{Path: "projects/a", Status: events.StatusPending}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpsertPhase(db, events.PhaseEvent{ID: "plan-new", Phase: events.PhaseWarming, PR: 42, Environment: "staging", Context: "plan/staging"}); err != nil {
+		t.Fatal(err)
+	}
+	// Deterministic ordering: old cycle before the new plan.
+	for id, ts := range map[string]string{
+		"plan-old":  "2026-07-15 04:00:00",
+		"apply-old": "2026-07-15 04:10:00",
+		"plan-new":  "2026-07-15 04:20:00",
+	} {
+		if _, err := db.Exec(`UPDATE executions SET created_at = ? WHERE id = ?`, ts, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	out := getLifecycle(t, a, 42)
+	byKey := map[string]api.LifecyclePhase{}
+	for _, p := range out {
+		byKey[p.Key] = p
+	}
+	// The new plan (sha2) is the head — its prepare phase is present.
+	if _, ok := byKey["prepare"]; !ok {
+		t.Errorf("prepare from the new plan missing: %v", keys(out))
+	}
+	// The previous cycle's apply (sha1) must not fold into the current head.
+	for _, k := range []string{"apply", "verify"} {
+		if _, ok := byKey[k]; ok {
+			t.Errorf("%s from the superseded sha1 cycle rendered on the sha2 head: %v", k, keys(out))
+		}
+	}
+}
+
 // getLifecycle GETs /api/lifecycle for one PR against a test server.
 func getLifecycle(t *testing.T, a *App, pr int) []api.LifecyclePhase {
 	t.Helper()

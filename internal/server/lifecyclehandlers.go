@@ -208,10 +208,16 @@ func (a *App) handleGetLifecycle(w http.ResponseWriter, _ *http.Request, params 
 		}
 		live = append(live, e)
 	}
+	// Scope to the PR's current head SHA first: apply runs are never superseded
+	// and gate state is SHA-agnostic, so after a new push the prior cycle's
+	// apply-side executions stay "live". Folding them alongside the fresh plan
+	// would paint a stale, mostly-done "applying" bar for a run that has barely
+	// started; scoping drops the previous cycle the moment the new run registers.
+	live = scopeToHeadSHA(live)
 	// One execution per status context: supersession only links same-SHA reruns,
-	// so each push leaves its predecessor "live" — folding them all would repeat
-	// the whole plan-side of the bar once per push. The newest run per context
-	// (plan/apply/verify each keep their own) is the PR's current lifecycle.
+	// so a same-SHA rerun leaves its predecessor "live" — folding them all would
+	// repeat the whole plan-side of the bar once per rerun. The newest run per
+	// context (plan/apply/verify each keep their own) is the PR's current lifecycle.
 	live = newestPerStatusContext(live)
 
 	phasesByExec := map[string][]store.PhaseRow{}
@@ -242,6 +248,32 @@ func (a *App) handleGetLifecycle(w http.ResponseWriter, _ *http.Request, params 
 	out := lifecycleFold(live, phasesByExec, planGraph, applyGraph, deriveGateSummary(targets))
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(out)
+}
+
+// scopeToHeadSHA keeps only executions for the PR's current head SHA — the SHA
+// of the newest execution (tie-broken by ID). This drops a superseded push's
+// still-"live" apply-side executions once the new SHA's run registers, so the
+// bar reflects one cycle at a time. Empty input (or execs with a blank SHA) is
+// returned unchanged.
+func scopeToHeadSHA(execs []store.Execution) []store.Execution {
+	var head store.Execution
+	found := false
+	for _, e := range execs {
+		if !found || e.CreatedAt.After(head.CreatedAt) ||
+			(e.CreatedAt.Equal(head.CreatedAt) && e.ID > head.ID) {
+			head, found = e, true
+		}
+	}
+	if !found {
+		return execs
+	}
+	out := make([]store.Execution, 0, len(execs))
+	for _, e := range execs {
+		if e.SHA == head.SHA {
+			out = append(out, e)
+		}
+	}
+	return out
 }
 
 // newestPerStatusContext keeps only the newest execution per status context,
@@ -281,12 +313,16 @@ func lifecycleFold(execs []store.Execution, phasesByExec map[string][]store.Phas
 	succeededByExec := map[string]bool{}
 	ctxByExec := map[string]string{}
 	hasCtx := map[string]bool{}
+	applySucceeded := false
 	for _, e := range execs {
 		failedByExec[e.ID] = e.Status == "failure"
 		succeededByExec[e.ID] = e.Status == "success"
 		k := execContextKind(e.StatusContext)
 		ctxByExec[e.ID] = k
 		hasCtx[k] = true
+		if k == "apply" && e.Status == "success" {
+			applySucceeded = true
+		}
 	}
 
 	// Flatten every recorded phase row and sort by time. Ties (second-resolution
@@ -414,6 +450,12 @@ func lifecycleFold(execs []store.Execution, phasesByExec map[string][]store.Phas
 		state := "pending"
 		if t.Key == "approve" {
 			state = gate.approveState
+		}
+		// A never-observed verify on a terminally-succeeded apply means the run
+		// is complete and these components carry no verify step — render it done
+		// (green), not a perpetually-pending grey segment.
+		if t.Key == "verify" && applySucceeded {
+			state = "done"
 		}
 		lp := api.LifecyclePhase{Key: t.Key, Label: t.Label, State: state, Context: ptr(t.Context)}
 		if r := deriveResult(t.Key, t.Context, planCounts, applyCounts, gate, state); r != "" {

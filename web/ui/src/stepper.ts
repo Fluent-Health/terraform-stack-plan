@@ -129,9 +129,13 @@ export function stageFromLifecycle(phases: LifecyclePhase[]): LifecycleStage {
   const approve = phases.find((p) => p.key === "approve");
   if (approve && approve.state === "pending") return "awaiting approval";
   const apply = phases.find((p) => p.key === "apply");
-  if (apply) {
-    return apply.state === "done" ? "applied" : "applying";
-  }
-  // Plan side only: all done → planned, anything pending → planning.
-  return phases.every((p) => p.state === "done") ? "planned" : "planning";
+  if (apply && apply.state === "done") return "applied";
+  // Nothing running and the apply has not started (apply pending or absent):
+  // report the plan-side verdict rather than over-claiming "applying" over a
+  // queued, not-yet-running apply. Apply-side segments (apply/verify/moves) are
+  // not yet reached, so they don't gate "planned".
+  const planSideDone = phases.every(
+    (p) => p.state === "done" || p.key === "apply" || p.key === "verify" || p.key === "moves",
+  );
+  return planSideDone ? "planned" : "planning";
 }
