@@ -36,6 +36,13 @@ export function TierPanel(props: {
     () => ({ tier: props.tier, pr: props.summary.pr }),
     (k) => api.lifecycle(k.tier, k.pr),
   );
+  // Pending approvals gating this PR's targets on this tier, rendered in a
+  // standalone gates strip decoupled from component-group headers so every
+  // pending approval for this PR/tier is visible regardless of grouping.
+  const [approvals, { refetch: refetchApprovals }] = createResource(
+    () => props.tier,
+    (tier) => api.approvals(tier),
+  );
   createEffect(() => {
     const es = new EventSource(executionEventsURL(props.tier, props.summary.id));
     let t: ReturnType<typeof setTimeout> | undefined;
@@ -44,6 +51,10 @@ export function TierPanel(props: {
       t = setTimeout(() => {
         refetchDetail();
         refetchLifecycle();
+        // Gate-state changes (PAM approve/deny/activate) publish on the same
+        // stream — refresh the gates strip too, or an approval only
+        // disappears on reload.
+        refetchApprovals();
       }, 300);
     };
     es.addEventListener("superseded", () => props.onSuperseded?.());
@@ -54,14 +65,6 @@ export function TierPanel(props: {
   });
   const [open, setOpen] = createSignal<string | undefined>();
   const [dagOpen, setDagOpen] = createSignal(false);
-
-  // Pending approvals gating this PR's targets on this tier, rendered in a
-  // standalone gates strip decoupled from component-group headers so every
-  // pending approval for this PR/tier is visible regardless of grouping.
-  const [approvals, { refetch: refetchApprovals }] = createResource(
-    () => props.tier,
-    (tier) => api.approvals(tier),
-  );
   const gates = createMemo(() => approvalsByTarget(approvals.latest ?? [], props.summary.pr));
   const onDecided = () => {
     refetchApprovals();

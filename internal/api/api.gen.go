@@ -630,6 +630,9 @@ type ClientInterface interface {
 
 	CheckGate(ctx context.Context, body CheckGateJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// ReconcileGates request
+	ReconcileGates(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// RevokeGateWithBody request with any body
 	RevokeGateWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -913,6 +916,18 @@ func (c *Client) CheckGateWithBody(ctx context.Context, contentType string, body
 
 func (c *Client) CheckGate(ctx context.Context, body CheckGateJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewCheckGateRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) ReconcileGates(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewReconcileGatesRequest(c.Server)
 	if err != nil {
 		return nil, err
 	}
@@ -1625,6 +1640,33 @@ func NewCheckGateRequestWithBody(server string, contentType string, body io.Read
 	return req, nil
 }
 
+// NewReconcileGatesRequest generates requests for ReconcileGates
+func NewReconcileGatesRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/gate/reconcile")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewRevokeGateRequest calls the generic RevokeGate builder with application/json body
 func NewRevokeGateRequest(server string, body RevokeGateJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -2287,6 +2329,9 @@ type ClientWithResponsesInterface interface {
 
 	CheckGateWithResponse(ctx context.Context, body CheckGateJSONRequestBody, reqEditors ...RequestEditorFn) (*CheckGateResponse, error)
 
+	// ReconcileGatesWithResponse request
+	ReconcileGatesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ReconcileGatesResponse, error)
+
 	// RevokeGateWithBodyWithResponse request with any body
 	RevokeGateWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RevokeGateResponse, error)
 
@@ -2691,6 +2736,35 @@ func (r CheckGateResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r CheckGateResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ReconcileGatesResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+}
+
+// Status returns HTTPResponse.Status
+func (r ReconcileGatesResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ReconcileGatesResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ReconcileGatesResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -3284,6 +3358,15 @@ func (c *ClientWithResponses) CheckGateWithResponse(ctx context.Context, body Ch
 	return ParseCheckGateResponse(rsp)
 }
 
+// ReconcileGatesWithResponse request returning *ReconcileGatesResponse
+func (c *ClientWithResponses) ReconcileGatesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ReconcileGatesResponse, error) {
+	rsp, err := c.ReconcileGates(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseReconcileGatesResponse(rsp)
+}
+
 // RevokeGateWithBodyWithResponse request with arbitrary body returning *RevokeGateResponse
 func (c *ClientWithResponses) RevokeGateWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RevokeGateResponse, error) {
 	rsp, err := c.RevokeGateWithBody(ctx, contentType, body, reqEditors...)
@@ -3723,6 +3806,22 @@ func ParseCheckGateResponse(rsp *http.Response) (*CheckGateResponse, error) {
 	return response, nil
 }
 
+// ParseReconcileGatesResponse parses an HTTP response from a ReconcileGatesWithResponse call
+func ParseReconcileGatesResponse(rsp *http.Response) (*ReconcileGatesResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ReconcileGatesResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	return response, nil
+}
+
 // ParseRevokeGateResponse parses an HTTP response from a RevokeGateWithResponse call
 func ParseRevokeGateResponse(rsp *http.Response) (*RevokeGateResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -4075,6 +4174,9 @@ type ServerInterface interface {
 	// Apply-time, fail-closed gate pre-check
 	// (POST /api/gate/check)
 	CheckGate(w http.ResponseWriter, r *http.Request)
+	// Nudge an immediate reconcile of every pending gate
+	// (POST /api/gate/reconcile)
+	ReconcileGates(w http.ResponseWriter, r *http.Request)
 	// Revoke the grants requested for (pr, environment)
 	// (POST /api/gate/revoke)
 	RevokeGate(w http.ResponseWriter, r *http.Request)
@@ -4403,6 +4505,26 @@ func (siw *ServerInterfaceWrapper) CheckGate(w http.ResponseWriter, r *http.Requ
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.CheckGate(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ReconcileGates operation middleware
+func (siw *ServerInterfaceWrapper) ReconcileGates(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, OidcScopes, []string{"report", "read", "admin"})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReconcileGates(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4948,6 +5070,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/executions", wrapper.ListExecutions)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/finalize", wrapper.FinalizeExecution)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/gate/check", wrapper.CheckGate)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/gate/reconcile", wrapper.ReconcileGates)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/gate/revoke", wrapper.RevokeGate)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/init", wrapper.InitExecution)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/inspect/claims/{env}", wrapper.InspectClaims)

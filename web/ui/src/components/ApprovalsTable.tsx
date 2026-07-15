@@ -1,7 +1,7 @@
 import { A } from "@solidjs/router";
 import { For, Show, createSignal } from "solid-js";
 import type { PendingApproval } from "../api/client";
-import { approveURL, runApproval } from "../approve";
+import { approveURL, defaultReason, runApproval } from "../approve";
 
 /**
  * ApprovalsTable lists gate targets awaiting human action, with in-UI
@@ -14,14 +14,18 @@ export function ApprovalsTable(props: { tier: string; approvals: PendingApproval
   const [pending, setPending] = createSignal<{ approval: PendingApproval; decision: "approve" | "deny" } | null>(null);
   const [busy, setBusy] = createSignal(false);
   const [outcome, setOutcome] = createSignal<{ ok: boolean; message: string } | null>(null);
-  let reasonEl!: HTMLTextAreaElement;
+  const [reason, setReason] = createSignal("");
+  const open = (approval: PendingApproval, decision: "approve" | "deny") => {
+    setReason(defaultReason(decision, approval));
+    setPending({ approval, decision });
+  };
 
   const run = async () => {
     const p = pending();
-    if (!p) return;
+    if (!p || !reason().trim()) return;
     setBusy(true);
     try {
-      const res = await runApproval(approveURL(props.tier, p.approval.grant_name, p.decision, reasonEl.value.trim()));
+      const res = await runApproval(approveURL(props.tier, p.approval.grant_name, p.decision, reason().trim()));
       setOutcome(res);
       if (res.ok) props.onDecided?.();
     } catch (e) {
@@ -90,14 +94,14 @@ export function ApprovalsTable(props: { tier: string; approvals: PendingApproval
                       <button
                         class="btn btn-success btn-xs mr-1"
                         disabled={busy()}
-                        onClick={() => setPending({ approval: a, decision: "approve" })}
+                        onClick={() => open(a, "approve")}
                       >
                         Approve
                       </button>
                       <button
                         class="btn btn-error btn-outline btn-xs"
                         disabled={busy()}
-                        onClick={() => setPending({ approval: a, decision: "deny" })}
+                        onClick={() => open(a, "deny")}
                       >
                         Deny
                       </button>
@@ -122,14 +126,21 @@ export function ApprovalsTable(props: { tier: string; approvals: PendingApproval
                 PR #{p().approval.pr} · {p().approval.environment}. A Google consent popup will open; the decision is
                 recorded in the PAM audit log under your identity.
               </p>
-              <textarea ref={reasonEl} class="textarea w-full" placeholder="reason (optional)" maxlength="512" />
+              <label class="text-xs opacity-70">reason (required — recorded in the PAM audit log)</label>
+              <textarea
+                class="textarea w-full"
+                placeholder="reason (required)"
+                maxlength="512"
+                value={reason()}
+                onInput={(e) => setReason(e.currentTarget.value)}
+              />
               <div class="modal-action">
                 <button class="btn btn-ghost" onClick={() => setPending(null)}>
                   Cancel
                 </button>
                 <button
                   class={`btn ${p().decision === "approve" ? "btn-success" : "btn-error"}`}
-                  disabled={busy()}
+                  disabled={busy() || !reason().trim()}
                   onClick={run}
                 >
                   {p().decision === "approve" ? "Approve" : "Deny"}

@@ -194,6 +194,22 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/CodedError"
+  /api/gate/reconcile:
+    post:
+      operationId: reconcileGates
+      summary: Nudge an immediate reconcile of every pending gate
+      description: |
+        Re-evaluates all not-yet-ACTIVE gate targets against the approval
+        backend now, instead of waiting for the poll interval — the central
+        UI calls this right after an in-UI PAM approve/deny so the decision's
+        effect (grant ACTIVATING/ACTIVE/DENIED) pushes to watching pages via
+        SSE within seconds. Asynchronous and best-effort: the poll loop is
+        the backstop. No body.
+      security:
+        - oidc: [report, read, admin]
+      responses:
+        "202":
+          description: Reconcile scheduled.
   /api/gate/revoke:
     post:
       operationId: revokeGate

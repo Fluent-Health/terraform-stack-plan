@@ -25,6 +25,9 @@ func (s apiServer) FinalizeExecution(w http.ResponseWriter, r *http.Request) {
 func (s apiServer) AppendLogs(w http.ResponseWriter, r *http.Request) { s.app.handleLogs(w, r) }
 func (s apiServer) CheckGate(w http.ResponseWriter, r *http.Request)  { s.app.handleGateCheck(w, r) }
 func (s apiServer) RevokeGate(w http.ResponseWriter, r *http.Request) { s.app.handleGateRevoke(w, r) }
+func (s apiServer) ReconcileGates(w http.ResponseWriter, r *http.Request) {
+	s.app.handleGateReconcile(w, r)
+}
 func (s apiServer) ListClaims(w http.ResponseWriter, r *http.Request) { s.app.handleClaimsList(w, r) }
 func (s apiServer) ReleaseClaims(w http.ResponseWriter, r *http.Request) {
 	s.app.handleClaimsRelease(w, r)

@@ -46,6 +46,16 @@ func (a *App) reconcileGate(ctx context.Context, pr int, environment string) err
 	return a.shell.tick(ctx, pr, environment)
 }
 
+// handleGateReconcile nudges an immediate reconcile of every pending gate —
+// the central UI calls it right after an in-UI PAM approve/deny so the
+// decision's effect reaches watching pages (via the reconcile's SSE renders)
+// within seconds instead of at the next poll tick. Asynchronous best-effort:
+// the poll loop is the backstop, so the response never waits on the backend.
+func (a *App) handleGateReconcile(w http.ResponseWriter, _ *http.Request) {
+	go a.reconcilePending(context.Background())
+	w.WriteHeader(http.StatusAccepted)
+}
+
 // reconcilePending re-evaluates every gate that is not yet fully ACTIVE.
 func (a *App) reconcilePending(ctx context.Context) {
 	if a.Approval == nil {

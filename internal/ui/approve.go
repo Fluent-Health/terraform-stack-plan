@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"html/template"
@@ -71,6 +72,11 @@ func (a *App) handleApproveStart(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "reason too long", http.StatusBadRequest)
 		return
 	}
+	// PAM rejects a decision without a reason — the UI prefills one, but an
+	// empty submit must still succeed rather than bounce off PAM's validation.
+	if reason == "" {
+		reason = decision + "d via tfstackplan UI"
+	}
 	sealed, err := a.codec.sealJSON(approveState{
 		Email:   SessionFrom(r.Context()).Email,
 		Tier:    tier,
@@ -134,7 +140,35 @@ func (a *App) handleApproveCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	log.Printf("ui: grant %s %s by %s", st.Grant, verb, st.Email)
+	// Nudge the tier to reconcile its pending gates NOW so the decision's
+	// effect (ACTIVATING → ACTIVE / DENIED) pushes to watching pages via SSE
+	// within seconds — without this, nothing updates until the tier's poll
+	// tick and the user reloads. Best-effort: the poll loop is the backstop.
+	a.nudgeGateReconcile(st.Tier)
 	approveResult(w, true, "grant "+verb)
+}
+
+// nudgeGateReconcile fires the tier's POST /api/gate/reconcile with the UI's
+// own OIDC identity. Fire-and-forget with a short deadline; failures only log
+// (an old serve without the route 404s — harmless).
+func (a *App) nudgeGateReconcile(tier string) {
+	c, ok := a.clients[tier]
+	if !ok {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		resp, err := c.ReconcileGates(ctx)
+		if err != nil {
+			log.Printf("ui: gate-reconcile nudge %s: %v", tier, err)
+			return
+		}
+		resp.Body.Close()
+		if resp.StatusCode/100 != 2 {
+			log.Printf("ui: gate-reconcile nudge %s: HTTP %d", tier, resp.StatusCode)
+		}
+	}()
 }
 
 // approveResultTmpl reports the outcome to the opener window and closes the
