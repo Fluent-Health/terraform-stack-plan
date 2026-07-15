@@ -126,6 +126,17 @@ describe("stageFromLifecycle", () => {
       "applied",
     );
   });
+  it("does not claim applying when the apply segment is only pending (queued, not running)", () => {
+    // Plan done, approved, apply registered but not yet started (pending). The
+    // badge must not read "applying" — nothing is applying yet.
+    expect(
+      stageFromLifecycle([
+        ph({ key: "report", state: "done" }),
+        ph({ key: "approve", state: "done" }),
+        ph({ key: "apply", state: "pending", context: "apply" }),
+      ]),
+    ).not.toBe("applying");
+  });
   it("failed wins over everything", () => {
     expect(stageFromLifecycle([ph({ key: "plan", state: "failed" }), ph({ key: "apply", state: "pending" })])).toBe(
       "failed",

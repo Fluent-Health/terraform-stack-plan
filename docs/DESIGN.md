@@ -658,17 +658,30 @@ the budget entirely.
 - **Canonical plan filename is hardcoded `tfplan.json`** — matches Terragrunt's
   `--json-out-dir`; Terramate is scripted to emit the same. A tool that writes a
   different name needs a rename step.
-- **Lifecycle-stepper fold: one segment per canonical key, newest run per
-  context.** The fold keeps only the newest non-superseded execution per status
-  context (supersession only links same-SHA reruns, so each push leaves its
-  predecessor live — folding them all repeated the whole plan side once per
-  push), and a re-observed canonical key coalesces into its first segment
-  (e.g. the two `warming` ticks a real plan run emits — the early CI tick and
-  `run plan`'s provider-cache warm — render as ONE `prepare`). Same-second
-  phase-row ties across executions keep execution order (oldest exec first),
-  not id order. Remaining rough edges (cosmetic): the synthetic `approve`
-  segment does not special-case the `EXPIRED` grant state (reads as pending),
-  and `approvalsByTarget` keys the gates strip by target alone, so two pending
+- **Lifecycle-stepper fold: scoped to the head SHA, one segment per canonical
+  key, newest run per context.** The fold first scopes executions to the PR's
+  current head SHA (`scopeToHeadSHA` — the SHA of the newest execution): apply
+  runs are never superseded and gate state is SHA-agnostic, so after a new push
+  the prior cycle's apply-side executions stay "live"; folding them alongside
+  the fresh plan painted a stale, mostly-done "applying" bar for a run that had
+  barely started (see [#219](https://github.com/Fluent-Health/terraform-stack-plan/pull/219)).
+  It then keeps the newest execution per status context (a same-SHA rerun leaves
+  its predecessor live — folding both repeated the whole plan side), and a
+  re-observed canonical key coalesces into its first segment (e.g. the two
+  `warming` ticks a real plan run emits — the early CI tick and `run plan`'s
+  provider-cache warm — render as ONE `prepare`). Same-second phase-row ties
+  across executions keep execution order (oldest exec first), not id order.
+  A never-observed `verify` on a terminally-**succeeded** apply renders `done`
+  (green), not perpetually-pending grey — verify runs only for some components,
+  so its absence on a completed apply means "no verify step," not "unfinished."
+  The headline stage badge (`stageFromLifecycle`, frontend) never reads
+  "applying" for a merely-`pending` (queued, not-running) apply — it reports the
+  plan-side verdict until the apply segment is actually `now` or `done`.
+  Remaining rough edges (cosmetic): the synthetic `approve` segment does not
+  special-case the `EXPIRED` grant state (reads as pending); gate/approve state
+  is `(pr, env)`-scoped, so a prior cycle's `AWAITING` grant can still surface a
+  pending (grey, never green) `approve` segment on a fresh-SHA plan; and
+  `approvalsByTarget` keys the gates strip by target alone, so two pending
   approvals for the same target but different class would collapse.
 - **Plan/verify executions conclude at finalize.** A non-failed `/api/finalize`
   for a non-apply context persists execution status `success` (gate state is
