@@ -13,45 +13,89 @@ import (
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
 
-// canonicalTemplate is the fixed lifecycle backbone: it orders unobserved
-// (pending) segments and carries the human labels. Observed phases render in
-// real (timestamp) order; only template keys never observed are appended as
-// pending. "approve" is synthetic (no runner phase emits it).
+// canonicalTemplate is the fixed lifecycle backbone: it orders segments (via
+// rank) and carries the human labels. Only template keys never observed AND
+// relevant to the PR's current stage are appended as pending — a plan-only PR
+// shows no apply-side noise. "approve" is synthetic (no runner phase emits it).
 var canonicalTemplate = []struct{ Key, Label, Context string }{
 	{"prepare", "prepare", "plan"},
 	{"init", "init", "plan"},
-	{"moves", "state moves", "apply"},
 	{"plan", "plan", "plan"},
 	{"classify", "classify", "plan"},
 	{"report", "report", "plan"},
 	{"approve", "approve", "gate"},
+	{"moves", "state moves", "apply"},
 	{"apply", "apply", "apply"},
 	{"verify", "verify", "verify"},
 }
 
-// canonicalPhaseKey maps a raw runner phase string onto a template key. ok is
-// false for phases with no template home (linting, claim, or any future phase)
-// — those pass through as generic "working" segments keyed by their raw name.
-func canonicalPhaseKey(phase string) (key, label string, ok bool) {
+// canonicalRank orders segments for display: canonical keys get template
+// position ×10; passthrough keys (linting, claim, …) slot midway after the
+// canonical key they were observed after.
+var canonicalRank = func() map[string]int {
+	m := map[string]int{}
+	for i, t := range canonicalTemplate {
+		m[t.Key] = i * 10
+	}
+	return m
+}()
+
+// segmentForPhase maps one raw runner phase onto its display segment, in the
+// context of the execution that emitted it. An apply run's own housekeeping
+// phases (warming/initializing/classify/report) belong INSIDE the apply
+// segment — surfaced as a sub-phase detail — never to the plan-side segments,
+// so a running apply cannot re-activate the already-done plan side. ok is
+// false for phases with no segment home (linting, claim, or any future phase)
+// — those pass through as generic segments keyed by their raw name.
+func segmentForPhase(ctx, phase string) (key, label, detail string, ok bool) {
+	switch ctx {
+	case "apply":
+		switch phase {
+		case "warming", "image":
+			return "apply", "apply", "warming caches", true
+		case "initializing":
+			return "apply", "apply", "initializing stacks", true
+		case "moves":
+			return "moves", "state moves", "", true
+		case "applying":
+			return "apply", "apply", "", true
+		case "classify":
+			return "apply", "apply", "classifying results", true
+		case "report":
+			return "apply", "apply", "writing report", true
+		case "testing", "verifying":
+			return "verify", "verify", "", true
+		}
+		return "", "", "", false
+	case "verify":
+		switch phase {
+		case "warming", "image":
+			return "verify", "verify", "preparing", true
+		case "testing", "verifying":
+			return "verify", "verify", "", true
+		}
+		return "", "", "", false
+	}
+	// plan context (and anything unrecognized).
 	switch phase {
 	case "warming", "image":
-		return "prepare", "prepare", true
+		return "prepare", "prepare", "", true
 	case "initializing":
-		return "init", "init", true
+		return "init", "init", "", true
 	case "moves":
-		return "moves", "state moves", true
+		return "moves", "state moves", "", true
 	case "planning":
-		return "plan", "plan", true
+		return "plan", "plan", "", true
 	case "classify":
-		return "classify", "classify", true
+		return "classify", "classify", "", true
 	case "report":
-		return "report", "report", true
+		return "report", "report", "", true
 	case "applying":
-		return "apply", "apply", true
+		return "apply", "apply", "", true
 	case "testing", "verifying":
-		return "verify", "verify", true
+		return "verify", "verify", "", true
 	}
-	return "", "", false
+	return "", "", "", false
 }
 
 func rollupCounts(g events.Graph) events.Counts {
@@ -195,7 +239,7 @@ func (a *App) handleGetLifecycle(w http.ResponseWriter, _ *http.Request, params 
 		targets = []store.GateTarget{}
 	}
 
-	out := lifecycleFold(live, phasesByExec, rollupCounts(planGraph), rollupCounts(applyGraph), deriveGateSummary(targets))
+	out := lifecycleFold(live, phasesByExec, planGraph, applyGraph, deriveGateSummary(targets))
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(out)
 }
@@ -223,20 +267,26 @@ func newestPerStatusContext(execs []store.Execution) []store.Execution {
 	return out
 }
 
-// lifecycleFold is the pure fold: observed phases in time order + unobserved
-// template phases as pending, with derived per-phase result. Each canonical
-// key renders at most once: a re-observed key (e.g. the runner's second
-// `warming` tick — CI prepare and provider-cache warm both map to "prepare")
-// coalesces into its first segment, keeping the first start, adopting the
-// latest end/state.
-func lifecycleFold(execs []store.Execution, phasesByExec map[string][]store.PhaseRow, planCounts, applyCounts events.Counts, gate gateSummary) []api.LifecyclePhase {
+// lifecycleFold is the pure fold: observed phases mapped context-aware onto
+// display segments, plus unobserved-but-relevant template segments as pending,
+// all ordered by canonical rank. Each segment key renders at most once: a
+// re-observed key (a run's second `warming` tick, or an apply's housekeeping
+// phases all mapping into the apply segment) coalesces into its first segment,
+// keeping the first start, adopting the latest end/state/detail. The "now"
+// segment carries within-segment progress (k of N stacks) when the graph
+// knows it.
+func lifecycleFold(execs []store.Execution, phasesByExec map[string][]store.PhaseRow, planGraph, applyGraph events.Graph, gate gateSummary) []api.LifecyclePhase {
+	planCounts, applyCounts := rollupCounts(planGraph), rollupCounts(applyGraph)
 	failedByExec := map[string]bool{}
 	succeededByExec := map[string]bool{}
 	ctxByExec := map[string]string{}
+	hasCtx := map[string]bool{}
 	for _, e := range execs {
 		failedByExec[e.ID] = e.Status == "failure"
 		succeededByExec[e.ID] = e.Status == "success"
-		ctxByExec[e.ID] = execContextKind(e.StatusContext)
+		k := execContextKind(e.StatusContext)
+		ctxByExec[e.ID] = k
+		hasCtx[k] = true
 	}
 
 	// Flatten every recorded phase row and sort by time. Ties (second-resolution
@@ -258,16 +308,27 @@ func lifecycleFold(execs []store.Execution, phasesByExec map[string][]store.Phas
 		return all[i].row.At.Before(all[j].row.At)
 	})
 
-	out := make([]api.LifecyclePhase, 0, len(all)+len(canonicalTemplate))
-	segAt := map[string]int{} // canonical key → index in out
+	// A segment is "now" when it is its execution's LATEST phase and that
+	// execution is still running — per execution, not globally, so a finished
+	// plan's report can never mask a running apply's current phase (or vice
+	// versa) however same-second rows interleave.
+	lastRowOf := map[string]int{}
 	for i, f := range all {
-		key, label, ok := canonicalPhaseKey(f.row.Phase)
+		lastRowOf[f.execID] = i
+	}
+
+	out := make([]api.LifecyclePhase, 0, len(all)+len(canonicalTemplate))
+	ranks := make([]int, 0, cap(out)) // parallel to out
+	segAt := map[string]int{}         // segment key → index in out
+	lastCanonicalRank := -10
+	for i, f := range all {
+		ctx := ctxByExec[f.execID]
+		key, label, detail, ok := segmentForPhase(ctx, f.row.Phase)
 		if !ok {
 			key, label = f.row.Phase, f.row.Phase
 		}
-		ctx := ctxByExec[f.execID]
 		state := "done"
-		if i == len(all)-1 {
+		if i == lastRowOf[f.execID] {
 			switch {
 			case failedByExec[f.execID]:
 				state = "failed"
@@ -283,37 +344,75 @@ func lifecycleFold(execs []store.Execution, phasesByExec map[string][]store.Phas
 			e := all[i+1].row.At
 			endedAt = &e
 		}
+		// The sub-phase detail only matters while it is what's happening now.
+		var detailPtr *string
+		if state == "now" && detail != "" {
+			detailPtr = ptr(detail)
+		}
 		if j, seen := segAt[key]; seen {
-			// Re-observation: same lifecycle phase happening again — extend the
-			// existing segment instead of repeating it in the bar.
+			// Re-observation: the same segment progressing — extend it instead
+			// of repeating it in the bar.
 			out[j].State = state
 			out[j].EndedAt = endedAt
+			out[j].Detail = detailPtr
 			if r := deriveResult(key, ctx, planCounts, applyCounts, gate, state); r != "" {
 				out[j].Result = ptr(r)
 			}
 			continue
 		}
-		lp := api.LifecyclePhase{Key: key, Label: label, State: state, Context: ptr(ctx)}
+		lp := api.LifecyclePhase{Key: key, Label: label, State: state, Context: ptr(ctx), Detail: detailPtr}
 		lp.StartedAt = &start
 		lp.EndedAt = endedAt
 		if r := deriveResult(key, ctx, planCounts, applyCounts, gate, state); r != "" {
 			lp.Result = ptr(r)
 		}
+		rank, canonical := canonicalRank[key]
+		if !canonical {
+			rank = lastCanonicalRank + 5 // passthrough slots after its predecessor
+		} else {
+			lastCanonicalRank = rank
+		}
 		segAt[key] = len(out)
 		out = append(out, lp)
+		ranks = append(ranks, rank)
 	}
 
-	// Append template phases never observed, in template order, as pending.
-	// The synthetic "approve" phase adopts the gate-derived state.
+	// Append template segments never observed, as pending — but only when
+	// relevant to the PR's stage: a plan-only PR renders no apply-side noise,
+	// `moves` only shows when the plan actually detected state moves, and
+	// `init` only ever renders observed (plan runs narrate init per-stack, not
+	// as a run phase). The synthetic "approve" segment adopts the gate state.
+	movesKnown := hasMovingStacks(planGraph) || hasMovingStacks(applyGraph)
 	for _, t := range canonicalTemplate {
 		if _, seen := segAt[t.Key]; seen {
 			continue
 		}
-		if t.Key == "approve" && gate.approveState == "" {
-			continue // no gates → no approve segment
+		switch t.Key {
+		case "init":
+			continue
+		case "prepare", "plan", "classify", "report":
+			if !hasCtx["plan"] {
+				continue
+			}
+		case "approve":
+			if gate.approveState == "" {
+				continue
+			}
+		case "moves":
+			if !hasCtx["apply"] || !movesKnown {
+				continue
+			}
+		case "apply":
+			if !hasCtx["apply"] {
+				continue
+			}
+		case "verify":
+			if !hasCtx["apply"] && !hasCtx["verify"] {
+				continue
+			}
 		}
 		state := "pending"
-		if t.Key == "approve" && gate.approveState != "" {
+		if t.Key == "approve" {
 			state = gate.approveState
 		}
 		lp := api.LifecyclePhase{Key: t.Key, Label: t.Label, State: state, Context: ptr(t.Context)}
@@ -321,8 +420,81 @@ func lifecycleFold(execs []store.Execution, phasesByExec map[string][]store.Phas
 			lp.Result = ptr(r)
 		}
 		out = append(out, lp)
+		ranks = append(ranks, canonicalRank[t.Key])
 	}
-	return out
+
+	// Canonical display order (stable: ties keep observation order).
+	idx := make([]int, len(out))
+	for i := range idx {
+		idx[i] = i
+	}
+	sort.SliceStable(idx, func(a, b int) bool { return ranks[idx[a]] < ranks[idx[b]] })
+	sorted := make([]api.LifecyclePhase, len(out))
+	for i, j := range idx {
+		sorted[i] = out[j]
+	}
+
+	// Attach within-segment progress to the "now" segment when the graph
+	// carries real per-stack completion for it.
+	for i := range sorted {
+		if sorted[i].State != "now" {
+			continue
+		}
+		if pct, ok := segmentProgress(sorted[i].Key, planGraph, applyGraph); ok {
+			sorted[i].ProgressPct = ptr(pct)
+		}
+	}
+	return sorted
+}
+
+func hasMovingStacks(g events.Graph) bool {
+	for _, s := range g.Stacks {
+		if s.Status == events.StatusMoving {
+			return true
+		}
+	}
+	return false
+}
+
+// segmentProgress derives a "now" segment's completion from per-stack terminal
+// statuses — only for the segments that genuinely tick per stack (plan and
+// apply); marker segments (prepare/classify/report/…) have no meaningful k/N.
+func segmentProgress(key string, planGraph, applyGraph events.Graph) (int, bool) {
+	var g events.Graph
+	var terminal func(events.Status) bool
+	switch key {
+	case "plan":
+		g = planGraph
+		terminal = func(s events.Status) bool {
+			switch s {
+			case events.StatusPending, events.StatusRunning, events.StatusInitializing, events.StatusInitialized:
+				return false
+			}
+			return true
+		}
+	case "apply":
+		g = applyGraph
+		terminal = func(s events.Status) bool {
+			switch s {
+			case events.StatusSafe, events.StatusNochange, events.StatusFailed, events.StatusAborted:
+				return true
+			}
+			return false
+		}
+	default:
+		return 0, false
+	}
+	total := len(g.Stacks)
+	if total == 0 {
+		return 0, false
+	}
+	done := 0
+	for _, s := range g.Stacks {
+		if terminal(s.Status) {
+			done++
+		}
+	}
+	return done * 100 / total, true
 }
 
 // deriveResult computes the per-phase summary. Never stored — always derived

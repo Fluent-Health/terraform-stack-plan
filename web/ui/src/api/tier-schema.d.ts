@@ -759,6 +759,10 @@ export interface components {
             ended_at?: string;
             /** @description Derived summary (rollup counts / gate count / wait reason). */
             result?: string;
+            /** @description Human sub-phase currently running inside this segment (e.g. "warming caches" while the apply segment prepares). Only set on the "now" segment when the raw phase is finer than the segment. */
+            detail?: string;
+            /** @description Within-segment completion percentage, derived from per-stack terminal statuses (k of N stacks). Only set on the "now" segment when real per-stack progress is known. */
+            progress_pct?: number;
         };
         /** @description PR-level identity as last reported by the GitHub webhook (title, author, branch, automerge). */
         PRMeta: {

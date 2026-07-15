@@ -188,6 +188,14 @@ export function stackHasChanges(s: StackState): boolean {
   return Boolean(c.add || c.change || c.replace || c.destroy || c.move);
 }
 
+// countsKnown: whether this graph carries per-stack operation counts at all.
+// An apply execution's stacks have no counts until its classify pass backfills
+// them — claiming "no changes" before that would be a lie, so no-change
+// styling and taglines must gate on this.
+export function countsKnown(stacks: StackState[]): boolean {
+  return stacks.some((s) => s.counts != null);
+}
+
 // changedStackCount counts the stacks with at least one operation.
 export function changedStackCount(stacks: StackState[]): number {
   return stacks.filter(stackHasChanges).length;

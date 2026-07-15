@@ -303,7 +303,10 @@ type InspectPoolWaitingPR struct {
 // LifecyclePhase One phase of a PR/tier's folded lifecycle timeline. key is a canonical template key or a raw dynamic phase name; result is derived server-side (never stored).
 type LifecyclePhase struct {
 	// Context plan | apply | verify | gate
-	Context *string    `json:"context,omitempty"`
+	Context *string `json:"context,omitempty"`
+
+	// Detail Human sub-phase currently running inside this segment (e.g. "warming caches" while the apply segment prepares). Only set on the "now" segment when the raw phase is finer than the segment.
+	Detail  *string    `json:"detail,omitempty"`
 	EndedAt *time.Time `json:"ended_at,omitempty"`
 
 	// Key Canonical template key (prepare/init/moves/plan/classify/report/approve/apply/verify) or a raw dynamic phase name.
@@ -311,6 +314,9 @@ type LifecyclePhase struct {
 
 	// Label Human caption for the phase.
 	Label string `json:"label"`
+
+	// ProgressPct Within-segment completion percentage, derived from per-stack terminal statuses (k of N stacks). Only set on the "now" segment when real per-stack progress is known.
+	ProgressPct *int `json:"progress_pct,omitempty"`
 
 	// Result Derived summary (rollup counts / gate count / wait reason).
 	Result    *string    `json:"result,omitempty"`

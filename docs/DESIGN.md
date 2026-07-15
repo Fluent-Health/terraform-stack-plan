@@ -1960,13 +1960,23 @@ snake_case shapes, unlike the frozen legacy execution read):
   appends a row per transition inside the same `Transact` as the current-phase
   overwrite); per-phase `result` (rollup counts / gate count / apply
   wait-reason) and the synthetic `approve` phase are **derived on read**, never
-  stored. Observed phases render in timestamp order with **at most one segment
-  per canonical key** (a re-observed key — e.g. a run's second `warming` —
-  coalesces into its first segment, adopting the latest end/state); last = now,
-  or done on terminal success, or failed; unobserved template keys append as
-  pending; unknown/dynamic phases pass through as generic segments. Always an
-  array, never null. Feeds the PR view's lifecycle stepper (`api.lifecycle`,
-  proxied as `/api/tiers/{tier}/lifecycle`).
+  stored. Raw phases map onto segments **context-aware**: an apply run's own
+  housekeeping phases (warming/initializing/classify/report) fold INTO the
+  apply segment — surfaced as a `detail` sub-phase (e.g. "warming caches") —
+  so a running apply never re-activates the done plan side. **At most one
+  segment per key** (re-observations coalesce, adopting the latest
+  end/state/detail); each execution's latest phase is "now" while that
+  execution runs (per-execution, so interleaved runs can't mask each other).
+  Segments render in canonical rank order (plan side, then
+  approve·moves·apply·verify; passthrough keys like `linting` slot after their
+  observed predecessor). Unobserved template keys append as pending **only
+  when relevant**: plan-side needs a plan run, apply/verify need an apply run
+  (a plan-only PR shows no apply-side noise), `moves` additionally needs
+  moving stacks detected, `init` renders only when observed, `approve` only
+  when gates exist. The "now" segment carries `progress_pct` (k of N stacks
+  from the graph) for the ticking segments (plan/apply). Always an array,
+  never null. Feeds the PR view's lifecycle stepper (`api.lifecycle`, proxied
+  as `/api/tiers/{tier}/lifecycle`).
 
 ### The central UI face (`tfstackplan ui`)
 
@@ -2041,13 +2051,23 @@ top-level `ui {}` block (`tier "<name>" { url }` per tier serve, `oauth {}`,
   as primary — a **unified lifecycle stepper** per tier: one thin row of
   colour-only segments, one per lifecycle *phase* (not per stack), folded from
   the tier's plan/apply/verify executions against a fixed canonical template
-  (`prepare · init · [moves] · plan · classify · report ┆ approve · apply ·
-  verify`) with a ┆ divider before the gate/apply side, a "happening now"
-  caption below, and rich per-phase hover (done ✓ + result / now ▸ running /
-  pending ○ + wait reason). A terminally-succeeded last phase renders done, not
-  a perpetual "now". Fed by `GET /api/lifecycle?pr={n}` (below). A prominent
+  (`prepare · [init] · plan · classify · report ┆ [approve] · [moves] · apply ·
+  verify` — bracketed segments render only when relevant, and the apply side
+  only when an apply run exists) with a ┆ divider before the gate/apply side,
+  a "happening now" caption below (label + **plain-language description** +
+  sub-phase detail + % progress), and rich per-phase hover carrying the same
+  description (done ✓ + result / now ▸ running / pending ○ + wait reason). The
+  active segment **partially fills** when real per-stack progress is known
+  (plan/apply k of N). A prominent **stage badge** next to the tier name
+  answers "planning or applying?" at a glance (PLANNING / PLANNED / AWAITING
+  APPROVAL / APPLYING / APPLIED / VERIFYING / FAILED, derived purely from the
+  folded phases). A terminally-succeeded last phase renders done, not a
+  perpetual "now". Fed by `GET /api/lifecycle?pr={n}` (below). A prominent
   **change-summary tagline** sits under the stepper (`+a ~b ±c −d ↔e · k of N
-  stacks changed`, or a muted "No changes across N stacks"). Changes are
+  stacks changed`, or a muted "No changes across N stacks"); while an apply's
+  counts are not yet known (pre-classify) it falls back to the plan segment's
+  rollup instead of claiming "no changes" — the same counts-known gate
+  suppresses per-stack/group "no changes" labels. Changes are
   grouped by **path-derived component** (the stack path minus its leaf, always
   present — no "untagged" catch-all), each group header carrying its rolled-up
   counts (or a dimmed "no changes"), each group listing its stacks (path,
