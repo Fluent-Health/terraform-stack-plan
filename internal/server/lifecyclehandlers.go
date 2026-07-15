@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/api"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
@@ -163,6 +164,11 @@ func (a *App) handleGetLifecycle(w http.ResponseWriter, _ *http.Request, params 
 		}
 		live = append(live, e)
 	}
+	// One execution per status context: supersession only links same-SHA reruns,
+	// so each push leaves its predecessor "live" — folding them all would repeat
+	// the whole plan-side of the bar once per push. The newest run per context
+	// (plan/apply/verify each keep their own) is the PR's current lifecycle.
+	live = newestPerStatusContext(live)
 
 	phasesByExec := map[string][]store.PhaseRow{}
 	var planGraph, applyGraph events.Graph
@@ -194,8 +200,35 @@ func (a *App) handleGetLifecycle(w http.ResponseWriter, _ *http.Request, params 
 	_ = json.NewEncoder(w).Encode(out)
 }
 
+// newestPerStatusContext keeps only the newest execution per status context,
+// ordered oldest-context-first for a deterministic fold.
+func newestPerStatusContext(execs []store.Execution) []store.Execution {
+	best := map[string]store.Execution{}
+	for _, e := range execs {
+		cur, ok := best[e.StatusContext]
+		if !ok || e.CreatedAt.After(cur.CreatedAt) || (e.CreatedAt.Equal(cur.CreatedAt) && e.ID > cur.ID) {
+			best[e.StatusContext] = e
+		}
+	}
+	out := make([]store.Execution, 0, len(best))
+	for _, e := range best {
+		out = append(out, e)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].CreatedAt.Equal(out[j].CreatedAt) {
+			return out[i].ID < out[j].ID
+		}
+		return out[i].CreatedAt.Before(out[j].CreatedAt)
+	})
+	return out
+}
+
 // lifecycleFold is the pure fold: observed phases in time order + unobserved
-// template phases as pending, with derived per-phase result.
+// template phases as pending, with derived per-phase result. Each canonical
+// key renders at most once: a re-observed key (e.g. the runner's second
+// `warming` tick — CI prepare and provider-cache warm both map to "prepare")
+// coalesces into its first segment, keeping the first start, adopting the
+// latest end/state.
 func lifecycleFold(execs []store.Execution, phasesByExec map[string][]store.PhaseRow, planCounts, applyCounts events.Counts, gate gateSummary) []api.LifecyclePhase {
 	failedByExec := map[string]bool{}
 	succeededByExec := map[string]bool{}
@@ -206,33 +239,32 @@ func lifecycleFold(execs []store.Execution, phasesByExec map[string][]store.Phas
 		ctxByExec[e.ID] = execContextKind(e.StatusContext)
 	}
 
-	// Flatten and sort every recorded phase row by time, then execution id for
-	// a stable tiebreak on identical timestamps.
+	// Flatten every recorded phase row and sort by time. Ties (second-resolution
+	// timestamps) keep the flattening order: executions oldest-first (the
+	// caller passes them sorted by created_at), rows in recorded order within
+	// each execution — so a plan's rows never interleave into a same-second
+	// apply's, and vice versa.
 	type flat struct {
 		execID string
 		row    store.PhaseRow
 	}
 	var all []flat
-	for id, rows := range phasesByExec {
-		for _, r := range rows {
-			all = append(all, flat{execID: id, row: r})
+	for _, e := range execs {
+		for _, r := range phasesByExec[e.ID] {
+			all = append(all, flat{execID: e.ID, row: r})
 		}
 	}
 	sort.SliceStable(all, func(i, j int) bool {
-		if all[i].row.At.Equal(all[j].row.At) {
-			return all[i].execID < all[j].execID
-		}
 		return all[i].row.At.Before(all[j].row.At)
 	})
 
 	out := make([]api.LifecyclePhase, 0, len(all)+len(canonicalTemplate))
-	observed := map[string]bool{}
+	segAt := map[string]int{} // canonical key → index in out
 	for i, f := range all {
 		key, label, ok := canonicalPhaseKey(f.row.Phase)
 		if !ok {
 			key, label = f.row.Phase, f.row.Phase
 		}
-		observed[key] = true
 		ctx := ctxByExec[f.execID]
 		state := "done"
 		if i == len(all)-1 {
@@ -245,23 +277,36 @@ func lifecycleFold(execs []store.Execution, phasesByExec map[string][]store.Phas
 				state = "now"
 			}
 		}
-		lp := api.LifecyclePhase{Key: key, Label: label, State: state, Context: ptr(ctx)}
 		start := f.row.At
-		lp.StartedAt = &start
+		var endedAt *time.Time
 		if i+1 < len(all) {
-			end := all[i+1].row.At
-			lp.EndedAt = &end
+			e := all[i+1].row.At
+			endedAt = &e
 		}
+		if j, seen := segAt[key]; seen {
+			// Re-observation: same lifecycle phase happening again — extend the
+			// existing segment instead of repeating it in the bar.
+			out[j].State = state
+			out[j].EndedAt = endedAt
+			if r := deriveResult(key, ctx, planCounts, applyCounts, gate, state); r != "" {
+				out[j].Result = ptr(r)
+			}
+			continue
+		}
+		lp := api.LifecyclePhase{Key: key, Label: label, State: state, Context: ptr(ctx)}
+		lp.StartedAt = &start
+		lp.EndedAt = endedAt
 		if r := deriveResult(key, ctx, planCounts, applyCounts, gate, state); r != "" {
 			lp.Result = ptr(r)
 		}
+		segAt[key] = len(out)
 		out = append(out, lp)
 	}
 
 	// Append template phases never observed, in template order, as pending.
 	// The synthetic "approve" phase adopts the gate-derived state.
 	for _, t := range canonicalTemplate {
-		if observed[t.Key] {
+		if _, seen := segAt[t.Key]; seen {
 			continue
 		}
 		if t.Key == "approve" && gate.approveState == "" {

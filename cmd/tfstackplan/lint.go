@@ -45,7 +45,8 @@ func runLint(args []string) int {
 		fmt.Fprintln(os.Stderr, "tfstackplan run lint:", err)
 		return 1
 	}
-	edges, _ := tm.RunGraph(ctx)
+	rawEdges, _ := tm.RunGraph(ctx)
+	edges := runner.NormalizeEdges(stacks, rawEdges)
 
 	repo, sha := os.Getenv("TFSTACKPLAN_REPO"), os.Getenv("TFSTACKPLAN_SHA")
 	pr := atoiOr0(os.Getenv("TFSTACKPLAN_PR"))

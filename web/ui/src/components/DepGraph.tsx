@@ -2,7 +2,7 @@ import { For, Show, createEffect, createSignal } from "solid-js";
 import ELK from "elkjs/lib/elk.bundled.js";
 import type { ExecutionDetail } from "../api/client";
 import { SEM_DOT, statusSem } from "../status";
-import { changeReasonFor } from "../dag";
+import { changeReasonFor, normalizedEdges } from "../dag";
 
 interface PNode {
   id: string;
@@ -26,12 +26,14 @@ export function DepGraph(props: { detail: ExecutionDetail }) {
   const [edges, setEdges] = createSignal<PEdge[]>([]);
   const [canvas, setCanvas] = createSignal({ width: 400, height: 200 });
   const [selected, setSelected] = createSignal<string | null>(null);
+  const [layoutError, setLayoutError] = createSignal(false);
   const elk = new ELK();
 
   createEffect(() => {
     const g = props.detail.graph;
     const stacks = g?.stacks ?? [];
-    const es = g?.edges ?? [];
+    const es = normalizedEdges(g);
+    setLayoutError(false);
     if (stacks.length === 0) {
       setNodes([]);
       setEdges([]);
@@ -78,9 +80,10 @@ export function DepGraph(props: { detail: ExecutionDetail }) {
         setCanvas({ width: maxX + 40, height: maxY + 40 });
       })
       .catch(() => {
-        /* layout failure → empty graph, never crash the panel */
+        /* layout failure → say so, never crash the panel */
         setNodes([]);
         setEdges([]);
+        setLayoutError(true);
       });
   });
 
@@ -90,6 +93,9 @@ export function DepGraph(props: { detail: ExecutionDetail }) {
 
   return (
     <div class="border border-base-300 rounded-field bg-base-100 overflow-auto">
+      <Show when={layoutError()}>
+        <p class="p-3 text-xs opacity-60">Could not lay out the dependency graph for this run.</p>
+      </Show>
       <svg width={canvas().width} height={canvas().height} class="min-h-[120px]">
         <g class="edges">
           <For each={edges()}>

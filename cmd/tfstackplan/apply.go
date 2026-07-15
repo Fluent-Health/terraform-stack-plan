@@ -98,7 +98,8 @@ func runApply(args []string) int {
 		fmt.Fprintln(os.Stderr, "tfstackplan run apply:", err)
 		return 1
 	}
-	edges, _ := tm.RunGraph(ctx)
+	rawEdges, _ := tm.RunGraph(ctx)
+	edges := runner.NormalizeEdges(stacks, rawEdges)
 
 	repo, sha := os.Getenv("TFSTACKPLAN_REPO"), os.Getenv("TFSTACKPLAN_SHA")
 	initStacks := make([]events.StackState, 0, len(stacks))

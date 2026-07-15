@@ -13,7 +13,7 @@ export function PlanFragment(props: { tier: string; exec: string; stack: string 
   );
   return (
     <Show
-      when={!html.error}
+      when={!html.error && html()}
       fallback={<p class="opacity-60 text-sm">No plan section for this stack (apply runs store none).</p>}
     >
       <div class="prose prose-sm max-w-none overflow-auto" innerHTML={html()} />

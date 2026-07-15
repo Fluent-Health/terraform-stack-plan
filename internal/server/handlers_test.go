@@ -173,6 +173,39 @@ func TestFinalizeGatedPlanStaysPending(t *testing.T) {
 	}
 }
 
+// A non-failed finalize is terminal for plan and verify runs — the execution
+// row must reach status success, or it reads as in_progress forever (lifecycle
+// bar stuck at "report · now", PRs list stuck "planning"). Apply-context
+// finalizes are NOT terminal (the classify pass emits one mid-apply) and must
+// not be concluded here.
+func TestFinalizeSetsTerminalStatusForPlanAndVerify(t *testing.T) {
+	db := newServerTestDB(t)
+	a := New(db, &MockGitHub{}, Config{})
+	srv := httptest.NewServer(a.Routes())
+	defer srv.Close()
+
+	post(t, srv, "/api/init", events.Init{ID: "p1", Repo: "o/r", SHA: "s", PR: 7, Environment: "staging",
+		Context: "plan/staging", Stacks: []events.StackState{{Path: "a", Status: events.StatusPlanned}}})
+	post(t, srv, "/api/finalize", events.Finalize{ID: "p1", ReportMarkdown: "# report"})
+	if e, err := store.GetExecution(db, "p1"); err != nil || e.Status != "success" {
+		t.Errorf("plan status = %q (err %v); want success", e.Status, err)
+	}
+
+	post(t, srv, "/api/init", events.Init{ID: "v1", Repo: "o/r", SHA: "s", PR: 7, Environment: "staging",
+		Context: "verify/staging", Stacks: []events.StackState{{Path: "a", Status: events.StatusPending}}})
+	post(t, srv, "/api/finalize", events.Finalize{ID: "v1", ReportMarkdown: "✅"})
+	if e, err := store.GetExecution(db, "v1"); err != nil || e.Status != "success" {
+		t.Errorf("verify status = %q (err %v); want success", e.Status, err)
+	}
+
+	post(t, srv, "/api/init", events.Init{ID: "ap1", Repo: "o/r", SHA: "s", PR: 7, Environment: "staging",
+		Context: "apply/staging", Stacks: []events.StackState{{Path: "a", Status: events.StatusPending}}})
+	post(t, srv, "/api/finalize", events.Finalize{ID: "ap1", ReportMarkdown: "classify pass"})
+	if e, err := store.GetExecution(db, "ap1"); err == nil && e.Status == "success" {
+		t.Errorf("apply status = success after mid-apply finalize; must stay non-terminal")
+	}
+}
+
 func TestFinalizeStoresPerStackPlan(t *testing.T) {
 	db := newServerTestDB(t)
 	a := New(db, &MockGitHub{}, Config{})

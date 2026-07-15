@@ -33,3 +33,37 @@ func parseRunGraph(dot string) []events.Edge {
 	}
 	return edges
 }
+
+// NormalizeEdges maps run-graph edge endpoints onto the listed stack namespace
+// and drops edges touching stacks outside the set. The two commands live in
+// different namespaces: `terramate list` under --dir <tier> yields tier-relative
+// paths (cluster/x) while `experimental run-graph` labels nodes project-root-
+// relative (stacks/nonprod/cluster/x). An exact match wins; otherwise an
+// endpoint matches the unique listed stack it path-suffixes ("…/"+stack).
+// Always returns a non-nil slice.
+func NormalizeEdges(stacks []string, edges []events.Edge) []events.Edge {
+	exact := make(map[string]bool, len(stacks))
+	for _, s := range stacks {
+		exact[s] = true
+	}
+	resolve := func(endpoint string) (string, bool) {
+		if exact[endpoint] {
+			return endpoint, true
+		}
+		for _, s := range stacks {
+			if strings.HasSuffix(endpoint, "/"+s) {
+				return s, true
+			}
+		}
+		return "", false
+	}
+	out := []events.Edge{}
+	for _, e := range edges {
+		from, fok := resolve(e.From)
+		to, tok := resolve(e.To)
+		if fok && tok {
+			out = append(out, events.Edge{From: from, To: to})
+		}
+	}
+	return out
+}
