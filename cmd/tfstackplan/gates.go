@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"sort"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
@@ -14,7 +15,7 @@ import (
 // stacks are those whose per-stack categories include the non-gating "move"
 // category. gating is the set of class names that have a `class` binding in the
 // config.
-func gatesFromSidecar(data []byte, gating map[string]bool) (gates []events.GateTarget, moving []string, err error) {
+func gatesFromSidecar(data []byte, gating, requireTargets map[string]bool) (gates []events.GateTarget, moving []string, err error) {
 	var doc sidecarDoc
 	if err := json.Unmarshal(data, &doc); err != nil {
 		return nil, nil, err
@@ -35,6 +36,15 @@ func gatesFromSidecar(data []byte, gating map[string]bool) (gates []events.GateT
 			}
 		}
 		sort.Strings(targets)
+		// Fail closed: a gating class that declares emit_attributes matched at
+		// least one change (it is in the summary) but resolved NO target — e.g.
+		// a derive over an attribute that a destroy carries only in `before` and
+		// that was not recovered. Emitting zero gates here would let the
+		// privileged change apply with none of the approval the classification
+		// was meant to attach. Surface it instead of silently proceeding.
+		if len(targets) == 0 && requireTargets[c.Category] {
+			return nil, nil, fmt.Errorf("gating class %q matched but resolved no gate target: its emit_attributes produced no value (check the derive/config for this resource — a delete carries attributes only in `before`); refusing to emit an unconstrained gate", c.Category)
+		}
 		for _, tgt := range targets {
 			gates = append(gates, events.GateTarget{Class: c.Category, Target: tgt})
 		}

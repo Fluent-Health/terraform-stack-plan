@@ -266,7 +266,19 @@ classification {
   preset leaves `actions` unset by design.)
 - Rules with no matcher fields are catch-alls.
 - A rule/preset may carry `derive` blocks (see *Sidecar JSON → `derive`* below) to
-  recover an emitted attribute a matched change does not carry directly.
+  recover an emitted attribute a matched change does not carry directly. On a
+  **destroy** the resource's attributes live only in `before` (Terraform sets
+  `after` to null); `rawScalars` prefers `after` but falls back to `before`, so a
+  derive over a before-only attribute still resolves on a delete — e.g. gating a
+  destroy of an artifact-registry repository to its project. See issue #218.
+- **Fail-closed on an unresolved gate target.** A gating class (one with a `class`
+  binding) that declares `emit_attributes` and *matches* a change but resolves
+  **zero** targets fails the classify pass (`gatesFromSidecar` returns an error,
+  propagated through `renderClassification`) rather than silently emitting no
+  gate. Emitting nothing would let the privileged change apply with none of the
+  approval the classification was meant to attach — the silent permissive path
+  issue #218 warns about. Mirrors the xmove-manifest fail-closed. (A gating class
+  without `emit_attributes` is not subject to this check.)
 - **Classification considers only changes that mutate the real resource**
   (`add`/`change`/`destroy`/`replace`). Pure state operations — `move`, `import`,
   and `forget` — never contribute to any category, because they make no

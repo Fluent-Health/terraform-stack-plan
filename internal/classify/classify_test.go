@@ -372,6 +372,46 @@ func buildCacheDerivation() Derivation {
 // projectless managed-folder members in distinct projects, with NO sibling
 // carrying a project. Per-resource derivation must surface all three (the
 // stack-project fallback would yield "" — ambiguous/none — and fail closed).
+// Regression for issue #218: destroying a resource that is itself gated (e.g. an
+// artifact-registry repository) must still resolve its gate target on a DELETE.
+// On a destroy the resource's attributes live only in `before` (after is null);
+// classification must recover the emitted `project` from that before-state — via
+// the config derive over a before-only attribute — so the privileged destroy is
+// gated rather than slipping through with no target. Parses real plan JSON so the
+// before-fallback in rawScalars is exercised, not bypassed by a hand-built Raw.
+func TestProjectDeriveOnDeleteResolvesTarget(t *testing.T) {
+	data := []byte(`{"format_version":"1.2","resource_changes":[
+	 {"address":"google_artifact_registry_repository.r","type":"google_artifact_registry_repository","name":"r",
+	  "change":{"actions":["delete"],
+	    "before":{"repository_id":"bar","location":"us","self_link":"proj-foo/locations/us/repositories/bar"},
+	    "after":null,"before_sensitive":{},"after_sensitive":{}}}
+	]}`)
+	rs, err := plan.Parse("s", data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rules := []Rule{{
+		Name: "iam", Icon: "🔐",
+		TypePattern:    regexp.MustCompile(`^google_artifact_registry_repository$`),
+		Actions:        []string{"delete"},
+		MinCount:       1,
+		EmitAttributes: []string{"project"},
+		Derivations: []Derivation{{
+			Attribute:     "project",
+			TypePattern:   regexp.MustCompile(`^google_artifact_registry_repository$`),
+			FromAttribute: "self_link",
+			Pattern:       regexp.MustCompile(`^(?P<value>[^/]+)/locations/`),
+		}},
+	}}
+	iam, ok := find(Classify(rs, rules, nil), "iam")
+	if !ok {
+		t.Fatal("expected the destroy to classify as iam")
+	}
+	if !reflect.DeepEqual(iam.Attributes["project"], []string{"proj-foo"}) {
+		t.Fatalf("project on delete = %v, want [proj-foo] (derived from before-only self_link)", iam.Attributes["project"])
+	}
+}
+
 func TestProjectDerivationFromAttributePerResource(t *testing.T) {
 	rules := []Rule{{
 		Name: "iam", Icon: "🔐", TypePattern: regexp.MustCompile(`_iam_`), MinCount: 1,

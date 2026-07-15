@@ -20,7 +20,7 @@ func TestGatesFromSidecar(t *testing.T) {
 	}`)
 	gating := map[string]bool{"iam": true}
 
-	gates, moving, err := gatesFromSidecar(sidecar, gating)
+	gates, moving, err := gatesFromSidecar(sidecar, gating, map[string]bool{"iam": true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -36,7 +36,7 @@ func TestGatesFromSidecar(t *testing.T) {
 
 func TestGatesFromSidecarNoGatingClasses(t *testing.T) {
 	sidecar := []byte(`{"stacks":{},"summary":{"categories":[{"category":"iam","attributes":{"project":["p"]}}]}}`)
-	gates, _, err := gatesFromSidecar(sidecar, map[string]bool{})
+	gates, _, err := gatesFromSidecar(sidecar, map[string]bool{}, map[string]bool{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,12 +46,38 @@ func TestGatesFromSidecarNoGatingClasses(t *testing.T) {
 }
 
 func TestGatesFromSidecarEmpty(t *testing.T) {
-	gates, moving, err := gatesFromSidecar([]byte(`{"stacks":{},"summary":{"categories":[]}}`), map[string]bool{"iam": true})
+	gates, moving, err := gatesFromSidecar([]byte(`{"stacks":{},"summary":{"categories":[]}}`), map[string]bool{"iam": true}, map[string]bool{"iam": true})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(gates) != 0 || len(moving) != 0 {
 		t.Errorf("empty → gates %+v moving %+v", gates, moving)
+	}
+}
+
+// A gating class that declares emit_attributes and matched a change (present in
+// the summary) but resolved NO target must fail the pass closed — never emit
+// zero gates and let the privileged change (e.g. a destroy whose project the
+// derive could not recover) apply unconstrained.
+func TestGatesFromSidecarFailsClosedOnUnresolvedTarget(t *testing.T) {
+	// iam matched (in summary) but carries no resolved attribute values.
+	sidecar := []byte(`{
+	  "stacks": {"stacks/a": {"categories": [{"category":"iam","icon":"🔐"}]}},
+	  "summary": {"categories": [{"category":"iam","icon":"🔐"}]}
+	}`)
+	gates, _, err := gatesFromSidecar(sidecar, map[string]bool{"iam": true}, map[string]bool{"iam": true})
+	if err == nil {
+		t.Fatalf("expected a fail-closed error; got gates=%+v, nil error", gates)
+	}
+}
+
+// A gating class present in the summary with zero targets but NOT declaring
+// emit_attributes (not in requireTargets) does not error — only emit-bearing
+// gates must resolve a target.
+func TestGatesFromSidecarZeroTargetsNonEmitterOK(t *testing.T) {
+	sidecar := []byte(`{"stacks":{},"summary":{"categories":[{"category":"iam","icon":"🔐"}]}}`)
+	if _, _, err := gatesFromSidecar(sidecar, map[string]bool{"iam": true}, map[string]bool{}); err != nil {
+		t.Fatalf("non-emitter gating class with zero targets must not error: %v", err)
 	}
 }
 

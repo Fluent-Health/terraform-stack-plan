@@ -179,25 +179,41 @@ func runPlan(args []string) int {
 
 // gatingClasses loads the config and returns the set of class names that have a
 // `class` binding (those are the approval gates).
-func gatingClasses(cfgPath, dir string) map[string]bool {
+// gatingClasses returns the set of class names that have a `class` binding
+// (require an approval gate), plus the subset of those that declare
+// emit_attributes — the classes for which a match MUST resolve at least one
+// gate target (else the classify pass fails closed rather than emitting an
+// unconstrained gate). Both are empty when no config is discoverable.
+func gatingClasses(cfgPath, dir string) (gating, requireTargets map[string]bool) {
+	gating, requireTargets = map[string]bool{}, map[string]bool{}
 	p := cfgPath
 	if p == "" {
 		if d, ok := config.Discover(dir); ok {
 			p = d
 		}
 	}
-	out := map[string]bool{}
 	if p == "" {
-		return out
+		return gating, requireTargets
 	}
 	cfg, err := config.Load(p)
 	if err != nil {
-		return out
+		return gating, requireTargets
+	}
+	emits := map[string]bool{}
+	if cfg.Classification != nil {
+		for _, r := range cfg.Classification.Rules {
+			if len(r.EmitAttributes) > 0 {
+				emits[r.Name] = true
+			}
+		}
 	}
 	for _, c := range cfg.Classes {
-		out[c.Name] = true
+		gating[c.Name] = true
+		if emits[c.Name] {
+			requireTargets[c.Name] = true
+		}
 	}
-	return out
+	return gating, requireTargets
 }
 
 func atoiOr0(s string) int { n, _ := strconv.Atoi(s); return n }

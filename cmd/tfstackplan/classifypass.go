@@ -123,7 +123,12 @@ func renderClassification(dir string, stacks []string, cfgPath string) (classify
 		StackReports:  stackReports,
 	}
 	if data, e := os.ReadFile(sidecar); e == nil {
-		res.Gates, res.Moving, _ = gatesFromSidecar(data, gatingClasses(resolvedCfg, dir))
+		gating, requireTargets := gatingClasses(resolvedCfg, dir)
+		var gerr error
+		res.Gates, res.Moving, gerr = gatesFromSidecar(data, gating, requireTargets)
+		if gerr != nil {
+			return classifyResult{}, gerr
+		}
 		res.Categories, _ = categoriesFromSidecar(data)
 		res.Counts, _ = countsFromSidecar(data)
 	}
