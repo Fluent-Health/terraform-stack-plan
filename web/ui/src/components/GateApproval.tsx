@@ -1,6 +1,6 @@
 import { Show, createSignal } from "solid-js";
 import type { PendingApproval } from "../api/client";
-import { approveURL, runApproval } from "../approve";
+import { approveURL, defaultReason, runApproval } from "../approve";
 
 /**
  * GateApproval: in-context approve/deny for one gated project group on the PR
@@ -11,14 +11,18 @@ export function GateApproval(props: { tier: string; approval: PendingApproval; o
   const [pending, setPending] = createSignal<"approve" | "deny" | null>(null);
   const [busy, setBusy] = createSignal(false);
   const [outcome, setOutcome] = createSignal<{ ok: boolean; message: string } | null>(null);
-  let reasonEl!: HTMLTextAreaElement;
+  const [reason, setReason] = createSignal("");
+  const open = (decision: "approve" | "deny") => {
+    setReason(defaultReason(decision, props.approval));
+    setPending(decision);
+  };
 
   const run = async () => {
     const decision = pending();
-    if (!decision) return;
+    if (!decision || !reason().trim()) return;
     setBusy(true);
     try {
-      const res = await runApproval(approveURL(props.tier, props.approval.grant_name, decision, reasonEl.value.trim()));
+      const res = await runApproval(approveURL(props.tier, props.approval.grant_name, decision, reason().trim()));
       setOutcome(res);
       if (res.ok) props.onDecided();
     } catch (e) {
@@ -55,10 +59,10 @@ export function GateApproval(props: { tier: string; approval: PendingApproval; o
           </a>
         }
       >
-        <button class="btn btn-success btn-xs" disabled={busy()} onClick={() => setPending("approve")}>
+        <button class="btn btn-success btn-xs" disabled={busy()} onClick={() => open("approve")}>
           Approve
         </button>
-        <button class="btn btn-error btn-outline btn-xs" disabled={busy()} onClick={() => setPending("deny")}>
+        <button class="btn btn-error btn-outline btn-xs" disabled={busy()} onClick={() => open("deny")}>
           Deny
         </button>
       </Show>
@@ -75,14 +79,21 @@ export function GateApproval(props: { tier: string; approval: PendingApproval; o
                 PR #{props.approval.pr} · {props.approval.environment}. A Google consent popup will open; the decision
                 is recorded in the PAM audit log under your identity.
               </p>
-              <textarea ref={reasonEl} class="textarea w-full" placeholder="reason (optional)" maxlength="512" />
+              <label class="text-xs opacity-70">reason (required — recorded in the PAM audit log)</label>
+              <textarea
+                class="textarea w-full"
+                placeholder="reason (required)"
+                maxlength="512"
+                value={reason()}
+                onInput={(e) => setReason(e.currentTarget.value)}
+              />
               <div class="modal-action">
                 <button class="btn btn-ghost" onClick={() => setPending(null)}>
                   Cancel
                 </button>
                 <button
                   class={`btn ${decision() === "approve" ? "btn-success" : "btn-error"}`}
-                  disabled={busy()}
+                  disabled={busy() || !reason().trim()}
                   onClick={run}
                 >
                   {decision() === "approve" ? "Approve" : "Deny"}

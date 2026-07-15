@@ -14,6 +14,18 @@ export function approveURL(tier: string, grant: string, decision: "approve" | "d
   return `/auth/approve?${q}`;
 }
 
+/**
+ * defaultReason prefills the decision modal — PAM requires a non-empty reason
+ * (it is NOT optional), so the field starts with an honest, editable default.
+ */
+export function defaultReason(
+  decision: "approve" | "deny",
+  a: { pr: number; class: string; target: string },
+): string {
+  const verb = decision === "approve" ? "Approving" : "Denying";
+  return `${verb} ${a.class} changes on ${a.target} for PR #${a.pr} (via tfstackplan)`;
+}
+
 /** isApprovalOutcome guards a postMessage payload from the popup. */
 export function isApprovalOutcome(data: unknown): data is ApprovalOutcome {
   return (

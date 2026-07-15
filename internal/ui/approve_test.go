@@ -7,15 +7,17 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"golang.org/x/oauth2"
 )
 
-// approveTestApp wires an App with a fake Google token endpoint and a fake
-// PAM, returning the handler, a session cookie, and the recorders.
-func approveTestApp(t *testing.T) (http.Handler, *http.Cookie, *pamRecorder) {
+// approveTestApp wires an App with a fake Google token endpoint, a fake PAM,
+// and a fake tier serve (recording reconcile nudges), returning the handler,
+// a session cookie, and the recorders.
+func approveTestApp(t *testing.T) (http.Handler, *http.Cookie, *pamRecorder, *tierRecorder) {
 	t.Helper()
 	tokenSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -25,6 +27,9 @@ func approveTestApp(t *testing.T) (http.Handler, *http.Cookie, *pamRecorder) {
 	pam := &pamRecorder{status: 200}
 	pamSrv := httptest.NewServer(pam)
 	t.Cleanup(pamSrv.Close)
+	tier := &tierRecorder{}
+	tierSrv := httptest.NewServer(tier)
+	t.Cleanup(tierSrv.Close)
 
 	app, err := New(Config{
 		PublicBaseURL: "https://ui.example.com",
@@ -39,7 +44,7 @@ func approveTestApp(t *testing.T) (http.Handler, *http.Cookie, *pamRecorder) {
 		},
 		QuotaProject: "svc-proj",
 		PAMBaseURL:   pamSrv.URL,
-		Tiers:        []Tier{{Name: "prod", URL: "http://tier.invalid"}},
+		Tiers:        []Tier{{Name: "prod", URL: tierSrv.URL}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -48,7 +53,38 @@ func approveTestApp(t *testing.T) (http.Handler, *http.Cookie, *pamRecorder) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return app.Routes(), &http.Cookie{Name: SessionCookie, Value: sealed}, pam
+	return app.Routes(), &http.Cookie{Name: SessionCookie, Value: sealed}, pam, tier
+}
+
+// tierRecorder records requests the UI backend makes to the tier serve (the
+// post-decision gate-reconcile nudge).
+type tierRecorder struct {
+	mu    sync.Mutex
+	paths []string
+}
+
+func (tr *tierRecorder) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	tr.mu.Lock()
+	tr.paths = append(tr.paths, r.Method+" "+r.URL.Path)
+	tr.mu.Unlock()
+	w.WriteHeader(http.StatusAccepted)
+}
+
+// waitFor polls until the recorder has seen a path or the deadline passes.
+func (tr *tierRecorder) waitFor(path string, d time.Duration) bool {
+	deadline := time.Now().Add(d)
+	for time.Now().Before(deadline) {
+		tr.mu.Lock()
+		for _, p := range tr.paths {
+			if p == path {
+				tr.mu.Unlock()
+				return true
+			}
+		}
+		tr.mu.Unlock()
+		time.Sleep(10 * time.Millisecond)
+	}
+	return false
 }
 
 type pamRecorder struct {
@@ -84,7 +120,7 @@ func startApprove(t *testing.T, h http.Handler, sess *http.Cookie, query string)
 }
 
 func TestApproveFlow(t *testing.T) {
-	h, sess, pam := approveTestApp(t)
+	h, sess, pam, tier := approveTestApp(t)
 
 	// Step 1: start → redirect to Google with cloud-platform scope,
 	// incremental consent, and the sealed intent as state.
@@ -122,10 +158,33 @@ func TestApproveFlow(t *testing.T) {
 	if !strings.Contains(rr2.Body.String(), "postMessage") {
 		t.Errorf("popup should postMessage the outcome: %s", rr2.Body.String())
 	}
+	// Step 3: a successful decision nudges the tier's gate reconcile so the
+	// outcome pushes to watching pages via SSE (no reload).
+	if !tier.waitFor("POST /api/gate/reconcile", 2*time.Second) {
+		t.Errorf("expected a gate-reconcile nudge on the tier; saw %v", tier.paths)
+	}
+}
+
+// PAM requires a reason — an empty submit must carry a default, never an
+// empty body that PAM rejects.
+func TestApproveEmptyReasonDefaults(t *testing.T) {
+	h, sess, pam, _ := approveTestApp(t)
+	rr := startApprove(t, h, sess, "tier=prod&decision=approve&grant="+url.QueryEscape(approveGrant))
+	state := mustState(t, rr)
+	req := httptest.NewRequest("GET", "/auth/approve/callback?code=c&state="+url.QueryEscape(state), nil)
+	req.AddCookie(sess)
+	rr2 := httptest.NewRecorder()
+	h.ServeHTTP(rr2, req)
+	if !strings.Contains(rr2.Body.String(), `"ok":true`) {
+		t.Fatalf("callback: %s", rr2.Body.String())
+	}
+	if !strings.Contains(pam.reason, "approved via tfstackplan UI") {
+		t.Errorf("empty reason must default; pam got %q", pam.reason)
+	}
 }
 
 func TestApprovePAM403Verbatim(t *testing.T) {
-	h, sess, pam := approveTestApp(t)
+	h, sess, pam, tier := approveTestApp(t)
 	pam.status = 403
 	pam.body = `{"error":{"message":"Permission 'privilegedaccessmanager.grants.approve' denied"}}`
 	rr := startApprove(t, h, sess, "tier=prod&decision=deny&grant="+url.QueryEscape(approveGrant))
@@ -141,10 +200,14 @@ func TestApprovePAM403Verbatim(t *testing.T) {
 	if !strings.HasSuffix(pam.path, ":deny") {
 		t.Errorf("deny path: %q", pam.path)
 	}
+	// A failed decision must NOT nudge the tier — nothing changed.
+	if tier.waitFor("POST /api/gate/reconcile", 200*time.Millisecond) {
+		t.Errorf("no nudge expected after a PAM rejection; saw %v", tier.paths)
+	}
 }
 
 func TestApproveGuards(t *testing.T) {
-	h, sess, pam := approveTestApp(t)
+	h, sess, pam, _ := approveTestApp(t)
 
 	// Start validation.
 	if rr := startApprove(t, h, sess, "tier=nope&decision=approve&grant="+url.QueryEscape(approveGrant)); rr.Code != http.StatusNotFound {

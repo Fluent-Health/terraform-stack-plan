@@ -127,6 +127,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/gate/reconcile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Nudge an immediate reconcile of every pending gate
+         * @description Re-evaluates all not-yet-ACTIVE gate targets against the approval
+         *     backend now, instead of waiting for the poll interval — the central
+         *     UI calls this right after an in-UI PAM approve/deny so the decision's
+         *     effect (grant ACTIVATING/ACTIVE/DENIED) pushes to watching pages via
+         *     SSE within seconds. Asynchronous and best-effort: the poll loop is
+         *     the backstop. No body.
+         */
+        post: operations["reconcileGates"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/gate/revoke": {
         parameters: {
             query?: never;
@@ -1161,6 +1186,24 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["CodedError"];
                 };
+            };
+        };
+    };
+    reconcileGates: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Reconcile scheduled. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

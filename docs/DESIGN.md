@@ -2129,7 +2129,19 @@ top-level `ui {}` block (`tier "<name>" { url }` per tier serve, `oauth {}`,
   `oauth { quota_project }` names the project user-token API quota attributes
   to (the OAuth client's project, which must have the PAM API enabled). The
   OAuth client needs `<public_base_url>/auth/approve/callback` as a second
-  authorized redirect URI.
+  authorized redirect URI. **The reason is required** — PAM rejects an empty
+  one — so the decision modal prefills an honest editable default
+  (`Approving <class> changes on <target> for PR #<n> (via tfstackplan)`) and
+  blocks empty submits; the backend additionally defaults a missing reason
+  (defense against direct `/auth/approve` calls). **Decisions push, not
+  poll**: after a successful PAM call the UI backend fires the tier's
+  `POST /api/gate/reconcile` (fire-and-forget; scopes report/read/admin) —
+  serve re-evaluates its pending gates immediately, and the resulting
+  reconcile renders publish on the execution's SSE stream; the tier panel
+  refetches detail+lifecycle+approvals on that nudge, so the gates strip and
+  stepper update within seconds of an approve/deny with no reload. The tier's
+  poll loop remains the backstop (an old serve without the route 404s the
+  nudge harmlessly).
 
 Still to come (tracked increments): a Playwright smoke, group-DAG/triage
 parity in the execution view, and the tier serves' HTML viewer retirement

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { approveURL, isApprovalOutcome } from "./approve";
+import { approveURL, defaultReason, isApprovalOutcome } from "./approve";
 
 describe("approveURL", () => {
   it("builds the consent entry with encoded params", () => {
@@ -22,5 +22,13 @@ describe("isApprovalOutcome", () => {
     expect(isApprovalOutcome({ type: "other" })).toBe(false);
     expect(isApprovalOutcome(null)).toBe(false);
     expect(isApprovalOutcome({ type: "tfsp-approval", ok: "yes", message: 1 })).toBe(false);
+  });
+});
+
+describe("defaultReason", () => {
+  it("prefills an honest, decision-specific PAM reason", () => {
+    const a = { pr: 813, class: "iam", target: "fh-prod-svc" };
+    expect(defaultReason("approve", a)).toBe("Approving iam changes on fh-prod-svc for PR #813 (via tfstackplan)");
+    expect(defaultReason("deny", a)).toBe("Denying iam changes on fh-prod-svc for PR #813 (via tfstackplan)");
   });
 });

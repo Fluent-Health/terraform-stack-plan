@@ -108,3 +108,20 @@ func TestGateCheckAllActiveReturnsRequester(t *testing.T) {
 		t.Errorf("body[requester] = %q; want %q", body["requester"], want)
 	}
 }
+
+// The gate-reconcile nudge is a fire-and-forget trigger: always 202, even
+// with no approval backend configured (the reconcile no-ops).
+func TestGateReconcileNudgeAccepts(t *testing.T) {
+	db := newServerTestDB(t)
+	a := New(db, &MockGitHub{}, Config{})
+	srv := httptest.NewServer(a.Routes())
+	defer srv.Close()
+	resp, err := http.Post(srv.URL+"/api/gate/reconcile", "application/json", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("status = %d; want 202", resp.StatusCode)
+	}
+}
