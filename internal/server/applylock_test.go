@@ -169,6 +169,31 @@ func TestMergeGroupHeldThenClaim(t *testing.T) {
 	}
 }
 
+// A merge group whose PR changed no stacks (EnvironmentsForPR empty — docs/CI/
+// bootstrap-only) must still get the required merge-gate check posted on the
+// merge-group head for this tier's gated env: green, nothing to serialize. Else
+// the required context never appears on the merge-group head and GitHub's native
+// merge queue stalls forever, blocking every PR behind it. Regression for #221.
+func TestMergeGroupNoStackPRPostsGreenGate(t *testing.T) {
+	db := newServerTestDB(t)
+	gh := &recordingGitHub{}
+	a := New(db, gh, Config{PublicBaseURL: "https://srv", Environment: "prod"})
+	gh.mergeGroupPRs = []int{7}
+	// No seedPlan: PR 7 changed no stacks → EnvironmentsForPR(7) is empty.
+	if err := a.handleMergeGroup(ctx(), "o/r", "mgsha", "checks_requested"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gh.updateCount == 0 {
+		t.Fatal("no merge-gate check posted on the merge-group head — the queue would hang")
+	}
+	if gh.lastUpdate.Conclusion != "success" {
+		t.Fatalf("no-stack merge group conclusion = %q, want success (nothing to serialize)", gh.lastUpdate.Conclusion)
+	}
+	if _, ok, _ := store.GetApplyLockCheck(a.db, "prod", "mgsha"); !ok {
+		t.Fatal("merge-gate check not persisted on the merge-group head for prod")
+	}
+}
+
 func TestMergeGroupPRResolutionError(t *testing.T) {
 	a, gh := newApplyLockTestApp(t)
 	gh.mergeGroupPRsErr = fmt.Errorf("github unavailable")

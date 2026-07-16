@@ -1673,7 +1673,13 @@ ruleset chooses which to enforce:
   time, so two PRs with overlapping stacks cannot both receive `success`
   simultaneously. The check posted on the group head is lock-only (there is no
   plan execution against a merge-group SHA); named `apply-lock/<env>` on
-  unarmed tiers, `terraform/<env>` on armed ones.
+  unarmed tiers, `terraform/<env>` on armed ones. The check is **always posted
+  for the tier's own gated env** (`a.cfg.Environment`), even when the merge
+  group's PRs changed **no** stacks in it (docs/CI/bootstrap/module-only PRs) —
+  nothing to serialize → `clear`/green. Deriving the env set only from the PRs'
+  changed stacks (via `EnvironmentsForPR`) meant a no-stack PR posted no check
+  on the merge-group head, so the required context never appeared and the queue
+  stalled indefinitely, blocking every PR behind it (issue #221).
 - **`pull_request`** — on an unarmed tier the check is posted on the PR's head
   SHA. Because the `pull_request` webhook (open/sync) fires *before* the plan
   registers the PR's changed stacks, the check is **also (re-)posted when the

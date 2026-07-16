@@ -253,6 +253,18 @@ func (a *App) handleMergeGroup(ctx context.Context, repo, headSHA, action string
 			envPRStacks[env][pr] = ps
 		}
 	}
+	// Always evaluate this tier's own gated env, even when no constituent PR
+	// changed stacks in it. A merge group whose PRs touch no stacks here
+	// (docs/CI/bootstrap/module-only) otherwise gets NO merge-gate check on the
+	// merge-group head — the required terraform/<env> context never appears and
+	// GitHub's native merge queue stalls forever, blocking every PR behind it.
+	// Nothing to serialize → clear (green), for parity with the PR-head no-change
+	// check that let the PR into the queue in the first place. (#221)
+	if a.cfg.Environment != "" {
+		if _, ok := envPRStacks[a.cfg.Environment]; !ok {
+			envPRStacks[a.cfg.Environment] = map[int][]string{}
+		}
+	}
 	// Post one apply-lock/<env> check per env.
 	now := a.now()
 	for env, prStacks := range envPRStacks {
@@ -262,6 +274,11 @@ func (a *App) handleMergeGroup(ctx context.Context, repo, headSHA, action string
 		for pr, ss := range prStacks {
 			allStacks = append(allStacks, ss...)
 			ownerPR = pr
+		}
+		if ownerPR == 0 && len(prs) > 0 {
+			// No PR contributed stacks for this env (nothing to serialize): use a
+			// group PR for the check's details link rather than #0.
+			ownerPR = prs[0]
 		}
 		v := a.evalApplyLock(env, ownerPR, allStacks, now)
 		if v.State == "clear" {
