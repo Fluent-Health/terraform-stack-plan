@@ -149,7 +149,7 @@ func TestMergeGroupHeldThenClaim(t *testing.T) {
 	seedPlan(t, a.db, 7, "prod", "o/r", "headPR", []string{"a", "b"}) // helper: Init w/ stacks
 	// Another PR holds stack "a" => held (seed via the ledger, the fold backs evalApplyLock).
 	_ = a.shell.handleClaim("prod", claims.AcquireClaim{PR: 5, Stacks: []string{"a"}, Now: time.Now()})
-	if err := a.handleMergeGroup(ctx(), "o/r", "mgsha", "checks_requested"); err != nil {
+	if err := a.handleMergeGroup(ctx(), "o/r", "mgsha", "", "checks_requested"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if gh.lastUpdate.Conclusion != "" {
@@ -158,7 +158,7 @@ func TestMergeGroupHeldThenClaim(t *testing.T) {
 	// Now the conflicting claim is released => a fresh checks_requested clears + claims.
 	_ = a.shell.handleClaim("prod", claims.ReleaseClaim{PR: 5})
 	gh.lastUpdate = CheckRunUpdate{}
-	if err := a.handleMergeGroup(ctx(), "o/r", "mgsha", "checks_requested"); err != nil {
+	if err := a.handleMergeGroup(ctx(), "o/r", "mgsha", "", "checks_requested"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if gh.lastUpdate.Conclusion != "success" {
@@ -169,10 +169,61 @@ func TestMergeGroupHeldThenClaim(t *testing.T) {
 	}
 }
 
+// A merge group whose PR changed no stacks (EnvironmentsForPR empty — docs/CI/
+// bootstrap-only) must still get the required merge-gate check posted on the
+// merge-group head for this tier's gated env: green, nothing to serialize. Else
+// the required context never appears on the merge-group head and GitHub's native
+// merge queue stalls forever, blocking every PR behind it. Regression for #221.
+func TestMergeGroupNoStackPRPostsGreenGate(t *testing.T) {
+	db := newServerTestDB(t)
+	gh := &recordingGitHub{}
+	a := New(db, gh, Config{PublicBaseURL: "https://srv", Environment: "prod"})
+	gh.mergeGroupPRs = []int{7}
+	// No seedPlan: PR 7 changed no stacks → EnvironmentsForPR(7) is empty.
+	if err := a.handleMergeGroup(ctx(), "o/r", "mgsha", "", "checks_requested"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gh.updateCount == 0 {
+		t.Fatal("no merge-gate check posted on the merge-group head — the queue would hang")
+	}
+	if gh.lastUpdate.Conclusion != "success" {
+		t.Fatalf("no-stack merge group conclusion = %q, want success (nothing to serialize)", gh.lastUpdate.Conclusion)
+	}
+	if _, ok, _ := store.GetApplyLockCheck(a.db, "prod", "mgsha"); !ok {
+		t.Fatal("merge-gate check not persisted on the merge-group head for prod")
+	}
+}
+
+// GitHub's commits/{sha}/pulls returns [] for merge-queue temp commits, so
+// MergeGroupPRs yields nothing. The PR must instead be recovered from the
+// merge-queue head ref (gh-readonly-queue/<base>/pr-<n>-<sha>) carried in the
+// webhook — otherwise the group's stacks are never evaluated. Proven by the
+// overlap → held verdict (which requires the PR's stacks to be resolved; the
+// no-stack green fallback alone would report success). Regression for #221.
+func TestMergeGroupResolvesPRFromHeadRef(t *testing.T) {
+	db := newServerTestDB(t)
+	gh := &recordingGitHub{}
+	a := New(db, gh, Config{PublicBaseURL: "https://srv", Environment: "prod"})
+	gh.mergeGroupPRs = nil // commits/{sha}/pulls empty for merge-queue temp commits
+	seedPlan(t, a.db, 7, "prod", "o/r", "mgsha", []string{"a"})
+	// Another PR holds stack "a" → PR 7's apply must be held (overlap).
+	_ = a.shell.handleClaim("prod", claims.AcquireClaim{PR: 5, Stacks: []string{"a"}, Now: time.Now()})
+	ref := "refs/heads/gh-readonly-queue/main/pr-7-deadbeef"
+	if err := a.handleMergeGroup(ctx(), "o/r", "mgsha", ref, "checks_requested"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gh.updateCount == 0 {
+		t.Fatal("no merge-gate check posted — PR not resolved from head ref")
+	}
+	if gh.lastUpdate.Conclusion != "" {
+		t.Fatalf("conclusion = %q, want held (empty) — PR 7's overlapping stack must be evaluated", gh.lastUpdate.Conclusion)
+	}
+}
+
 func TestMergeGroupPRResolutionError(t *testing.T) {
 	a, gh := newApplyLockTestApp(t)
 	gh.mergeGroupPRsErr = fmt.Errorf("github unavailable")
-	err := a.handleMergeGroup(ctx(), "o/r", "mgsha", "checks_requested")
+	err := a.handleMergeGroup(ctx(), "o/r", "mgsha", "", "checks_requested")
 	if err == nil {
 		t.Fatal("expected non-nil error when MergeGroupPRs fails, got nil")
 	}
@@ -289,7 +340,7 @@ func TestMergeGroupUnverifiable(t *testing.T) {
 	a, gh := newApplyLockTestApp(t)
 	gh.mergeGroupPRs = []int{123}
 	// No plan seeded for PR 123
-	err := a.handleMergeGroup(ctx(), "o/r", "mgsha", "checks_requested")
+	err := a.handleMergeGroup(ctx(), "o/r", "mgsha", "", "checks_requested")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

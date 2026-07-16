@@ -202,11 +202,30 @@ func (a *App) handlePRApplyLock(ctx context.Context, repo string, pr int, merged
 // greenlight + success; overlap => held. On destroyed: release the tentative claim.
 // Returns a non-nil error when the group's PRs or their envs can't be resolved so
 // the caller can return 5xx and let GitHub redeliver (fail-closed).
-func (a *App) handleMergeGroup(ctx context.Context, repo, headSHA, action string) error {
+// mergeGroupPRs resolves the PR numbers composing a merge group. GitHub's
+// commits/{sha}/pulls API returns [] for the synthetic merge-queue commit, so
+// when the SHA-based lookup yields nothing we recover the PR from the merge-queue
+// head ref (merge_group.head_ref, carried in the webhook). A transient API error
+// still propagates (fail-closed → 5xx → redeliver); only an empty-but-successful
+// result falls back to the ref.
+func (a *App) mergeGroupPRs(ctx context.Context, repo, headSHA, headRef string) ([]int, error) {
+	prs, err := a.gh.MergeGroupPRs(ctx, repo, headSHA)
+	if err != nil {
+		return nil, err
+	}
+	if len(prs) == 0 {
+		if pr := prFromMergeQueueRef(headRef); pr > 0 {
+			return []int{pr}, nil
+		}
+	}
+	return prs, nil
+}
+
+func (a *App) handleMergeGroup(ctx context.Context, repo, headSHA, headRef, action string) error {
 	if action == "destroyed" {
 		// Release per-env claims held by the merge group's constituent PRs.
 		// Best-effort: errors here are backed by the TTL backstop.
-		prs, err := a.gh.MergeGroupPRs(ctx, repo, headSHA)
+		prs, err := a.mergeGroupPRs(ctx, repo, headSHA, headRef)
 		if err == nil {
 			for _, pr := range prs {
 				envs, _ := store.EnvironmentsForPR(a.db, pr)
@@ -221,7 +240,7 @@ func (a *App) handleMergeGroup(ctx context.Context, repo, headSHA, action string
 		return nil
 	}
 	// checks_requested: resolve PRs in the merge group and evaluate per env.
-	prs, err := a.gh.MergeGroupPRs(ctx, repo, headSHA)
+	prs, err := a.mergeGroupPRs(ctx, repo, headSHA, headRef)
 	if err != nil {
 		// Can't identify which envs to post on — return error so the webhook
 		// returns 5xx and GitHub redelivers, keeping required checks unreported
@@ -253,6 +272,18 @@ func (a *App) handleMergeGroup(ctx context.Context, repo, headSHA, action string
 			envPRStacks[env][pr] = ps
 		}
 	}
+	// Always evaluate this tier's own gated env, even when no constituent PR
+	// changed stacks in it. A merge group whose PRs touch no stacks here
+	// (docs/CI/bootstrap/module-only) otherwise gets NO merge-gate check on the
+	// merge-group head — the required terraform/<env> context never appears and
+	// GitHub's native merge queue stalls forever, blocking every PR behind it.
+	// Nothing to serialize → clear (green), for parity with the PR-head no-change
+	// check that let the PR into the queue in the first place. (#221)
+	if a.cfg.Environment != "" {
+		if _, ok := envPRStacks[a.cfg.Environment]; !ok {
+			envPRStacks[a.cfg.Environment] = map[int][]string{}
+		}
+	}
 	// Post one apply-lock/<env> check per env.
 	now := a.now()
 	for env, prStacks := range envPRStacks {
@@ -262,6 +293,11 @@ func (a *App) handleMergeGroup(ctx context.Context, repo, headSHA, action string
 		for pr, ss := range prStacks {
 			allStacks = append(allStacks, ss...)
 			ownerPR = pr
+		}
+		if ownerPR == 0 && len(prs) > 0 {
+			// No PR contributed stacks for this env (nothing to serialize): use a
+			// group PR for the check's details link rather than #0.
+			ownerPR = prs[0]
 		}
 		v := a.evalApplyLock(env, ownerPR, allStacks, now)
 		if v.State == "clear" {
