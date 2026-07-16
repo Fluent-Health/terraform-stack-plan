@@ -1673,13 +1673,18 @@ ruleset chooses which to enforce:
   time, so two PRs with overlapping stacks cannot both receive `success`
   simultaneously. The check posted on the group head is lock-only (there is no
   plan execution against a merge-group SHA); named `apply-lock/<env>` on
-  unarmed tiers, `terraform/<env>` on armed ones. The check is **always posted
-  for the tier's own gated env** (`a.cfg.Environment`), even when the merge
-  group's PRs changed **no** stacks in it (docs/CI/bootstrap/module-only PRs) —
-  nothing to serialize → `clear`/green. Deriving the env set only from the PRs'
-  changed stacks (via `EnvironmentsForPR`) meant a no-stack PR posted no check
-  on the merge-group head, so the required context never appeared and the queue
-  stalled indefinitely, blocking every PR behind it (issue #221).
+  unarmed tiers, `terraform/<env>` on armed ones.
+  - **PR resolution.** The group's PR is recovered from the merge-queue head ref
+    (`merge_group.head_ref` = `gh-readonly-queue/<base>/pr-<n>-<sha>`, carried in
+    the webhook), falling back from `MergeGroupPRs` — GitHub's
+    `commits/{sha}/pulls` returns `[]` for the synthetic merge-queue commit, so
+    the SHA-based lookup alone resolved nothing and the queue stalled with **no**
+    check on the group head (issue #221). A transient API error still fails
+    closed (5xx → redeliver); only an empty-but-successful result falls back.
+  - **Always post the tier's own env.** The merge-gate check is posted for
+    `a.cfg.Environment` even when the group's PR changed **no** stacks in it
+    (docs/CI/bootstrap/module-only) — nothing to serialize → `clear`/green, for
+    parity with the PR-head no-change check that admitted the PR to the queue.
 - **`pull_request`** — on an unarmed tier the check is posted on the PR's head
   SHA. Because the `pull_request` webhook (open/sync) fires *before* the plan
   registers the PR's changed stacks, the check is **also (re-)posted when the

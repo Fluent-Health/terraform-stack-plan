@@ -249,7 +249,7 @@ func TestMergeGroupCheckNameFollowsArming(t *testing.T) {
 		}); err != nil {
 			t.Fatal(err)
 		}
-		if err := a.handleMergeGroup(context.Background(), "o/r", "mg-sha", "checks_requested"); err != nil {
+		if err := a.handleMergeGroup(context.Background(), "o/r", "mg-sha", "", "checks_requested"); err != nil {
 			t.Fatal(err)
 		}
 		mu.Lock()

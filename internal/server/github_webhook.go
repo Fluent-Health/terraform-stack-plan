@@ -60,6 +60,7 @@ func (a *App) handleGitHubWebhook(w http.ResponseWriter, r *http.Request) {
 			Action     string `json:"action"`
 			MergeGroup struct {
 				HeadSHA string `json:"head_sha"`
+				HeadRef string `json:"head_ref"`
 			} `json:"merge_group"`
 			Repository struct {
 				FullName string `json:"full_name"`
@@ -69,7 +70,7 @@ func (a *App) handleGitHubWebhook(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "invalid payload", http.StatusBadRequest)
 			return
 		}
-		if err := a.handleMergeGroup(r.Context(), mg.Repository.FullName, mg.MergeGroup.HeadSHA, mg.Action); err != nil {
+		if err := a.handleMergeGroup(r.Context(), mg.Repository.FullName, mg.MergeGroup.HeadSHA, mg.MergeGroup.HeadRef, mg.Action); err != nil {
 			http.Error(w, "merge_group eval failed", http.StatusInternalServerError)
 			return
 		}
@@ -214,7 +215,22 @@ var (
 	// `Revert "fix: x (#179)" (#190)` must yield 190, not 179).
 	squashSubjectRE = regexp.MustCompile(`\(#([0-9]+)\)\s*$`)
 	mergeSubjectRE  = regexp.MustCompile(`^Merge pull request #([0-9]+) `)
+	// GitHub merge-queue temp branch: gh-readonly-queue/<base>/pr-<n>-<base_sha>.
+	// Solo-entry queues (our config) carry one PR per group.
+	mergeQueueRefRE = regexp.MustCompile(`gh-readonly-queue/.+/pr-([0-9]+)-`)
 )
+
+// prFromMergeQueueRef recovers the PR number from a GitHub merge-queue head ref
+// (merge_group.head_ref). Returns 0 when the ref is not a merge-queue ref.
+// Needed because GitHub's commits/{sha}/pulls API returns [] for the synthetic
+// merge-queue commit, so the PR can't be resolved from the head SHA alone.
+func prFromMergeQueueRef(ref string) int {
+	if m := mergeQueueRefRE.FindStringSubmatch(ref); m != nil {
+		n, _ := strconv.Atoi(m[1])
+		return n
+	}
+	return 0
+}
 
 // handlePushEventWebhook requests the post-merge apply run for a push to main.
 // The PR number is recovered from the merge-commit subject (same convention as
