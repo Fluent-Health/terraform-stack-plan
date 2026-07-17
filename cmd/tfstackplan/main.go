@@ -81,9 +81,11 @@ func dispatch(args []string) int {
 			return runCatalog(args[1:])
 		case "whoami":
 			return runWhoami(args[1:])
+		case "uniqueness":
+			return runUniqueness(args[1:])
 		default:
 			fmt.Fprintf(os.Stderr, "tfstackplan: unknown subcommand %q\n", args[0])
-			fmt.Fprintln(os.Stderr, "usage: tfstackplan [render|serve|ui|run|state|claims|admin|catalog|whoami] [flags]")
+			fmt.Fprintln(os.Stderr, "usage: tfstackplan [render|serve|ui|run|state|claims|admin|catalog|whoami|uniqueness] [flags]")
 			return 2
 		}
 	}
