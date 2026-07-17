@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Fluent-Health/terraform-stack-plan/internal/config"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/gauth"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/runner"
@@ -45,11 +46,33 @@ func runStatus(args []string) int {
 		srv = os.Getenv(runner.EnvServer)
 	}
 	if srv == "" {
+		// Attempt to auto-discover server URL from local repo config
+		if p, ok := config.Discover("."); ok {
+			if cfg, err := config.Load(p); err == nil {
+				env := os.Getenv(runner.EnvEnvironment)
+				var match string
+				if env != "" {
+					for _, s := range cfg.Servers {
+						if s.Environment == env || s.Name == env {
+							match = s.URL
+							break
+						}
+					}
+				}
+				if match != "" {
+					srv = match
+				} else if cfg.Server != nil {
+					srv = cfg.Server.URL
+				}
+			}
+		}
+	}
+	if srv == "" {
 		fmt.Fprintln(os.Stderr, "run status: server URL is required")
 		return 2
 	}
 	srv = strings.TrimRight(srv, "/")
-	bearer := apiBearer()
+	bearer := apiBearer(srv)
 
 	// Execute initial fetch
 	exec, err := fetchExecution(srv, bearer, execID)
@@ -93,10 +116,14 @@ func exitCode(status string) int {
 // credential selection as the runner client (runner.APITokenFunc): Google OIDC
 // via ADC when $TFSTACKPLAN_AUDIENCE is set, else nil (unauthenticated). An
 // unavailable ADC is warned about rather than silently degraded.
-func apiBearer() gauth.TokenFunc {
-	src, err := runner.APITokenFunc(os.Getenv(runner.EnvAudience))
+func apiBearer(srv string) gauth.TokenFunc {
+	aud := os.Getenv(runner.EnvAudience)
+	if aud == "" {
+		aud = srv
+	}
+	src, err := runner.APITokenFunc(aud)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "run status: %s is set but Google ADC is unavailable (%v) — requests will be unauthenticated\n", runner.EnvAudience, err)
+		fmt.Fprintf(os.Stderr, "run status: OIDC audience is set but Google ADC is unavailable (%v) — requests will be unauthenticated\n", err)
 	}
 	return src
 }

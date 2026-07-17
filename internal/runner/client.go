@@ -11,7 +11,9 @@ package runner
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -28,10 +30,16 @@ import (
 // in api/openapi.yaml) with the runner's calling conventions: disabled on an
 // empty URL, best-effort bearer minting, and non-2xx collapsed to errors.
 type Client struct {
-	baseURL string
-	api     *api.Client     // nil only when disabled
-	token   gauth.TokenFunc // nil = unauthenticated
-	timeout time.Duration
+	baseURL  string
+	audience string
+	api      *api.Client     // nil only when disabled
+	token    gauth.TokenFunc // nil = unauthenticated
+	timeout  time.Duration
+}
+
+// SetAudience sets the audience used for this client's token generation (for error reporting).
+func (c *Client) SetAudience(aud string) {
+	c.audience = aud
 }
 
 // NewClient builds an unauthenticated client for the server at baseURL (empty
@@ -90,6 +98,9 @@ func (c *Client) finish(path string, resp *http.Response, err error) error {
 	defer resp.Body.Close()
 	if resp.StatusCode/100 != 2 {
 		body, _ := io.ReadAll(resp.Body)
+		if resp.StatusCode == 401 || resp.StatusCode == 403 {
+			return c.enrichAuthError(path, resp.StatusCode, body)
+		}
 		return fmt.Errorf("post %s: %d: %s", path, resp.StatusCode, body)
 	}
 	return nil
@@ -104,6 +115,9 @@ func (c *Client) finishInto(path string, resp *http.Response, err error, out any
 	defer resp.Body.Close()
 	if resp.StatusCode/100 != 2 {
 		body, _ := io.ReadAll(resp.Body)
+		if resp.StatusCode == 401 || resp.StatusCode == 403 {
+			return c.enrichAuthError(path, resp.StatusCode, body)
+		}
 		return fmt.Errorf("post %s: %d: %s", path, resp.StatusCode, body)
 	}
 	b, err := io.ReadAll(resp.Body)
@@ -116,6 +130,51 @@ func (c *Client) finishInto(path string, resp *http.Response, err error, out any
 		}
 	}
 	return nil
+}
+
+func decodeJWTSubject(token string) (string, error) {
+	parts := strings.Split(token, ".")
+	if len(parts) < 2 {
+		return "", fmt.Errorf("invalid token format")
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return "", err
+	}
+	var claims struct {
+		Email string `json:"email"`
+		Sub   string `json:"sub"`
+	}
+	if err := json.Unmarshal(payload, &claims); err != nil {
+		return "", err
+	}
+	if claims.Email != "" {
+		return claims.Email, nil
+	}
+	return claims.Sub, nil
+}
+
+func (c *Client) enrichAuthError(path string, status int, body []byte) error {
+	var identity string = "anonymous (unauthenticated)"
+	if c.token != nil {
+		tok, err := c.token(context.Background())
+		if err == nil && tok != "" {
+			if id, derr := decodeJWTSubject(tok); derr == nil {
+				identity = id
+			} else {
+				identity = "unknown (invalid/unparseable token)"
+			}
+		}
+	}
+
+	errMsg := fmt.Sprintf("post %s: %d: %s\n\n"+
+		"--- Authentication Failure Details ---\n"+
+		"Identity: %s\n"+
+		"Audience: %s\n"+
+		"Hint: Ensure that your identity is on the `api_admins` allowlist in the server's `.tfstackplan.hcl` configuration.\n"+
+		"Note: If you are using user ADC, ensure the client-side CLI version matches the server-side CLI version, and that TFSTACKPLAN_AUDIENCE is set to the server base URL.",
+		path, status, string(body), identity, c.audience)
+	return errors.New(errMsg)
 }
 
 // Init registers the execution and its changed subgraph.

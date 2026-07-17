@@ -28,7 +28,8 @@ type Config struct {
 	Classification *Classification // nil when no classification block present
 	Diff           DiffConfig
 	Links          *LinksConfig    // nil when no links block present
-	Server         *ServerConfig   // nil when no server block
+	Server         *ServerConfig   // nil when no server block (the default/unlabeled one)
+	Servers        []ServerConfig  // all parsed server blocks (including labeled ones)
 	Serve          *ServeConfig    // nil when no serve block (added in a later task)
 	UI             *UIConfig       // nil when no ui block (the central UI face)
 	Classes        []ClassBinding  // class "<name>" {} bindings
@@ -136,7 +137,10 @@ func Load(path string) (*Config, error) {
 			if err != nil {
 				return nil, err
 			}
-			cfg.Server = s
+			if s.Name == "" {
+				cfg.Server = s
+			}
+			cfg.Servers = append(cfg.Servers, *s)
 		case "ui":
 			u, err := decodeUI(blk)
 			if err != nil {
