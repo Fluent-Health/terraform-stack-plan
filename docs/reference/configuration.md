@@ -35,6 +35,7 @@ auto-discovery does not apply.
 | `class "<name>" {}` | `run`, `serve` | Bind a classification class to an approval gate |
 | `progress {}` | `run`, `serve` | Ordered lifecycle phases for the progress bar |
 | `serve {}` | `serve` | Control-plane runtime configuration |
+| `ui {}` | `ui` | Central-aggregator runtime configuration |
 
 ---
 
@@ -463,6 +464,76 @@ every caller had migrated.
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `scopes` | list(string) | `[]` | Any of `report` (execution lifecycle events, logs, gate check/revoke, claims — the runner releases claims for the PRs it applies, so release is not ownership-checked; the verified actor is what gets audited), `read` (execution state/events, claims listing), `admin` (claim release and future admin verbs). Unknown scopes fail at config load. |
+
+---
+
+## `ui`
+
+Runtime configuration for `tfstackplan ui`, the stateless central-aggregator
+face: Google login for humans, Google OIDC service identity toward the tier
+serves. It holds no domain state of its own. Ignored by `render`, `run`,
+`serve`, and `state`. **Required** — `tfstackplan ui` fails to start without
+a `ui {}` block.
+
+```hcl
+ui {
+  public_base_url    = "https://tfstackplan-ui.example.com"
+  session_secret_env = "TFSTACKPLAN_UI_SESSION_SECRET"
+
+  # Optional, defense in depth.
+  github_webhook_secret_env = "TFSTACKPLAN_UI_GITHUB_WEBHOOK_SECRET"
+
+  tier "nonprod" {
+    url = "https://tfstackplan-nonprod.example.com"
+  }
+  tier "prod" {
+    url = "https://tfstackplan-prod.example.com"
+  }
+
+  oauth {
+    client_id         = "000000000000-example.apps.googleusercontent.com"
+    client_secret_env = "TFSTACKPLAN_UI_OAUTH_SECRET"
+    allowed_domain    = "example.com"
+    quota_project     = "example-svc-project"
+  }
+}
+```
+
+### Top-level fields
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `public_base_url` | string | none | External base URL of this service. The OAuth redirect URI is `<public_base_url>/auth/callback` and must match the OAuth client's registered redirect exactly |
+| `session_secret_env` | string | none | Env var holding the session-cookie encryption secret (any high-entropy string; rotate to invalidate all sessions) |
+| `github_webhook_secret_env` | string | none | Optional: env var holding the GitHub App's webhook secret. The UI is the App's single webhook ingress — it verifies GitHub's HMAC here and relays deliveries to the tiers under its own Google OIDC identity |
+| `tier "<name>" {}` | block | — (at least one required) | A tier serve to aggregate; the label is the tier name |
+| `oauth {}` | block | none | The Google OAuth client users log in with |
+
+### `tier "<name>" {}` sub-block
+
+The UI backend mints a Google OIDC ID token per tier and authenticates to it —
+grant the UI's service account a `read`-scoped `principal` in that tier's
+`serve.api_auth` block.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `url` | string | — (required) | Base URL of the tier serve |
+| `audience` | string | `url` | OIDC token audience minted for this tier. Defaults to `url`, matching the tier's `serve.api_auth.audience` convention |
+
+### `oauth {}` sub-block
+
+The Google OAuth client (Workspace-internal, authorization-code flow) users
+log in with. Omit the block to disable login (no human-facing auth).
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `client_id` | string | — (required if block present) | Google OAuth client ID |
+| `client_secret_env` | string | — (required if block present) | Env var holding the OAuth client secret |
+| `allowed_domain` | string | — (required if block present) | Workspace domain enforced against the verified id_token `hd` claim |
+| `quota_project` | string | none | Sent as `x-goog-user-project` on user-token GCP API calls (PAM approve/deny) — user credentials attribute quota to the OAuth client's project, which must have the called API enabled. Empty sends no header |
+
+See [`../../examples/ui.tfstackplan.hcl`](../../examples/ui.tfstackplan.hcl)
+for a complete, parse-tested example.
 
 ---
 

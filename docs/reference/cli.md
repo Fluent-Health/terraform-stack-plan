@@ -313,8 +313,7 @@ See [`configuration.md`](configuration.md) for the full schema and
 The central aggregator face — a stateless single pane of glass over the tier
 serves. Reads its own `ui {}` block from the HCL config, resolves per-tier
 OIDC tokens, and (optionally) wires Google OAuth login and a GitHub webhook
-relay. The `ui {}` block is not yet covered in [`configuration.md`](configuration.md);
-see `internal/config`'s `UIConfig` in the meantime.
+relay. See [`configuration.md#ui`](configuration.md#ui) for the full schema.
 
 ```
 tfstackplan ui [flags]
