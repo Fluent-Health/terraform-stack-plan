@@ -146,3 +146,43 @@ func TestDispatchClaimsBase(t *testing.T) {
 		t.Fatalf("claims invalid subcommand exit = %d, want 2", code)
 	}
 }
+
+func TestDiscoverEnvironments(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// 1. Test config server fallback when stacks directory doesn't exist
+	cfgContent := `
+server "dev" {
+  url = "https://dev-srv"
+}
+server "prod" {
+  url = "https://prod-srv"
+}
+`
+	if err := os.WriteFile(filepath.Join(tmpDir, ".tfstackplan.hcl"), []byte(cfgContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	envs := discoverEnvironments(tmpDir)
+	devFound, prodFound := false, false
+	for _, env := range envs {
+		if env == "dev" {
+			devFound = true
+		}
+		if env == "prod" {
+			prodFound = true
+		}
+	}
+	if !devFound || !prodFound {
+		t.Errorf("expected dev and prod to be discovered from config, got: %v", envs)
+	}
+
+	// 2. Test stacks subdirectory discovery
+	if err := os.MkdirAll(filepath.Join(tmpDir, "stacks", "staging"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	envsSub := discoverEnvironments(tmpDir)
+	if len(envsSub) != 1 || envsSub[0] != "staging" {
+		t.Errorf("expected staging from stacks subdirectory, got: %v", envsSub)
+	}
+}
