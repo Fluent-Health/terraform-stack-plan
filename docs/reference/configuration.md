@@ -383,18 +383,6 @@ identifier and must match the `backend` field in one or more `class` blocks.
 Grant creation uses Application Default Credentials to impersonate the next
 available identity in `requester_pool`.
 
-### `group {}` sub-block
-
-Controls how stacks are folded into group nodes in the live DAG view.
-
-| Field | Type | Default | Description |
-|---|---|---|---|
-| `depth` | integer | `2` | Group stacks by their first `depth` path segments (e.g. `2` → `env/kind`) |
-| `pattern` | string (regex) | none | When set, overrides `depth`. The first capture group of the stack path becomes the group key |
-
-`depth` and `pattern` are mutually exclusive; `pattern` takes precedence when
-both are set.
-
 ### `objects {}` sub-block
 
 GCS offload for completed-stack logs. When present, finalized per-stack logs

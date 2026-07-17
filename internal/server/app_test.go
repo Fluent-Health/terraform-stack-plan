@@ -290,8 +290,9 @@ func TestRetiredViewerRoutesGone(t *testing.T) {
 	srv := httptest.NewServer(a.Routes())
 	defer srv.Close()
 
-	// The HTML viewer and its view-JWT machinery retired with the central UI.
-	for _, path := range []string{"/", "/live/e1", "/live/e1/events", "/pr/7", "/assets/app.css"} {
+	// The HTML viewer, its view-JWT machinery, and the /img DAG image all
+	// retired with the central UI.
+	for _, path := range []string{"/", "/live/e1", "/live/e1/events", "/pr/7", "/assets/app.css", "/img/e1.svg"} {
 		r, err := http.Get(srv.URL + path)
 		if err != nil {
 			t.Fatal(err)
@@ -300,12 +301,5 @@ func TestRetiredViewerRoutesGone(t *testing.T) {
 		if r.StatusCode != http.StatusNotFound {
 			t.Errorf("%s = %d, want 404 (viewer retired)", path, r.StatusCode)
 		}
-	}
-
-	// /img stays public (GitHub camo fetches SVGs without auth).
-	r, _ := http.Get(srv.URL + "/img/e1.svg")
-	r.Body.Close()
-	if r.StatusCode != http.StatusOK {
-		t.Errorf("/img = %d, want 200 (public)", r.StatusCode)
 	}
 }

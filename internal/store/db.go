@@ -36,13 +36,6 @@ func Transact(db *sql.DB, fn func(*sql.Tx) error) error {
 	return tx.Commit()
 }
 
-// WriteExec executes a single write query under the Go-side write-serializer lock.
-func WriteExec(db *sql.DB, query string, args ...any) (sql.Result, error) {
-	writeMu.Lock()
-	defer writeMu.Unlock()
-	return db.Exec(query, args...)
-}
-
 // Open opens the SQLite database at dsn, enables WAL, and applies all
 // migrations. dsn is a modernc.org/sqlite DSN, e.g. a file path or
 // "file:/data/server.db".
