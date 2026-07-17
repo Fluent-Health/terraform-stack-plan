@@ -40,12 +40,28 @@ func APITokenFunc(audience string) (gauth.TokenFunc, error) {
 // unavailable, a warning is printed and requests go unauthenticated
 // (best-effort reporting degrades, the fail-closed gate check errors).
 func ClientFromEnv() *Client {
+	return ClientForEnvironment(os.Getenv(EnvEnvironment))
+}
+
+// ClientForEnvironment builds a Client from TFSTACKPLAN_SERVER, matching the
+// environment against local configuration if the env var is unset.
+func ClientForEnvironment(env string) *Client {
 	base := os.Getenv(EnvServer)
 	if base == "" {
 		// Attempt to auto-discover server URL from local repo .tfstackplan.hcl configuration
 		if p, ok := config.Discover("."); ok {
-			if cfg, err := config.Load(p); err == nil && cfg.Server != nil {
-				base = cfg.Server.URL
+			if cfg, err := config.Load(p); err == nil {
+				// Try to find a matching server block for this environment
+				for _, s := range cfg.Servers {
+					if s.Environment == env || s.Name == env {
+						base = s.URL
+						break
+					}
+				}
+				// Fallback to default server block
+				if base == "" && cfg.Server != nil {
+					base = cfg.Server.URL
+				}
 			}
 		}
 	}
@@ -53,14 +69,17 @@ func ClientFromEnv() *Client {
 		return NewClient("")
 	}
 
-	aud := os.Getenv(EnvAudience)
+	audEnv := os.Getenv(EnvAudience)
+	aud := audEnv
 	if aud == "" {
 		aud = base // default OIDC audience to the server base URL
 	}
 
 	tok, err := APITokenFunc(aud)
-	if err != nil {
+	if err != nil && audEnv != "" {
 		fmt.Fprintf(os.Stderr, "tfstackplan: OIDC audience is set but Google ADC is unavailable (%v) — reporting unauthenticated\n", err)
 	}
-	return NewClientTokenSource(base, tok)
+	c := NewClientTokenSource(base, tok)
+	c.SetAudience(aud)
+	return c
 }

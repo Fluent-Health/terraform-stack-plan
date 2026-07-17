@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 
@@ -138,5 +139,64 @@ func TestClientLogChunk(t *testing.T) {
 	// Offline → no-op, no error.
 	if err := NewClient("").LogChunk(context.Background(), events.LogChunk{ID: "e1"}); err != nil {
 		t.Errorf("offline LogChunk should be a no-op nil, got %v", err)
+	}
+}
+
+func TestDecodeJWTSubject(t *testing.T) {
+	// Header: {"alg":"none"} => eyJhbGciOiJub25lIn0
+	// Payload: {"email":"user@example.com"} => eyJlbWFpbCI6InVzZXJAZXhhbXBsZS5jb20ifQ
+	validToken := "eyJhbGciOiJub25lIn0.eyJlbWFpbCI6InVzZXJAZXhhbXBsZS5jb20ifQ."
+	email, err := decodeJWTSubject(validToken)
+	if err != nil {
+		t.Fatalf("decodeJWTSubject failed: %v", err)
+	}
+	if email != "user@example.com" {
+		t.Errorf("got email = %q, want user@example.com", email)
+	}
+
+	// Payload: {"sub":"sub-123"} => eyJzdWIiOiJzdWItMTIzIn0
+	subToken := "eyJhbGciOiJub25lIn0.eyJzdWIiOiJzdWItMTIzIn0."
+	sub, err := decodeJWTSubject(subToken)
+	if err != nil {
+		t.Fatalf("decodeJWTSubject failed: %v", err)
+	}
+	if sub != "sub-123" {
+		t.Errorf("got sub = %q, want sub-123", sub)
+	}
+
+	// Invalid format
+	if _, err := decodeJWTSubject("invalid"); err == nil {
+		t.Error("decodeJWTSubject did not fail on invalid token format")
+	}
+}
+
+func TestClientEnrichedAuthErrors(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+
+	// Mock token function that returns a valid token payload we can decode
+	mockToken := func(ctx context.Context) (string, error) {
+		return "eyJhbGciOiJub25lIn0.eyJlbWFpbCI6Im9wZXJhdG9yQGZsdWVudC1oZWFsdGguY29tIn0.", nil
+	}
+
+	c := NewClientTokenSource(srv.URL, mockToken)
+	c.SetAudience("https://audience-example")
+
+	err := c.Init(context.Background(), events.Init{ID: "e1"})
+	if err == nil {
+		t.Fatal("expected error on 401 response")
+	}
+
+	errStr := err.Error()
+	if !strings.Contains(errStr, "Identity: operator@fluent-health.com") {
+		t.Errorf("error string missing expected identity, got:\n%s", errStr)
+	}
+	if !strings.Contains(errStr, "Audience: https://audience-example") {
+		t.Errorf("error string missing expected audience, got:\n%s", errStr)
+	}
+	if !strings.Contains(errStr, "api_admins") {
+		t.Errorf("error string missing allowlist hint, got:\n%s", errStr)
 	}
 }

@@ -50,6 +50,41 @@ class "database" {
 	}
 }
 
+func TestLoadLabeledServerBlocks(t *testing.T) {
+	cfg, err := Load(writeCfg(t, `
+server {
+  url         = "https://default.example"
+  environment = "staging"
+}
+server "prod" {
+  url         = "https://prod.example"
+  environment = "prod"
+}
+server "nonprod" {
+  url         = "https://nonprod.example"
+}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Server == nil || cfg.Server.URL != "https://default.example" || cfg.Server.Environment != "staging" {
+		t.Fatalf("cfg.Server = %+v", cfg.Server)
+	}
+	if len(cfg.Servers) != 3 {
+		t.Fatalf("cfg.Servers = %d, want 3", len(cfg.Servers))
+	}
+	// Verify they are parsed in order
+	if cfg.Servers[0].Name != "" || cfg.Servers[0].URL != "https://default.example" {
+		t.Errorf("server 0 = %+v", cfg.Servers[0])
+	}
+	if cfg.Servers[1].Name != "prod" || cfg.Servers[1].URL != "https://prod.example" || cfg.Servers[1].Environment != "prod" {
+		t.Errorf("server 1 = %+v", cfg.Servers[1])
+	}
+	if cfg.Servers[2].Name != "nonprod" || cfg.Servers[2].URL != "https://nonprod.example" || cfg.Servers[2].Environment != "" {
+		t.Errorf("server 2 = %+v", cfg.Servers[2])
+	}
+}
+
 func TestLoadServeBlock(t *testing.T) {
 	cfg, err := Load(writeCfg(t, `
 serve {

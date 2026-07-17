@@ -11,6 +11,7 @@ import (
 // ServerConfig is the `server {}` block: where the control-plane server lives and
 // which environment this repo's CI reports to. Used by `run` (CI) and `serve`.
 type ServerConfig struct {
+	Name        string
 	URL         string
 	Environment string
 }
@@ -269,7 +270,11 @@ func decodeServer(blk *hclsyntax.Block) (*ServerConfig, error) {
 	if d := gohcl.DecodeBody(blk.Body, nil, &b); d.HasErrors() {
 		return nil, fmt.Errorf("server block: %s", d.Error())
 	}
-	return &ServerConfig{URL: b.URL, Environment: b.Environment}, nil
+	name := ""
+	if len(blk.Labels) > 0 {
+		name = blk.Labels[0]
+	}
+	return &ServerConfig{Name: name, URL: b.URL, Environment: b.Environment}, nil
 }
 
 func decodeClass(blk *hclsyntax.Block) (ClassBinding, error) {

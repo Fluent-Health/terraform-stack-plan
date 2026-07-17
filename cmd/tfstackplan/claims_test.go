@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -51,16 +52,27 @@ func TestDispatchClaimsList(t *testing.T) {
 		t.Fatalf("claims list exit = %d, want 0", code)
 	}
 
-	// 2. Offline / server unset scenario (should be transparent no-op returning 0)
+	// 2. Offline / server unset scenario (should return 1 under Proposal 3)
 	os.Unsetenv("TFSTACKPLAN_SERVER")
-	if code := dispatch([]string{"claims", "list", "--env", "prod"}); code != 0 {
-		t.Fatalf("claims list offline exit = %d, want 0", code)
+	if code := dispatch([]string{"claims", "list", "--env", "prod"}); code != 1 {
+		t.Fatalf("claims list offline exit = %d, want 1", code)
 	}
 	os.Setenv("TFSTACKPLAN_SERVER", srv.URL)
 
-	// 3. Invalid arguments (missing --env)
-	if code := dispatch([]string{"claims", "list"}); code != 2 {
-		t.Fatalf("claims list missing --env exit = %d, want 2", code)
+	// 3. Optional --env behavior (Proposal 4)
+	tmpDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(tmpDir, "stacks", "prod"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(tmpDir, "stacks", "staging"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(tmpDir)
+
+	// When TFSTACKPLAN_SERVER is set, dispatch with no --env should try to fetch
+	// prod and staging. It should exit 1 because staging fails on the mock server.
+	if code := dispatch([]string{"claims", "list"}); code != 1 {
+		t.Fatalf("claims list auto-discover exit = %d, want 1", code)
 	}
 }
 
@@ -115,6 +127,13 @@ func TestDispatchClaimsRelease(t *testing.T) {
 	if code := dispatch([]string{"claims", "release", "--env", "prod"}); code != 2 {
 		t.Fatalf("claims release missing --pr exit = %d, want 2", code)
 	}
+
+	// 4. Offline / server unset scenario (should return 1)
+	os.Unsetenv("TFSTACKPLAN_SERVER")
+	if code := dispatch([]string{"claims", "release", "--env", "prod", "--pr", "7"}); code != 1 {
+		t.Fatalf("claims release offline exit = %d, want 1", code)
+	}
+	os.Setenv("TFSTACKPLAN_SERVER", srv.URL)
 }
 
 func TestDispatchClaimsBase(t *testing.T) {
@@ -125,5 +144,45 @@ func TestDispatchClaimsBase(t *testing.T) {
 	// Invalid subcommand
 	if code := dispatch([]string{"claims", "invalid"}); code != 2 {
 		t.Fatalf("claims invalid subcommand exit = %d, want 2", code)
+	}
+}
+
+func TestDiscoverEnvironments(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// 1. Test config server fallback when stacks directory doesn't exist
+	cfgContent := `
+server "dev" {
+  url = "https://dev-srv"
+}
+server "prod" {
+  url = "https://prod-srv"
+}
+`
+	if err := os.WriteFile(filepath.Join(tmpDir, ".tfstackplan.hcl"), []byte(cfgContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	envs := discoverEnvironments(tmpDir)
+	devFound, prodFound := false, false
+	for _, env := range envs {
+		if env == "dev" {
+			devFound = true
+		}
+		if env == "prod" {
+			prodFound = true
+		}
+	}
+	if !devFound || !prodFound {
+		t.Errorf("expected dev and prod to be discovered from config, got: %v", envs)
+	}
+
+	// 2. Test stacks subdirectory discovery
+	if err := os.MkdirAll(filepath.Join(tmpDir, "stacks", "staging"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	envsSub := discoverEnvironments(tmpDir)
+	if len(envsSub) != 1 || envsSub[0] != "staging" {
+		t.Errorf("expected staging from stacks subdirectory, got: %v", envsSub)
 	}
 }
