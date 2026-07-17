@@ -172,3 +172,131 @@ func TestFindDuplicatesSkipsEnvScopedKeys(t *testing.T) {
 		t.Fatalf("FindDuplicates() = %#v, want no violations for an env-scoped key", got)
 	}
 }
+
+// newEnvTokenClassifier builds a Classifier via NewClassifier (so EnvTokens'
+// boundary patterns are precompiled, per Task 5's guidance) wired to the
+// given per-env token map and no other generic patterns — these tests
+// exercise pure token-leak detection, not identifier shape.
+func newEnvTokenClassifier(envTokens map[string][]string) Classifier {
+	return NewClassifier(nil, nil, nil, envTokens, nil)
+}
+
+// TestFindEnvTokensForeignTokenInProtectedValue verifies a value in one env
+// (prod) that embeds another env's (dev's) token is flagged as exactly one
+// env-token Violation scoped to the env holding the leaking value.
+func TestFindEnvTokensForeignTokenInProtectedValue(t *testing.T) {
+	envTokens := map[string][]string{"dev": {"acme-dev"}, "prod": {"acme-prod"}}
+	u := Unit{
+		ID:   "app",
+		Envs: []string{"prod"},
+		Inputs: map[string]map[string]any{
+			"prod": {"api_url": "https://api.acme-dev.example.com"},
+		},
+	}
+
+	got := FindEnvTokens(u, newEnvTokenClassifier(envTokens))
+
+	want := []Violation{{
+		Unit:     "app",
+		Key:      "api_url",
+		Value:    "https://api.acme-dev.example.com",
+		Envs:     []string{"prod"},
+		Kind:     KindEnvToken,
+		Severity: SeverityViolation,
+	}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("FindEnvTokens() = %#v, want %#v", got, want)
+	}
+}
+
+// TestFindEnvTokensOwnTokenNotFlagged verifies an env's own token appearing
+// in its own value is never flagged — only a *foreign* env's token leaking in
+// is a violation.
+func TestFindEnvTokensOwnTokenNotFlagged(t *testing.T) {
+	envTokens := map[string][]string{"dev": {"acme-dev"}, "prod": {"acme-prod"}}
+	u := Unit{
+		ID:   "app",
+		Envs: []string{"prod"},
+		Inputs: map[string]map[string]any{
+			"prod": {"api_url": "https://api.acme-prod.example.com"},
+		},
+	}
+
+	got := FindEnvTokens(u, newEnvTokenClassifier(envTokens))
+
+	if len(got) != 0 {
+		t.Fatalf("FindEnvTokens() = %#v, want no violations for an env's own token", got)
+	}
+}
+
+// TestFindEnvTokensBoundarySafeNoFalseMatch verifies the token match is
+// boundary-safe: the token "acme-dev" must NOT match inside the unrelated
+// string "acme-development", since match must consume a non-alphanumeric (or
+// start/end of string) boundary on both sides.
+func TestFindEnvTokensBoundarySafeNoFalseMatch(t *testing.T) {
+	envTokens := map[string][]string{"dev": {"acme-dev"}, "prod": {"acme-prod"}}
+	u := Unit{
+		ID:   "app",
+		Envs: []string{"prod"},
+		Inputs: map[string]map[string]any{
+			"prod": {"name": "acme-development"},
+		},
+	}
+
+	got := FindEnvTokens(u, newEnvTokenClassifier(envTokens))
+
+	if len(got) != 0 {
+		t.Fatalf("FindEnvTokens() = %#v, want no violations — \"acme-dev\" must not match inside \"acme-development\"", got)
+	}
+}
+
+// TestFindEnvTokensListElemMatch verifies a foreign token embedded in one
+// element of a List-valued leaf is detected, producing one Violation whose
+// Value is the whole List.
+func TestFindEnvTokensListElemMatch(t *testing.T) {
+	envTokens := map[string][]string{"dev": {"acme-dev"}, "prod": {"acme-prod"}}
+	list := List{Elems: []string{"safe-host.example.com", "acme-dev.example.com"}}
+	u := Unit{
+		ID:   "app",
+		Envs: []string{"prod"},
+		Inputs: map[string]map[string]any{
+			"prod": {"allowed_hosts": list},
+		},
+	}
+
+	got := FindEnvTokens(u, newEnvTokenClassifier(envTokens))
+
+	want := []Violation{{
+		Unit:     "app",
+		Key:      "allowed_hosts",
+		Value:    list,
+		Envs:     []string{"prod"},
+		Kind:     KindEnvToken,
+		Severity: SeverityViolation,
+	}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("FindEnvTokens() = %#v, want %#v", got, want)
+	}
+}
+
+// TestFindEnvTokensSkipsEnvScopedKeys verifies a key that is env-scoped (per
+// Classifier.IsEnvScoped) is skipped entirely, even if its value embeds a
+// foreign env's token.
+func TestFindEnvTokensSkipsEnvScopedKeys(t *testing.T) {
+	envTokens := map[string][]string{"dev": {"acme-dev"}, "prod": {"acme-prod"}}
+	c := newEnvTokenClassifier(envTokens)
+	c.ScopedSegs = map[string]bool{"environments": true}
+	u := Unit{
+		ID:   "app",
+		Envs: []string{"prod"},
+		Inputs: map[string]map[string]any{
+			"prod": {"environments.dev.api_url": "https://api.acme-dev.example.com"},
+		},
+	}
+
+	got := FindEnvTokens(u, c)
+
+	if len(got) != 0 {
+		t.Fatalf("FindEnvTokens() = %#v, want no violations for an env-scoped key", got)
+	}
+}
