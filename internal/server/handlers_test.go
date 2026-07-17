@@ -235,7 +235,7 @@ func TestFinalizeStoresCategories(t *testing.T) {
 	srv := httptest.NewServer(a.Routes())
 	defer srv.Close()
 
-	_ = store.UpsertInit(db, events.Init{ID: "e1", Repo: "o/r", Environment: "staging",
+	post(t, srv, "/api/init", events.Init{ID: "e1", Repo: "o/r", Environment: "staging",
 		Stacks: []events.StackState{{Path: "stacks/a"}}})
 	post(t, srv, "/api/finalize", events.Finalize{
 		ID:             "e1",
@@ -258,7 +258,7 @@ func TestFinalizeBackfillsCounts(t *testing.T) {
 	srv := httptest.NewServer(a.Routes())
 	defer srv.Close()
 
-	_ = store.UpsertInit(db, events.Init{ID: "e1", Repo: "o/r", Environment: "staging",
+	post(t, srv, "/api/init", events.Init{ID: "e1", Repo: "o/r", Environment: "staging",
 		Stacks: []events.StackState{{Path: "stacks/a"}}})
 	post(t, srv, "/api/finalize", events.Finalize{
 		ID:             "e1",

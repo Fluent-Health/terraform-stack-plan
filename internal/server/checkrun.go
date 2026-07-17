@@ -8,6 +8,7 @@ import (
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/config"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
+	"github.com/Fluent-Health/terraform-stack-plan/internal/execution"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/reconcile"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
@@ -338,9 +339,16 @@ func (a *App) driveApply(ctx context.Context, e store.Execution, base string) {
 	}
 	// Persist the terminal status so the viewer's isFinished() flips (clears the
 	// shimmer / live-dot / "planning" placeholder on a concluded apply). Pending
-	// stays unwritten (still in-flight). Best-effort.
-	if state == "success" || state == "failure" {
-		if err := store.SetExecutionStatus(a.db, e.ID, state); err != nil {
+	// stays unwritten (still in-flight). Routed through the execution aggregate
+	// (ReportFail also folds any still-running stacks to aborted, matching the
+	// finalize-failed path). Best-effort.
+	switch state {
+	case "success":
+		if err := a.shell.HandleExec(ctx, e.ID, execution.ReportSucceed{}); err != nil {
+			log.Printf("apply set status %s: %v", e.ID, err)
+		}
+	case "failure":
+		if err := a.shell.HandleExec(ctx, e.ID, execution.ReportFail{}); err != nil {
 			log.Printf("apply set status %s: %v", e.ID, err)
 		}
 	}
