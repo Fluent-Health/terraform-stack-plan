@@ -832,6 +832,15 @@ hardening is in [`SECURITY.md`](../SECURITY.md).
 - **Exec executions store no per-stack plan diff**, so the SPA's Plan tab is
   empty for apply stacks — populated only by the plan driver's
   `Finalize.StackReports`.
+- **Execution/stack/edge status is still written *directly* by the ingest
+  handlers** (`handleInit`/`handleUpdate`/`handlePhase` → `store.UpsertInit`/
+  `UpdateStack`/`UpsertPhase`), not folded from an event log — the one place the
+  "projections are rebuilt from the fold, never written as truth" invariant does
+  not yet hold. `internal/execution` (the per-execution aggregate on the
+  `run:<execID>` stream, wired on the same decider host) exists for the cutover
+  but is currently **inert**; routing ingest through it — so `executions`/
+  `stacks`/`edges` become true projections — is issue #227 workstream A, in
+  progress.
 - **The merge-queue hero depends on GitHub-App token visibility of
   `mergeQueue`** — repo/permission-dependent; every layer degrades to an empty
   queue and the hero hides rather than erroring.

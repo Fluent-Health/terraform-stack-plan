@@ -19,6 +19,7 @@ import (
 	"github.com/Fluent-Health/terraform-stack-plan/internal/claims"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/config"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/eventsourcing"
+	"github.com/Fluent-Health/terraform-stack-plan/internal/execution"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/executor"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/reconcile"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
@@ -106,6 +107,9 @@ type App struct {
 	// claimsDecider is the generic eventsourcing host wired to the apply-lock
 	// claim ledger (the env:<env> stream). apply_claims is a derived projection.
 	claimsDecider eventsourcing.Decider[claims.ClaimSet, claims.Event]
+	// execDecider is the generic eventsourcing host wired to the per-execution
+	// lifecycle aggregate (stream "run:<execID>"). Inert until A2 rewires ingest.
+	execDecider eventsourcing.Decider[execution.State, execution.Event]
 }
 
 // New builds an App.
@@ -127,6 +131,14 @@ func New(db *sql.DB, gh GitHub, cfg Config) *App {
 		UnmarshalEvent:    claims.UnmarshalEvent,
 		MarshalSnapshot:   claims.MarshalSnapshot,
 		UnmarshalSnapshot: claims.UnmarshalSnapshot,
+	}
+	a.execDecider = eventsourcing.Decider[execution.State, execution.Event]{
+		Initial:           execution.Empty,
+		Evolve:            execution.Evolve,
+		MarshalEvent:      execution.MarshalEvent,
+		UnmarshalEvent:    execution.UnmarshalEvent,
+		MarshalSnapshot:   execution.MarshalSnapshot,
+		UnmarshalSnapshot: execution.UnmarshalSnapshot,
 	}
 	a.shell = NewShell(a)
 	return a
