@@ -20,7 +20,7 @@ import (
 // applyCompleteRE matches terraform's apply summary line (with -no-color).
 var applyCompleteRE = regexp.MustCompile(`Apply complete! Resources: (\d+) added, (\d+) changed, (\d+) destroyed`)
 
-// classifyStep maps a wrapped command's outcome to the stack status to report.
+// classifyOutcome maps a wrapped command's outcome to the stack status to report.
 //
 //   - non-zero exit                              → failed
 //   - exit 0 + apply summary with 0/0/0          → nochange
@@ -29,7 +29,7 @@ var applyCompleteRE = regexp.MustCompile(`Apply complete! Resources: (\d+) added
 //
 // The no-op split fires only when an apply summary is present, so onSuccess
 // "planned" (a plan step) is never rewritten to nochange.
-func classifyStep(exitCode int, output string, onSuccess events.Status) events.Status {
+func classifyOutcome(exitCode int, output string, onSuccess events.Status) events.Status {
 	if exitCode != 0 {
 		return events.StatusFailed
 	}
@@ -82,16 +82,16 @@ func (s *logStreamer) Close() error {
 	return nil
 }
 
-// runStep wraps one stack command: it runs the command with passthrough stdio,
+// runWrap wraps one stack command: it runs the command with passthrough stdio,
 // and (only when a server + execution id are configured) ticks running before,
 // streams output as log chunks, and ticks the terminal status after — so the
 // outcome tick fires inside the same process terramate runs to completion, even
 // when a parallel abort never advances to a later job command. It always exits
 // with the wrapped command's exit code.
 //
-// Usage: tfstackplan run step --stack <path> [--on-success <status>] -- <command...>
-func runStep(args []string) int {
-	fs := flag.NewFlagSet("run step", flag.ContinueOnError)
+// Usage: tfstackplan run wrap --stack <path> [--on-success <status>] -- <command...>
+func runWrap(args []string) int {
+	fs := flag.NewFlagSet("run wrap", flag.ContinueOnError)
 	stack := fs.String("stack", "", "stack path (defaults to $"+runner.EnvStack+")")
 	onSuccess := fs.String("on-success", "", "status to report on a zero exit (e.g. safe, planned); empty = intermediate, report nothing on success")
 	running := fs.String("running", "", "status to report on start (default: running)")
@@ -105,7 +105,7 @@ func runStep(args []string) int {
 		}
 	}
 	if sep < 0 || sep+1 >= len(args) {
-		fmt.Fprintln(os.Stderr, "tfstackplan run step: expected -- <command...>")
+		fmt.Fprintln(os.Stderr, "tfstackplan run wrap: expected -- <command...>")
 		return 2
 	}
 	if err := fs.Parse(args[:sep]); err != nil {
@@ -114,7 +114,7 @@ func runStep(args []string) int {
 	startStatus := events.StatusRunning
 	if *running != "" {
 		if !knownStatus(*running) {
-			fmt.Fprintln(os.Stderr, "tfstackplan run step: unknown --running status:", *running)
+			fmt.Fprintln(os.Stderr, "tfstackplan run wrap: unknown --running status:", *running)
 			return 2
 		}
 		startStatus = events.Status(*running)
@@ -162,7 +162,7 @@ func runStep(args []string) int {
 			_ = ptmx.Close()
 			runErr = cmd.Wait()
 		} else {
-			fmt.Fprintln(os.Stderr, "tfstackplan run step: PTY unavailable, falling back to pipe (no colour):", err)
+			fmt.Fprintln(os.Stderr, "tfstackplan run wrap: PTY unavailable, falling back to pipe (no colour):", err)
 			cmd.Stdin = os.Stdin
 			runErr = runPiped(cmd, stdoutWriters, stderrWriters, &captured)
 		}
@@ -174,7 +174,7 @@ func runStep(args []string) int {
 
 	if reporting {
 		streamer.Close()
-		status := classifyStep(exitCode, ansi.Strip(captured.String()), events.Status(*onSuccess))
+		status := classifyOutcome(exitCode, ansi.Strip(captured.String()), events.Status(*onSuccess))
 		if status != "" {
 			detail := ""
 			if status == events.StatusFailed {
