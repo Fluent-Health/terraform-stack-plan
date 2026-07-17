@@ -148,7 +148,10 @@ func (a *App) handlePhase(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, err)
 		return
 	}
-	if err := store.UpsertPhase(a.db, p); err != nil {
+	if err := a.shell.HandleExec(r.Context(), p.ID, execution.ReportPhase{
+		ID: p.ID, Phase: p.Phase, Label: p.Label, Pct: p.ProgressPct,
+		Repo: p.Repo, SHA: p.SHA, PR: p.PR, Environment: p.Environment, Context: p.Context, LogURL: p.LogURL,
+	}); err != nil {
 		http.Error(w, "store phase", http.StatusInternalServerError)
 		return
 	}
@@ -183,7 +186,7 @@ func (a *App) handleUpdate(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, err)
 		return
 	}
-	if err := store.UpdateStack(a.db, u.ID, u.Stack, u.Status, u.Detail); err != nil {
+	if err := a.shell.HandleExec(r.Context(), u.ID, execution.ReportTick{Stack: u.Stack, Status: u.Status, Detail: u.Detail}); err != nil {
 		http.Error(w, "update stack", http.StatusInternalServerError)
 		return
 	}
