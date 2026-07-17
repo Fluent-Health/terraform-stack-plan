@@ -2,7 +2,7 @@ package plan
 
 import (
 	"github.com/Fluent-Health/terraform-stack-plan/internal/model"
-	"github.com/Fluent-Health/terraform-stack-plan/internal/statemoves"
+	"github.com/Fluent-Health/terraform-stack-plan/internal/moveset"
 )
 
 // ApplyStateMoves reclassifies every change whose address is a pending
@@ -25,7 +25,7 @@ import (
 // that case Action is ActionDestroy, not ActionNoop, so we must still reclassify
 // it. We only skip when Action is already ActionNoop — meaning it's a pure
 // same-stack rename with no real provider write.
-func (rs *RawStack) ApplyStateMoves(targets statemoves.Set) int {
+func (rs *RawStack) ApplyStateMoves(targets moveset.Set) int {
 	if targets.Len() == 0 {
 		return 0
 	}
