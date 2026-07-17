@@ -1,7 +1,7 @@
 # Security
 
 `tfstackplan serve` is a long-running control plane that holds a GitHub App
-private key and authenticates `/api/*` via Google OIDC, and requests
+private key, authenticates `/api/*` via Google OIDC, and requests
 time-bound privileged-access grants. It executes no Terraform and holds no
 apply credentials — Terraform runs in your own CI under your own identities.
 
@@ -23,10 +23,19 @@ Do not open public issues for security reports.
   (`serve.github_app.private_key_path`) is read from a mounted file at
   runtime — never built into the image or committed. Use your platform's
   secret store (e.g. a mounted secret volume).
-- **Webhook relay HMAC secret (defense in depth).** The central UI's webhook
-  relay takes an optional HMAC secret (`github_webhook_secret_env`); each
-  `serve` still verifies GitHub's HMAC end-to-end regardless, so this is
-  additional hardening, not the `/api/*` auth mechanism.
+- **`serve.github_webhook_secret_env` is the per-tier gate, not optional
+  hardening.** It is the sole check on that tier's own `/github/webhook`. When
+  unset, the endpoint 404s outright — no HMAC verification runs because the
+  route doesn't exist — which disables GitHub-driven functionality for that
+  tier: PR-lock handling, run-triggering (plan/apply), merge_group evaluation,
+  and check_run/check_suite re-run. Set it per tier for that functionality to
+  work.
+- **`ui.github_webhook_secret_env` is optional, additional hardening.** It is
+  a separate config field on the central UI's relay: when set, the relay
+  verifies GitHub's HMAC before fanning a delivery out to each tier, so
+  garbage dies at the relay instead of reaching every tier. It is
+  defense-in-depth on top of, not a substitute for, each tier's own
+  `serve.github_webhook_secret_env` check.
 - **GitHub App key rotation.** Rotate the App private key in GitHub, update the
   mounted file, and restart. Tokens are minted per request and short-lived, so a
   rotated key takes effect immediately on restart.
