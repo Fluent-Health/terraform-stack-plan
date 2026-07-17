@@ -27,7 +27,7 @@ same terraform commands, the same identities, the same dependency ordering. What
   that `render` does, and finalizes the report with the server. There is no
   second tool invocation. The comment that lands on the PR is produced the same
   way regardless of whether you call `render` standalone or `run plan` in CI.
-- **Per-stack progress.** The terramate scripts call `run tick` and `run step`
+- **Per-stack progress.** The terramate scripts call `run tick` and `run wrap`
   between commands. Each call is a lightweight server post — a status tick, a
   log chunk — that the central UI reflects immediately.
 - **Gate enforcement.** `run apply` is the one place in the whole system that
@@ -57,7 +57,7 @@ The plan driver. It:
 2. Calls `Init` on the server — registers the stacks, their dependency DAG, and
    the execution id. The check run appears here, before a single plan has run.
 3. Runs the terramate `plan` script across the changed set, in parallel up to
-   `--parallel`. Each stack's script calls `run step`/`run tick` to stream
+   `--parallel`. Each stack's script calls `run wrap`/`run tick` to stream
    progress; `run plan` sets the `TFSTACKPLAN_*` environment so they know where
    to report.
 4. Gathers each stack's `tfplan.json` (written to `<stack>/tfplan.json` by the
@@ -93,7 +93,7 @@ Its phases, in order:
    pessimistic GCS lock. Also fail-closed.
 3. **Apply.** Runs the terramate `apply` script across the changed stacks in
    dependency order. Independent stacks run concurrently up to `--parallel N`
-   (default: serial). Each stack reports its progress via `run step`/`run tick`.
+   (default: serial). Each stack reports its progress via `run wrap`/`run tick`.
 4. **Grant revocation.** After the apply completes, revokes the PR's PAM grants
    (best-effort — a revocation failure does not fail the build).
 
@@ -128,11 +128,13 @@ the execution context from the `TFSTACKPLAN_*` environment, posts a best-effort
 update, and exits zero regardless of the server's response. It is a complete
 no-op offline. A tick never fails the build.
 
-In practice you will more often reach for `run step`, which wraps a single
-terraform command and handles the before/after ticks automatically — including
-detecting `nochange` from terraform's output and streaming logs to the server as
-the command runs. The CI integration chapter covers when to use each, and why
-wrapping every terraform command in `run step` (rather than calling `run tick`
+In practice you will more often reach for `run wrap` (formerly `run step`;
+the old name still works as a deprecated alias pending removal once CI
+scripts switch), which wraps a single terraform command and handles the
+before/after ticks automatically — including detecting `nochange` from
+terraform's output and streaming logs to the server as the command runs. The
+CI integration chapter covers when to use each, and why wrapping every
+terraform command in `run wrap` (rather than calling `run tick`
 in a separate command) closes a gap in how terramate's parallel `script run`
 handles failures. See [09 — CI integration](09-ci-integration.md).
 
@@ -170,7 +172,7 @@ threaded through the terramate scripts as flags:
 
 The full flag reference is in [Reference → CLI](../reference/cli.md). The full
 CI wiring — GitHub Actions YAML, Terramate scripts, `run phase` for early
-check-run appearance, `run step` vs `run tick` — is in
+check-run appearance, `run wrap` vs `run tick` — is in
 [09 — CI integration](09-ci-integration.md).
 
 ---

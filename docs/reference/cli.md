@@ -64,7 +64,7 @@ script invocations work without a server.
 tfstackplan run <subcommand> [flags]
 ```
 
-Subcommands: `lint`, `plan`, `apply`, `verify`, `tick`, `step`, `phase`, `register`.
+Subcommands: `lint`, `plan`, `apply`, `verify`, `tick`, `wrap`, `phase`, `register` (`step` also still works as a deprecated alias for `wrap`).
 
 ### `run lint`
 
@@ -169,17 +169,21 @@ tfstackplan run tick [flags]
 A tick is a no-op when `--status`, `--stack`, or `TFSTACKPLAN_EXECUTION` is
 empty, or when no server is configured.
 
-### `run step`
+### `run wrap`
 
 Wraps one stack command: reports a start status, streams output as log chunks,
 then reports the terminal status based on the command's exit code and output.
 Always exits with the wrapped command's exit code.
 
 ```
-tfstackplan run step [flags] -- <command> [args...]
+tfstackplan run wrap [flags] -- <command> [args...]
 ```
 
 `--` is required; everything after it is the wrapped command.
+
+`run step` is kept as a deprecated alias for `run wrap` — same flags, same
+behaviour, plus a one-line deprecation warning on stderr — pending removal
+once CI scripts switch over.
 
 | Flag | Type | Default | Meaning |
 |---|---|---|---|
@@ -188,7 +192,7 @@ tfstackplan run step [flags] -- <command> [args...]
 | `--running` | string | `""` | Status to report on start. Default: `running`. |
 | `--tty` | bool | `false` | Run the command under a PTY so it emits ANSI colour. Falls back gracefully to a pipe if a PTY is unavailable. |
 
-Status classification for `run step`:
+Status classification for `run wrap`:
 
 - Non-zero exit → `failed`
 - Exit 0 + apply summary with all-zero counts → `nochange`
