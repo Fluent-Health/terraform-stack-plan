@@ -40,9 +40,16 @@ func UpsertInit(db *sql.DB, in events.Init) error {
 		if _, err := tx.Exec(
 			`INSERT INTO executions (id, repo, sha, pr, environment, log_url, status_context)
 			 VALUES (?,?,?,?,?,?,?)
-			 ON CONFLICT(id) DO UPDATE SET repo=excluded.repo, sha=excluded.sha, pr=excluded.pr,
-			   environment=excluded.environment, log_url=excluded.log_url,
-			   status_context=excluded.status_context`,
+			 ON CONFLICT(id) DO UPDATE SET
+			   repo=excluded.repo,
+			   sha=excluded.sha,
+			   pr=excluded.pr,
+			   environment=excluded.environment,
+			   log_url=excluded.log_url,
+			   status_context=excluded.status_context,
+			   status=CASE WHEN executions.status != 'in_progress' OR COALESCE(executions.superseded_by, '') != '' THEN 'in_progress' ELSE executions.status END,
+			   superseded_by=CASE WHEN executions.status != 'in_progress' OR COALESCE(executions.superseded_by, '') != '' THEN '' ELSE executions.superseded_by END,
+			   created_at=CASE WHEN executions.status != 'in_progress' OR COALESCE(executions.superseded_by, '') != '' THEN CURRENT_TIMESTAMP ELSE executions.created_at END`,
 			in.ID, in.Repo, in.SHA, in.PR, in.Environment, in.LogURL, in.Context); err != nil {
 			return fmt.Errorf("insert execution: %w", err)
 		}

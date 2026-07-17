@@ -245,6 +245,50 @@ func TestUpsertInitPreservesStatus(t *testing.T) {
 	}
 }
 
+func TestUpsertInitReusedID(t *testing.T) {
+	db := newTestDB(t)
+	in := events.Init{ID: "e1", Repo: "o/r", Environment: "prod", Context: "apply/prod"}
+	if err := UpsertInit(db, in); err != nil {
+		t.Fatal(err)
+	}
+
+	// 1. Mark as completed (failed)
+	if err := SetExecutionStatus(db, "e1", "failure"); err != nil {
+		t.Fatal(err)
+	}
+
+	// 2. Mark as superseded
+	if err := SupersedeExecution(db, "e1", "e-newer"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify old states
+	old, err := GetExecution(db, "e1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if old.Status != "failure" || old.SupersededBy != "e-newer" {
+		t.Fatalf("unexpected pre-state: %+v", old)
+	}
+
+	// 3. Re-run Init with same ID
+	if err := UpsertInit(db, in); err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify states have reset
+	updated, err := GetExecution(db, "e1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Status != "in_progress" {
+		t.Errorf("status = %q, want in_progress", updated.Status)
+	}
+	if updated.SupersededBy != "" {
+		t.Errorf("superseded_by = %q, want empty", updated.SupersededBy)
+	}
+}
+
 func TestSetExecutionStatus(t *testing.T) {
 	db := newTestDB(t) // use the package's existing test-db helper
 	if err := UpsertInit(db, events.Init{ID: "e1", Repo: "r", Context: "apply/prod",
