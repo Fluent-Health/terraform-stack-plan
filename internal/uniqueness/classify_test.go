@@ -158,6 +158,29 @@ func TestClassifierStructLiteralTokenFoldingUncached(t *testing.T) {
 	}
 }
 
+// TestIsIdentifierIntegralFloat64LongNumeric verifies a huge integral
+// float64 (as YAML decodes a bare integer literal beyond uint64 range)
+// stringifies without scientific notation for value-pattern matching, so it
+// still matches the long-opaque-numeric value pattern under a non-identifier
+// key — mirroring the Python prototype's arbitrary-precision int behavior.
+func TestIsIdentifierIntegralFloat64LongNumeric(t *testing.T) {
+	c := newDefaultClassifier()
+	if !c.IsIdentifier("blob", float64(1234567890123456789012345)) {
+		t.Fatal("blob=<huge integral float64> should be an identifier (long-numeric value shape)")
+	}
+}
+
+// TestIsIdentifierNonIntegralFloat64NotFlagged verifies a non-integral
+// float64 under a non-identifier key is not flagged merely because it's a
+// float — stringifyValue's exponent-avoidance only applies to whole-number
+// floats, and "1.5" matches no built-in value pattern.
+func TestIsIdentifierNonIntegralFloat64NotFlagged(t *testing.T) {
+	c := newDefaultClassifier()
+	if c.IsIdentifier("blob", 1.5) {
+		t.Fatal("blob=1.5 should not be an identifier")
+	}
+}
+
 // TestDeriveTokensAndSegsExtras verifies extraTokens (per-env) and extraSegs
 // (bare) merge into the result alongside the derived template/env tokens.
 func TestDeriveTokensAndSegsExtras(t *testing.T) {

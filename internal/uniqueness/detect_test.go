@@ -64,6 +64,38 @@ func TestFindDuplicatesWithinUnprotectedIsReportOnly(t *testing.T) {
 	}
 }
 
+// TestFindDuplicatesWithinProtectedIsReportOnly verifies an identical
+// identifier-shaped value present only across envs that both map to the
+// protected tier is SeverityReportOnly, not a blocking violation — the
+// symmetric case to TestFindDuplicatesWithinUnprotectedIsReportOnly, since a
+// group confined to a single tier (protected or otherwise) has no
+// protected/non-protected boundary to cross.
+func TestFindDuplicatesWithinProtectedIsReportOnly(t *testing.T) {
+	u := Unit{
+		ID:   "app-dev",
+		Envs: []string{"prod1", "prod2"},
+		Inputs: map[string]map[string]any{
+			"prod1": {"client_id": "acme-client-1234"},
+			"prod2": {"client_id": "acme-client-1234"},
+		},
+	}
+	tierOf := map[string]Tier{"prod1": "prod", "prod2": "prod"}
+
+	got := FindDuplicates(u, tierOf, "prod", newDefaultClassifier())
+
+	want := []Violation{{
+		Unit:     "app-dev",
+		Key:      "client_id",
+		Value:    "acme-client-1234",
+		Envs:     []string{"prod1", "prod2"},
+		Kind:     KindDuplicate,
+		Severity: SeverityReportOnly,
+	}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("FindDuplicates() = %#v, want %#v", got, want)
+	}
+}
+
 // TestFindDuplicatesBoolNeverFlagged verifies an identical bool value across
 // protected/non-protected envs is never a duplicate finding, since
 // Classifier.IsIdentifier never classifies a bool as an identifier.

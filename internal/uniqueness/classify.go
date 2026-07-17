@@ -2,7 +2,9 @@ package uniqueness
 
 import (
 	"fmt"
+	"math"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -136,7 +138,7 @@ func (c Classifier) IsIdentifier(key string, value any) bool {
 		return false
 	}
 
-	s := fmt.Sprint(value)
+	s := stringifyValue(value)
 	if s == "" {
 		return false
 	}
@@ -222,6 +224,22 @@ func (c Classifier) matchesEnvToken(s string) bool {
 		}
 	}
 	return false
+}
+
+// stringifyValue stringifies a leaf value for value-shape matching. A YAML
+// bare integer beyond uint64 range decodes as a float64 (rather than the
+// Python prototype's arbitrary-precision int); fmt.Sprint on a large
+// integral float64 renders scientific notation (e.g. "1.2345678901234568e+24"),
+// which would never match the long-opaque-numeric value pattern — a silent
+// fail-open vs. the Python spec. So a float64 that is finite and has no
+// fractional part is formatted without an exponent instead
+// (strconv.FormatFloat with 'f'); every other value (including non-integral
+// floats, Inf, and NaN) stringifies via fmt.Sprint, unchanged.
+func stringifyValue(value any) string {
+	if f, ok := value.(float64); ok && !math.IsInf(f, 0) && !math.IsNaN(f) && f == math.Trunc(f) {
+		return strconv.FormatFloat(f, 'f', -1, 64)
+	}
+	return fmt.Sprint(value)
 }
 
 // lastSegment returns the final dot-separated segment of a flattened key

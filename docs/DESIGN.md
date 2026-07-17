@@ -1019,6 +1019,10 @@ tfstackplan uniqueness [--dir DIR] [--config FILE] [--format text|json]
 - **Single protected-tier boundary model.** One designated `protected_tier`
   versus everything else; there's no N-tier crossing matrix (e.g. no
   distinct rule for `staging → prod` versus `dev → staging`).
+- **The env-token fold is a deliberate superset of the env-token detector.**
+  A value equal to another environment's derived token also classifies as
+  identifier-shaped, so the duplicate detector may flag it too (in addition
+  to `FindEnvTokens`); a single `allow{}` covers both findings.
 
 ## Server foundations (in progress)
 
