@@ -14,6 +14,31 @@ func Evolve(s State, e Event) State {
 
 	case PhaseChanged:
 		s.Phase = ev.Phase
+		s.ProgressLabel = ev.Label
+		s.ProgressPct = ev.Pct
+		// Identity is set non-regressively so a phase-before-init materializes the
+		// row without a later bare phase bump clobbering it (mirrors old UpsertPhase).
+		if s.ID == "" {
+			s.ID = ev.ID
+		}
+		if s.PR == 0 {
+			s.PR = ev.PR
+		}
+		if s.Repo == "" {
+			s.Repo = ev.Repo
+		}
+		if s.SHA == "" {
+			s.SHA = ev.SHA
+		}
+		if s.Environment == "" {
+			s.Environment = ev.Environment
+		}
+		if s.Context == "" {
+			s.Context = ev.Context
+		}
+		if s.LogURL == "" {
+			s.LogURL = ev.LogURL
+		}
 		return s
 
 	case StackStatusChanged:

@@ -10,12 +10,19 @@ import "github.com/Fluent-Health/terraform-stack-plan/internal/events"
 
 // State is the folded lifecycle of ONE execution.
 type State struct {
-	ID     string
-	Repo   string
-	SHA    string
-	LogURL string
-	Phase  events.Phase
-	Stacks []Stack
+	ID            string
+	Repo          string
+	SHA           string
+	LogURL        string
+	PR            int
+	Environment   string
+	Context       string
+	Phase         events.Phase
+	ProgressLabel string
+	ProgressPct   *int
+	Status        string
+	Stacks        []Stack
+	Edges         []Edge
 }
 
 // Stack is one node. RunStatus holds ONLY the runner-told status; the gated/safe
@@ -26,6 +33,13 @@ type Stack struct {
 	RunStatus  events.Status
 	Detail     string
 	Categories []events.Category
+	Counts     *events.Counts
+}
+
+// Edge is a directed edge between two stacks.
+type Edge struct {
+	From string
+	To   string
 }
 
 // Empty is the initial state for the fold (an unseen execution stream).
@@ -40,7 +54,18 @@ type Signal interface{ isSignal() }
 type ReportInit struct{ Exec State }
 
 // ReportPhase narrates a lifecycle phase transition.
-type ReportPhase struct{ Phase events.Phase }
+type ReportPhase struct {
+	Phase       events.Phase
+	Label       string
+	Pct         *int
+	ID          string
+	PR          int
+	Repo        string
+	SHA         string
+	Environment string
+	Context     string
+	LogURL      string
+}
 
 // ReportTick ticks a single stack's runner-told status.
 type ReportTick struct {
@@ -63,7 +88,18 @@ func (ReportFail) isSignal()  {}
 type Event interface{ isEvent() }
 
 type Started struct{ Exec State }
-type PhaseChanged struct{ Phase events.Phase }
+type PhaseChanged struct {
+	Phase       events.Phase
+	Label       string
+	Pct         *int
+	ID          string
+	PR          int
+	Repo        string
+	SHA         string
+	Environment string
+	Context     string
+	LogURL      string
+}
 type StackStatusChanged struct {
 	Stack  string
 	Status events.Status

@@ -77,3 +77,40 @@ func TestEvolveFoldSequence(t *testing.T) {
 		t.Fatalf("fold mismatch:\n got  %#v\n want %#v", s, want)
 	}
 }
+
+func TestEvolveStartedCarriesIdentityAndEdges(t *testing.T) {
+	got := Evolve(State{}, Started{Exec: State{
+		ID: "e1", PR: 7, Environment: "nonprod", Context: "terraform/nonprod",
+		Status: "in_progress",
+		Stacks: []Stack{{Path: "a"}}, Edges: []Edge{{From: "a", To: "b"}},
+	}})
+	if got.PR != 7 || got.Environment != "nonprod" || got.Context != "terraform/nonprod" {
+		t.Fatalf("identity not folded: %#v", got)
+	}
+	if got.Status != "in_progress" || len(got.Edges) != 1 {
+		t.Fatalf("status/edges not folded: %#v", got)
+	}
+}
+
+func TestEvolvePhaseChangedFoldsProgress(t *testing.T) {
+	pct := 42
+	got := Evolve(State{ID: "e1"}, PhaseChanged{Phase: events.PhaseApplying, Label: "applying 3/8", Pct: &pct})
+	if got.Phase != events.PhaseApplying || got.ProgressLabel != "applying 3/8" || got.ProgressPct == nil || *got.ProgressPct != 42 {
+		t.Fatalf("progress not folded: %#v", got)
+	}
+}
+
+func TestEvolvePhaseChangedSetsIdentityNonRegressively(t *testing.T) {
+	// Phase-before-init: identity fields materialize the row.
+	got := Evolve(State{}, PhaseChanged{Phase: events.PhaseInitializing, ID: idOrEmpty(), PR: 9, Environment: "prod", Context: "terraform/prod", Repo: "r", SHA: "abc"})
+	if got.PR != 9 || got.Environment != "prod" || got.Repo != "r" {
+		t.Fatalf("identity not set on empty state: %#v", got)
+	}
+	// A later PhaseChanged with zero identity must NOT clobber it.
+	got2 := Evolve(got, PhaseChanged{Phase: events.PhaseApplying})
+	if got2.PR != 9 || got2.Environment != "prod" || got2.Repo != "r" {
+		t.Fatalf("identity regressed: %#v", got2)
+	}
+}
+
+func idOrEmpty() string { return "e9" }
