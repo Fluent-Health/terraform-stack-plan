@@ -20,6 +20,13 @@ type Shell struct {
 	mu    sync.Mutex
 	locks map[string]*sync.Mutex
 
+	// execMu/execLocks serialize per-execID lifecycle signals (HandleExec). Kept
+	// separate from the per-(pr,env) gate locks above: the two are always
+	// acquired sequentially, never nested, so the execution and gate aggregates
+	// cannot deadlock against each other.
+	execMu    sync.Mutex
+	execLocks map[string]*sync.Mutex
+
 	// envLocks serializes claim-ledger writes per environment (handleClaim). Kept
 	// separate from the per-(pr,env) gate locks above so the exec→env nesting
 	// (ApplySucceeded → ReleaseClaim) is strictly one-directional and deadlock-free.
@@ -28,7 +35,7 @@ type Shell struct {
 
 // NewShell builds a Shell bound to an App.
 func NewShell(app *App) *Shell {
-	return &Shell{app: app, locks: map[string]*sync.Mutex{}}
+	return &Shell{app: app, locks: map[string]*sync.Mutex{}, execLocks: map[string]*sync.Mutex{}}
 }
 
 func changeSetKey(pr int, env string) string { return fmt.Sprintf("%d|%s", pr, env) }
@@ -42,6 +49,18 @@ func (sh *Shell) lockFor(pr int, env string) *sync.Mutex {
 	if !ok {
 		m = &sync.Mutex{}
 		sh.locks[k] = m
+	}
+	return m
+}
+
+// execLockFor returns the per-execID mutex, creating it on first use.
+func (sh *Shell) execLockFor(execID string) *sync.Mutex {
+	sh.execMu.Lock()
+	defer sh.execMu.Unlock()
+	m, ok := sh.execLocks[execID]
+	if !ok {
+		m = &sync.Mutex{}
+		sh.execLocks[execID] = m
 	}
 	return m
 }
