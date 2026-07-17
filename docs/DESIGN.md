@@ -874,6 +874,152 @@ the budget entirely.
   HTML viewer retired; the central UI's SPA patches the DOM in place on every
   SSE change.
 
+## env-uniqueness
+
+A second, independent lint (its own subcommand, `tfstackplan uniqueness`) that
+catches per-environment config values that were copy-pasted instead of
+parameterized. It scans a directory of per-stack instance manifests (the
+Catalyst `BundleInstance` YAML shape by default) rather than plan JSON, and has
+its own `env_uniqueness {}` config block, its own report shape, and its own
+exit-code contract — it shares only the `.tfstackplan.hcl` file and its
+auto-discovery with `classification {}`/`diff {}`.
+
+### What it checks
+
+Two detectors, run per unit (one unit = one instance manifest, with one set of
+inputs per environment):
+
+- **Cross-env identifier duplicates** — the same value appears, unchanged, in
+  ≥2 of a unit's environments, and the value is identifier-shaped. A leaf is
+  identifier-shaped by **value-shape** (matches a built-in pattern: UUID,
+  `https?://…` URL, dotted hostname+TLD, or a long opaque numeric string) OR by
+  **key-pattern** (its key's final dot-segment ends `_id`, `_uuid`,
+  `client_id`, `project_id`, `domain_id`, `account_id`, …) — either is
+  sufficient; a bare enum, boolean, or semver-looking string matches neither.
+  Two exclusions keep this from firing on legitimate repetition:
+  - **Quantity suffixes** (`_ms`, `_seconds`, `_count`, `_port`, `_percent`,
+    `_timeout`, …) are never identifiers, even when the value is a long
+    number (e.g. a `jwt_expiration_ms` shared by design).
+  - **Env-scoped paths** — a dot-path with any segment matching a known
+    environment name, its derived token, or a configured extra segment — are
+    skipped entirely, since they're expected to enumerate every env (e.g. a
+    map keyed by environment name).
+- **Env-token cross-check** — a leaf value in one environment's inputs that
+  embeds *another* environment's identifying token (its derived project name
+  or bare env name) — e.g. a `dev` URL hardcoded into `prod`'s config. Matched
+  as a whole token, not a substring (RE2 has no lookbehind, so the boundary is
+  consumed as a literal non-alphanumeric character or start/end-of-string
+  rather than asserted), so `acme-dev` doesn't false-positive inside
+  `acme-development`.
+
+### Tier-aware severity
+
+Every environment belongs to a **tier** (its protection class, e.g. `prod` vs.
+`nonprod`). Severity for a cross-env duplicate depends on which tiers its envs
+span:
+
+- **`VIOLATION` (blocking)** — the duplicate's envs include both the
+  `protected_tier` and some other tier (e.g. one client secret shared between
+  `dev` and `prod`).
+- **`REPORT-ONLY` (non-blocking)** — the duplicate is confined to envs within
+  a single tier (e.g. shared only between `dev` and `test`, both `nonprod`) —
+  surfaced in the report but never fails the command.
+- An environment **missing from the tier map fails closed**: it's always
+  treated as `protected_tier`, never as an escape hatch.
+- **Env-token findings are always `VIOLATION`**, regardless of tier — a leaked
+  token is a mistake independent of which tiers are involved.
+
+### Config: `env_uniqueness {}`
+
+A block in the same auto-discovered `.tfstackplan.hcl` used by
+`classification {}`/`diff {}`:
+
+```hcl
+env_uniqueness {
+  protected_tier         = "prod"          # optional; default "prod"
+  project_token_template = "acme-{env}"    # optional; derives per-env tokens + env-scoped path segments
+
+  # Env topology: EITHER declare each env's tier explicitly...
+  environment "dev"  { tier = "nonprod" }
+  environment "prod" { tier = "prod" }
+  # ...OR read it from a data leaf instead — set source.tier_input below and
+  # drop the environment {} blocks; when tier_input is set it always wins and
+  # that leaf is excluded from the detectors themselves.
+
+  source {
+    # Catalyst BundleInstance defaults shown; override only for another layout.
+    # glob              = "components/**/instances/*.tm.yml"
+    # environments_path = "environments"
+    # inputs_path       = "inputs"
+    # tier_input        = "tier_class"
+  }
+
+  extra_env_tokens    = { dev = ["acme-development"] }  # optional, per-env extra tokens
+  extra_scoped_segments = ["region"]                    # optional extra env-scoped path segments
+  extra_key_patterns    = ["_secret_ref$"]              # optional extra identifier key regexes
+
+  allow {
+    unit    = "svc/api/instances/api"       # exact unit id
+    key     = "inputs.shared_client_id"     # exact key, or an fnmatch glob
+    envs    = ["dev", "test"]               # must be a superset of the finding's envs
+    reason  = "shared sandbox OAuth client, ticket ACME-123"  # required
+    expires = "2026-12-31"                  # optional, YYYY-MM-DD
+  }
+}
+```
+
+- **`source`** controls discovery and shape: `glob` is a
+  `<dir>/**/<pattern>` path (Go's `filepath.Glob` has no `**`, so this walks
+  the tree and matches prefix/suffix manually); `environments_path` navigates
+  each manifest to its per-env map; `inputs_path` navigates each environment
+  to its inputs, which are then flattened to dot-paths. All three default to
+  the Catalyst shape (`environments.<env>.inputs.*`).
+- **`allow {}`** is the inline justification for a reviewed, intentional
+  duplicate. It's non-exclusive with severity: only `VIOLATION`-severity
+  findings need justification (report-only findings never need one and are
+  never "unjustified"). `key` matches exactly or as an `fnmatch`
+  (`filepath.Match`) glob; `envs` must be a superset of the finding's envs;
+  `reason` is mandatory (config fails to load without it). An expired `allow`
+  (past its `expires` date) is dropped before matching, so the violation it
+  used to cover resurfaces as unjustified; an `allow` that matches nothing
+  live is reported as **stale**.
+
+### Command
+
+```
+tfstackplan uniqueness [--dir DIR] [--config FILE] [--format text|json]
+```
+
+- `--dir` (default `.`) — repo root scanned for instance manifests.
+- `--config` — same auto-discovery as `render`'s `--config` (falls back to
+  `.tfstackplan.hcl`, found by walking up to the repo's `.git` root); the
+  resolved file must contain an `env_uniqueness {}` block.
+- `--format` — `text` (grouped human-readable list) or `json` (the report,
+  machine-readable).
+- Exit codes: **0** clean; **1** one or more unjustified violations or stale
+  allow rules; **2** usage/config/load error (bad flags, no config found, HCL
+  decode error, undeclared or inconsistent environment tier, invalid
+  `extra_key_patterns` regex, unparsable source manifest). Report-only
+  findings never affect the exit code.
+
+### Known limitations
+
+- **Identifier detection is a value-shape/key-pattern heuristic, not a
+  schema.** A field that's really an identifier but matches none of the
+  built-in value patterns or key suffixes goes undetected unless the repo
+  adds an `extra_key_patterns` entry — or, once it's flagged some other way,
+  a reviewed `allow` records the exception.
+- **A duplicate wholly within unprotected tiers is report-only by design** —
+  the lint's blocking concern is the protected/unprotected boundary, not
+  general no-duplication across nonprod environments.
+- **Env-scoped fan-out paths are skipped structurally, not merely
+  downgraded** — a key whose path includes an env name/token/configured
+  segment is assumed to be legitimate per-env enumeration and never appears
+  in either detector's output.
+- **Single protected-tier boundary model.** One designated `protected_tier`
+  versus everything else; there's no N-tier crossing matrix (e.g. no
+  distinct rule for `staging → prod` versus `dev → staging`).
+
 ## Server foundations (in progress)
 
 `tfstackplan` is growing from a pure renderer into a single tool that also
