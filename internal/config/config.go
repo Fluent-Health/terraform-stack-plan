@@ -26,14 +26,15 @@ const DefaultFilename = ".tfstackplan.hcl"
 type Config struct {
 	Classification *Classification // nil when no classification block present
 	Diff           DiffConfig
-	Links          *LinksConfig    // nil when no links block present
-	Server         *ServerConfig   // nil when no server block (the default/unlabeled one)
-	Servers        []ServerConfig  // all parsed server blocks (including labeled ones)
-	Serve          *ServeConfig    // nil when no serve block (added in a later task)
-	UI             *UIConfig       // nil when no ui block (the central UI face)
-	Classes        []ClassBinding  // class "<name>" {} bindings
-	Progress       *ProgressConfig // nil when no progress block (falls back to built-in fracs)
-	Cache          *CacheConfig    // nil when no cache block present
+	Links          *LinksConfig         // nil when no links block present
+	Server         *ServerConfig        // nil when no server block (the default/unlabeled one)
+	Servers        []ServerConfig       // all parsed server blocks (including labeled ones)
+	Serve          *ServeConfig         // nil when no serve block (added in a later task)
+	UI             *UIConfig            // nil when no ui block (the central UI face)
+	Classes        []ClassBinding       // class "<name>" {} bindings
+	Progress       *ProgressConfig      // nil when no progress block (falls back to built-in fracs)
+	Cache          *CacheConfig         // nil when no cache block present
+	EnvUniqueness  *EnvUniquenessConfig // nil when no env_uniqueness block present
 }
 
 // Classification holds the resolved, ordered rules and the fallback class.
@@ -170,6 +171,12 @@ func Load(path string) (*Config, error) {
 				return nil, err
 			}
 			cfg.Cache = c
+		case "env_uniqueness":
+			eu, err := decodeEnvUniqueness(blk)
+			if err != nil {
+				return nil, err
+			}
+			cfg.EnvUniqueness = eu
 		default:
 			return nil, fmt.Errorf("%s: unknown top-level block %q", path, blk.Type)
 		}
