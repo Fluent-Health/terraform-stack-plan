@@ -29,15 +29,17 @@ merge     ──▶ CI apply job ─▶ tfstackplan run apply ──┘       (c
   concurrently, default 0 = serial), then revokes the grants.
 - **`run phase`** — emits a lifecycle phase event (`warming`, `initializing`,
   `planning`) so the check run appears early, before the first plan completes.
-- **`run step`** — wraps a single terraform command with lifecycle ticks:
+- **`run wrap`** (formerly `run step`; the old name still works as a
+  deprecated alias pending removal once CI scripts switch) — wraps a single
+  terraform command with lifecycle ticks:
   ticks `running` before, determines the terminal status after (`safe` /
   `nochange` / `failed`), and streams the command's output to the server as
   log chunks. Transparent offline passthrough — a no-op tick when
   `TFSTACKPLAN_SERVER` is unset, so local `terramate script run` is unaffected.
-  Prefer `run step` over separate `run tick` pairs for the apply command — see
+  Prefer `run wrap` over separate `run tick` pairs for the apply command — see
   *Terramate scripts* below.
 - **`run tick`** — the per-stack progress reporter the Terramate scripts call
-  directly when `run step` is not the right fit. A no-op offline; never fails
+  directly when `run wrap` is not the right fit. A no-op offline; never fails
   the build.
 
 ## Environment
@@ -63,7 +65,7 @@ fail-closed. Full variable reference is in
 ## Terramate scripts
 
 The consumer defines `plan` and `apply` scripts once (root `scripts.tm.hcl`,
-inherited by every stack). They run terraform via `run step`, which wraps each
+inherited by every stack). They run terraform via `run wrap`, which wraps each
 terraform command — the runner invokes these exact scripts, so there is one
 execution code path. Enable scripts in the root config and pass the per-stack
 path via Terramate's stack metadata:
@@ -79,10 +81,10 @@ script "plan" {
   description = "init + plan, capture the plan JSON, report progress"
   job {
     commands = [
-      ["tfstackplan", "run", "step", "--stack", "${terramate.stack.path.relative}", "--", "terraform", "init", "-input=false", "-lock=false"],
-      ["tfstackplan", "run", "step", "--stack", "${terramate.stack.path.relative}", "--on-success", "planned", "--", "terraform", "plan", "-input=false", "-lock=false", "-out=plan.bin"],
+      ["tfstackplan", "run", "wrap", "--stack", "${terramate.stack.path.relative}", "--", "terraform", "init", "-input=false", "-lock=false"],
+      ["tfstackplan", "run", "wrap", "--stack", "${terramate.stack.path.relative}", "--on-success", "planned", "--", "terraform", "plan", "-input=false", "-lock=false", "-out=plan.bin"],
       # Emit the plan JSON where `run plan` gathers it: <stack>/tfplan.json.
-      ["tfstackplan", "run", "step", "--stack", "${terramate.stack.path.relative}", "--", "sh", "-c", "terraform show -json plan.bin > tfplan.json"],
+      ["tfstackplan", "run", "wrap", "--stack", "${terramate.stack.path.relative}", "--", "sh", "-c", "terraform show -json plan.bin > tfplan.json"],
     ]
   }
 }
@@ -91,8 +93,8 @@ script "apply" {
   description = "init + apply, report progress"
   job {
     commands = [
-      ["tfstackplan", "run", "step", "--stack", "${terramate.stack.path.relative}", "--", "terraform", "init", "-input=false"],
-      ["tfstackplan", "run", "step", "--stack", "${terramate.stack.path.relative}", "--on-success", "safe", "--", "terraform", "apply", "-input=false", "-auto-approve", "plan.bin"],
+      ["tfstackplan", "run", "wrap", "--stack", "${terramate.stack.path.relative}", "--", "terraform", "init", "-input=false"],
+      ["tfstackplan", "run", "wrap", "--stack", "${terramate.stack.path.relative}", "--on-success", "safe", "--", "terraform", "apply", "-input=false", "-auto-approve", "plan.bin"],
     ]
   }
 }
@@ -102,33 +104,33 @@ Notes on the scripts:
 
 - `run plan` gathers each stack's `tfplan.json` from the stack directory
   (`<stack>/tfplan.json`), so the `show -json` step must write there.
-- `run tick` and `run step` are no-ops when `TFSTACKPLAN_SERVER` is unset and
+- `run tick` and `run wrap` are no-ops when `TFSTACKPLAN_SERVER` is unset and
   never fail the build, so these scripts run unchanged at a laptop.
-- **Wrap every terraform command in `run step`** (both plan and apply).
+- **Wrap every terraform command in `run wrap`** (both plan and apply).
   Terramate's parallel `script run` aborts on the first failing stack and never
   advances to a *later* command in the same job — so a closing
   `run tick --status planned`/`safe` in a separate command is silently never run
   when an earlier stack fails. Wrapping the terminal command in
-  `run step --on-success planned` (plan) / `--on-success safe` (apply) puts the
+  `run wrap --on-success planned` (plan) / `--on-success safe` (apply) puts the
   terminal tick *inside* the same command Terramate runs to completion, closing
-  that gap. `run step` also streams the command's output to the server as log
+  that gap. `run wrap` also streams the command's output to the server as log
   chunks, superseding the older `tee` + `--log-file` pump.
-- `run step` auto-detects `nochange` from terraform's summary line
+- `run wrap` auto-detects `nochange` from terraform's summary line
   (`Apply complete! Resources: 0 added, 0 changed, 0 destroyed`) and ticks that
   status instead of `safe`. The `--on-success safe` flag sets the terminal status
   for any other (non-zero-change) success.
 - **`--tty` enables ANSI colour in the viewer.** Terraform suppresses colour when
-  its stdout is a pipe. Add `--tty` to any `run step` command to run terraform
+  its stdout is a pipe. Add `--tty` to any `run wrap` command to run terraform
   under a PTY so it emits ANSI colour; the central UI renders it automatically
   (including progress spinners). Also drop `-no-color` from the terraform flags —
   both changes together produce colour. If PTY allocation fails (Unix-only),
-  `run step` falls back to the normal pipe path — the command still runs and exits
+  `run wrap` falls back to the normal pipe path — the command still runs and exits
   with the correct code; one line is logged to note the fallback.
 - The `--stack` flag is taken verbatim. If your terraform root is deeper than the
   Terramate stack path, wrap with a one-line `bash -c` to strip the key prefix.
-- `run step` streams logs itself — the old `tee tfstackplan.log` convention and
-  the `--log-file` pump are superseded for `run step` stacks. (The runner still
-  starts the pump; with every command wrapped in `run step` it finds no log file
+- `run wrap` streams logs itself — the old `tee tfstackplan.log` convention and
+  the `--log-file` pump are superseded for `run wrap` stacks. (The runner still
+  starts the pump; with every command wrapped in `run wrap` it finds no log file
   to tail and no-ops, so there is no double-streaming.)
 
 ## Early start and progress

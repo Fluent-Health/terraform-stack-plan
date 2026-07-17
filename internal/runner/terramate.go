@@ -9,7 +9,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Fluent-Health/terraform-stack-plan/internal/causality"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 )
 
@@ -90,7 +89,7 @@ func (t *Terramate) WhyChanged(ctx context.Context, base string) ([]events.Chang
 	rawLines := lines(out)
 	reasons := make([]events.ChangeReason, len(rawLines))
 	for i, line := range rawLines {
-		reasons[i] = causality.ParseLine(line)
+		reasons[i] = ParseLine(line)
 	}
 	return reasons, nil
 }

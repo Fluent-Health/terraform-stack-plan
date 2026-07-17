@@ -1,4 +1,4 @@
-package statemoves
+package moveset
 
 import "testing"
 

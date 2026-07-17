@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/model"
-	"github.com/Fluent-Health/terraform-stack-plan/internal/statemoves"
+	"github.com/Fluent-Health/terraform-stack-plan/internal/moveset"
 )
 
 func TestApplyStateMoves_reclassifiesModuleChildrenAsMoves(t *testing.T) {
@@ -16,7 +16,7 @@ func TestApplyStateMoves_reclassifiesModuleChildrenAsMoves(t *testing.T) {
 			{Address: "module.other.google_project_iam_member.y", Action: model.ActionAdd, Actions: []string{"create"}},
 		},
 	}
-	n := rs.ApplyStateMoves(statemoves.Set{"module.content_library": true}) // module-level target
+	n := rs.ApplyStateMoves(moveset.Set{"module.content_library": true}) // module-level target
 	if n != 2 {
 		t.Fatalf("reclassified = %d, want 2 (both content_library children)", n)
 	}
@@ -38,7 +38,7 @@ func TestApplyStateMoves_emptyTargets_isNoop(t *testing.T) {
 		Counts:  model.Counts{Add: 1},
 		Changes: []RawChange{{Address: "module.a.r", Action: model.ActionAdd}},
 	}
-	if n := rs.ApplyStateMoves(statemoves.Set{}); n != 0 {
+	if n := rs.ApplyStateMoves(moveset.Set{}); n != 0 {
 		t.Fatalf("empty targets must reclassify nothing, got %d", n)
 	}
 	if rs.Counts.Add != 1 || rs.Counts.Move != 0 {
@@ -52,7 +52,7 @@ func TestApplyStateMoves_leavesInStackMovesAlone(t *testing.T) {
 		Counts:  model.Counts{Move: 1},
 		Changes: []RawChange{{Address: "module.content_library.r", Action: model.ActionNoop, Moved: true, PreviousAddress: "module.old.r"}},
 	}
-	if n := rs.ApplyStateMoves(statemoves.Set{"module.content_library": true}); n != 0 {
+	if n := rs.ApplyStateMoves(moveset.Set{"module.content_library": true}); n != 0 {
 		t.Fatalf("in-stack move must be skipped, got %d", n)
 	}
 	if rs.Counts.Move != 1 {
@@ -77,7 +77,7 @@ func TestApplyStateMoves_reclassifiesDestroyWithPreviousAddress(t *testing.T) {
 			{Address: "module.agent[0].google_service_account.main", Action: model.ActionDestroy, Moved: true, PreviousAddress: "module.agent.google_service_account.main"},
 		},
 	}
-	targets := statemoves.Set{
+	targets := moveset.Set{
 		"module.agent[0].google_project_iam_member.x": true,
 		"module.agent[0].google_service_account.main": true,
 	}
@@ -116,7 +116,7 @@ func TestApplyStateMoves_reclassifiesByPreviousAddress(t *testing.T) {
 			},
 		},
 	}
-	targets := statemoves.Set{
+	targets := moveset.Set{
 		"module.agent.r": true,
 	}
 	n := rs.ApplyStateMoves(targets)

@@ -1,4 +1,4 @@
-package causality
+package runner
 
 import (
 	"regexp"

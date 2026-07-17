@@ -6,8 +6,8 @@ import (
 	"testing"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/model"
+	"github.com/Fluent-Health/terraform-stack-plan/internal/moveset"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/plan"
-	"github.com/Fluent-Health/terraform-stack-plan/internal/statemoves"
 )
 
 func stack(changes ...plan.RawChange) plan.RawStack {
@@ -186,7 +186,7 @@ func TestClassify_skipsMoveTargets(t *testing.T) {
 		plan.RawChange{Address: "module.cl.google_project_iam_member.x", Type: "google_project_iam_member", Action: model.ActionAdd, Actions: []string{"create"}, Raw: map[string]any{"project": "p-move"}},
 		plan.RawChange{Address: "module.other.google_project_iam_member.y", Type: "google_project_iam_member", Action: model.ActionAdd, Actions: []string{"create"}, Raw: map[string]any{"project": "p-real"}},
 	)
-	moveTargets := statemoves.Set{"module.cl.google_project_iam_member.x": true}
+	moveTargets := moveset.Set{"module.cl.google_project_iam_member.x": true}
 	iam, ok := find(Classify(s, rules, moveTargets), "iam")
 	if !ok {
 		t.Fatal("expected iam category from the non-move create")
@@ -207,7 +207,7 @@ func TestClassify_allMoveTargets_noCategory(t *testing.T) {
 	s := stack(
 		plan.RawChange{Address: "module.cl.google_project_iam_member.x", Type: "google_project_iam_member", Action: model.ActionAdd, Actions: []string{"create"}, Raw: map[string]any{"project": "p-move"}},
 	)
-	moveTargets := statemoves.Set{"module.cl.google_project_iam_member.x": true}
+	moveTargets := moveset.Set{"module.cl.google_project_iam_member.x": true}
 	if got := Classify(s, rules, moveTargets); len(got) != 0 {
 		t.Fatalf("a move-only stack must classify to nothing, got %+v", got)
 	}
@@ -228,7 +228,7 @@ func TestClassify_skipsModuleLevelMoveTarget(t *testing.T) {
 		plan.RawChange{Address: "module.content_library.google_project_iam_member.editor", Type: "google_project_iam_member", Action: model.ActionAdd, Actions: []string{"create"}, Raw: map[string]any{"project": "p-move"}},
 		plan.RawChange{Address: "module.content_library.google_project_iam_member.viewer", Type: "google_project_iam_member", Action: model.ActionAdd, Actions: []string{"create"}, Raw: map[string]any{"project": "p-move"}},
 	)
-	moveTargets := statemoves.Set{"module.content_library": true} // module-level
+	moveTargets := moveset.Set{"module.content_library": true} // module-level
 	if got := Classify(s, rules, moveTargets); len(got) != 0 {
 		t.Fatalf("a module-level move-target must cover its child creates → no iam, got %+v", got)
 	}
@@ -252,7 +252,7 @@ func TestClassify_skipsPreviousAddressMatches(t *testing.T) {
 			PreviousAddress: "module.agent.google_project_iam_member.x",
 		},
 	)
-	moveTargets := statemoves.Set{"module.agent.google_project_iam_member.x": true}
+	moveTargets := moveset.Set{"module.agent.google_project_iam_member.x": true}
 	if got := Classify(s, rules, moveTargets); len(got) != 0 {
 		t.Fatalf("a move-target matched via PreviousAddress must be skipped, got %+v", got)
 	}

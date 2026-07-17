@@ -17,7 +17,6 @@ import (
 	"github.com/Fluent-Health/terraform-stack-plan/internal/classify"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/model"
-	"github.com/Fluent-Health/terraform-stack-plan/internal/presets"
 )
 
 // DefaultFilename is auto-discovered in the working directory.
@@ -275,9 +274,9 @@ func decodeClassification(blk *hclsyntax.Block) (*Classification, error) {
 			if d := gohcl.DecodeBody(b.Body, nil, &pb); d.HasErrors() {
 				return nil, fmt.Errorf("preset %q: %s", b.Labels[0], d.Error())
 			}
-			rule, ok := presets.Get(b.Labels[0], pb.Icon, pb.EmitAttributes)
+			rule, ok := classify.PresetRule(b.Labels[0], pb.Icon, pb.EmitAttributes)
 			if !ok {
-				return nil, fmt.Errorf("unknown preset %q (available: %v)", b.Labels[0], presets.Names)
+				return nil, fmt.Errorf("unknown preset %q (available: %v)", b.Labels[0], classify.PresetNames)
 			}
 			ds, err := buildDerivations("preset "+strconv.Quote(b.Labels[0]), pb.Derive)
 			if err != nil {

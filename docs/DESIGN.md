@@ -86,9 +86,10 @@ cmd/tfstackplan/   — CLI entry; orchestrate load → gather → fit → render
 internal/domain/     — canonical value types (Counts, Category) shared across render/wire/persistence; leaf pkg
 internal/plandir/    — recursively scan --plans-dir for tfplan.json files; derive stack names
 internal/config/     — parse + validate the HCL config (classification {} + diff {})
-internal/presets/    — built-in named rule bundles (iam, …) as []classify.Rule
 internal/plan/       — parse plan.json (terraform-json) → action counts + raw attr changes
-internal/classify/   — apply resolved ordered rules → []Category  (gather)
+internal/classify/   — apply resolved ordered rules → []Category (gather); also
+                       built-in named rule bundles (iam, …) via PresetRule/PresetNames
+                       (folded in from the former internal/presets)
 internal/differ/     — type detect + emit ordered render variants per attribute  (gather)
 internal/model/      — Model/Stack/Change/AttrDiff/Variant types (the shared spine)
 internal/fit/        — pure budget reduction over the model (largest-first degradation)
@@ -105,7 +106,7 @@ internal/render/     — Model' → markdown
   wire/persistence layers are codecs of it rather than parallel re-modellings.
   This is the first step of the event-sourced target architecture;
   `Status` and the rest follow in later phases.
-- `config` + `presets` resolve into a single ordered `[]classify.Rule`.
+- `config` (including built-in preset expansion via `classify.PresetRule`) resolves into a single ordered `[]classify.Rule`.
   `classify` consumes that list and a parsed plan and returns `[]Category` (the
   set of all matching categories, in declaration order) — it neither knows nor
   cares whether a rule came from a preset or a custom block. `Summarize` produces
@@ -295,7 +296,8 @@ is displayed (display-only; never in the sidecar or summary).
   `^aws_iam_`, `^azurerm_role_(assignment|definition)$`. `actions` unset (any).
   Default category name `iam`, default icon `🔐` (overridable via the block's `icon`).
 - Future bundles (`data`, `cluster`) follow the same shape; out of v1 scope but
-  the `presets` package is structured to add them as named `[]Rule`.
+  `classify`'s preset support (`PresetRule`/`PresetNames`, folded in from the
+  former `presets` package) is structured to add them as named `[]Rule`.
 
 ### Sidecar JSON
 
@@ -574,8 +576,8 @@ the budget entirely.
   `min_count` / `actions`-all-present semantics.
 - `config`: parse fixtures for the `default` block + shorthand, preset expansion,
   declaration-order interleaving, and each error case.
-- `presets`: assert the `iam` bundle matches representative resource types and
-  ignores non-IAM ones.
+- Preset bundles (`PresetRule`/`PresetNames`, part of `classify`): assert the
+  `iam` bundle matches representative resource types and ignores non-IAM ones.
 - `differ`: per type (json/yaml/base64/plain/scalar/sensitive), assert the
   emitted variant ladder, that `Structural` is preferred for structured types,
   that with no cap a lone large attribute keeps its full variant, that the
@@ -591,32 +593,34 @@ the budget entirely.
 ## Shipped since v1
 
 - **`run register`** — registers the full stack set up front (before the
-  per-stack `run step` invocations begin), so the check-run progress title can
+  per-stack `run wrap` invocations begin), so the check-run progress title can
   show `initialized k/N` and `planned k/N` with a known denominator. Without it
   the denominator is `0` until stacks start completing. Runs once at the top of
   the CI job before any terramate script execution. A transparent no-op when
   `TFSTACKPLAN_SERVER` is unset.
-- **`run step`** — wraps a single terraform command with lifecycle ticks: ticks
+- **`run wrap`** (formerly `run step`; the old name still works as a
+  deprecated alias pending removal once CI scripts switch) — wraps a single
+  terraform command with lifecycle ticks: ticks
   `running` before (or a custom `--running <status>` — e.g. `--running
   initializing --on-success initialized` for `terraform init`), determines the
   terminal status after, and streams the command's output live as log chunks via
   `/api/logs`. The terminal status is `nochange` when terraform's own summary
   line reads `0 added, 0 changed, 0 destroyed`; the `--on-success <status>` flag
   (e.g. `--on-success safe`) sets the status for any other success. A
-  transparent offline passthrough (`run step` is a no-op when
+  transparent offline passthrough (`run wrap` is a no-op when
   `TFSTACKPLAN_SERVER` is unset), so local `terramate script run` is unaffected.
   The motivation: terramate's parallel `script run` aborts on the first failing
   stack and never advances to a *later* command in the same job — so a closing
   `run tick --status safe` in a separate command is silently skipped for any
   stack that fails before it. Putting the terminal tick inside the same command
-  (`run step --on-success safe -- terraform apply …`) removes that gap. See
+  (`run wrap --on-success safe -- terraform apply …`) removes that gap. See
   `docs/guide/09-ci-integration.md` for the canonical script form. The companion
-  migration of the infra `scripts.tm.hcl` to `run step` is a separate PR in the
+  migration of the infra `scripts.tm.hcl` to `run wrap` is a separate PR in the
   infra repo.
 - **`nochange` and `aborted` terminal statuses** — two new `events.Status` values
   extend the per-stack vocabulary. `nochange` means the stack applied
   successfully with zero resource changes (terraform reported `0 added, 0
-  changed, 0 destroyed`), set by `run step` from terraform's own output.
+  changed, 0 destroyed`), set by `run wrap` from terraform's own output.
   `aborted` means the run failed elsewhere and this stack never reached a
   terminal tick — set server-side by the finalize sweep on `Finalize{Failed:
   true}` for any still-pending or still-running stack. `aborted` stacks are
@@ -719,16 +723,16 @@ the budget entirely.
   that file (e.g. `terraform plan ... 2>&1 | tee tfstackplan.log`). This
   indirection exists because terramate's parallel `script run` interleaves every
   stack's output on one stream, which cannot be demuxed per stack. For apply
-  steps wrapped in `run step`, the pump is superseded — `run step` streams
+  steps wrapped in `run wrap`, the pump is superseded — `run wrap` streams
   terraform's output directly via `/api/logs` without a file intermediary.
-- **PTY mode is Unix-only and merges stdout+stderr.** `run step --tty` opens a
+- **PTY mode is Unix-only and merges stdout+stderr.** `run wrap --tty` opens a
   PTY via `github.com/creack/pty`, which is only supported on Unix. On Windows
   (or if PTY allocation fails for any reason) it falls back gracefully to the
   normal pipe path: logs one line, command still runs, exit code preserved.
   stderr is merged into the single PTY stream (no separate stderr channel).
 - **ANSI colour in the viewer requires the consumer to opt in.** The viewer
   parses ANSI SGR codes in stored logs automatically, but terraform only emits
-  colour when it detects a TTY — so `run step --tty` (and dropping `-no-color`
+  colour when it detects a TTY — so `run wrap --tty` (and dropping `-no-color`
   from the terraform flags) is required to get colour. Plans and CLI outputs
   that do not use `--tty` continue to render as plain text.
 - **Viewer ANSI rendering: DOM glue is manually verified; the pure parser is
@@ -737,11 +741,15 @@ the budget entirely.
   to the log pane is verified manually. Non-SGR escape codes (e.g. OSC, 256-
   colour sequences) are stripped or passed through unchanged; they are out of
   scope for the viewer.
+- **`run step` is a deprecated alias for `run wrap`, kept intentionally.** It
+  still works (same flags, same behaviour, plus a stderr deprecation warning)
+  and is retained until the infra terramate scripts move to `run wrap`;
+  removing it is a follow-up, not a regression.
 - **Stacks not reached when a parallel apply aborts are marked `aborted`, not
   `failed`.** On `Finalize{Failed: true}`, the server marks any still-pending or
   still-running stack `aborted` — reflecting that these stacks were never
   attempted rather than that they errored. A stack that did run and fail emits a
-  `failed` tick (via `run step`). The apply check-run conclusion is derived from
+  `failed` tick (via `run wrap`). The apply check-run conclusion is derived from
   `Finalize{Failed}`, not from counting per-stack failures. A stack SIGKILLed
   mid-apply emits no terminal tick and is correctly marked `aborted` by the
   finalize sweep. Failed-stack check-run detail comes from the captured log (the
@@ -1020,7 +1028,7 @@ Grow the matcher set with a row + a test case, never a heuristic DSL. The
 deeper "grant expired at HH:MM" correlation (needs grant timestamps) is
 intentionally out of scope.
 
-**Colored live logs.** `run step --tty` runs the wrapped terraform command under
+**Colored live logs.** `run wrap --tty` runs the wrapped terraform command under
 a PTY (`github.com/creack/pty`) so terraform emits ANSI colour — terraform
 suppresses colour when its stdout is a pipe, so a PTY is required. If PTY
 allocation fails (Unix-only; any OS-level error) the flag is silently ignored and
@@ -1028,14 +1036,14 @@ the command runs via the normal pipe path (logs one line, exit code preserved).
 PTY mode merges stdout and stderr into a single stream. The streamed log is stored
 **raw ANSI** so the viewer can render colours without re-encoding. At the two
 surfaces that cannot render ANSI — the outcome-classification regex
-(`classifyStep`) and the failed-tick detail, and the GitHub check-run
+(`classifyOutcome`) and the failed-tick detail, and the GitHub check-run
 `errorTail` — `internal/ansi.Strip` removes SGR codes before the text is
 consumed. The viewer's ANSI/CR parser was extracted to a served, unit-tested
 `internal/server/assets/term.js` (at `/assets/term.js`); it gained carriage-return
 (`\r`) handling so terraform progress spinners (`Still creating… [10s]`) animate
 and collapse to their final frame rather than printing every update as a new line.
 A node test (`web/term.test.cjs`) covers the pure parser. Consumer wiring — adding
-`--tty` to the `run step` commands AND dropping `-no-color` from the terraform
+`--tty` to the `run wrap` commands AND dropping `-no-color` from the terraform
 flags — lands in a companion PR in the infra repo.
 
 **serve memory footprint — heap-spike reduction.** `tfstackplan serve` was
@@ -1596,7 +1604,7 @@ import/removed; SP3 adds the faithful `terraform state mv` executor.** Verbs:
     — planned as creates on the destination stack.
   - Same-stack moves (shim `moved.To`) — defensive inclusion.
   Addresses within each stack are sorted and de-duped; stacks with an empty set
-  are omitted. The JSON shape is exactly what `statemoves.Load` (used by
+  are omitted. The JSON shape is exactly what `moveset.Load` (used by
   `render/classify --state-moves`) consumes, so feeding this file to the
   classifier neutralizes the spurious IAM gate that fires on the source stack's
   planned destroys. CI wiring: `state moves-manifest --dir . -o moves.json` →
@@ -1693,7 +1701,7 @@ ruleset chooses which to enforce:
 
 **Claim lifecycle and auto-heal.** Claims are associated to the apply execution
 at `Init` time and kept alive by a **heartbeat lease** — each apply tick from
-`run step` renews the claim's expiry. The claim is released **when the apply
+`run wrap` renews the claim's expiry. The claim is released **when the apply
 truly ends**, not on a `Finalize`: `run apply` emits a mid-run `Finalize` during
 its classify pass (re-classify + re-request grants, *before* the cross-state
 move pre-phase and the terramate apply), so releasing on `Finalize` dropped the
@@ -1743,7 +1751,7 @@ bypass directly via the GitHub Checks API, skipping the predicate entirely.
   for a solo-entry merge queue (the default) but breaks if multiple PRs are
   batched into one merge-queue entry.
 - **The lease window must exceed the apply heartbeat gap.** If the claim's TTL
-  is shorter than the interval between `run step` ticks, the `ClaimsSweepLoop`
+  is shorter than the interval between `run wrap` ticks, the `ClaimsSweepLoop`
   can mistakenly release a live apply's claim and unblock a racing PR. The
   configured TTL should be at least 2× the longest expected tick gap.
 - **The overlap predicate uses plan-time stacks.** The claimed set is populated

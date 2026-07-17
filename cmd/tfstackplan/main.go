@@ -18,11 +18,11 @@ import (
 	"github.com/Fluent-Health/terraform-stack-plan/internal/fit"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/links"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/model"
+	"github.com/Fluent-Health/terraform-stack-plan/internal/moveset"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/plan"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/plandir"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/render"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/source"
-	"github.com/Fluent-Health/terraform-stack-plan/internal/statemoves"
 )
 
 const defaultMaxBytes = 60000
@@ -148,7 +148,7 @@ func run(o opts) (report, reportNoTable string, stackReports map[string]string, 
 	if rerr != nil {
 		return "", "", nil, false, rerr
 	}
-	moves, merr := statemoves.Load(o.stateMoves)
+	moves, merr := moveset.Load(o.stateMoves)
 	if merr != nil {
 		return "", "", nil, false, merr
 	}

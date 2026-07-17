@@ -1,8 +1,8 @@
-// Package statemoves loads the optional --state-moves manifest: per stack, the
+// Package moveset loads the optional --state-moves manifest: per stack, the
 // addresses being moved IN by an external cross-state move (infra's state-mover).
 // A planned create of such an address is a relocation, not a real create, so
 // classification treats it as non-mutating.
-package statemoves
+package moveset
 
 import (
 	"encoding/json"

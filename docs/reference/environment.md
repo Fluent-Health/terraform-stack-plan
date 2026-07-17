@@ -12,7 +12,7 @@ Cross-references: [CLI reference](cli.md) ·
 ## `run` — CI driver variables
 
 These variables are read by every `run` subcommand (`plan`, `apply`, `verify`,
-`register`, `tick`, `step`, `phase`). They are normally set once in the CI job
+`register`, `tick`, `wrap`, `phase`). They are normally set once in the CI job
 environment so the orchestrator and each per-stack invocation share the same
 context without threading flags through terramate scripts.
 
@@ -20,20 +20,20 @@ The authoritative constant names live in `internal/runner/env.go`.
 
 | Variable | Required | Default | Meaning |
 |---|---|---|---|
-| `TFSTACKPLAN_SERVER` | No | `""` | Control-plane base URL. **Empty or unset = fully offline**: `run tick`/`run step` are no-ops; the apply gate check passes unconditionally; no HTTP posts are made. |
+| `TFSTACKPLAN_SERVER` | No | `""` | Control-plane base URL. **Empty or unset = fully offline**: `run tick`/`run wrap` are no-ops; the apply gate check passes unconditionally; no HTTP posts are made. |
 | `TFSTACKPLAN_AUDIENCE` | No | `""` | Setting this **opts in** to Google OIDC auth: the client authenticates with ID tokens for this audience (normally the serve URL, matching `api_auth { audience }`) minted from Application Default Credentials — GCE/GKE service accounts natively; **Cloud Build** via the IAM Credentials `generateIdToken` API (its metadata server lacks the identity endpoint), which requires the build SA to hold `roles/iam.serviceAccountOpenIdTokenCreator` on itself; humans via `gcloud auth application-default login`. Unset (and no token) = requests go unauthenticated, exactly as before: no ambient credentials are probed and nothing is sent to the server URL beyond the request itself. If set but ADC is unavailable, a warning is printed and requests degrade to unauthenticated (the fail-closed gate check then errors). |
 | `TFSTACKPLAN_EXECUTION` | No | auto-generated | Execution id that correlates all events for one plan or apply run. `run plan` and `run apply` generate a random id when unset; set it explicitly (e.g. `TFSTACKPLAN_EXECUTION=$BUILD_ID`) to make phase events emitted before those commands share the same id and appear in the same check run. |
 | `TFSTACKPLAN_ENVIRONMENT` | No | `""` | Deployment environment this run targets (e.g. `staging`, `prod`). Determines the check-run name (`plan/<env>`, or the consolidated `terraform/<env>` on an armed serve-as-driver tier) and the approval gate scope. |
 | `TFSTACKPLAN_REPO` | No | `""` | Repository in `owner/name` form. Used to build the GitHub check run and commit status. |
 | `TFSTACKPLAN_SHA` | No | `""` | Head commit SHA. Used for GitHub commit status and to anchor links in the report. |
 | `TFSTACKPLAN_PR` | No | `""` | Pull-request number (integer). Used to correlate approval grants and to key state-move shim files. Read as a string; `state move` falls back to the git branch name when unset. |
-| `TFSTACKPLAN_STACK` | No | `""` | Current stack path. Fallback for `run tick --stack` and `run step --stack` when the flag is omitted. Set by the `run plan`/`run apply` orchestrator for each per-stack invocation. |
+| `TFSTACKPLAN_STACK` | No | `""` | Current stack path. Fallback for `run tick --stack` and `run wrap --stack` when the flag is omitted. Set by the `run plan`/`run apply` orchestrator for each per-stack invocation. |
 
 ### Offline behaviour
 
 When `TFSTACKPLAN_SERVER` is empty:
 
-- `run tick` and `run step` are silent no-ops (exit 0).
+- `run tick` and `run wrap` are silent no-ops (exit 0).
 - `run plan` renders and prints the Markdown report to stdout; no check run is
   posted.
 - `run apply`'s gate pre-check passes — nothing gates, apply runs immediately.
