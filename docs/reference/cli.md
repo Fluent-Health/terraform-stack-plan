@@ -1,6 +1,6 @@
 # CLI reference
 
-`tfstackplan` — one binary, four subcommand groups.
+`tfstackplan` — one binary, nine top-level commands.
 
 ```
 tfstackplan <subcommand> [flags]
@@ -322,8 +322,8 @@ tfstackplan ui [flags]
 
 | Flag | Type | Default | Meaning |
 |---|---|---|---|
-| `--config` | string | `.tfstackplan.hcl` | HCL config file. Must contain a `ui {}` block. |
-| `--addr` | string | `:8081` | Listen address. |
+| `--config` | string | `".tfstackplan.hcl"` | HCL config file. Must contain a `ui {}` block. |
+| `--addr` | string | `":8081"` | Listen address. |
 
 ---
 
@@ -598,9 +598,11 @@ tfstackplan admin checks override --pr N --env ENV --check CHECK --conclusion CO
 
 ## `catalog`
 
-Emits the terramate stack catalog/DAG as JSON: every stack, its path, and its
-dependency edges. Used to build the group/DAG visualizations and by tooling
-that needs the stack graph without running a plan.
+Emits the terramate stack catalog/DAG as JSON: stacks grouped into components
+(each component contains a list of stacks and watch expressions), plus edges
+linking components (`"watch"` or `"dependency"` kind). Used to build the
+group/DAG visualizations and by tooling that needs the stack graph without
+running a plan.
 
 ```
 tfstackplan catalog [flags]
