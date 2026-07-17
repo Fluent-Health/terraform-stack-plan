@@ -1045,7 +1045,7 @@ the command runs via the normal pipe path (logs one line, exit code preserved).
 PTY mode merges stdout and stderr into a single stream. The streamed log is stored
 **raw ANSI** so the viewer can render colours without re-encoding. At the two
 surfaces that cannot render ANSI — the outcome-classification regex
-(`classifyStep`) and the failed-tick detail, and the GitHub check-run
+(`classifyOutcome`) and the failed-tick detail, and the GitHub check-run
 `errorTail` — `internal/ansi.Strip` removes SGR codes before the text is
 consumed. The viewer's ANSI/CR parser was extracted to a served, unit-tested
 `internal/server/assets/term.js` (at `/assets/term.js`); it gained carriage-return
