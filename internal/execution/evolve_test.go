@@ -156,3 +156,66 @@ func TestEvolveStacksAnnotated(t *testing.T) {
 }
 
 func idOrEmpty() string { return "e9" }
+
+// TestEvolveStartedIsNonRegressive captures the register→plan invariant: a repeat
+// Init (same execution id, e.g. `run register` followed by `run plan`) must not
+// regress an already-advanced stack's runner-told progress back to pending —
+// mirrors the old store.UpsertInit, whose stack upsert only ever refreshed
+// `project` on conflict.
+func TestEvolveStartedIsNonRegressive(t *testing.T) {
+	var s State
+	s = Evolve(s, Started{Exec: State{ID: "e1", Stacks: []Stack{
+		{Path: "a", RunStatus: events.StatusPending},
+		{Path: "b", RunStatus: events.StatusPending},
+		{Path: "c", RunStatus: events.StatusPending},
+	}}})
+	s = Evolve(s, StackStatusChanged{Stack: "a", Status: events.StatusInitialized})
+
+	// Second Init omits "c" (absent from the reported subgraph) and refreshes
+	// project on "a"; all three stacks are reported pending again.
+	got := Evolve(s, Started{Exec: State{ID: "e1", Stacks: []Stack{
+		{Path: "a", Project: "proj-a", RunStatus: events.StatusPending},
+		{Path: "b", RunStatus: events.StatusPending},
+	}}})
+
+	byPath := make(map[string]Stack, len(got.Stacks))
+	for _, st := range got.Stacks {
+		byPath[st.Path] = st
+	}
+
+	a, ok := byPath["a"]
+	if !ok {
+		t.Fatalf("stack a missing: %#v", got.Stacks)
+	}
+	if a.RunStatus != events.StatusInitialized {
+		t.Fatalf("stack a regressed: want %q, got %q", events.StatusInitialized, a.RunStatus)
+	}
+	if a.Project != "proj-a" {
+		t.Fatalf("stack a project not refreshed from 2nd Init: got %q", a.Project)
+	}
+
+	b, ok := byPath["b"]
+	if !ok {
+		t.Fatalf("stack b missing: %#v", got.Stacks)
+	}
+	if b.RunStatus != events.StatusPending {
+		t.Fatalf("stack b should stay pending, got %q", b.RunStatus)
+	}
+
+	c, ok := byPath["c"]
+	if !ok {
+		t.Fatalf("prior-only stack c dropped, want carried forward: %#v", got.Stacks)
+	}
+	if c.RunStatus != events.StatusPending {
+		t.Fatalf("carried-forward stack c status changed unexpectedly: got %q", c.RunStatus)
+	}
+
+	// Deterministic ordering: Init stacks first (a, b), then carried-forward
+	// prior-only stacks (c).
+	wantOrder := []string{"a", "b", "c"}
+	for i, path := range wantOrder {
+		if got.Stacks[i].Path != path {
+			t.Fatalf("stack order[%d] = %q, want %q (full: %#v)", i, got.Stacks[i].Path, path, got.Stacks)
+		}
+	}
+}

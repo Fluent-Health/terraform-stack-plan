@@ -8,9 +8,40 @@ import "github.com/Fluent-Health/terraform-stack-plan/internal/events"
 func Evolve(s State, e Event) State {
 	switch ev := e.(type) {
 	case Started:
-		// A fresh Init replaces the whole execution state (a re-init with the same
-		// id restarts the fold from the reported subgraph).
-		return ev.Exec
+		// A fresh Init replaces the whole execution state (identity/repo/sha/phase/
+		// status/edges come from the new Init) EXCEPT per-stack runner progress,
+		// which must be non-regressive — mirrors the old store.UpsertInit's stack
+		// upsert (`ON CONFLICT(execution_id, stack_path) DO UPDATE SET
+		// project=excluded.project`, i.e. only project is refreshed; status/detail/
+		// categories/counts are set only on first insert). This preserves an
+		// already-advanced stack (e.g. via `run register` → initializing/
+		// initialized) across the later Init from `run plan`.
+		prior := make(map[string]Stack, len(s.Stacks))
+		for _, st := range s.Stacks {
+			prior[st.Path] = st
+		}
+		next := ev.Exec
+		seen := make(map[string]bool, len(next.Stacks))
+		for i := range next.Stacks {
+			st := &next.Stacks[i]
+			seen[st.Path] = true
+			if old, ok := prior[st.Path]; ok {
+				project := old.Project
+				if st.Project != "" {
+					project = st.Project
+				}
+				*st = old
+				st.Project = project
+			}
+		}
+		// Carry forward prior stacks absent from the new Init (the old projection
+		// never deleted stacks), preserving their prior relative order.
+		for _, st := range s.Stacks {
+			if !seen[st.Path] {
+				next.Stacks = append(next.Stacks, st)
+			}
+		}
+		return next
 
 	case PhaseChanged:
 		s.Phase = ev.Phase
