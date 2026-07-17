@@ -16,6 +16,8 @@ func Decide(s State, sig Signal) []Event {
 		return []Event{StackStatusChanged{Stack: v.Stack, Status: v.Status, Detail: v.Detail}}
 	case ReportFail:
 		return []Event{Failed{}}
+	case ReportSucceed:
+		return []Event{Succeeded{}}
 	default:
 		return nil
 	}

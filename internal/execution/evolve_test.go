@@ -71,6 +71,7 @@ func TestEvolveFoldSequence(t *testing.T) {
 	want := State{
 		ID:     "e1",
 		Phase:  events.PhaseApplying,
+		Status: "failure",
 		Stacks: []Stack{{Path: "a", RunStatus: events.StatusAborted}},
 	}
 	if !reflect.DeepEqual(s, want) {
@@ -110,6 +111,23 @@ func TestEvolvePhaseChangedSetsIdentityNonRegressively(t *testing.T) {
 	got2 := Evolve(got, PhaseChanged{Phase: events.PhaseApplying})
 	if got2.PR != 9 || got2.Environment != "prod" || got2.Repo != "r" {
 		t.Fatalf("identity regressed: %#v", got2)
+	}
+}
+
+func TestEvolveFailedSetsRunStatus(t *testing.T) {
+	got := Evolve(State{Status: "in_progress", Stacks: []Stack{{Path: "a", RunStatus: events.StatusRunning}}}, Failed{})
+	if got.Status != "failure" {
+		t.Fatalf("run status = %q, want failure", got.Status)
+	}
+	if got.Stacks[0].RunStatus != events.StatusAborted {
+		t.Fatalf("stack not aborted: %q", got.Stacks[0].RunStatus)
+	}
+}
+
+func TestEvolveSucceededSetsRunStatus(t *testing.T) {
+	got := Evolve(State{Status: "in_progress"}, Succeeded{})
+	if got.Status != "success" {
+		t.Fatalf("run status = %q, want success", got.Status)
 	}
 }
 

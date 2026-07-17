@@ -77,10 +77,14 @@ type ReportTick struct {
 // ReportFail marks the run terminally failed (fails-open innocent stacks in Evolve).
 type ReportFail struct{}
 
-func (ReportInit) isSignal()  {}
-func (ReportPhase) isSignal() {}
-func (ReportTick) isSignal()  {}
-func (ReportFail) isSignal()  {}
+// ReportSucceed marks the run terminally succeeded.
+type ReportSucceed struct{}
+
+func (ReportInit) isSignal()    {}
+func (ReportPhase) isSignal()   {}
+func (ReportTick) isSignal()    {}
+func (ReportFail) isSignal()    {}
+func (ReportSucceed) isSignal() {}
 
 // --- Event sum type (past-tense domain facts) ---
 
@@ -106,8 +110,10 @@ type StackStatusChanged struct {
 	Detail string
 }
 type Failed struct{}
+type Succeeded struct{}
 
 func (Started) isEvent()            {}
 func (PhaseChanged) isEvent()       {}
 func (StackStatusChanged) isEvent() {}
 func (Failed) isEvent()             {}
+func (Succeeded) isEvent()          {}

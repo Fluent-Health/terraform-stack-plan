@@ -41,3 +41,13 @@ func TestDecideReportFailEmitsFailed(t *testing.T) {
 		t.Fatalf("want Failed, got %T", got[0])
 	}
 }
+
+func TestDecideReportSucceedEmitsSucceeded(t *testing.T) {
+	got := Decide(State{}, ReportSucceed{})
+	if len(got) != 1 {
+		t.Fatalf("want 1 event, got %d", len(got))
+	}
+	if _, ok := got[0].(Succeeded); !ok {
+		t.Fatalf("want Succeeded, got %T", got[0])
+	}
+}

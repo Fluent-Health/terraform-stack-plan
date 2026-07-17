@@ -17,6 +17,7 @@ func allEventVariants() []Event {
 		PhaseChanged{Phase: events.PhaseApplying, Label: "applying", Pct: intptr(50), ID: "e1", PR: 7, Environment: "nonprod", Context: "terraform/nonprod", Repo: "r", SHA: "abc"},
 		StackStatusChanged{Stack: "a", Status: events.StatusFailed, Detail: "boom"},
 		Failed{},
+		Succeeded{},
 	}
 }
 

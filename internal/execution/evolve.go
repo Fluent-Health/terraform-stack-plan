@@ -51,6 +51,7 @@ func Evolve(s State, e Event) State {
 		return s
 
 	case Failed:
+		s.Status = "failure"
 		// A stack still mid-run at a failed finalize did not itself fail — terramate
 		// aborted it (e.g. a parallel sibling 403'd). Mark it `aborted`, not `failed`,
 		// so innocent / no-change stacks are not mislabeled (matches live handleFinalize).
@@ -62,6 +63,10 @@ func Evolve(s State, e Event) State {
 				s.Stacks[i].RunStatus = events.StatusAborted
 			}
 		}
+		return s
+
+	case Succeeded:
+		s.Status = "success"
 		return s
 
 	default:
