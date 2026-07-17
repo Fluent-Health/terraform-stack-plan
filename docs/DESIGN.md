@@ -106,7 +106,7 @@ internal/render/     — Model' → markdown
   wire/persistence layers are codecs of it rather than parallel re-modellings.
   This is the first step of the event-sourced target architecture;
   `Status` and the rest follow in later phases.
-- `config` + `presets` resolve into a single ordered `[]classify.Rule`.
+- `config` (including built-in preset expansion via `classify.PresetRule`) resolves into a single ordered `[]classify.Rule`.
   `classify` consumes that list and a parsed plan and returns `[]Category` (the
   set of all matching categories, in declaration order) — it neither knows nor
   cares whether a rule came from a preset or a custom block. `Summarize` produces
