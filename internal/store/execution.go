@@ -30,6 +30,116 @@ type Execution struct {
 	ChangeReasons  string `json:"-"`
 }
 
+// ProjectedExecution is the execution-aggregate-owned projection of an
+// executions row, written by the (forthcoming) event-sourced projector.
+type ProjectedExecution struct {
+	ID            string
+	Repo          string
+	SHA           string
+	PR            int
+	Environment   string
+	Context       string
+	LogURL        string
+	Phase         string
+	Status        string
+	ProgressLabel string
+	ProgressPct   *int
+}
+
+// ProjectedStack is the execution-aggregate-owned projection of a stacks row.
+type ProjectedStack struct {
+	Path       string
+	Project    string
+	Status     events.Status
+	Detail     string
+	Categories []events.Category
+	Counts     *events.Counts
+}
+
+// ProjectExecutionRow UPSERTs the execution-aggregate-owned columns of an
+// executions row, preserving non-owned columns (report_markdown, change_reasons,
+// superseded_by, check_run_id, created_at, rev) on conflict.
+func ProjectExecutionRow(tx *sql.Tx, e ProjectedExecution) error {
+	var label sql.NullString
+	if e.ProgressLabel != "" {
+		label = sql.NullString{Valid: true, String: e.ProgressLabel}
+	}
+	var pct sql.NullInt64
+	if e.ProgressPct != nil {
+		pct = sql.NullInt64{Valid: true, Int64: int64(*e.ProgressPct)}
+	}
+	_, err := tx.Exec(
+		`INSERT INTO executions (id, repo, sha, pr, environment, status_context, log_url, phase, status, progress_label, progress_pct)
+		 VALUES (?,?,?,?,?,?,?,?,?,?,?)
+		 ON CONFLICT(id) DO UPDATE SET
+		   repo=CASE WHEN excluded.repo='' THEN executions.repo ELSE excluded.repo END,
+		   sha=CASE WHEN excluded.sha='' THEN executions.sha ELSE excluded.sha END,
+		   pr=CASE WHEN excluded.pr=0 THEN executions.pr ELSE excluded.pr END,
+		   environment=CASE WHEN excluded.environment='' THEN executions.environment ELSE excluded.environment END,
+		   status_context=CASE WHEN excluded.status_context='' THEN executions.status_context ELSE excluded.status_context END,
+		   log_url=CASE WHEN excluded.log_url='' THEN executions.log_url ELSE excluded.log_url END,
+		   phase=CASE WHEN excluded.phase='' THEN executions.phase ELSE excluded.phase END,
+		   status=CASE WHEN excluded.status='' THEN executions.status ELSE excluded.status END,
+		   progress_label=CASE WHEN excluded.progress_label IS NULL THEN executions.progress_label ELSE excluded.progress_label END,
+		   progress_pct=CASE WHEN excluded.progress_pct IS NULL THEN executions.progress_pct ELSE excluded.progress_pct END`,
+		e.ID, e.Repo, e.SHA, e.PR, e.Environment, e.Context, e.LogURL, e.Phase, e.Status, label, pct)
+	return err
+}
+
+// ProjectStack UPSERTs the execution-aggregate-owned columns of a stacks row.
+func ProjectStack(tx *sql.Tx, execID string, s ProjectedStack) error {
+	var cats string
+	if len(s.Categories) > 0 {
+		b, err := json.Marshal(s.Categories)
+		if err != nil {
+			return err
+		}
+		cats = string(b)
+	}
+	var counts string
+	if s.Counts != nil {
+		b, err := json.Marshal(s.Counts)
+		if err != nil {
+			return err
+		}
+		counts = string(b)
+	}
+	_, err := tx.Exec(
+		`INSERT INTO stacks (execution_id, stack_path, project, status, detail, categories, counts)
+		 VALUES (?,?,?,?,?,?,?)
+		 ON CONFLICT(execution_id, stack_path) DO UPDATE SET
+		   project=CASE WHEN excluded.project='' THEN stacks.project ELSE excluded.project END,
+		   status=excluded.status, detail=excluded.detail,
+		   categories=CASE WHEN excluded.categories='' THEN stacks.categories ELSE excluded.categories END,
+		   counts=CASE WHEN excluded.counts='' THEN stacks.counts ELSE excluded.counts END`,
+		execID, s.Path, s.Project, string(s.Status), s.Detail, cats, counts)
+	return err
+}
+
+// ProjectEdge inserts a dependency edge, ignoring duplicates.
+func ProjectEdge(tx *sql.Tx, execID, from, to string) error {
+	_, err := tx.Exec(
+		`INSERT OR IGNORE INTO edges (execution_id, from_stack, to_stack) VALUES (?,?,?)`,
+		execID, from, to)
+	return err
+}
+
+// AppendPhaseHistory appends an immutable execution_phases row (lifecycle read model).
+func AppendPhaseHistory(tx *sql.Tx, execID, phase, label string, pct *int) error {
+	var l sql.NullString
+	if label != "" {
+		l = sql.NullString{Valid: true, String: label}
+	}
+	var p sql.NullInt64
+	if pct != nil {
+		p = sql.NullInt64{Valid: true, Int64: int64(*pct)}
+	}
+	_, err := tx.Exec(
+		`INSERT INTO execution_phases (execution_id, phase, label, progress_pct) VALUES (?,?,?,?)`,
+		execID, phase, l, p)
+	return err
+}
+
 // UpsertInit records an execution and its changed subgraph from an Init event.
 // Re-init with the same id is upsert-safe. The phase column is intentionally
 // left untouched: the lifecycle phase is owned by UpsertPhase, which may run

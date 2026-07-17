@@ -532,3 +532,92 @@ func TestFindExecutionBySHA(t *testing.T) {
 		t.Fatalf("miss = (%q,%v,%v)", id, ok, err)
 	}
 }
+
+func TestProjectExecutionRowOwnedColumnsOnly(t *testing.T) {
+	db := newTestDB(t)
+	tx, _ := db.Begin()
+	// Seed a row with a non-owned column set (report_markdown). repo/sha are
+	// NOT NULL in the schema, so the seed must supply placeholder values for
+	// them (they're owned columns and get overwritten by the projection below).
+	_, err := tx.Exec(`INSERT INTO executions (id, repo, sha, status, report_markdown) VALUES ('e1','seed-repo','seed-sha','in_progress','REPORT')`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ProjectExecutionRow(tx, ProjectedExecution{
+		ID: "e1", Repo: "r", SHA: "abc", PR: 7, Environment: "nonprod",
+		Context: "terraform/nonprod", Phase: "applying", Status: "success",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	tx.Commit()
+	e, err := GetExecution(db, "e1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e.Repo != "r" || e.PR != 7 || e.Status != "success" || e.Phase != "applying" {
+		t.Fatalf("owned columns not written: %#v", e)
+	}
+	if e.ReportMarkdown != "REPORT" {
+		t.Fatalf("non-owned report_markdown clobbered: %q", e.ReportMarkdown)
+	}
+}
+
+func TestProjectStackEdgeAndPhaseHistoryRoundTrip(t *testing.T) {
+	db := newTestDB(t)
+	tx, err := db.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(`INSERT INTO executions (id, repo, sha) VALUES ('e1','r','sha1')`); err != nil {
+		t.Fatal(err)
+	}
+	counts := &events.Counts{Add: 3, Change: 1}
+	if err := ProjectStack(tx, "e1", ProjectedStack{
+		Path: "stacks/a", Project: "proj-a", Status: events.StatusRunning,
+		Detail: "running now", Categories: []events.Category{{Name: "iam"}}, Counts: counts,
+	}); err != nil {
+		t.Fatalf("ProjectStack: %v", err)
+	}
+	if err := ProjectStack(tx, "e1", ProjectedStack{Path: "stacks/b", Project: "proj-b", Status: events.StatusPending}); err != nil {
+		t.Fatalf("ProjectStack: %v", err)
+	}
+	if err := ProjectEdge(tx, "e1", "stacks/a", "stacks/b"); err != nil {
+		t.Fatalf("ProjectEdge: %v", err)
+	}
+	// Duplicate edge insert must be ignored, not error.
+	if err := ProjectEdge(tx, "e1", "stacks/a", "stacks/b"); err != nil {
+		t.Fatalf("ProjectEdge dup: %v", err)
+	}
+	pct := 50
+	if err := AppendPhaseHistory(tx, "e1", "applying", "applying stacks...", &pct); err != nil {
+		t.Fatalf("AppendPhaseHistory: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+
+	g, err := LoadGraph(db, "e1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(g.Stacks) != 2 || len(g.Edges) != 1 {
+		t.Fatalf("graph = %d stacks, %d edges; want 2,1", len(g.Stacks), len(g.Edges))
+	}
+	if g.Stacks[0].Status != events.StatusRunning || g.Stacks[0].Detail != "running now" {
+		t.Errorf("stack a = %+v", g.Stacks[0])
+	}
+	if g.Stacks[0].Counts == nil || g.Stacks[0].Counts.Add != 3 {
+		t.Errorf("stack a counts = %+v", g.Stacks[0].Counts)
+	}
+	if len(g.Stacks[0].Categories) != 1 || g.Stacks[0].Categories[0].Name != "iam" {
+		t.Errorf("stack a categories = %+v", g.Stacks[0].Categories)
+	}
+
+	rows, err := PhasesFor(db, "e1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].Phase != "applying" || rows[0].Label != "applying stacks..." {
+		t.Errorf("phase history = %+v", rows)
+	}
+}
