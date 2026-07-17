@@ -134,3 +134,68 @@ func TestInboundRebuildRecoversStuckCheck(t *testing.T) {
 		t.Fatalf("adopted execution not superseded by the runner: %+v", adopted)
 	}
 }
+
+// TestInboundRebuildRecoversStuckCheckReusedID reproduces issue 198:
+// a manual retry reuses the original execution ID (oldID).
+func TestInboundRebuildRecoversStuckCheckReusedID(t *testing.T) {
+	a, _, srv := newRunTriggerApp(t)
+	a.PushVerifier = func(context.Context, string) (string, error) { return "cb-push@sa", nil }
+	a.cfg.BuildTriggerNames = map[string]string{"nonprod-plan": "plan"}
+	ctx := context.Background()
+	repo, sha := "o/r", "feedfacefeed00"
+
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	must(a.shell.Handle(ctx, 44, "nonprod", repo, reconcile.RunRequested{Kind: "plan", SHA: sha, Branch: "feat/x"}))
+	oldID, ok := store.LatestExecutionID(a.db, 44, "nonprod")
+	if !ok {
+		t.Fatal("no queued execution")
+	}
+	must(a.shell.Handle(ctx, 44, "nonprod", repo, reconcile.RunStartResult{
+		Kind: "plan", ExecutionID: oldID, Err: "build failed before the runner reported",
+	}))
+
+	// GCB push arrives for a new build of the same sha, creating adopted ID
+	resp := cloudBuildPush(t, srv, map[string]any{
+		"id": "build-rerun-ok", "status": "WORKING",
+		"substitutions": map[string]any{"TRIGGER_NAME": "nonprod-plan", "COMMIT_SHA": sha},
+	})
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("push = %d", resp.StatusCode)
+	}
+
+	old, err := store.GetExecution(a.db, oldID)
+	must(err)
+	if old.SupersededBy == "" {
+		t.Fatalf("stuck run not superseded: %+v", old)
+	}
+	adoptedID := old.SupersededBy
+
+	// The runner reports Init with the same oldID (reused execution ID!)
+	post(t, srv, "/api/init", events.Init{ID: oldID, Repo: repo, SHA: sha, PR: 0, Environment: "nonprod", Context: ""})
+
+	// Retrieve both executions
+	oldExec, err := store.GetExecution(a.db, oldID)
+	must(err)
+	adoptedExec, err := store.GetExecution(a.db, adoptedID)
+	must(err)
+
+	// Since oldID is the runner that actually ran, it should be restored:
+	// 1. Its status should be back to "in_progress" (not "failure")
+	if oldExec.Status != "in_progress" {
+		t.Errorf("old execution status = %q, want in_progress", oldExec.Status)
+	}
+	// 2. Its superseded_by should be cleared (not pointing to adoptedID anymore)
+	if oldExec.SupersededBy != "" {
+		t.Errorf("old execution superseded_by = %q, want empty", oldExec.SupersededBy)
+	}
+	// 3. The adopted (phantom) execution should be superseded by oldID (the active runner)
+	if adoptedExec.SupersededBy != oldID {
+		t.Errorf("adopted execution superseded_by = %q, want %q", adoptedExec.SupersededBy, oldID)
+	}
+}
