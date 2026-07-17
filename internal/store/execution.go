@@ -199,6 +199,23 @@ func UpsertInit(db *sql.DB, in events.Init) error {
 	})
 }
 
+// ReviveExecution resets a row's own supersession/status when it receives a
+// fresh Init: an execution ID that was previously marked superseded, failed, or
+// otherwise not "in_progress" is alive again — the runner reporting Init IS the
+// live run. Mirrors the reset the legacy UpsertInit performed atomically inside
+// its own INSERT ... ON CONFLICT clause; split out as its own statement because
+// the execution aggregate's ProjectExecutionRow deliberately never owns
+// superseded_by/created_at (see projectExecution's doc comment).
+func ReviveExecution(db *sql.DB, id string) error {
+	_, err := db.Exec(
+		`UPDATE executions SET
+		   status=CASE WHEN status != 'in_progress' OR COALESCE(superseded_by, '') != '' THEN 'in_progress' ELSE status END,
+		   superseded_by=CASE WHEN status != 'in_progress' OR COALESCE(superseded_by, '') != '' THEN '' ELSE superseded_by END,
+		   created_at=CASE WHEN status != 'in_progress' OR COALESCE(superseded_by, '') != '' THEN CURRENT_TIMESTAMP ELSE created_at END
+		 WHERE id = ?`, id)
+	return err
+}
+
 // UpsertPhase sets the execution's lifecycle phase, creating a bare row if Init
 // has not run yet. Identity fields are only overwritten when the event carries a
 // non-zero value, so a bare phase bump never clobbers data set by an earlier

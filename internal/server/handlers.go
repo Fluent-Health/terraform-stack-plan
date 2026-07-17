@@ -7,6 +7,7 @@ import (
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/catalog"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
+	"github.com/Fluent-Health/terraform-stack-plan/internal/execution"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/reconcile"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
@@ -89,7 +90,14 @@ func (a *App) handleInit(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	if err := store.UpsertInit(a.db, in); err != nil {
+	if err := a.shell.HandleExec(r.Context(), in.ID, execution.ReportInit{Exec: execInitFromEvents(in)}); err != nil {
+		http.Error(w, "store init", http.StatusInternalServerError)
+		return
+	}
+	// A fresh Init means this ID's runner is alive again — revive it if a prior
+	// attempt had marked it superseded/terminal (the aggregate's projection
+	// intentionally never touches superseded_by/created_at; see ReviveExecution).
+	if err := store.ReviveExecution(a.db, in.ID); err != nil {
 		http.Error(w, "store init", http.StatusInternalServerError)
 		return
 	}

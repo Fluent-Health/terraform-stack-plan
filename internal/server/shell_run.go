@@ -5,10 +5,40 @@ import (
 	"log"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
+	"github.com/Fluent-Health/terraform-stack-plan/internal/execution"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/executor"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/reconcile"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
+
+// execInitFromEvents maps the wire-level events.Init into the execution
+// aggregate's State, so both handleInit and materializeRun can drive
+// ReportInit through the same HandleExec path. Stack status defaults to
+// StatusPending when the caller omits it (mirrors the old UpsertInit).
+// Status is seeded "in_progress": the legacy UpsertInit got this for free from
+// the executions.status column DEFAULT (its INSERT never named the column);
+// ProjectExecutionRow's INSERT always names it, so Started must carry it
+// explicitly or a (re-)init would project status="" instead.
+func execInitFromEvents(in events.Init) execution.State {
+	st := execution.State{
+		ID: in.ID, Repo: in.Repo, SHA: in.SHA, PR: in.PR,
+		Environment: in.Environment, Context: in.Context, LogURL: in.LogURL,
+		Status: "in_progress",
+	}
+	for _, s := range in.Stacks {
+		status := s.Status
+		if status == "" {
+			status = events.StatusPending
+		}
+		st.Stacks = append(st.Stacks, execution.Stack{
+			Path: s.Path, Project: s.Project, RunStatus: status, Counts: s.Counts,
+		})
+	}
+	for _, e := range in.Edges {
+		st.Edges = append(st.Edges, execution.Edge{From: e.From, To: e.To})
+	}
+	return st
+}
 
 // runContext maps a run kind to the execution's status context: the plan gate
 // context for plan runs, the apply context for post-merge applies.
@@ -36,7 +66,12 @@ func (sh *Shell) materializeRun(ctx context.Context, cs reconcile.ChangeSet, rep
 		Environment: cs.Environment,
 		Context:     runContext(kind, cs.Environment),
 	}
-	if err := store.UpsertInit(sh.app.db, init); err != nil {
+	if err := sh.HandleExec(ctx, execID, execution.ReportInit{Exec: execInitFromEvents(init)}); err != nil {
+		return err
+	}
+	// See handleInit: revive self-supersession/terminal status on a fresh Init
+	// (the aggregate's projection never owns superseded_by/created_at).
+	if err := store.ReviveExecution(sh.app.db, execID); err != nil {
 		return err
 	}
 	name := sh.app.planCheckName(cs.Environment)
