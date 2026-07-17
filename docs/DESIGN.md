@@ -184,8 +184,8 @@ path = value` rows) or a foldable **block** carrying an ordered variant ladder
 A `diff {}` block sets defaults and can force a differ for a given
 `(resource_type, attribute)` when detection misfires. The same `.tfstackplan.hcl`
 also carries optional `links {}` (URL templates) and the control-plane blocks
-(`server {}`, `class "<name>" {}`, `serve {}`, `ui {}`, `cache {}`, `executor
-{}`) — all ignored by `render`. See
+(`server {}`, `class "<name>" {}`, `serve {}` — with its `executor "<backend>"
+{}` sub-block — `ui {}`, `cache {}`) — all ignored by `render`. See
 [`docs/reference/configuration.md`](reference/configuration.md).
 
 ### `fit` and the terminal cascade
@@ -529,9 +529,10 @@ distinct from the central UI's relay secret (§7).
 requirement, enforced by one `apiAuth` middleware. **The contract is
 cross-version** (serve/runner deploy independently, so a change is additive
 only), pinned by `internal/server/testdata/wire/` golden snapshots. SSE streams
-and the GitHub-webhook / Pub/Sub-push endpoints sit outside it; snake_case
-**read endpoints** were added on top: `GET /api/executions`, `/api/approvals`,
-`/api/merge-queue` (degrades to empty), and `/api/lifecycle?pr={n}`.
+and the GitHub-webhook / Pub/Sub-push endpoints sit outside it; **read
+endpoints with snake_case response bodies** were added on top: `GET
+/api/executions`, `/api/approvals`, `/api/merge-queue` (degrades to empty),
+and `/api/lifecycle?pr={n}`.
 
 ### Logs pipeline
 

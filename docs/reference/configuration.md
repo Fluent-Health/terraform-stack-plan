@@ -36,6 +36,7 @@ auto-discovery does not apply.
 | `progress {}` | `run`, `serve` | Ordered lifecycle phases for the progress bar |
 | `serve {}` | `serve` | Control-plane runtime configuration |
 | `ui {}` | `ui` | Central-aggregator runtime configuration |
+| `cache {}` | `run` | Provider plugin cache GCS fallback settings |
 
 ---
 
@@ -311,6 +312,27 @@ Phase names are arbitrary strings; they must match what `run phase` emits.
 
 ---
 
+## `cache {}` block
+
+GCS fallback settings for the provider plugin cache used by `run plan` and
+`run apply`. All fields are optional. Ignored by `render` and `serve`.
+
+```hcl
+cache {
+  bucket  = "example-tf-plugin-cache"
+  prefix  = "infra/tf-plugins"   # optional; default "infra/tf-plugins"
+  version = "1"                  # optional; default "0"
+}
+```
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `bucket` | string | `$TFSTACKPLAN_CACHE_BUCKET` | GCS bucket holding cached provider plugin archives |
+| `prefix` | string | `"infra/tf-plugins"` | Key prefix under the bucket for cached archives |
+| `version` | string | `$TFSTACKPLAN_CACHE_VERSION`, else `"0"` | Cache-busting namespace segment prepended to object keys; bump to invalidate the existing cache |
+
+---
+
 ## `serve {}` block
 
 Runtime configuration for `tfstackplan serve`. Ignored by `render` and `run`.
@@ -336,7 +358,6 @@ serve {
     ]
   }
 
-  group   { depth = 2 }
   objects { backend = "gcs", bucket = "tfstackplan-logs", prefix = "executions" }
   pubsub  { audience = "…/pubsub/push", service_account = "…@….gserviceaccount.com" }
 
@@ -387,8 +408,8 @@ available identity in `requester_pool`.
 ### `objects {}` sub-block
 
 GCS offload for completed-stack logs. When present, finalized per-stack logs
-are moved from `logs_dir` to the bucket; the viewer streams them back via a
-stored pointer without requiring cloud IAM for readers.
+are moved from `logs_dir` to the bucket; `serve` reads them back on request via
+a stored pointer, without requiring cloud IAM for readers.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
