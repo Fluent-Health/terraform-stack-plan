@@ -7,7 +7,7 @@ tfstackplan <subcommand> [flags]
 tfstackplan [flags]           # bare flags invoke render (backward-compat)
 ```
 
-Subcommands: `render`, `run`, `serve`, `state`, `claims`.
+Subcommands: `render`, `run`, `serve`, `ui`, `state`, `claims`, `admin`, `catalog`, `whoami`.
 
 See also: [`configuration.md`](configuration.md) for the `.tfstackplan.hcl`
 schema, [`environment.md`](environment.md) for `TFSTACKPLAN_*` env vars.
@@ -230,6 +230,59 @@ tfstackplan run register [flags]
 | `--changed` | bool | `false` | Only register changed stacks (passes `--changed` to terramate). |
 | `--base` | string | `""` | Git base ref for `--changed`. |
 
+### `run exec`
+
+Runs a single command with optional lifecycle-phase narration and fail-closed
+check-run finalization. A transparent passthrough when no server is
+configured (`TFSTACKPLAN_SERVER` unset). On a non-zero exit it finalizes the
+execution as failed (best-effort) before propagating the command's exit code.
+
+```
+tfstackplan run exec [flags] -- <command> [args...]
+```
+
+| Flag | Type | Default | Meaning |
+|---|---|---|---|
+| `--phase` | string | `""` | Lifecycle phase to tick before running (`warming`\|`linting`\|`initializing`\|`planning`\|`applying`\|`testing`\|`verifying`). |
+
+### `run status`
+
+Fetches and prints one execution's status from the server, optionally
+blocking to watch for real-time updates via the server's SSE events stream.
+Exits `1` if the execution's terminal status is `failure`.
+
+```
+tfstackplan run status [flags] <execution-id>
+```
+
+The execution ID may also be supplied via `$TFSTACKPLAN_EXECUTION`. The
+server URL is resolved from `--server`, else `$TFSTACKPLAN_SERVER`, else
+auto-discovered from the local `.tfstackplan.hcl`.
+
+| Flag | Type | Default | Meaning |
+|---|---|---|---|
+| `--server` | string | `""` | Server base URL. Defaults to `$TFSTACKPLAN_SERVER`, then auto-discovery from the local `.tfstackplan.hcl`. |
+| `--format` | string | `"text"` | Output format: `text` or `json`. |
+| `--watch` | bool | `false` | Block and watch for real-time status updates. |
+
+### `run claims`
+
+Alias under the `run` group for the top-level `claims` command — same
+subcommands (`list`, `release`) and flags. See [`claims`](#claims).
+
+```
+tfstackplan run claims <subcommand> [flags]
+```
+
+### `run whoami`
+
+Alias under the `run` group for the top-level `whoami` command — same
+flags. See [`whoami`](#whoami).
+
+```
+tfstackplan run whoami [flags]
+```
+
 ---
 
 ## `serve`
@@ -246,11 +299,31 @@ tfstackplan serve [flags]
 |---|---|---|---|
 | `--config` | string | `".tfstackplan.hcl"` | HCL config file. Must contain a `serve {}` block. |
 | `--addr` | string | `":8080"` | TCP listen address. |
+| `--demo` | bool | `false` | Boot in credential-free demo mode with seeded data (ephemeral SQLite in a temp dir). |
 
 All runtime configuration (GitHub App credentials, PAM entitlements, GCS log
 bucket, token secret, etc.) lives in the `serve {}` block of the HCL config.
 See [`configuration.md`](configuration.md) for the full schema and
 [`install-and-deploy.md`](install-and-deploy.md) for deployment guidance.
+
+---
+
+## `ui`
+
+The central aggregator face — a stateless single pane of glass over the tier
+serves. Reads its own `ui {}` block from the HCL config, resolves per-tier
+OIDC tokens, and (optionally) wires Google OAuth login and a GitHub webhook
+relay. The `ui {}` block is not yet covered in [`configuration.md`](configuration.md);
+see `internal/config`'s `UIConfig` in the meantime.
+
+```
+tfstackplan ui [flags]
+```
+
+| Flag | Type | Default | Meaning |
+|---|---|---|---|
+| `--config` | string | `.tfstackplan.hcl` | HCL config file. Must contain a `ui {}` block. |
+| `--addr` | string | `:8081` | Listen address. |
 
 ---
 
@@ -263,7 +336,7 @@ writes PR-keyed shim files; `run apply` picks them up and executes them.
 tfstackplan state <subcommand> [flags]
 ```
 
-Subcommands: `move`, `list`, `moves-manifest`, `apply`, `cleanup`.
+Subcommands: `move`, `import`, `remove`, `list`, `moves-manifest`, `apply`, `cleanup`, `check`.
 
 ### `state move`
 
@@ -286,6 +359,38 @@ Unqualified addresses use `--stack` as the default stack.
 | `--stack` | string | `""` | Default stack for unqualified addresses (same-stack moves). |
 | `--pr` | string | `""` | PR number for the shim key. Default: `$TFSTACKPLAN_PR`, then git branch name. |
 | `--via` | string | `""` | Cross-stack mechanism: `""` (native `import`/`removed` blocks) or `"mv"` (faithful `terraform state mv` via `_tfsp_xmove.*.hcl` manifest). |
+
+### `state import`
+
+The one-sided primitive `state move` composes for the destination side of a
+cross-stack move: writes a `moved`-style shim declaring an `import {}` block
+for each `<to-addr> <import-id>` pair, with no source-side validation.
+
+```
+tfstackplan state import --dir DIR --stack STACK [--pr N] <to-addr> <import-id> [...]
+```
+
+| Flag | Type | Default | Meaning |
+|---|---|---|---|
+| `--dir` | string | _(required)_ | Terramate project root. |
+| `--stack` | string | _(required)_ | Destination stack for the `import {}` block. |
+| `--pr` | string | `""` | PR number for the shim key. Default: `$TFSTACKPLAN_PR`, then git branch name. |
+
+### `state remove`
+
+The one-sided primitive `state move` composes for the source side of a
+cross-stack move: writes a shim declaring a `removed {}` block for each
+resource address given, with no destination-side validation.
+
+```
+tfstackplan state remove --dir DIR --stack STACK [--pr N] <addr> [<addr> ...]
+```
+
+| Flag | Type | Default | Meaning |
+|---|---|---|---|
+| `--dir` | string | _(required)_ | Terramate project root. |
+| `--stack` | string | _(required)_ | Source stack for the `removed {}` block. |
+| `--pr` | string | `""` | PR number for the shim key. Default: `$TFSTACKPLAN_PR`, then git branch name. |
 
 ### `state list`
 
@@ -351,6 +456,25 @@ tfstackplan state cleanup --dir DIR (--pr N | --all)
 | `--pr` | string | `""` | Remove only this PR's shims and xmove manifests. |
 | `--all` | bool | `false` | Remove ALL tfstackplan move shims and xmove manifests in the tree. |
 
+### `state check`
+
+Read-only diagnostic: validates every pending `_tfsp_xmove.*.hcl` manifest
+under `--dir` against the local `tfplan.json` files produced by `run plan` —
+no terraform invocation, no file mutation. Reports one of `xmove/spent`
+(all declared moves already applied), `xmove/valid`, `xmove/source-not-planned`
+(source stack has no `tfplan.json` yet), or one or more `xmove/*` errors from
+plan validation, per manifest. Also warns on `xmove/data-source-orphan` for
+data sources left behind in the source stack. Exits `0` when all manifests
+are valid or spent; non-zero if any manifest has an error.
+
+```
+tfstackplan state check --dir DIR
+```
+
+| Flag | Type | Default | Meaning |
+|---|---|---|---|
+| `--dir` | string | _(required)_ | Terramate project root. |
+
 ---
 
 ## `claims`
@@ -391,3 +515,114 @@ tfstackplan claims release --env ENV --pr N [--stack PATH]
 | `--env` | string | _(required)_ | Environment name. |
 | `--pr` | int | _(required)_ | PR number whose claim(s) to release. |
 | `--stack` | string | `""` | Stack path to release. Omit to release all stacks for the PR. |
+
+---
+
+## `admin`
+
+Operator escape hatches into the server's reconcile core: manually release a
+grant, cancel a stuck execution, satisfy a gate, or override a check
+conclusion. Each action calls the server via `runner.ClientFromEnv()`, so
+`TFSTACKPLAN_SERVER` (and, if configured, `TFSTACKPLAN_AUDIENCE` for OIDC)
+must be set.
+
+```
+tfstackplan admin <subcommand> <action> [flags]
+```
+
+Subcommands: `grants` (action `release`), `executions` (action `cancel`),
+`gates` (action `satisfy`), `checks` (action `override`).
+
+### `admin grants release`
+
+Releases a grant.
+
+```
+tfstackplan admin grants release --pr N --env ENV --class CLASS --target TARGET [--reason REASON]
+```
+
+| Flag | Type | Default | Meaning |
+|---|---|---|---|
+| `--pr` | int | _(required)_ | PR number. |
+| `--env` | string | _(required)_ | Environment name. |
+| `--class` | string | _(required)_ | Grant class. |
+| `--target` | string | _(required)_ | Grant target. |
+| `--reason` | string | `"admin intervention"` | Reason for the release. |
+
+### `admin executions cancel`
+
+Cancels an execution.
+
+```
+tfstackplan admin executions cancel --id ID [--reason REASON]
+```
+
+| Flag | Type | Default | Meaning |
+|---|---|---|---|
+| `--id` | string | _(required)_ | Execution ID. |
+| `--reason` | string | `"admin intervention"` | Reason for the cancellation. |
+
+### `admin gates satisfy`
+
+Satisfies a gate.
+
+```
+tfstackplan admin gates satisfy --pr N --env ENV --class CLASS --target TARGET [--reason REASON]
+```
+
+| Flag | Type | Default | Meaning |
+|---|---|---|---|
+| `--pr` | int | _(required)_ | PR number. |
+| `--env` | string | _(required)_ | Environment name. |
+| `--class` | string | _(required)_ | Grant class. |
+| `--target` | string | _(required)_ | Grant target. |
+| `--reason` | string | `"admin intervention"` | Reason for the satisfy. |
+
+### `admin checks override`
+
+Overrides a check's conclusion.
+
+```
+tfstackplan admin checks override --pr N --env ENV --check CHECK --conclusion CONCLUSION [--reason REASON]
+```
+
+| Flag | Type | Default | Meaning |
+|---|---|---|---|
+| `--pr` | int | _(required)_ | PR number. |
+| `--env` | string | _(required)_ | Environment name. |
+| `--check` | string | _(required)_ | Check name. |
+| `--conclusion` | string | _(required)_ | Override conclusion. |
+| `--reason` | string | `"admin intervention"` | Reason for the override. |
+
+---
+
+## `catalog`
+
+Emits the terramate stack catalog/DAG as JSON: every stack, its path, and its
+dependency edges. Used to build the group/DAG visualizations and by tooling
+that needs the stack graph without running a plan.
+
+```
+tfstackplan catalog [flags]
+```
+
+| Flag | Type | Default | Meaning |
+|---|---|---|---|
+| `--dir` | string | `"."` | Terramate project root. |
+| `-o` | string | `""` | Output file path. Default: stdout. |
+
+---
+
+## `whoami`
+
+Prints the resolved server URL, OIDC audience, and the authenticated Google
+identity (email or subject) that `TFSTACKPLAN_*` credentials would present to
+that server — a diagnostic for "why is my request unauthenticated/rejected."
+
+```
+tfstackplan whoami [flags]
+```
+
+| Flag | Type | Default | Meaning |
+|---|---|---|---|
+| `--env` | string | `""` | Environment name, used to pick a server from config when `$TFSTACKPLAN_SERVER` is unset (optional). |

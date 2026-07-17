@@ -6,7 +6,7 @@ The dry, exact material. No narrative here — for *why* and *how*, see
 | Doc | What's in it |
 |-----|--------------|
 | [Configuration](configuration.md) | The full `.tfstackplan.hcl` schema — every block and field, with types and defaults |
-| [CLI](cli.md) | Every subcommand and flag: `render`, `run *`, `serve`, `state *`, `claims *` |
+| [CLI](cli.md) | Every subcommand and flag: `render`, `run *`, `serve`, `ui`, `state *`, `claims *`, `admin *`, `catalog`, `whoami` |
 | [Environment](environment.md) | Environment variables each face reads, grouped by face |
 | [Install & deploy](install-and-deploy.md) | Install paths (go / release binary / asdf) and deploying `serve` to Cloud Run |
 | [`api/openapi.yaml`](../../api/openapi.yaml) | The OpenAPI contract for serve's `/api` surface — the wire truth the server router and Go client are generated from |
