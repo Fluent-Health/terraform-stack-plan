@@ -26,14 +26,6 @@ type ClassBinding struct {
 	Required         bool
 }
 
-// GroupConfig configures the live-DAG grouping. Depth groups by the first Depth
-// path segments (default 2 when the block is absent); Pattern (a regexp) overrides
-// it — the first capture group (or whole match) of the stack path is the group key.
-type GroupConfig struct {
-	Depth   int
-	Pattern string
-}
-
 // ObjectsConfig configures the log-offload object store (currently GCS).
 type ObjectsConfig struct {
 	Backend string // "gcs"
@@ -96,7 +88,6 @@ type ServeConfig struct {
 	UIBaseURL string
 	GitHubApp *GitHubAppConfig
 	Approval  *ApprovalConfig
-	Group     *GroupConfig
 	LogsDir   string
 	Objects   *ObjectsConfig
 	PubSub    *PubSubConfig
@@ -128,11 +119,7 @@ type serveBody struct {
 	LogsDir                string         `hcl:"logs_dir,optional"`
 	GitHubApp              *githubAppBody `hcl:"github_app,block"`
 	Approval               *approvalBody  `hcl:"approval,block"`
-	Group                  *struct {
-		Depth   int    `hcl:"depth,optional"`
-		Pattern string `hcl:"pattern,optional"`
-	} `hcl:"group,block"`
-	Objects *struct {
+	Objects                *struct {
 		Backend string `hcl:"backend,optional"`
 		Bucket  string `hcl:"bucket,optional"`
 		Prefix  string `hcl:"prefix,optional"`
@@ -190,9 +177,6 @@ func decodeServe(blk *hclsyntax.Block) (*ServeConfig, error) {
 	}
 	if b.Approval != nil {
 		s.Approval = &ApprovalConfig{Backend: b.Approval.Backend, Location: b.Approval.Location, Duration: b.Approval.Duration, RequesterPool: b.Approval.RequesterPool}
-	}
-	if b.Group != nil {
-		s.Group = &GroupConfig{Depth: b.Group.Depth, Pattern: b.Group.Pattern}
 	}
 	if b.Objects != nil {
 		s.Objects = &ObjectsConfig{Backend: b.Objects.Backend, Bucket: b.Objects.Bucket, Prefix: b.Objects.Prefix}

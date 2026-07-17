@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -27,9 +26,9 @@ import (
 
 // Config is the server runtime configuration.
 type Config struct {
-	// PublicBaseURL is the public origin of THIS serve, used for the check-run
-	// embedded DAG image URL (/img — public, GitHub's camo proxy fetches it).
-	// Empty derives it from the inbound request.
+	// PublicBaseURL is the public origin of THIS serve, used to build check-run
+	// Details links and as the OIDC audience for its own endpoints. Empty
+	// derives it from the inbound request.
 	PublicBaseURL string
 	// UIBaseURL is the central UI service's external base URL. Check-run
 	// details and approval links point there; empty leaves them unset. The
@@ -42,12 +41,6 @@ type Config struct {
 	// LogsDir is where per-stack log buffers are written. Empty disables log
 	// ingestion (the endpoints become no-ops).
 	LogsDir string
-	// GroupDepth controls the live DAG's grouping: stacks fold into groups by
-	// their first GroupDepth path segments. 0 = unset → handlers default to 2.
-	GroupDepth int
-	// GroupPattern is a regexp whose first capture group is the group key;
-	// overrides GroupDepth. Empty → fall back to GroupDepth grouping.
-	GroupPattern string
 	// PushServiceAccount is the allowed verified OIDC email for /pubsub/push.
 	// Empty accepts any verified token.
 	PushServiceAccount string
@@ -99,8 +92,6 @@ type App struct {
 	// (local/dev). It is the only /api/* credential — the legacy shared-secret
 	// HS256 path was removed once every caller migrated to OIDC.
 	APIVerifier func(ctx context.Context, bearer string) (email string, err error)
-	// groupRE is the compiled Config.GroupPattern (nil → depth grouping).
-	groupRE *regexp.Regexp
 	// now returns the current time. Injectable so claim-lease and janitor time
 	// is deterministic in tests; defaults to time.Now in New.
 	now func() time.Time
@@ -119,15 +110,7 @@ type App struct {
 
 // New builds an App.
 func New(db *sql.DB, gh GitHub, cfg Config) *App {
-	var groupRE *regexp.Regexp
-	if cfg.GroupPattern != "" {
-		if re, err := regexp.Compile(cfg.GroupPattern); err == nil {
-			groupRE = re
-		} else {
-			log.Printf("server: invalid group pattern %q: %v (falling back to depth grouping)", cfg.GroupPattern, err)
-		}
-	}
-	a := &App{db: db, gh: gh, cfg: cfg, hub: newHub(), groupRE: groupRE, now: time.Now}
+	a := &App{db: db, gh: gh, cfg: cfg, hub: newHub(), now: time.Now}
 	a.eventStore = store.NewEventStore(db)
 	a.gateDecider = eventsourcing.Decider[reconcile.ChangeSet, reconcile.Event]{
 		Initial:           func() reconcile.ChangeSet { return reconcile.ChangeSet{Gate: reconcile.NotClassified{}} },
@@ -153,17 +136,14 @@ func New(db *sql.DB, gh GitHub, cfg Config) *App {
 // Auth model:
 //   - /api/* /logs/* /plan/*  require a Google-signed OIDC ID token
 //     (aud=serve URL); the central UI proxies them for browsers
-//   - /img/*                  public (GitHub's camo image proxy cannot
-//     authenticate; execution ids are unguessable)
 //
-// The tier serves no longer serve HTML — the central UI (`tfstackplan ui`) is
-// the human surface; the 30-day view-JWT machinery retired with it.
+// The tier serves no longer serve HTML pages — the central UI (`tfstackplan
+// ui`) is the human surface; the 30-day view-JWT machinery retired with it.
 func (a *App) Routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /ready", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
-	mux.HandleFunc("GET /img/{name}", a.handleImg)
 	mux.Handle("GET /logs/{exec}/{stack...}", a.auth(http.HandlerFunc(a.handleLogServe), scopeReport, scopeRead, scopeAdmin))
 	mux.Handle("GET /plan/{exec}/{stack...}", a.auth(http.HandlerFunc(a.handlePlanServe), scopeReport, scopeRead, scopeAdmin))
 	mux.HandleFunc("POST /pubsub/push", a.handlePushEvent)

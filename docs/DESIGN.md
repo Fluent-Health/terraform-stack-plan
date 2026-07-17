@@ -1000,24 +1000,15 @@ index and `/pr/<n>` timeline pages, and the 30-day view-JWT link auth — all
 retired when the central UI (`tfstackplan ui`, above) became the human
 surface: its SPA rebuilds those views with in-place SSE updates, eliminating
 the viewer's reload-centric bug class by construction. The tier serves no
-longer serve HTML at all; `internal/jwtutil` and `serve { webhook_secret_env }`
+longer serve HTML pages; `internal/jwtutil` and `serve { webhook_secret_env }`
 went with it (the `tfstackplan-token` secret's last job). What the viewer
 pioneered still ships through other surfaces: the plan-diff markdown renderer
 serves `/plan` fragments (OIDC-scoped; the SPA injects them), per-stack log
 reads stream from `/logs` (OIDC-scoped, `Last-Event-ID` resume, GCS-offload
-fallback), and the failure-triage + progress helpers feed the check run.
-
-**The DAG image (`GET /img/<id>.svg`, public).** The execution graph renders
-as a self-contained, inert SVG (no `<script>`/`<foreignObject>`) so it
-survives GitHub's camo image proxy in the check-run body — the one surface
-that cannot authenticate, kept public behind unguessable execution ids. Graphs
-≤ 40 stacks render per-stack; larger ones fold to the **group** level
-(`buildGroupGraph`): stacks group by their first `GroupDepth` path segments
-(default 2, or `serve { group { depth | pattern } }` — the regexp's first
-capture group wins; invalid patterns fall back to depth), each group node
-shows a stack count + worst status + category badges, and edges aggregate to
-the group level. `renderGroupSVG` lays groups out in horizontal lanes per
-environment sharing one dependency-depth column grid.
+fallback), and the failure-triage + progress helpers feed the check run. The
+dependency DAG is drawn client-side by the central UI (`DepGraph.tsx`, elkjs);
+the tier serves render no graph image (the server-side `/img` SVG and its
+`group {}` grouping config retired with the static-UI era).
 
 **Failure triage — "Needs attention" (Phase 4).** A failed stack's bare error is
 turned into an actionable triage by one pure classifier, `classifyFailure(detail,
@@ -1956,10 +1947,9 @@ enshrine: `GET /api/execution/{id}` emits PascalCase keys with a raw
 
 Deliberately outside the contract: the SSE streams (`/api/execution/{id}/events`,
 `/logs/...?follow=1` — OpenAPI models event streams poorly; they stay
-hand-rolled), the GitHub webhook and Pub/Sub push endpoints (external
-contracts), and the public `/img`/`/assets`/`/live` surfaces. The spec is the
-foundation the planned central UI, CLI verbs, and MCP tooling generate their
-clients (and TypeScript types) from.
+hand-rolled), and the GitHub webhook and Pub/Sub push endpoints (external
+contracts). The spec is the foundation the planned central UI, CLI verbs, and
+MCP tooling generate their clients (and TypeScript types) from.
 
 **Read endpoints for aggregating consumers** (added for the central UI; clean
 snake_case shapes, unlike the frozen legacy execution read):
