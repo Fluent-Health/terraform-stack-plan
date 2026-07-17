@@ -20,28 +20,34 @@ func Evolve(s State, e Event) State {
 		for _, st := range s.Stacks {
 			prior[st.Path] = st
 		}
-		next := ev.Exec
-		seen := make(map[string]bool, len(next.Stacks))
-		for i := range next.Stacks {
-			st := &next.Stacks[i]
+		// Build the merged stacks into a freshly allocated slice -- never write
+		// through ev.Exec.Stacks elements, which would mutate the caller's Event
+		// (shell.go re-persists the same event slice via Append after folding).
+		merged := make([]Stack, 0, len(ev.Exec.Stacks)+len(s.Stacks))
+		seen := make(map[string]bool, len(ev.Exec.Stacks))
+		for _, st := range ev.Exec.Stacks {
 			seen[st.Path] = true
 			if old, ok := prior[st.Path]; ok {
 				project := old.Project
 				if st.Project != "" {
 					project = st.Project
 				}
-				*st = old
-				st.Project = project
+				old.Project = project
+				merged = append(merged, old)
+			} else {
+				merged = append(merged, st)
 			}
 		}
 		// Carry forward prior stacks absent from the new Init (the old projection
 		// never deleted stacks), preserving their prior relative order.
 		for _, st := range s.Stacks {
 			if !seen[st.Path] {
-				next.Stacks = append(next.Stacks, st)
+				merged = append(merged, st)
 			}
 		}
-		return next
+		result := ev.Exec
+		result.Stacks = merged
+		return result
 
 	case PhaseChanged:
 		s.Phase = ev.Phase

@@ -219,3 +219,24 @@ func TestEvolveStartedIsNonRegressive(t *testing.T) {
 		}
 	}
 }
+
+// TestEvolveStartedDoesNotMutateInputEvent guards against Evolve writing through
+// the Started event's own Exec.Stacks backing array. shell.go folds evs with
+// Evolve and then re-persists the SAME evs slice via Append — any in-place
+// mutation here would silently corrupt the event about to be appended to the
+// log, violating Evolve's purity and the event log's source-of-truth invariant.
+func TestEvolveStartedDoesNotMutateInputEvent(t *testing.T) {
+	prior := Evolve(Evolve(State{}, Started{Exec: State{Stacks: []Stack{
+		{Path: "a", RunStatus: events.StatusPending},
+	}}}), StackStatusChanged{Stack: "a", Status: events.StatusInitialized})
+
+	ev2 := Started{Exec: State{Stacks: []Stack{
+		{Path: "a", RunStatus: events.StatusPending},
+	}}}
+
+	_ = Evolve(prior, ev2)
+
+	if ev2.Exec.Stacks[0].RunStatus != events.StatusPending {
+		t.Fatalf("Evolve mutated the input event's Exec.Stacks: got RunStatus %q, want %q (unmutated)", ev2.Exec.Stacks[0].RunStatus, events.StatusPending)
+	}
+}
