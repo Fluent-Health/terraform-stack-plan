@@ -1,9 +1,9 @@
 # Security
 
 `tfstackplan serve` is a long-running control plane that holds a GitHub App
-private key and a bearer secret, and requests time-bound privileged-access
-grants. It executes no Terraform and holds no apply credentials — Terraform runs
-in your own CI under your own identities.
+private key and authenticates `/api/*` via Google OIDC, and requests
+time-bound privileged-access grants. It executes no Terraform and holds no
+apply credentials — Terraform runs in your own CI under your own identities.
 
 ## Reporting
 
@@ -12,14 +12,21 @@ Do not open public issues for security reports.
 
 ## Operator guidance
 
+- **API auth is Google OIDC, not a shared secret.** `/api/*` is authenticated
+  by Google OIDC: `serve { api_auth {} }` declares the accepted token
+  audiences and an identity→scope allowlist, and the server verifies the
+  id-token signature and audience, then maps the verified email to scopes.
+  There is no shared bearer secret; the old HS256 shared-secret path has been
+  removed. Auth is disabled only when `api_auth {}` is not configured — local/dev
+  only, never production.
 - **Secrets are mounted, never baked.** The GitHub App private key
-  (`serve.github_app.private_key_path`) and the bearer secret
-  (`serve.webhook_secret_env`) are read from a mounted file / environment
-  variable at runtime — never built into the image or committed. Use your
-  platform's secret store (e.g. a mounted secret volume).
-- **Bearer rotation.** `/api/*` mutations require `Authorization: Bearer
-  <secret>`. Rotate by updating the secret store and restarting; an empty secret
-  disables auth and is for local/dev only — never production.
+  (`serve.github_app.private_key_path`) is read from a mounted file at
+  runtime — never built into the image or committed. Use your platform's
+  secret store (e.g. a mounted secret volume).
+- **Webhook relay HMAC secret (defense in depth).** The central UI's webhook
+  relay takes an optional HMAC secret (`github_webhook_secret_env`); each
+  `serve` still verifies GitHub's HMAC end-to-end regardless, so this is
+  additional hardening, not the `/api/*` auth mechanism.
 - **GitHub App key rotation.** Rotate the App private key in GitHub, update the
   mounted file, and restart. Tokens are minted per request and short-lived, so a
   rotated key takes effect immediately on restart.
