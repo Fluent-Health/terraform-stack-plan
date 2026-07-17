@@ -65,17 +65,3 @@ func isFinished(kind, report, status string) bool {
 	// plan: finished when the report has arrived
 	return report != ""
 }
-
-// anchorSlug builds a stable, HTML-id-safe anchor for a stack path.
-func anchorSlug(path string) string {
-	var b strings.Builder
-	b.WriteString("stack-")
-	for _, r := range path {
-		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
-			b.WriteRune(r)
-		} else {
-			b.WriteByte('-')
-		}
-	}
-	return b.String()
-}

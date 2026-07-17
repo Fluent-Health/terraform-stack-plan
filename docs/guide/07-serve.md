@@ -47,13 +47,10 @@ glass over every tier serve, behind a Google Workspace login:
   no page reloads.
 - **Approvals** — every gate awaiting a human, across tiers.
 
-The tier serves themselves no longer serve HTML; they expose the data (JSON,
-SSE, plan fragments) the UI aggregates. One HTML artifact stays on each tier:
-the check-run body embeds `GET /img/<id>.svg` — the dependency DAG as a
-self-contained, inert SVG (no JavaScript, survives GitHub's image proxy).
-Stacks fold into group nodes by path prefix (the `group {}` block — depth or
-regexp), laid out in per-environment swimlanes, each node showing stack count,
-worst status, and 🔐/💣 category badges from classification.
+The tier serves themselves no longer serve HTML pages; they expose the data —
+a JSON/SSE API plus an OIDC-scoped `GET /plan/<id>/<stack>` HTML fragment — that
+the central UI aggregates and renders. The dependency DAG is drawn client-side
+by the UI, not baked into the check run.
 
 ## Approval gates
 

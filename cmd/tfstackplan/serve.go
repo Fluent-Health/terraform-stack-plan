@@ -88,8 +88,6 @@ func buildServeApp(ctx context.Context, cfg *config.Config, ghWebhookSecret stri
 		PublicBaseURL:       s.PublicBaseURL,
 		UIBaseURL:           s.UIBaseURL,
 		Environment:         serverEnvironment(cfg),
-		GroupDepth:          groupDepth(s),
-		GroupPattern:        groupPattern(s),
 		LogsDir:             logsDir,
 		PushServiceAccount:  pubsubSA(s),
 		APIPrincipals:       apiPrincipals(s),
@@ -200,22 +198,6 @@ func serverEnvironment(cfg *config.Config) string {
 func pubsubSA(s *config.ServeConfig) string {
 	if s.PubSub != nil {
 		return s.PubSub.ServiceAccount
-	}
-	return ""
-}
-
-// groupDepth returns the configured live-DAG grouping depth (0 if unset).
-func groupDepth(s *config.ServeConfig) int {
-	if s.Group != nil {
-		return s.Group.Depth
-	}
-	return 0
-}
-
-// groupPattern returns the configured live-DAG grouping regexp ("" if unset).
-func groupPattern(s *config.ServeConfig) string {
-	if s.Group != nil {
-		return s.Group.Pattern
 	}
 	return ""
 }

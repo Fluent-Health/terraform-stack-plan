@@ -85,13 +85,6 @@ serve {
     ]
   }
 
-  # Live-DAG grouping: stacks fold into group nodes by their first `depth` path
-  # segments (default 2 → env/kind). `pattern` (a regexp) overrides depth — the
-  # first capture group of the stack path becomes the group key.
-  group {
-    depth = 2
-  }
-
   # Log offload to GCS: completed-stack logs move off the local buffer to the
   # bucket and stream back via a stored pointer (no cloud IAM for viewers).
   objects {

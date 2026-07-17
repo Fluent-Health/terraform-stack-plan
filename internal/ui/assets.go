@@ -10,8 +10,7 @@ import (
 // The SPA ships embedded from dist/. The repo commits only a placeholder
 // index.html so `go build` stays toolchain-free; CI/release runs the Vite
 // build (web/ui/) and overwrites dist/ before the Go build, so shipped
-// binaries carry the real SPA. Same committed-asset contract as the serve
-// CSS (web/build.sh → internal/server/assets).
+// binaries carry the real SPA.
 //
 //go:embed all:dist
 var distFS embed.FS
