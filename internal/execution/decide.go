@@ -18,6 +18,8 @@ func Decide(s State, sig Signal) []Event {
 		return []Event{Failed{}}
 	case ReportSucceed:
 		return []Event{Succeeded{}}
+	case ReportAnnotate:
+		return []Event{StacksAnnotated{Projects: v.Projects, Categories: v.Categories, Counts: v.Counts, Moving: v.Moving}}
 	default:
 		return nil
 	}

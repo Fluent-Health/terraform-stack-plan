@@ -69,6 +69,31 @@ func Evolve(s State, e Event) State {
 		s.Status = "success"
 		return s
 
+	case StacksAnnotated:
+		moving := make(map[string]bool, len(ev.Moving))
+		for _, p := range ev.Moving {
+			moving[p] = true
+		}
+		for i := range s.Stacks {
+			p := &s.Stacks[i]
+			if proj, ok := ev.Projects[p.Path]; ok {
+				p.Project = proj
+			}
+			if cats, ok := ev.Categories[p.Path]; ok {
+				p.Categories = cats
+			}
+			if c, ok := ev.Counts[p.Path]; ok {
+				cc := c
+				p.Counts = &cc
+			}
+			// Moving overlays status for non-terminal stacks only (matches the old
+			// finalize UPDATE ... WHERE status NOT IN (failed, aborted)).
+			if moving[p.Path] && p.RunStatus != events.StatusFailed && p.RunStatus != events.StatusAborted {
+				p.RunStatus = events.StatusMoving
+			}
+		}
+		return s
+
 	default:
 		return s
 	}

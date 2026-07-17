@@ -51,3 +51,13 @@ func TestDecideReportSucceedEmitsSucceeded(t *testing.T) {
 		t.Fatalf("want Succeeded, got %T", got[0])
 	}
 }
+
+func TestDecideReportAnnotateEmitsStacksAnnotated(t *testing.T) {
+	got := Decide(State{}, ReportAnnotate{Projects: map[string]string{"a": "p"}})
+	if len(got) != 1 {
+		t.Fatalf("want 1 event, got %d", len(got))
+	}
+	if _, ok := got[0].(StacksAnnotated); !ok {
+		t.Fatalf("want StacksAnnotated, got %T", got[0])
+	}
+}

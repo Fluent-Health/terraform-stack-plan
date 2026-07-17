@@ -131,4 +131,28 @@ func TestEvolveSucceededSetsRunStatus(t *testing.T) {
 	}
 }
 
+func TestEvolveStacksAnnotated(t *testing.T) {
+	prior := State{Stacks: []Stack{
+		{Path: "a", RunStatus: events.StatusPlanned},
+		{Path: "b", RunStatus: events.StatusPlanned},
+		{Path: "c", RunStatus: events.StatusFailed},
+	}}
+	cnt := events.Counts{}
+	got := Evolve(prior, StacksAnnotated{
+		Projects:   map[string]string{"a": "proj-a"},
+		Categories: map[string][]events.Category{"a": {events.Category{Name: "iam"}}},
+		Counts:     map[string]events.Counts{"a": cnt},
+		Moving:     []string{"b", "c"}, // c is failed → must NOT become moving
+	})
+	if got.Stacks[0].Project != "proj-a" || len(got.Stacks[0].Categories) != 1 || got.Stacks[0].Counts == nil {
+		t.Fatalf("annotate not folded onto a: %#v", got.Stacks[0])
+	}
+	if got.Stacks[1].RunStatus != events.StatusMoving {
+		t.Fatalf("b should be moving: %q", got.Stacks[1].RunStatus)
+	}
+	if got.Stacks[2].RunStatus != events.StatusFailed {
+		t.Fatalf("c (failed) must stay failed: %q", got.Stacks[2].RunStatus)
+	}
+}
+
 func idOrEmpty() string { return "e9" }

@@ -80,11 +80,20 @@ type ReportFail struct{}
 // ReportSucceed marks the run terminally succeeded.
 type ReportSucceed struct{}
 
-func (ReportInit) isSignal()    {}
-func (ReportPhase) isSignal()   {}
-func (ReportTick) isSignal()    {}
-func (ReportFail) isSignal()    {}
-func (ReportSucceed) isSignal() {}
+// ReportAnnotate annotates stacks with project, categories, counts, and moving state.
+type ReportAnnotate struct {
+	Projects   map[string]string
+	Categories map[string][]events.Category
+	Counts     map[string]events.Counts
+	Moving     []string
+}
+
+func (ReportInit) isSignal()     {}
+func (ReportPhase) isSignal()    {}
+func (ReportTick) isSignal()     {}
+func (ReportFail) isSignal()     {}
+func (ReportSucceed) isSignal()  {}
+func (ReportAnnotate) isSignal() {}
 
 // --- Event sum type (past-tense domain facts) ---
 
@@ -111,9 +120,16 @@ type StackStatusChanged struct {
 }
 type Failed struct{}
 type Succeeded struct{}
+type StacksAnnotated struct {
+	Projects   map[string]string
+	Categories map[string][]events.Category
+	Counts     map[string]events.Counts
+	Moving     []string
+}
 
 func (Started) isEvent()            {}
 func (PhaseChanged) isEvent()       {}
 func (StackStatusChanged) isEvent() {}
 func (Failed) isEvent()             {}
 func (Succeeded) isEvent()          {}
+func (StacksAnnotated) isEvent()    {}

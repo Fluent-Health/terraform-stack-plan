@@ -18,6 +18,7 @@ func allEventVariants() []Event {
 		StackStatusChanged{Stack: "a", Status: events.StatusFailed, Detail: "boom"},
 		Failed{},
 		Succeeded{},
+		StacksAnnotated{Projects: map[string]string{"a": "p"}, Categories: map[string][]events.Category{"a": {events.Category{Name: "iam"}}}, Counts: map[string]events.Counts{"a": {}}, Moving: []string{"b"}},
 	}
 }
 
