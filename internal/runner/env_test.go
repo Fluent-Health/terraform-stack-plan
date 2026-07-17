@@ -41,7 +41,7 @@ func TestClientFromEnvAudienceDefaulting(t *testing.T) {
 func TestClientForEnvironment(t *testing.T) {
 	// Create a temp dir
 	tmpDir := t.TempDir()
-	
+
 	// Create a .tfstackplan.hcl in it
 	cfgContent := `
 server {
@@ -59,24 +59,24 @@ server "nonprod" {
 	if err := os.WriteFile(filepath.Join(tmpDir, ".tfstackplan.hcl"), []byte(cfgContent), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	
+
 	// Chdir to the temp directory
 	t.Chdir(tmpDir)
-	
+
 	t.Setenv(EnvServer, "") // Ensure EnvServer is clear
-	
+
 	// Test default fallback when env is empty or unknown
 	cDefault := ClientForEnvironment("")
 	if cDefault.baseURL != "https://default-srv" {
 		t.Errorf("default baseURL = %q, want https://default-srv", cDefault.baseURL)
 	}
-	
+
 	// Test matching s.Environment
 	cProd := ClientForEnvironment("prod")
 	if cProd.baseURL != "https://prod-srv" {
 		t.Errorf("prod baseURL = %q, want https://prod-srv", cProd.baseURL)
 	}
-	
+
 	// Test matching s.Name
 	cNonprod := ClientForEnvironment("nonprod")
 	if cNonprod.baseURL != "https://nonprod-srv" {
