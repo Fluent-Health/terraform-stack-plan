@@ -117,12 +117,13 @@ func exitCode(status string) int {
 // via ADC when $TFSTACKPLAN_AUDIENCE is set, else nil (unauthenticated). An
 // unavailable ADC is warned about rather than silently degraded.
 func apiBearer(srv string) gauth.TokenFunc {
-	aud := os.Getenv(runner.EnvAudience)
+	audEnv := os.Getenv(runner.EnvAudience)
+	aud := audEnv
 	if aud == "" {
 		aud = srv
 	}
 	src, err := runner.APITokenFunc(aud)
-	if err != nil {
+	if err != nil && audEnv != "" {
 		fmt.Fprintf(os.Stderr, "run status: OIDC audience is set but Google ADC is unavailable (%v) — requests will be unauthenticated\n", err)
 	}
 	return src

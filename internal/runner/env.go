@@ -69,13 +69,14 @@ func ClientForEnvironment(env string) *Client {
 		return NewClient("")
 	}
 
-	aud := os.Getenv(EnvAudience)
+	audEnv := os.Getenv(EnvAudience)
+	aud := audEnv
 	if aud == "" {
 		aud = base // default OIDC audience to the server base URL
 	}
 
 	tok, err := APITokenFunc(aud)
-	if err != nil {
+	if err != nil && audEnv != "" {
 		fmt.Fprintf(os.Stderr, "tfstackplan: OIDC audience is set but Google ADC is unavailable (%v) — reporting unauthenticated\n", err)
 	}
 	c := NewClientTokenSource(base, tok)
