@@ -1,0 +1,7 @@
+environments:
+  dev:
+    inputs:
+      project_id: app-dev
+  prod:
+    inputs:
+      project_id: app-prod

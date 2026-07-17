@@ -1,0 +1,14 @@
+metadata:
+  name: api
+
+environments:
+  dev:
+    inputs:
+      tier_class: nonprod
+      project_id: app-dev
+      domain: example.com
+  prod:
+    inputs:
+      tier_class: prod
+      project_id: app-prod
+      domain: example.com
