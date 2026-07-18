@@ -43,6 +43,7 @@ type ProjectedExecution struct {
 	Status        string
 	ProgressLabel string
 	ProgressPct   *int
+	SupersededBy  string
 }
 
 // ProjectedStack is the execution-aggregate-owned projection of a stacks row.
@@ -57,7 +58,12 @@ type ProjectedStack struct {
 
 // ProjectExecutionRow UPSERTs the execution-aggregate-owned columns of an
 // executions row, preserving non-owned columns (report_markdown, change_reasons,
-// superseded_by, check_run_id, created_at, rev) on conflict.
+// check_run_id, rev) on conflict. superseded_by and created_at ARE owned:
+// superseded_by is written verbatim from the folded execution.State (Evolve's
+// Superseded/Started cases are the sole authority — see execution.Evolve), and
+// created_at is revived to CURRENT_TIMESTAMP whenever a fresh in_progress Init
+// arrives for a row that was terminal and/or superseded, mirroring what
+// ReviveExecution used to do as a separate statement.
 func ProjectExecutionRow(tx *sql.Tx, e ProjectedExecution) error {
 	var label sql.NullString
 	if e.ProgressLabel != "" {
@@ -68,8 +74,8 @@ func ProjectExecutionRow(tx *sql.Tx, e ProjectedExecution) error {
 		pct = sql.NullInt64{Valid: true, Int64: int64(*e.ProgressPct)}
 	}
 	_, err := tx.Exec(
-		`INSERT INTO executions (id, repo, sha, pr, environment, status_context, log_url, phase, status, progress_label, progress_pct)
-		 VALUES (?,?,?,?,?,?,?,?,?,?,?)
+		`INSERT INTO executions (id, repo, sha, pr, environment, status_context, log_url, phase, status, progress_label, progress_pct, superseded_by)
+		 VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
 		 ON CONFLICT(id) DO UPDATE SET
 		   repo=CASE WHEN excluded.repo='' THEN executions.repo ELSE excluded.repo END,
 		   sha=CASE WHEN excluded.sha='' THEN executions.sha ELSE excluded.sha END,
@@ -80,8 +86,13 @@ func ProjectExecutionRow(tx *sql.Tx, e ProjectedExecution) error {
 		   phase=CASE WHEN excluded.phase='' THEN executions.phase ELSE excluded.phase END,
 		   status=CASE WHEN excluded.status='' THEN executions.status ELSE excluded.status END,
 		   progress_label=CASE WHEN excluded.progress_label IS NULL THEN executions.progress_label ELSE excluded.progress_label END,
-		   progress_pct=CASE WHEN excluded.progress_pct IS NULL THEN executions.progress_pct ELSE excluded.progress_pct END`,
-		e.ID, e.Repo, e.SHA, e.PR, e.Environment, e.Context, e.LogURL, e.Phase, e.Status, label, pct)
+		   progress_pct=CASE WHEN excluded.progress_pct IS NULL THEN executions.progress_pct ELSE excluded.progress_pct END,
+		   superseded_by=excluded.superseded_by,
+		   created_at=CASE WHEN excluded.status='in_progress'
+		                    AND (executions.status != 'in_progress'
+		                         OR (COALESCE(executions.superseded_by,'') != '' AND COALESCE(excluded.superseded_by,'') = ''))
+		                   THEN CURRENT_TIMESTAMP ELSE executions.created_at END`,
+		e.ID, e.Repo, e.SHA, e.PR, e.Environment, e.Context, e.LogURL, e.Phase, e.Status, label, pct, e.SupersededBy)
 	return err
 }
 
@@ -136,23 +147,6 @@ func AppendPhaseHistory(tx *sql.Tx, execID, phase, label string, pct *int) error
 	_, err := tx.Exec(
 		`INSERT INTO execution_phases (execution_id, phase, label, progress_pct) VALUES (?,?,?,?)`,
 		execID, phase, l, p)
-	return err
-}
-
-// ReviveExecution resets a row's own supersession/status when it receives a
-// fresh Init: an execution ID that was previously marked superseded, failed, or
-// otherwise not "in_progress" is alive again — the runner reporting Init IS the
-// live run. Mirrors the reset the legacy UpsertInit performed atomically inside
-// its own INSERT ... ON CONFLICT clause; split out as its own statement because
-// the execution aggregate's ProjectExecutionRow deliberately never owns
-// superseded_by/created_at (see projectExecution's doc comment).
-func ReviveExecution(db *sql.DB, id string) error {
-	_, err := db.Exec(
-		`UPDATE executions SET
-		   status=CASE WHEN status != 'in_progress' OR COALESCE(superseded_by, '') != '' THEN 'in_progress' ELSE status END,
-		   superseded_by=CASE WHEN status != 'in_progress' OR COALESCE(superseded_by, '') != '' THEN '' ELSE superseded_by END,
-		   created_at=CASE WHEN status != 'in_progress' OR COALESCE(superseded_by, '') != '' THEN CURRENT_TIMESTAMP ELSE created_at END
-		 WHERE id = ?`, id)
 	return err
 }
 
@@ -398,15 +392,6 @@ func FindNonSupersededExecution(db *sql.DB, pr int, environment, sha, statusCont
 		return "", false, err
 	}
 	return id, true, nil
-}
-
-// SupersedeExecution links an old execution ID to its replacing execution ID.
-func SupersedeExecution(db *sql.DB, oldID, newID string) error {
-	_, err := db.Exec(
-		`UPDATE executions SET superseded_by = ? WHERE id = ?`,
-		newID, oldID,
-	)
-	return err
 }
 
 // FindExecutionBySHA returns the most recent non-superseded execution for

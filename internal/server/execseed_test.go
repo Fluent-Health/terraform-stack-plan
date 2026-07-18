@@ -43,7 +43,8 @@ func seedPhase(t *testing.T, sh *Shell, p events.PhaseEvent) {
 // aggregate's terminal signals (mirrors handleFinalize's ReportSucceed/
 // ReportFail). Only "success"/"failure" are meaningful terminal outcomes; a
 // row is "in_progress" from ReportInit onward, so reviving one back to
-// in_progress is store.ReviveExecution's job (kept, called directly).
+// in_progress is done by re-init through seedInit (HandleExec's Started fold),
+// not this helper.
 func seedTerminalStatus(t *testing.T, sh *Shell, id, status string) {
 	t.Helper()
 	var sig execution.Signal

@@ -8,7 +8,6 @@ import (
 	"github.com/Fluent-Health/terraform-stack-plan/internal/execution"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/executor"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/reconcile"
-	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
 
 // execInitFromEvents maps the wire-level events.Init into the execution
@@ -69,11 +68,6 @@ func (sh *Shell) materializeRun(ctx context.Context, cs reconcile.ChangeSet, rep
 	if err := sh.HandleExec(ctx, execID, execution.ReportInit{Exec: execInitFromEvents(init)}); err != nil {
 		return err
 	}
-	// See handleInit: revive self-supersession/terminal status on a fresh Init
-	// (the aggregate's projection never owns superseded_by/created_at).
-	if err := store.ReviveExecution(sh.app.db, execID); err != nil {
-		return err
-	}
 	name := sh.app.planCheckName(cs.Environment)
 	if kind == reconcile.RunKindApply {
 		name = init.Context
@@ -126,7 +120,7 @@ func (sh *Shell) adoptRun(ctx context.Context, cs reconcile.ChangeSet, repo stri
 // cancelRun executes a CancelRun action: mark the old execution superseded by
 // the new one (the live page redirects) and best-effort cancel the old build.
 func (sh *Shell) cancelRun(ctx context.Context, act reconcile.CancelRun) {
-	sh.app.supersedeExecution(act.OldExecutionID, act.NewExecutionID)
+	sh.app.supersedeExecution(ctx, act.OldExecutionID, act.NewExecutionID)
 	if act.OldBuildRef == "" || sh.app.Executor == nil {
 		return
 	}

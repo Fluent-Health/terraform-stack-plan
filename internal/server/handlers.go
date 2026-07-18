@@ -94,13 +94,6 @@ func (a *App) handleInit(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "store init", http.StatusInternalServerError)
 		return
 	}
-	// A fresh Init means this ID's runner is alive again — revive it if a prior
-	// attempt had marked it superseded/terminal (the aggregate's projection
-	// intentionally never touches superseded_by/created_at; see ReviveExecution).
-	if err := store.ReviveExecution(a.db, in.ID); err != nil {
-		http.Error(w, "store init", http.StatusInternalServerError)
-		return
-	}
 	if in.PR > 0 {
 		oldID, found, err := store.FindNonSupersededExecution(a.db, in.PR, in.Environment, in.SHA, in.Context, in.ID)
 		if err == nil && found {
@@ -112,13 +105,13 @@ func (a *App) handleInit(w http.ResponseWriter, r *http.Request) {
 			if err1 == nil && err2 == nil {
 				if oldExec.CreatedAt.After(time.Time{}) && inExec.CreatedAt.Before(oldExec.CreatedAt) {
 					// Inverted: the incoming execution is strictly older than the existing one in the DB!
-					a.supersedeExecution(in.ID, oldID)
+					a.supersedeExecution(r.Context(), in.ID, oldID)
 				} else {
 					// Default: incoming execution is newer or same time (e.g. test harness identical times)
-					a.supersedeExecution(oldID, in.ID)
+					a.supersedeExecution(r.Context(), oldID, in.ID)
 				}
 			} else {
-				a.supersedeExecution(oldID, in.ID)
+				a.supersedeExecution(r.Context(), oldID, in.ID)
 			}
 		}
 	}

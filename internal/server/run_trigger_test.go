@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
+	"github.com/Fluent-Health/terraform-stack-plan/internal/execution"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/executor"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/reconcile"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
@@ -505,8 +506,12 @@ func TestRunnerRecoveryAfterFalseStartFailure(t *testing.T) {
 		t.Fatalf("precondition: start-failed row = %q", e.Status)
 	}
 
-	// The build ran anyway: runner revives the row and finalizes clean.
-	if err := store.ReviveExecution(a.db, execID); err != nil {
+	// The build ran anyway: the runner's own Init report revives the row through
+	// the aggregate alone (Started's fold clears status/superseded_by — no
+	// direct store.ReviveExecution call, deleted in A3 task 3).
+	if err := a.shell.HandleExec(context.Background(), execID, execution.ReportInit{Exec: execution.State{
+		ID: execID, PR: 7, Environment: "nonprod", Repo: "o/r", Status: "in_progress",
+	}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := a.shell.Handle(context.Background(), 7, "nonprod", "o/r", reconcile.RunnerFinalize{}); err != nil {

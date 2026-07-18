@@ -61,3 +61,24 @@ func TestDecideReportAnnotateEmitsStacksAnnotated(t *testing.T) {
 		t.Fatalf("want StacksAnnotated, got %T", got[0])
 	}
 }
+
+func TestDecideReportSupersedeEmitsSuperseded(t *testing.T) {
+	got := Decide(State{ID: "e1"}, ReportSupersede{By: "new-exec"})
+	if len(got) != 1 {
+		t.Fatalf("want 1 event, got %d", len(got))
+	}
+	if s, ok := got[0].(Superseded); !ok || s.By != "new-exec" {
+		t.Fatalf("want Superseded{new-exec}, got %#v", got[0])
+	}
+}
+
+func TestDecideReportSupersedeNoopOnEmptyState(t *testing.T) {
+	if got := Decide(State{}, ReportSupersede{By: "x"}); got != nil {
+		t.Fatalf("want nil on empty state, got %#v", got)
+	}
+	// A materialized execution still emits the fact.
+	got := Decide(State{ID: "e1"}, ReportSupersede{By: "x"})
+	if len(got) != 1 {
+		t.Fatalf("want 1 event for materialized exec, got %d", len(got))
+	}
+}

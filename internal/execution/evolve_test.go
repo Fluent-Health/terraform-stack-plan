@@ -155,6 +155,26 @@ func TestEvolveStacksAnnotated(t *testing.T) {
 	}
 }
 
+func TestEvolveSupersededSetsSupersededBy(t *testing.T) {
+	got := Evolve(State{ID: "old"}, Superseded{By: "new-exec"})
+	if got.SupersededBy != "new-exec" {
+		t.Fatalf("SupersededBy = %q, want new-exec", got.SupersededBy)
+	}
+}
+
+func TestEvolveStartedClearsSupersededBy(t *testing.T) {
+	// A fresh Init un-supersedes a revived execID (the superseded_by half of the
+	// old ReviveExecution): Started folds ev.Exec, whose SupersededBy is empty.
+	prior := Evolve(State{ID: "e1"}, Superseded{By: "n1"})
+	if prior.SupersededBy != "n1" {
+		t.Fatalf("precondition: want n1, got %q", prior.SupersededBy)
+	}
+	got := Evolve(prior, Started{Exec: State{ID: "e1", Stacks: []Stack{{Path: "a"}}}})
+	if got.SupersededBy != "" {
+		t.Fatalf("Started must clear SupersededBy, got %q", got.SupersededBy)
+	}
+}
+
 func idOrEmpty() string { return "e9" }
 
 // TestEvolveStartedIsNonRegressive captures the register→plan invariant: a repeat
