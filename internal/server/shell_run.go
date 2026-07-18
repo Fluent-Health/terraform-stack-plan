@@ -8,7 +8,6 @@ import (
 	"github.com/Fluent-Health/terraform-stack-plan/internal/execution"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/executor"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/reconcile"
-	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
 
 // execInitFromEvents maps the wire-level events.Init into the execution
@@ -67,12 +66,6 @@ func (sh *Shell) materializeRun(ctx context.Context, cs reconcile.ChangeSet, rep
 		Context:     runContext(kind, cs.Environment),
 	}
 	if err := sh.HandleExec(ctx, execID, execution.ReportInit{Exec: execInitFromEvents(init)}); err != nil {
-		return err
-	}
-	// See handleInit: this is now redundant with the revival ProjectExecutionRow
-	// already performs from the folded state on the HandleExec call above; kept
-	// pending its removal (A3 task 3).
-	if err := store.ReviveExecution(sh.app.db, execID); err != nil {
 		return err
 	}
 	name := sh.app.planCheckName(cs.Environment)

@@ -94,15 +94,6 @@ func (a *App) handleInit(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "store init", http.StatusInternalServerError)
 		return
 	}
-	// A fresh Init means this ID's runner is alive again — revive it if a prior
-	// attempt had marked it superseded/terminal. The HandleExec above already
-	// performs this revival (Started's fold clears SupersededBy, and
-	// ProjectExecutionRow's own CASE resets created_at); this call is now
-	// redundant on that path and kept pending its removal (A3 task 3).
-	if err := store.ReviveExecution(a.db, in.ID); err != nil {
-		http.Error(w, "store init", http.StatusInternalServerError)
-		return
-	}
 	if in.PR > 0 {
 		oldID, found, err := store.FindNonSupersededExecution(a.db, in.PR, in.Environment, in.SHA, in.Context, in.ID)
 		if err == nil && found {

@@ -187,43 +187,6 @@ func TestLoadGraphSurfacesCounts(t *testing.T) {
 	}
 }
 
-// TestReviveExecutionResetsSupersededAndStatus: a fresh Init means the id's
-// runner is alive again — ReviveExecution resets a terminal/superseded row back
-// to in_progress with superseded_by cleared. This replaced the reset the legacy
-// UpsertInit performed atomically inside its own INSERT ... ON CONFLICT clause
-// (see ReviveExecution's doc comment).
-func TestReviveExecutionResetsSupersededAndStatus(t *testing.T) {
-	db := newTestDB(t)
-	seedExec(t, db, ProjectedExecution{ID: "e1", Repo: "o/r", Environment: "prod", Context: "apply/prod", Status: "in_progress"}, nil, nil)
-
-	// Mark terminal + superseded (as a finished, replaced execution would be) —
-	// superseded_by is now an owned projected column, written the same way the
-	// aggregate would (ProjectExecutionRow), not the deleted SupersedeExecution.
-	seedExec(t, db, ProjectedExecution{ID: "e1", Status: "failure", SupersededBy: "e-newer"}, nil, nil)
-	old, err := GetExecution(db, "e1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if old.Status != "failure" || old.SupersededBy != "e-newer" {
-		t.Fatalf("unexpected pre-state: %+v", old)
-	}
-
-	if err := ReviveExecution(db, "e1"); err != nil {
-		t.Fatal(err)
-	}
-
-	updated, err := GetExecution(db, "e1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if updated.Status != "in_progress" {
-		t.Errorf("status = %q, want in_progress", updated.Status)
-	}
-	if updated.SupersededBy != "" {
-		t.Errorf("superseded_by = %q, want empty", updated.SupersededBy)
-	}
-}
-
 func TestReportRevAndCheckRunID(t *testing.T) {
 	db := newTestDB(t)
 	e, stacks, edges := sampleExec()

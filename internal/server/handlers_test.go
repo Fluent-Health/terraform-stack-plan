@@ -612,3 +612,37 @@ func TestSupersedeIsEventSourced(t *testing.T) {
 		t.Fatalf("late tick clobbered superseded_by: %q", e2.SupersededBy)
 	}
 }
+
+// TestReInitRevivesThroughAggregate pins A3 task 3's deletion premise: a rerun
+// that reuses a terminal+superseded execID must come back to in_progress with
+// superseded_by cleared through HandleExec(ReportInit) alone — no
+// store.ReviveExecution call. Started's fold clears SupersededBy and
+// ProjectExecutionRow's created_at CASE handles the rest (Task 2); this test
+// proves the separate call is redundant before it's deleted.
+func TestReInitRevivesThroughAggregate(t *testing.T) {
+	sh := newTestShell(t)
+	ctx := context.Background()
+	id := "run-7-nonprod-plan-ccc-a1"
+	mkInit := func() {
+		if err := sh.HandleExec(ctx, id, execution.ReportInit{Exec: execution.State{
+			ID: id, PR: 7, Environment: "nonprod", Repo: "r", Status: "in_progress", Stacks: []execution.Stack{{Path: "a"}},
+		}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mkInit()
+	// Drive it terminal + superseded.
+	if err := sh.HandleExec(ctx, id, execution.ReportSucceed{}); err != nil {
+		t.Fatal(err)
+	}
+	sh.app.supersedeExecution(ctx, id, "some-newer")
+	// Re-init the SAME id (rerun reusing the execution id) — no ReviveExecution call.
+	mkInit()
+	e, _ := store.GetExecution(sh.app.db, id)
+	if e.Status != "in_progress" {
+		t.Fatalf("revive: status = %q, want in_progress", e.Status)
+	}
+	if e.SupersededBy != "" {
+		t.Fatalf("revive: superseded_by = %q, want empty", e.SupersededBy)
+	}
+}

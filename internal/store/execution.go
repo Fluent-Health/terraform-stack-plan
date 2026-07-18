@@ -150,25 +150,6 @@ func AppendPhaseHistory(tx *sql.Tx, execID, phase, label string, pct *int) error
 	return err
 }
 
-// ReviveExecution resets a row's own supersession/status when it receives a
-// fresh Init: an execution ID that was previously marked superseded, failed, or
-// otherwise not "in_progress" is alive again — the runner reporting Init IS the
-// live run. Mirrors the reset the legacy UpsertInit performed atomically inside
-// its own INSERT ... ON CONFLICT clause. As of the supersede cutover (A3 task 2),
-// ProjectExecutionRow's own created_at/superseded_by CASE clauses already
-// perform this same revival from the folded execution.State on every Started
-// fold, making this call redundant on that path — kept as a belt-and-braces
-// no-op there pending its removal (A3 task 3).
-func ReviveExecution(db *sql.DB, id string) error {
-	_, err := db.Exec(
-		`UPDATE executions SET
-		   status=CASE WHEN status != 'in_progress' OR COALESCE(superseded_by, '') != '' THEN 'in_progress' ELSE status END,
-		   superseded_by=CASE WHEN status != 'in_progress' OR COALESCE(superseded_by, '') != '' THEN '' ELSE superseded_by END,
-		   created_at=CASE WHEN status != 'in_progress' OR COALESCE(superseded_by, '') != '' THEN CURRENT_TIMESTAMP ELSE created_at END
-		 WHERE id = ?`, id)
-	return err
-}
-
 // PhaseRow is one recorded lifecycle phase transition of an execution.
 type PhaseRow struct {
 	Phase string
