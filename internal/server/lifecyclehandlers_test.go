@@ -9,7 +9,6 @@ import (
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/api"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
-	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
 
 func TestGetLifecycleFold(t *testing.T) {
@@ -26,13 +25,9 @@ func TestGetLifecycleFold(t *testing.T) {
 			{Path: "projects/b", Status: events.StatusPlanned, Counts: &events.Counts{Change: 1}},
 		},
 	}
-	if err := store.UpsertInit(db, plan); err != nil {
-		t.Fatal(err)
-	}
+	seedInit(t, a.shell, plan)
 	for _, ph := range []events.Phase{events.PhaseWarming, events.PhasePlanning, events.PhaseReport} {
-		if err := store.UpsertPhase(db, events.PhaseEvent{ID: "plan-1", Phase: ph, PR: 42, Environment: "staging", Context: "plan/staging"}); err != nil {
-			t.Fatal(err)
-		}
+		seedPhase(t, a.shell, events.PhaseEvent{ID: "plan-1", Phase: ph, PR: 42, Environment: "staging", Context: "plan/staging"})
 	}
 	// One recorded gate target still AWAITING → classify result "1 gate", an
 	// approve segment pending, and apply waiting on approval.
@@ -108,17 +103,11 @@ func TestGetLifecycleTerminalSuccessIsDone(t *testing.T) {
 			{Path: "projects/a", Status: events.StatusPlanned, Counts: &events.Counts{Add: 2}},
 		},
 	}
-	if err := store.UpsertInit(db, plan); err != nil {
-		t.Fatal(err)
-	}
+	seedInit(t, a.shell, plan)
 	for _, ph := range []events.Phase{events.PhaseWarming, events.PhasePlanning, events.PhaseReport} {
-		if err := store.UpsertPhase(db, events.PhaseEvent{ID: "plan-1", Phase: ph, PR: 42, Environment: "staging", Context: "plan/staging"}); err != nil {
-			t.Fatal(err)
-		}
+		seedPhase(t, a.shell, events.PhaseEvent{ID: "plan-1", Phase: ph, PR: 42, Environment: "staging", Context: "plan/staging"})
 	}
-	if err := store.SetExecutionStatus(db, "plan-1", "success"); err != nil {
-		t.Fatal(err)
-	}
+	seedTerminalStatus(t, a.shell, "plan-1", "success")
 
 	srv := httptest.NewServer(a.Routes())
 	defer srv.Close()
@@ -155,22 +144,18 @@ func TestGetLifecycleUsesNewestExecutionPerContext(t *testing.T) {
 	a := New(db, &MockGitHub{}, Config{Environment: "staging"})
 
 	for i, id := range []string{"plan-a1", "plan-a2", "plan-a3"} {
-		if err := store.UpsertInit(db, events.Init{
+		seedInit(t, a.shell, events.Init{
 			ID: id, Repo: "o/r", SHA: fmt.Sprintf("sha%d", i), PR: 42, Environment: "staging",
 			Context: "plan/staging",
 			Stacks:  []events.StackState{{Path: "projects/a", Status: events.StatusPlanned, Counts: &events.Counts{Add: 1}}},
-		}); err != nil {
-			t.Fatal(err)
-		}
-		// Deterministic created_at ordering (UpsertInit stamps second-resolution now).
+		})
+		// Deterministic created_at ordering (seedInit's projection stamps second-resolution now).
 		if _, err := db.Exec(`UPDATE executions SET created_at = ? WHERE id = ?`,
 			fmt.Sprintf("2026-07-15 04:%02d:00", 10+i*10), id); err != nil {
 			t.Fatal(err)
 		}
 		for _, ph := range []events.Phase{events.PhaseWarming, events.PhaseLinting, events.PhasePlanning, events.PhaseReport} {
-			if err := store.UpsertPhase(db, events.PhaseEvent{ID: id, Phase: ph, PR: 42, Environment: "staging", Context: "plan/staging"}); err != nil {
-				t.Fatal(err)
-			}
+			seedPhase(t, a.shell, events.PhaseEvent{ID: id, Phase: ph, PR: 42, Environment: "staging", Context: "plan/staging"})
 		}
 	}
 
@@ -207,17 +192,13 @@ func TestGetLifecycleCoalescesRepeatedPhaseKeys(t *testing.T) {
 	db := newServerTestDB(t)
 	a := New(db, &MockGitHub{}, Config{Environment: "staging"})
 
-	if err := store.UpsertInit(db, events.Init{
+	seedInit(t, a.shell, events.Init{
 		ID: "plan-1", Repo: "o/r", SHA: "sha", PR: 42, Environment: "staging",
 		Context: "plan/staging",
 		Stacks:  []events.StackState{{Path: "projects/a", Status: events.StatusPlanned}},
-	}); err != nil {
-		t.Fatal(err)
-	}
+	})
 	for _, ph := range []events.Phase{events.PhaseWarming, events.PhaseLinting, events.PhaseWarming, events.PhasePlanning} {
-		if err := store.UpsertPhase(db, events.PhaseEvent{ID: "plan-1", Phase: ph, PR: 42, Environment: "staging", Context: "plan/staging"}); err != nil {
-			t.Fatal(err)
-		}
+		seedPhase(t, a.shell, events.PhaseEvent{ID: "plan-1", Phase: ph, PR: 42, Environment: "staging", Context: "plan/staging"})
 	}
 
 	srv := httptest.NewServer(a.Routes())
@@ -269,20 +250,16 @@ func TestGetLifecyclePlanOnlyHidesApplySide(t *testing.T) {
 	db := newServerTestDB(t)
 	a := New(db, &MockGitHub{}, Config{Environment: "staging"})
 
-	if err := store.UpsertInit(db, events.Init{
+	seedInit(t, a.shell, events.Init{
 		ID: "plan-1", Repo: "o/r", SHA: "sha", PR: 42, Environment: "staging",
 		Context: "plan/staging",
 		Stacks: []events.StackState{
 			{Path: "projects/a", Status: events.StatusPlanned, Counts: &events.Counts{Add: 1}},
 			{Path: "projects/b", Status: events.StatusPending},
 		},
-	}); err != nil {
-		t.Fatal(err)
-	}
+	})
 	for _, ph := range []events.Phase{events.PhaseWarming, events.PhaseLinting, events.PhasePlanning} {
-		if err := store.UpsertPhase(db, events.PhaseEvent{ID: "plan-1", Phase: ph, PR: 42, Environment: "staging", Context: "plan/staging"}); err != nil {
-			t.Fatal(err)
-		}
+		seedPhase(t, a.shell, events.PhaseEvent{ID: "plan-1", Phase: ph, PR: 42, Environment: "staging", Context: "plan/staging"})
 	}
 
 	out := getLifecycle(t, a, 42)
@@ -319,35 +296,25 @@ func TestGetLifecycleApplyPhasesStayOnApplySide(t *testing.T) {
 	a := New(db, &MockGitHub{}, Config{Environment: "staging"})
 
 	// Finished plan.
-	if err := store.UpsertInit(db, events.Init{
+	seedInit(t, a.shell, events.Init{
 		ID: "plan-1", Repo: "o/r", SHA: "sha", PR: 42, Environment: "staging",
 		Context: "plan/staging",
 		Stacks:  []events.StackState{{Path: "projects/a", Status: events.StatusPlanned, Counts: &events.Counts{Add: 1}}},
-	}); err != nil {
-		t.Fatal(err)
-	}
+	})
 	for _, ph := range []events.Phase{events.PhaseWarming, events.PhasePlanning, events.PhaseClassify, events.PhaseReport} {
-		if err := store.UpsertPhase(db, events.PhaseEvent{ID: "plan-1", Phase: ph, PR: 42, Environment: "staging", Context: "plan/staging"}); err != nil {
-			t.Fatal(err)
-		}
+		seedPhase(t, a.shell, events.PhaseEvent{ID: "plan-1", Phase: ph, PR: 42, Environment: "staging", Context: "plan/staging"})
 	}
-	if err := store.SetExecutionStatus(db, "plan-1", "success"); err != nil {
-		t.Fatal(err)
-	}
+	seedTerminalStatus(t, a.shell, "plan-1", "success")
 	// Apply run mid-warming.
-	if err := store.UpsertInit(db, events.Init{
+	seedInit(t, a.shell, events.Init{
 		ID: "apply-1", Repo: "o/r", SHA: "sha", PR: 42, Environment: "staging",
 		Context: "apply/staging",
 		Stacks: []events.StackState{
 			{Path: "projects/a", Status: events.StatusSafe},
 			{Path: "projects/b", Status: events.StatusPending},
 		},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.UpsertPhase(db, events.PhaseEvent{ID: "apply-1", Phase: events.PhaseWarming, PR: 42, Environment: "staging", Context: "apply/staging"}); err != nil {
-		t.Fatal(err)
-	}
+	})
+	seedPhase(t, a.shell, events.PhaseEvent{ID: "apply-1", Phase: events.PhaseWarming, PR: 42, Environment: "staging", Context: "apply/staging"})
 
 	out := getLifecycle(t, a, 42)
 	byKey := map[string]api.LifecyclePhase{}
@@ -395,29 +362,19 @@ func TestGetLifecycleMovesOnlyWhenMovingStacksKnown(t *testing.T) {
 	db := newServerTestDB(t)
 	a := New(db, &MockGitHub{}, Config{Environment: "staging"})
 
-	if err := store.UpsertInit(db, events.Init{
+	seedInit(t, a.shell, events.Init{
 		ID: "plan-1", Repo: "o/r", SHA: "sha", PR: 42, Environment: "staging",
 		Context: "plan/staging",
 		Stacks:  []events.StackState{{Path: "projects/a", Status: events.StatusMoving}},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.UpsertPhase(db, events.PhaseEvent{ID: "plan-1", Phase: events.PhaseReport, PR: 42, Environment: "staging", Context: "plan/staging"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.SetExecutionStatus(db, "plan-1", "success"); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.UpsertInit(db, events.Init{
+	})
+	seedPhase(t, a.shell, events.PhaseEvent{ID: "plan-1", Phase: events.PhaseReport, PR: 42, Environment: "staging", Context: "plan/staging"})
+	seedTerminalStatus(t, a.shell, "plan-1", "success")
+	seedInit(t, a.shell, events.Init{
 		ID: "apply-1", Repo: "o/r", SHA: "sha", PR: 42, Environment: "staging",
 		Context: "apply/staging",
 		Stacks:  []events.StackState{{Path: "projects/a", Status: events.StatusPending}},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.UpsertPhase(db, events.PhaseEvent{ID: "apply-1", Phase: events.PhaseWarming, PR: 42, Environment: "staging", Context: "apply/staging"}); err != nil {
-		t.Fatal(err)
-	}
+	})
+	seedPhase(t, a.shell, events.PhaseEvent{ID: "apply-1", Phase: events.PhaseWarming, PR: 42, Environment: "staging", Context: "apply/staging"})
 
 	out := getLifecycle(t, a, 42)
 	found := false
@@ -439,35 +396,23 @@ func TestGetLifecycleVerifyDoneWhenApplied(t *testing.T) {
 	a := New(db, &MockGitHub{}, Config{Environment: "staging"})
 
 	// Finished plan.
-	if err := store.UpsertInit(db, events.Init{
+	seedInit(t, a.shell, events.Init{
 		ID: "plan-1", Repo: "o/r", SHA: "sha", PR: 42, Environment: "staging",
 		Context: "plan/staging",
 		Stacks:  []events.StackState{{Path: "projects/a", Status: events.StatusPlanned, Counts: &events.Counts{Add: 1}}},
-	}); err != nil {
-		t.Fatal(err)
-	}
+	})
 	for _, ph := range []events.Phase{events.PhaseWarming, events.PhasePlanning, events.PhaseReport} {
-		if err := store.UpsertPhase(db, events.PhaseEvent{ID: "plan-1", Phase: ph, PR: 42, Environment: "staging", Context: "plan/staging"}); err != nil {
-			t.Fatal(err)
-		}
+		seedPhase(t, a.shell, events.PhaseEvent{ID: "plan-1", Phase: ph, PR: 42, Environment: "staging", Context: "plan/staging"})
 	}
-	if err := store.SetExecutionStatus(db, "plan-1", "success"); err != nil {
-		t.Fatal(err)
-	}
+	seedTerminalStatus(t, a.shell, "plan-1", "success")
 	// Finished apply that reached terminal success. No verify execution.
-	if err := store.UpsertInit(db, events.Init{
+	seedInit(t, a.shell, events.Init{
 		ID: "apply-1", Repo: "o/r", SHA: "sha", PR: 42, Environment: "staging",
 		Context: "apply/staging",
 		Stacks:  []events.StackState{{Path: "projects/a", Status: events.StatusSafe}},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.UpsertPhase(db, events.PhaseEvent{ID: "apply-1", Phase: events.PhaseApplying, PR: 42, Environment: "staging", Context: "apply/staging"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.SetExecutionStatus(db, "apply-1", "success"); err != nil {
-		t.Fatal(err)
-	}
+	})
+	seedPhase(t, a.shell, events.PhaseEvent{ID: "apply-1", Phase: events.PhaseApplying, PR: 42, Environment: "staging", Context: "apply/staging"})
+	seedTerminalStatus(t, a.shell, "apply-1", "success")
 
 	out := getLifecycle(t, a, 42)
 	byKey := map[string]api.LifecyclePhase{}
@@ -491,34 +436,24 @@ func TestGetLifecycleScopesToHeadSHA(t *testing.T) {
 	a := New(db, &MockGitHub{}, Config{Environment: "staging"})
 
 	// Previous cycle: plan + apply on sha1, both created earlier.
-	if err := store.UpsertInit(db, events.Init{
+	seedInit(t, a.shell, events.Init{
 		ID: "plan-old", Repo: "o/r", SHA: "sha1", PR: 42, Environment: "staging",
 		Context: "plan/staging",
 		Stacks:  []events.StackState{{Path: "projects/a", Status: events.StatusPlanned}},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.UpsertInit(db, events.Init{
+	})
+	seedInit(t, a.shell, events.Init{
 		ID: "apply-old", Repo: "o/r", SHA: "sha1", PR: 42, Environment: "staging",
 		Context: "apply/staging",
 		Stacks:  []events.StackState{{Path: "projects/a", Status: events.StatusSafe}},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.UpsertPhase(db, events.PhaseEvent{ID: "apply-old", Phase: events.PhaseApplying, PR: 42, Environment: "staging", Context: "apply/staging"}); err != nil {
-		t.Fatal(err)
-	}
+	})
+	seedPhase(t, a.shell, events.PhaseEvent{ID: "apply-old", Phase: events.PhaseApplying, PR: 42, Environment: "staging", Context: "apply/staging"})
 	// New push: a fresh plan on sha2, created latest.
-	if err := store.UpsertInit(db, events.Init{
+	seedInit(t, a.shell, events.Init{
 		ID: "plan-new", Repo: "o/r", SHA: "sha2", PR: 42, Environment: "staging",
 		Context: "plan/staging",
 		Stacks:  []events.StackState{{Path: "projects/a", Status: events.StatusPending}},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.UpsertPhase(db, events.PhaseEvent{ID: "plan-new", Phase: events.PhaseWarming, PR: 42, Environment: "staging", Context: "plan/staging"}); err != nil {
-		t.Fatal(err)
-	}
+	})
+	seedPhase(t, a.shell, events.PhaseEvent{ID: "plan-new", Phase: events.PhaseWarming, PR: 42, Environment: "staging", Context: "plan/staging"})
 	// Deterministic ordering: old cycle before the new plan.
 	for id, ts := range map[string]string{
 		"plan-old":  "2026-07-15 04:00:00",
@@ -570,13 +505,9 @@ func getLifecycle(t *testing.T, a *App, pr int) []api.LifecyclePhase {
 func TestGetLifecycleUnknownPhasePassesThrough(t *testing.T) {
 	db := newServerTestDB(t)
 	a := New(db, &MockGitHub{}, Config{Environment: "staging"})
-	if err := store.UpsertInit(db, events.Init{ID: "plan-1", PR: 7, Environment: "staging", Context: "plan/staging"}); err != nil {
-		t.Fatal(err)
-	}
+	seedInit(t, a.shell, events.Init{ID: "plan-1", PR: 7, Environment: "staging", Context: "plan/staging"})
 	// A phase with no canonical mapping must still appear (generic passthrough).
-	if err := store.UpsertPhase(db, events.PhaseEvent{ID: "plan-1", Phase: events.PhaseLinting, PR: 7, Environment: "staging", Context: "plan/staging"}); err != nil {
-		t.Fatal(err)
-	}
+	seedPhase(t, a.shell, events.PhaseEvent{ID: "plan-1", Phase: events.PhaseLinting, PR: 7, Environment: "staging", Context: "plan/staging"})
 	srv := httptest.NewServer(a.Routes())
 	defer srv.Close()
 	resp, err := http.Get(srv.URL + "/api/lifecycle?pr=7")

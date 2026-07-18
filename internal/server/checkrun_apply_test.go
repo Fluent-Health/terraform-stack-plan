@@ -281,7 +281,7 @@ func TestApplyDrivePersistsFailureStatus(t *testing.T) {
 //   - one stack failed → failure conclusion
 //
 // Harness mirrors checkrun_apply_test.go: newServerTestDB + MockGitHub +
-// store.UpsertInit with terminal stack statuses + store.SetCheckRunID + driveApply.
+// seedInit with terminal stack statuses + store.SetCheckRunID + driveApply.
 func TestDriveApplyVerdict(t *testing.T) {
 	cases := []struct {
 		name      string
@@ -318,22 +318,18 @@ func TestDriveApplyVerdict(t *testing.T) {
 			for i, st := range c.stacks {
 				ss[i] = events.StackState{Path: fmt.Sprintf("s%d", i), Status: st}
 			}
-			if err := store.UpsertInit(db, events.Init{
+			seedInit(t, a.shell, events.Init{
 				ID:          id,
 				Repo:        "o/r",
 				Context:     "apply/nonprod",
 				Environment: "nonprod",
 				Stacks:      ss,
-			}); err != nil {
-				t.Fatalf("UpsertInit: %v", err)
-			}
+			})
 			if err := store.SetCheckRunID(db, id, 77); err != nil {
 				t.Fatalf("SetCheckRunID: %v", err)
 			}
 			if c.execState != "" {
-				if err := store.SetExecutionStatus(db, id, c.execState); err != nil {
-					t.Fatalf("SetExecutionStatus: %v", err)
-				}
+				seedTerminalStatus(t, a.shell, id, c.execState)
 			}
 			e, err := store.GetExecution(db, id)
 			if err != nil {

@@ -24,18 +24,6 @@ func React(state ChangeSet, evs []Event) []Action {
 
 	for _, e := range evs {
 		switch ev := e.(type) {
-		case ExecutionStarted, PhaseChanged, StackStatusChanged:
-			// Non-terminal in-progress render (precedence 1).
-			if renderPrec < 1 {
-				renderPrec = 1
-				renderAction = RenderCheckRun{}
-			}
-		case ExecutionFailed:
-			// Terminal failure render (precedence 3 — highest).
-			if renderPrec < 3 {
-				renderPrec = 3
-				renderAction = RenderCheckRun{Terminal: true, Conclusion: "failure"}
-			}
 		case GatePassed:
 			// Terminal success render (precedence 2).
 			if renderPrec < 2 {

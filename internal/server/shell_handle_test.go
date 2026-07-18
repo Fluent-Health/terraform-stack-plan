@@ -18,9 +18,7 @@ func TestHandleFinalizeRequestsAllGatesViaFixpoint(t *testing.T) {
 	sh := NewShell(app)
 
 	// Seed an execution so renders have something to drive.
-	if err := store.UpsertInit(app.db, events.Init{ID: "e1", PR: 7, Environment: "staging", Repo: "r"}); err != nil {
-		t.Fatal(err)
-	}
+	seedInit(t, sh, events.Init{ID: "e1", PR: 7, Environment: "staging", Repo: "r"})
 
 	err := sh.Handle(context.Background(), 7, "staging", "r", reconcile.RunnerFinalize{
 		Gates: []events.GateTarget{{Class: "iam", Target: "p1"}, {Class: "iam", Target: "p2"}},

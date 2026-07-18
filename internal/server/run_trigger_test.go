@@ -323,9 +323,7 @@ func TestWatchdogFailsVanishedBuild(t *testing.T) {
 // itself (no serve run in the stream) are not the watchdog's business.
 func TestWatchdogIgnoresRunnerCreatedExecutions(t *testing.T) {
 	a, _, _ := newRunTriggerApp(t)
-	if err := store.UpsertInit(a.db, events.Init{ID: "runner-e1", PR: 9, Environment: "nonprod", Repo: "o/r"}); err != nil {
-		t.Fatal(err)
-	}
+	seedInit(t, a.shell, events.Init{ID: "runner-e1", PR: 9, Environment: "nonprod", Repo: "o/r"})
 	if _, err := a.db.Exec(`UPDATE executions SET created_at = datetime('now', '-1 hour') WHERE id = 'runner-e1'`); err != nil {
 		t.Fatal(err)
 	}
@@ -428,12 +426,10 @@ func TestRunnerInitSupersedesQueuedRow(t *testing.T) {
 func TestQueuedRowDoesNotShadowPlanForApplyLock(t *testing.T) {
 	a, _, srv := newRunTriggerApp(t)
 	// A real plan with stacks…
-	if err := store.UpsertInit(a.db, events.Init{
+	seedInit(t, a.shell, events.Init{
 		ID: "real-plan", Repo: "o/r", SHA: "sha-zero", PR: 7, Environment: "nonprod",
 		Stacks: []events.StackState{{Path: "stacks/a"}, {Path: "stacks/b"}},
-	}); err != nil {
-		t.Fatal(err)
-	}
+	})
 	// …then a queued run row lands on top.
 	webhookReq(t, srv, whSecret, "pull_request", prSyncPayload(7, "sha-one")).Body.Close()
 
@@ -510,7 +506,7 @@ func TestRunnerRecoveryAfterFalseStartFailure(t *testing.T) {
 	}
 
 	// The build ran anyway: runner revives the row and finalizes clean.
-	if err := store.SetExecutionStatus(a.db, execID, "in_progress"); err != nil {
+	if err := store.ReviveExecution(a.db, execID); err != nil {
 		t.Fatal(err)
 	}
 	if err := a.shell.Handle(context.Background(), 7, "nonprod", "o/r", reconcile.RunnerFinalize{}); err != nil {
@@ -547,9 +543,7 @@ func TestCheckSuiteRerequestedRerunsOnlyFailedRuns(t *testing.T) {
 	}
 
 	// Fail the run; the same suite re-request now starts a fresh attempt.
-	if err := store.SetExecutionStatus(a.db, id, "failure"); err != nil {
-		t.Fatal(err)
-	}
+	seedTerminalStatus(t, a.shell, id, "failure")
 	webhookReq(t, srv, whSecret, "check_suite", suite).Body.Close()
 	if len(fe.starts) != 2 {
 		t.Fatalf("failed run should re-run on suite re-request: starts = %+v", fe.starts)

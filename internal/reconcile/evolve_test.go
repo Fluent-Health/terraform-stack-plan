@@ -8,36 +8,6 @@ import (
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 )
 
-func TestEvolveExecutionStartedSetsExecAndDefaultsGate(t *testing.T) {
-	exec := Execution{ID: "e1", Stacks: []Stack{{Path: "a"}}}
-	got := Evolve(ChangeSet{}, ExecutionStarted{Exec: exec})
-	if !reflect.DeepEqual(got.Exec, exec) {
-		t.Fatalf("exec not folded: %+v", got.Exec)
-	}
-	if _, ok := got.Gate.(NotClassified); !ok {
-		t.Fatalf("gate should default to NotClassified, got %T", got.Gate)
-	}
-}
-
-func TestEvolveExecutionStartedKeepsExistingGate(t *testing.T) {
-	prior := ChangeSet{Gate: Clean{}}
-	got := Evolve(prior, ExecutionStarted{Exec: Execution{ID: "e1"}})
-	if _, ok := got.Gate.(Clean); !ok {
-		t.Fatalf("existing gate must be preserved, got %T", got.Gate)
-	}
-}
-
-func TestEvolveStackStatusChanged(t *testing.T) {
-	prior := ChangeSet{Exec: Execution{Stacks: []Stack{{Path: "a"}, {Path: "b"}}}}
-	got := Evolve(prior, StackStatusChanged{Stack: "b", Status: events.StatusFailed, Detail: "boom"})
-	if got.Exec.Stacks[1].RunStatus != events.StatusFailed || got.Exec.Stacks[1].Detail != "boom" {
-		t.Fatalf("stack b not updated: %+v", got.Exec.Stacks[1])
-	}
-	if got.Exec.Stacks[0].RunStatus == events.StatusFailed {
-		t.Fatalf("stack a wrongly mutated")
-	}
-}
-
 func TestEvolveGateSatisfied(t *testing.T) {
 	prior := ChangeSet{Gate: Pending{Targets: []Target{{Class: "c", Target: "t", Grant: approval.StateActive}}}}
 	got := Evolve(prior, GateSatisfied{})
@@ -89,11 +59,6 @@ func TestEvolveGateReleasedAndPassedBothClean(t *testing.T) {
 // properties. Extend it whenever a new Event is added.
 func corpus() []Event {
 	return []Event{
-		ExecutionStarted{Exec: Execution{Stacks: []Stack{{Path: "a"}}}},
-		PhaseChanged{Phase: events.PhaseApplying},
-		StackStatusChanged{Stack: "a", Status: events.StatusRunning},
-		ExecutionFailed{},
-		StacksClassified{Projects: map[string]string{"a": "p"}},
 		Classified{Gates: []events.GateTarget{{Class: "c", Target: "t"}}},
 		GrantObserved{Class: "c", Target: "t", Name: "g1", State: approval.StateActive, Requester: "sa"},
 		GrantCleared{Class: "c", Target: "t"},

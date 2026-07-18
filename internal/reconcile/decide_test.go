@@ -11,30 +11,25 @@ import (
 // --- RunnerFinalize ---
 
 func TestDecideFinalizeFailed(t *testing.T) {
-	cs := ChangeSet{Exec: Execution{Stacks: []Stack{{Path: "a", RunStatus: events.StatusRunning}}}}
+	cs := ChangeSet{}
 	got := Decide(cs, RunnerFinalize{Failed: true})
-	if len(got) != 1 {
-		t.Fatalf("want 1 event, got %#v", got)
-	}
-	if _, ok := got[0].(ExecutionFailed); !ok {
-		t.Fatalf("want ExecutionFailed, got %T", got[0])
+	if len(got) != 0 {
+		t.Fatalf("want no gate events for a failed run, got %#v", got)
 	}
 }
 
 func TestDecideFinalizeCleanGatePassed(t *testing.T) {
-	cs := ChangeSet{Exec: Execution{Stacks: []Stack{{Path: "a"}}}}
-	got := Decide(cs, RunnerFinalize{Projects: map[string]string{"a": "p"}})
-	// StacksClassified backfill + GatePassed
+	cs := ChangeSet{}
+	got := Decide(cs, RunnerFinalize{})
 	if _, ok := got[len(got)-1].(GatePassed); !ok {
 		t.Fatalf("want trailing GatePassed, got %#v", got)
 	}
 }
 
 func TestDecideFinalizeGatedRequestsFirst(t *testing.T) {
-	cs := ChangeSet{PR: 7, Environment: "nonprod", Exec: Execution{Stacks: []Stack{{Path: "a"}}}}
+	cs := ChangeSet{PR: 7, Environment: "nonprod"}
 	got := Decide(cs, RunnerFinalize{
-		Projects: map[string]string{"a": "p"},
-		Gates:    []events.GateTarget{{Class: "c", Target: "t"}},
+		Gates: []events.GateTarget{{Class: "c", Target: "t"}},
 	})
 	var hasClassified, hasRequest bool
 	for _, e := range got {
@@ -170,29 +165,6 @@ func TestDecideFinalizeCarryForwardAllAwaitingNoSatisfy(t *testing.T) {
 	}
 	if len(eventsOf[GateTargetRequested](got)) != 0 {
 		t.Fatalf("open AWAITING target must not be re-requested, got %#v", got)
-	}
-}
-
-func TestDecideRunnerInitEmitsExecutionStarted(t *testing.T) {
-	exec := Execution{ID: "e1"}
-	got := Decide(ChangeSet{}, RunnerInit{Exec: exec})
-	want := []Event{ExecutionStarted{Exec: exec}}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("got %#v want %#v", got, want)
-	}
-}
-
-func TestDecideRunnerPhaseEmitsPhaseChanged(t *testing.T) {
-	got := Decide(ChangeSet{}, RunnerPhase{Phase: events.PhaseApplying})
-	if len(got) != 1 || got[0] != (PhaseChanged{Phase: events.PhaseApplying}) {
-		t.Fatalf("got %#v", got)
-	}
-}
-
-func TestDecideRunnerUpdateEmitsStackStatusChanged(t *testing.T) {
-	got := Decide(ChangeSet{}, RunnerUpdate{Stack: "a", Status: events.StatusRunning, Detail: "d"})
-	if len(got) != 1 || got[0] != (StackStatusChanged{Stack: "a", Status: events.StatusRunning, Detail: "d"}) {
-		t.Fatalf("got %#v", got)
 	}
 }
 

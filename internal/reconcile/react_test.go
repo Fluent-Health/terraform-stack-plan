@@ -10,16 +10,8 @@ import (
 
 // --- RunnerFinalize React tests ---
 
-func TestReactExecutionFailedRendersFailure(t *testing.T) {
-	got := React(ChangeSet{}, []Event{ExecutionFailed{}})
-	want := []Action{RenderCheckRun{Terminal: true, Conclusion: "failure"}, PublishSSE{}}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("got %#v want %#v", got, want)
-	}
-}
-
 func TestReactGatePassedRendersSuccess(t *testing.T) {
-	got := React(ChangeSet{Gate: Clean{}}, []Event{StacksClassified{}, GatePassed{}})
+	got := React(ChangeSet{Gate: Clean{}}, []Event{GatePassed{}})
 	want := []Action{RenderCheckRun{Terminal: true, Conclusion: "success"}, PublishSSE{}}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %#v want %#v", got, want)
@@ -28,7 +20,6 @@ func TestReactGatePassedRendersSuccess(t *testing.T) {
 
 func TestReactGatedFinalizeRequestsAndRenders(t *testing.T) {
 	evs := []Event{
-		StacksClassified{},
 		Classified{Gates: []events.GateTarget{{Class: "c", Target: "t"}}},
 		GateTargetRequested{Class: "c", Target: "t"},
 	}
@@ -44,14 +35,15 @@ func TestReactGatedFinalizeRequestsAndRenders(t *testing.T) {
 }
 
 func TestReactFailurePrecedenceOverInProgress(t *testing.T) {
-	// ExecutionFailed seen alongside GateTargetRequested: failure wins.
+	// RunStartFailed (precedence 3) seen alongside GateTargetRequested
+	// (precedence 1, plus a RequestGrant action): failure wins the render, but
+	// the RequestGrant action still fires — React accumulates actions
+	// independently of render precedence.
 	evs := []Event{
-		ExecutionFailed{},
+		RunStartFailed{Kind: RunKindPlan, ExecutionID: "e1", Reason: "boom"},
 		GateTargetRequested{Class: "c", Target: "t"},
 	}
 	got := React(ChangeSet{}, evs)
-	// Should only have RenderCheckRun{Terminal:true, Conclusion:"failure"} + SSE
-	// (no RequestGrant because ExecutionFailed path doesn't emit request)
 	var renders []RenderCheckRun
 	for _, a := range got {
 		if r, ok := a.(RenderCheckRun); ok {
@@ -63,16 +55,6 @@ func TestReactFailurePrecedenceOverInProgress(t *testing.T) {
 	}
 	if !renders[0].Terminal || renders[0].Conclusion != "failure" {
 		t.Fatalf("want failure terminal, got %#v", renders[0])
-	}
-}
-
-func TestReactExecEventsRenderNonTerminalAndSSE(t *testing.T) {
-	for _, e := range []Event{ExecutionStarted{}, PhaseChanged{}, StackStatusChanged{}} {
-		got := React(ChangeSet{}, []Event{e})
-		want := []Action{RenderCheckRun{}, PublishSSE{}}
-		if !reflect.DeepEqual(got, want) {
-			t.Fatalf("%T: got %#v want %#v", e, got, want)
-		}
 	}
 }
 
@@ -182,8 +164,12 @@ func TestReactCheckOverride(t *testing.T) {
 		PR: 7, Environment: "staging",
 		CheckOverride: &CheckOverride{CheckName: "check-1", Conclusion: "success"},
 	}
-	got := React(state, []Event{ExecutionStarted{}})
-	want := []Action{RenderCheckRun{Terminal: true, Conclusion: "success"}, PublishSSE{}}
+	got := React(state, []Event{GateTargetRequested{Class: "c", Target: "t"}})
+	want := []Action{
+		RequestGrant{Class: "c", Target: "t"},
+		RenderCheckRun{Terminal: true, Conclusion: "success"},
+		PublishSSE{},
+	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %#v want %#v", got, want)
 	}

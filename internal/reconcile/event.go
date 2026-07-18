@@ -10,21 +10,6 @@ import (
 // Event; React projects that from the event stream. See the Phase 3 design.
 type Event interface{ isEvent() }
 
-// --- execution facts ---
-
-type ExecutionStarted struct{ Exec Execution }
-type PhaseChanged struct{ Phase events.Phase }
-type StackStatusChanged struct {
-	Stack  string
-	Status events.Status
-	Detail string
-}
-type ExecutionFailed struct{}
-type StacksClassified struct {
-	Projects   map[string]string
-	Categories map[string][]events.Category
-}
-
 // --- gate-lifecycle facts ---
 
 // Classified establishes/replaces the gate target set. Evolve carries forward
@@ -134,11 +119,6 @@ type ClaimReleased struct {
 // to avoid colliding with the PRClosed Signal.
 type PRClosedRecorded struct{}
 
-func (ExecutionStarted) isEvent()    {}
-func (PhaseChanged) isEvent()        {}
-func (StackStatusChanged) isEvent()  {}
-func (ExecutionFailed) isEvent()     {}
-func (StacksClassified) isEvent()    {}
 func (Classified) isEvent()          {}
 func (GrantObserved) isEvent()       {}
 func (GrantCleared) isEvent()        {}

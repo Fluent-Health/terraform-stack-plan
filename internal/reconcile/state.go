@@ -7,19 +7,18 @@ package reconcile
 
 import (
 	"github.com/Fluent-Health/terraform-stack-plan/internal/approval"
-	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 )
 
 // ChangeSet is the reconciliation unit: one PR's work in one environment.
 type ChangeSet struct {
 	PR            int
 	Environment   string
-	Exec          Execution
 	Gate          GateState
 	CheckOverride *CheckOverride
 	// Runs tracks serve-initiated CI runs, keyed by kind (plan/apply). Only
 	// the run-start lifecycle lives here (webhook → build started); once the
-	// runner reports, Exec carries the execution facts as before.
+	// runner reports, the internal/execution aggregate (stream "run:<execID>")
+	// carries the execution facts.
 	Runs map[string]Run
 }
 
@@ -63,26 +62,6 @@ const (
 // Live reports whether the run is still in flight (may be superseded/cancelled).
 func (r Run) Live() bool {
 	return r.Phase == RunPhaseQueued || r.Phase == RunPhaseStarted
-}
-
-// Execution is the plan/apply run for the ChangeSet (edge-triggered facts).
-type Execution struct {
-	ID     string
-	Repo   string
-	SHA    string
-	LogURL string
-	Phase  events.Phase
-	Stacks []Stack
-}
-
-// Stack is one node. RunStatus holds ONLY the runner-told statuses; the
-// gated/safe overlay is derived from the ChangeSet's GateState (see project.go).
-type Stack struct {
-	Path       string
-	Project    string
-	RunStatus  events.Status // pending|running|planned|failed|moving (never gated/safe)
-	Detail     string
-	Categories []events.Category
 }
 
 // Lease is the pooled requester identity leased once per ChangeSet. Empty

@@ -38,7 +38,7 @@ func TestSnapshotRoundTripsEveryGateVariant(t *testing.T) {
 		Blocked{Targets: []Target{{Class: "c", Target: "t", Grant: approval.StateRevoked}}, Lease: Lease{Requester: "sa"}, By: Blocker{Reason: ReasonSlotForeign, ByPR: 9, ByEnv: "prod"}},
 	}
 	for _, g := range gates {
-		cs := ChangeSet{PR: 7, Environment: "nonprod", Exec: Execution{ID: "e1", Stacks: []Stack{{Path: "a", RunStatus: events.StatusPlanned}}}, Gate: g}
+		cs := ChangeSet{PR: 7, Environment: "nonprod", Gate: g}
 		b, err := MarshalSnapshot(cs)
 		if err != nil {
 			t.Fatalf("marshal snapshot %T: %v", g, err)
@@ -57,7 +57,6 @@ func TestSnapshotRoundTripsEveryGateVariant(t *testing.T) {
 // and confirm equality; fold twice and confirm equality.
 func TestReplayDeterminismAndSnapshotEqualsFold(t *testing.T) {
 	evs := []Event{
-		StacksClassified{Projects: map[string]string{"a": "proj-a"}},
 		Classified{Gates: []events.GateTarget{{Class: "iam", Target: "proj-a"}}},
 		GateTargetRequested{Class: "iam", Target: "proj-a", Requester: "sa"},
 		GrantObserved{Class: "iam", Target: "proj-a", Name: "g1", State: approval.StateActive, Requester: "sa"},

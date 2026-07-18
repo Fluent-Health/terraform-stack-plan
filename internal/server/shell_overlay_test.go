@@ -27,7 +27,7 @@ func stackStatus(t *testing.T, sh *Shell, execID, path string) string {
 func seedExec(t *testing.T, sh *Shell) {
 	t.Helper()
 	// One gated stack (project p1) + one ungated stack (project other) + one failed.
-	err := store.UpsertInit(sh.app.db, events.Init{
+	seedInit(t, sh, events.Init{
 		ID: "e1", PR: 7, Environment: "staging", Repo: "r",
 		Stacks: []events.StackState{
 			{Path: "s1", Project: "p1", Status: events.StatusPlanned},
@@ -35,9 +35,6 @@ func seedExec(t *testing.T, sh *Shell) {
 			{Path: "s3", Project: "p1", Status: events.StatusFailed},
 		},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 }
 
 func TestSaveWritesGatedOverlay(t *testing.T) {
@@ -89,7 +86,7 @@ func TestSaveWritesSafeOverlayWhenSatisfied(t *testing.T) {
 // it (restoring the old gated-wins-over-moving precedence).
 func seedExecWithAbortedAndMoving(t *testing.T, sh *Shell) {
 	t.Helper()
-	err := store.UpsertInit(sh.app.db, events.Init{
+	seedInit(t, sh, events.Init{
 		ID: "e1", PR: 7, Environment: "staging", Repo: "r",
 		Stacks: []events.StackState{
 			{Path: "s1", Project: "p1", Status: events.StatusPlanned},
@@ -99,9 +96,6 @@ func seedExecWithAbortedAndMoving(t *testing.T, sh *Shell) {
 			{Path: "s5", Project: "p1", Status: events.StatusMoving},
 		},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 }
 
 // TestSaveOverlaySkipsAborted pins problem 1: aborted is exec-terminal (set by

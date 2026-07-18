@@ -37,7 +37,7 @@ func TestPRMergeStateNoPlan(t *testing.T) {
 
 func TestPRMergeStateClear(t *testing.T) {
 	a := newPRMergeStateTestApp(t)
-	seedPlan(t, a.db, 7, "prod", "o/r", "sha1", []string{"a", "b"})
+	seedPlan(t, a, 7, "prod", "o/r", "sha1", []string{"a", "b"})
 	if err := store.SetReport(a.db, "sha1-prod", "# report"); err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +55,7 @@ func TestPRMergeStateClear(t *testing.T) {
 
 func TestPRMergeStateHeld(t *testing.T) {
 	a := newPRMergeStateTestApp(t)
-	seedPlan(t, a.db, 7, "prod", "o/r", "sha1", []string{"a", "b"})
+	seedPlan(t, a, 7, "prod", "o/r", "sha1", []string{"a", "b"})
 	if err := store.SetReport(a.db, "sha1-prod", "# report"); err != nil {
 		t.Fatal(err)
 	}

@@ -11,12 +11,6 @@ import (
 // s to the prior state. All business logic lives here; Evolve only folds.
 func Decide(state ChangeSet, s Signal) []Event {
 	switch sig := s.(type) {
-	case RunnerInit:
-		return []Event{ExecutionStarted{Exec: sig.Exec}}
-	case RunnerPhase:
-		return []Event{PhaseChanged{Phase: sig.Phase}}
-	case RunnerUpdate:
-		return []Event{StackStatusChanged{Stack: sig.Stack, Status: sig.Status, Detail: sig.Detail}}
 	case RunnerFinalize:
 		return append(runCompletionEvents(state, sig.ApplyContext), decideFinalize(state, sig)...)
 	case GrantsObserved:
@@ -59,21 +53,24 @@ func Decide(state ChangeSet, s Signal) []Event {
 	}
 }
 
-// decideFinalize implements the three RunnerFinalize outcomes:
-//   - failed: emit ExecutionFailed (Evolve fails-open stacks).
-//   - clean (effective gate empty): emit StacksClassified + GatePassed.
-//   - gated: emit StacksClassified + Classified{effective} + TargetRevoked for
-//     each pruned dropped target (plan-authoritative only) + GateTargetRequested
-//     for the first target lacking a carried-forward live grant, OR GateSatisfied
+// decideFinalize implements the three RunnerFinalize outcomes (the gate-only
+// half of a runner finalize; execution-lifecycle facts — including the
+// StacksAnnotated equivalent of the old StacksClassified backfill — are
+// handled by the internal/execution aggregate, not here):
+//   - failed: no gate events (the gate is untouched by a failed run).
+//   - clean (effective gate empty): emit GatePassed.
+//   - gated: emit Classified{effective} + TargetRevoked for each pruned
+//     dropped target (plan-authoritative only) + GateTargetRequested for the
+//     first target lacking a carried-forward live grant, OR GateSatisfied
 //     when every target is already ACTIVE (carried-forward all-ACTIVE path).
 //
-// decideFinalize computes the gate/exec events for a RunnerFinalize signal.
+// decideFinalize computes the gate events for a RunnerFinalize signal.
 func decideFinalize(state ChangeSet, f RunnerFinalize) []Event {
 	if f.Failed {
-		return []Event{ExecutionFailed{}}
+		return nil
 	}
 
-	evs := []Event{StacksClassified{Projects: f.Projects, Categories: f.Categories}}
+	var evs []Event
 
 	prior := priorTargets(state.Gate)
 

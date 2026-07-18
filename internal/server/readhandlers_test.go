@@ -302,10 +302,7 @@ func TestInspectOverview(t *testing.T) {
 	}
 
 	// Seed an execution
-	initErr := store.UpsertInit(db, events.Init{ID: "exec-123", PR: 7, Environment: "staging", Repo: "fluent/repo", SHA: "abcdef"})
-	if initErr != nil {
-		t.Fatal(initErr)
-	}
+	seedInit(t, a.shell, events.Init{ID: "exec-123", PR: 7, Environment: "staging", Repo: "fluent/repo", SHA: "abcdef"})
 
 	srv := httptest.NewServer(a.Routes())
 	defer srv.Close()

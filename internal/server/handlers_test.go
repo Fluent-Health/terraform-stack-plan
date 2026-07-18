@@ -212,7 +212,7 @@ func TestFinalizeStoresPerStackPlan(t *testing.T) {
 	srv := httptest.NewServer(a.Routes())
 	defer srv.Close()
 
-	_ = store.UpsertInit(db, events.Init{ID: "e1", Repo: "o/r", Environment: "staging",
+	post(t, srv, "/api/init", events.Init{ID: "e1", Repo: "o/r", Environment: "staging",
 		Stacks: []events.StackState{{Path: "stacks/a"}}})
 	post(t, srv, "/api/finalize", events.Finalize{
 		ID:             "e1",
@@ -498,12 +498,10 @@ func TestInitRecoversPRFromSHAWhenMissing(t *testing.T) {
 	a, _, srv := newRunTriggerApp(t)
 
 	// A serve-queued plan run already exists for PR 12 at sha "deadbeefcafe".
-	if err := store.UpsertInit(a.db, events.Init{
+	seedInit(t, a.shell, events.Init{
 		ID: "run-12-nonprod-plan-deadbeefcafe-a1", Repo: "o/r", SHA: "deadbeefcafe",
 		PR: 12, Environment: "nonprod", Context: "plan/nonprod",
-	}); err != nil {
-		t.Fatal(err)
-	}
+	})
 
 	// A rerun's runner reports Init with pr=0 (lost _PR_NUMBER) and an empty gate
 	// context, same env + sha.
