@@ -9,8 +9,12 @@ import (
 
 // HandleExec processes one execution-lifecycle signal for execID: gather (replay)
 // → Decide → fold (Evolve) → persist (append + snapshot) → project. Serialized per
-// execID. The exec lock and the (pr,env) gate lock are always acquired
-// sequentially (never nested), so the two aggregates cannot deadlock.
+// execID. Lock ordering is strictly one-directional — gate-before-exec, never the
+// reverse: the run-trigger path holds the (pr,env) gate lock across
+// execute→materializeRun→HandleExec (so gate is the outer lock there), while the
+// ingest handlers take the exec lock alone. No code ever acquires the gate lock
+// while holding the exec lock, so the two aggregates cannot deadlock. (projectExecution
+// takes no lock.) Preserve this ordering when adding new cross-aggregate paths.
 func (sh *Shell) HandleExec(ctx context.Context, execID string, sig execution.Signal) error {
 	m := sh.execLockFor(execID)
 	m.Lock()
