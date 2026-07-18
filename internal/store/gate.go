@@ -1,5 +1,13 @@
 package store
 
+// gate.go is read/index support over the `gate_targets` PROJECTION. gate_targets
+// is not an authoritative store: it is rebuilt from the folded gate event stream
+// (`exec:<pr>:<env>`) exclusively by server/shell_save.go's project() — the upsert
+// and DeleteTarget (the prune) below are that projection's only writers. Every other
+// function here is a read (cross-PR indexes for the ops/approvals views). Never write
+// gate_targets from a handler; add gate behavior as a reconcile decider transition
+// whose fold project() rebuilds this table. (Verified: issue #227 workstream A4.)
+
 import "database/sql"
 
 // GateTarget holds the per-(class,target) grant state recorded for a (pr,
