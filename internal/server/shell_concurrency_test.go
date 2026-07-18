@@ -20,9 +20,7 @@ func TestConcurrentFinalizeAndTickNoPrematureSatisfied(t *testing.T) {
 	fake.Pool = []string{"sa0", "sa1"}
 	app.Approval = fake
 	sh := NewShell(app)
-	if err := store.UpsertInit(app.db, events.Init{ID: "e1", PR: 7, Environment: "staging", Repo: "r"}); err != nil {
-		t.Fatal(err)
-	}
+	seedInit(t, sh, events.Init{ID: "e1", PR: 7, Environment: "staging", Repo: "r"})
 
 	var wg sync.WaitGroup
 	wg.Add(2)

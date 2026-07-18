@@ -90,6 +90,7 @@ func seedProjectionTarget(t *testing.T, db *sql.DB, pr int, environment, class, 
 
 func TestLoadSnapshot(t *testing.T) {
 	db := newServerTestDB(t)
+	a := New(db, &MockGitHub{}, Config{})
 	in := events.Init{
 		ID: "e1", Repo: "o/r", SHA: "sha", PR: 7, Environment: "staging",
 		Stacks: []events.StackState{
@@ -98,9 +99,7 @@ func TestLoadSnapshot(t *testing.T) {
 			{Path: "c"},
 		},
 	}
-	if err := store.UpsertInit(db, in); err != nil {
-		t.Fatal(err)
-	}
+	seedInit(t, a.shell, in)
 	_ = store.SetReport(db, "e1", "# report")
 	// Seed the gate_targets projection directly (same SQL as shell.project) so
 	// loadSnapshot's TargetsFor call sees the expected rows.

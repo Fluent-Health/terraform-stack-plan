@@ -142,9 +142,7 @@ func TestAPIWireCompat(t *testing.T) {
 					LogURL: "https://ci/logs/2",
 					Stacks: []events.StackState{{Path: "stacks/c", Project: "proj-c", Status: events.StatusPlanned}},
 				}
-				if err := store.UpsertInit(db, in); err != nil {
-					t.Fatal(err)
-				}
+				seedInit(t, a.shell, in)
 				seedProjectionTarget(t, db, 8, "staging", "iam", "proj-c", "projects/proj-c/locations/global/entitlements/iam/grants/g1", "ACTIVE", "req@x.iam.gserviceaccount.com")
 			},
 		},
@@ -159,12 +157,10 @@ func TestAPIWireCompat(t *testing.T) {
 			// must be [] (never null — it crashed the UI live on run-759).
 			name: "15b-execution-zero-stacks", method: "GET", path: "/api/execution/e3", token: "tok",
 			seed: func(t *testing.T) {
-				if err := store.UpsertInit(db, events.Init{
+				seedInit(t, a.shell, events.Init{
 					ID: "e3", Repo: "o/r", SHA: "0000aaaa0000", PR: 9, Environment: "staging",
 					LogURL: "https://ci/logs/3",
-				}); err != nil {
-					t.Fatal(err)
-				}
+				})
 				if _, err := db.Exec(`UPDATE executions SET created_at = ? WHERE id = 'e3'`, fixed); err != nil {
 					t.Fatal(err)
 				}

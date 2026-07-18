@@ -203,10 +203,8 @@ func TestLogStreamSSEFallsBackToObjectStoreAfterFinalize(t *testing.T) {
 	db := newServerTestDB(t)
 	a := New(db, &MockGitHub{}, Config{LogsDir: t.TempDir()})
 	a.Objects = newMemObjects()
-	if err := store.UpsertInit(db, events.Init{ID: "e1", Repo: "o/r",
-		Stacks: []events.StackState{{Path: "stacks/a", Status: events.StatusPlanned}}}); err != nil {
-		t.Fatal(err)
-	}
+	seedInit(t, a.shell, events.Init{ID: "e1", Repo: "o/r",
+		Stacks: []events.StackState{{Path: "stacks/a", Status: events.StatusPlanned}}})
 	if err := a.appendLog("e1", "stacks/a", "archived line\n"); err != nil {
 		t.Fatal(err)
 	}
@@ -342,7 +340,7 @@ func TestHandleUpdateTriggersOffloadOnTerminal(t *testing.T) {
 	srv := httptest.NewServer(a.Routes())
 	defer srv.Close()
 
-	_ = store.UpsertInit(db, events.Init{ID: "e1", Repo: "o/r", Environment: "staging",
+	seedInit(t, a.shell, events.Init{ID: "e1", Repo: "o/r", Environment: "staging",
 		Stacks: []events.StackState{{Path: "stacks/a"}}})
 	if err := a.appendLog("e1", "stacks/a", "done log\n"); err != nil {
 		t.Fatal(err)
@@ -390,10 +388,8 @@ func TestFinalizeLogsOffloadsAndDeletesBuffers(t *testing.T) {
 	mem := newMemObjects()
 	a.Objects = mem
 
-	if err := store.UpsertInit(db, events.Init{ID: "e1", Repo: "o/r", SHA: "s",
-		Stacks: []events.StackState{{Path: "stacks/a", Status: events.StatusPlanned}}}); err != nil {
-		t.Fatal(err)
-	}
+	seedInit(t, a.shell, events.Init{ID: "e1", Repo: "o/r", SHA: "s",
+		Stacks: []events.StackState{{Path: "stacks/a", Status: events.StatusPlanned}}})
 	if err := a.appendLog("e1", "stacks/a", "hello\n"); err != nil {
 		t.Fatal(err)
 	}
@@ -484,10 +480,8 @@ func TestCleanLogBuffersUsesInjectedClock(t *testing.T) {
 func TestHandlePlanServe(t *testing.T) {
 	a := New(newServerTestDB(t), &MockGitHub{}, Config{})
 	id := "exec-plan"
-	if err := store.UpsertInit(a.db, events.Init{ID: id, Repo: "o/r", Context: "plan/nonprod", Environment: "nonprod",
-		Stacks: []events.StackState{{Path: "svc/a", Status: events.StatusPlanned}}}); err != nil {
-		t.Fatal(err)
-	}
+	seedInit(t, a.shell, events.Init{ID: id, Repo: "o/r", Context: "plan/nonprod", Environment: "nonprod",
+		Stacks: []events.StackState{{Path: "svc/a", Status: events.StatusPlanned}}})
 	if err := store.UpsertStackOutput(a.db, id, "svc/a", "plan", "", "## changes\n\n- `+ create` thing\n"); err != nil {
 		t.Fatal(err)
 	}
@@ -523,16 +517,13 @@ func TestStreamLogConcludesOnFinalize(t *testing.T) {
 	stackPath := "stacks/a"
 
 	// Seed initial active execution as an apply context
-	err := store.UpsertInit(db, events.Init{
+	seedInit(t, app.shell, events.Init{
 		ID:          execID,
 		PR:          42,
 		Environment: "prod",
 		Repo:        "owner/repo",
 		Context:     "apply",
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 
 	// Create a recorder to capture SSE stream output
 	rec := httptest.NewRecorder()
@@ -553,10 +544,7 @@ func TestStreamLogConcludesOnFinalize(t *testing.T) {
 	app.hub.publish(execID+"|"+stackPath, "starting apply\n")
 
 	// Transition execution to finished status by finalizing
-	err = store.SetExecutionStatus(db, execID, "success")
-	if err != nil {
-		t.Fatal(err)
-	}
+	seedTerminalStatus(t, app.shell, execID, "success")
 
 	// Notify execution changed
 	app.hub.publish("exec:"+execID, "changed")
@@ -585,20 +573,14 @@ func TestStreamLogAlreadyFinishedAtStart(t *testing.T) {
 	stackPath := "stacks/a"
 
 	// Seed an already finished execution (status = success, apply context)
-	err := store.UpsertInit(db, events.Init{
+	seedInit(t, app.shell, events.Init{
 		ID:          execID,
 		PR:          42,
 		Environment: "prod",
 		Repo:        "owner/repo",
 		Context:     "apply",
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = store.SetExecutionStatus(db, execID, "success")
-	if err != nil {
-		t.Fatal(err)
-	}
+	seedTerminalStatus(t, app.shell, execID, "success")
 
 	rec := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/logs/"+execID+"/"+stackPath+"?follow=1", nil)

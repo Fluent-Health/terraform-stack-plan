@@ -23,16 +23,6 @@ func MarshalEvent(e Event) (string, []byte, error) {
 
 func eventTag(e Event) string {
 	switch e.(type) {
-	case ExecutionStarted:
-		return "ExecutionStarted"
-	case PhaseChanged:
-		return "PhaseChanged"
-	case StackStatusChanged:
-		return "StackStatusChanged"
-	case ExecutionFailed:
-		return "ExecutionFailed"
-	case StacksClassified:
-		return "StacksClassified"
 	case Classified:
 		return "Classified"
 	case GrantObserved:
@@ -83,16 +73,6 @@ func eventTag(e Event) string {
 // UnmarshalEvent reverses MarshalEvent.
 func UnmarshalEvent(tag string, data []byte) (Event, error) {
 	switch tag {
-	case "ExecutionStarted":
-		return unmarshalInto[ExecutionStarted](data)
-	case "PhaseChanged":
-		return unmarshalInto[PhaseChanged](data)
-	case "StackStatusChanged":
-		return unmarshalInto[StackStatusChanged](data)
-	case "ExecutionFailed":
-		return unmarshalInto[ExecutionFailed](data)
-	case "StacksClassified":
-		return unmarshalInto[StacksClassified](data)
 	case "Classified":
 		return unmarshalInto[Classified](data)
 	case "GrantObserved":
@@ -154,7 +134,6 @@ func unmarshalInto[T any](data []byte) (Event, error) {
 type snapshotDTO struct {
 	PR            int             `json:"pr"`
 	Environment   string          `json:"environment"`
-	Exec          Execution       `json:"exec"`
 	GateKind      string          `json:"gate_kind"`
 	Gate          json.RawMessage `json:"gate"`
 	Runs          map[string]Run  `json:"runs,omitempty"`
@@ -173,7 +152,7 @@ func MarshalSnapshot(cs ChangeSet) ([]byte, error) {
 		return nil, err
 	}
 	return json.Marshal(snapshotDTO{
-		PR: cs.PR, Environment: cs.Environment, Exec: cs.Exec,
+		PR: cs.PR, Environment: cs.Environment,
 		GateKind: kind, Gate: gateJSON, Runs: cs.Runs,
 		CheckOverride: cs.CheckOverride,
 	})
@@ -205,7 +184,6 @@ func UnmarshalSnapshot(b []byte) (ChangeSet, error) {
 	cs := ChangeSet{
 		PR:            dto.PR,
 		Environment:   dto.Environment,
-		Exec:          dto.Exec,
 		Runs:          dto.Runs,
 		CheckOverride: dto.CheckOverride,
 	}

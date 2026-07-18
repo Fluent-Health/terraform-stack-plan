@@ -9,7 +9,6 @@ import (
 	"github.com/Fluent-Health/terraform-stack-plan/internal/approval"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/reconcile"
-	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
 
 // errListGrantsBackend wraps a Backend but fails every ListGrants — simulates an
@@ -26,9 +25,7 @@ func (errListGrantsBackend) ListGrants(context.Context, string, string) ([]appro
 // performs a live reconcile on top of that stored state.
 func seedGateViaHandle(t *testing.T, a *App) {
 	t.Helper()
-	if err := store.UpsertInit(a.db, events.Init{ID: "e1", PR: 7, Environment: "staging", Repo: "r"}); err != nil {
-		t.Fatal(err)
-	}
+	seedInit(t, a.shell, events.Init{ID: "e1", PR: 7, Environment: "staging", Repo: "r"})
 	// Use a real Fake backend (with no pool) — empty Pool → RequestGrant yields an
 	// AWAITING grant, so the gate stays pending; the projection is written.
 	if err := a.shell.Handle(context.Background(), 7, "staging", "r", reconcile.RunnerFinalize{

@@ -22,9 +22,7 @@ func TestProjectPersistsTargetsAndPrunes(t *testing.T) {
 	sh := NewShell(app)
 
 	// Seed an execution so the shell has a PR/env to work with.
-	if err := store.UpsertInit(app.db, events.Init{ID: "e1", PR: 7, Environment: "staging", Repo: "r"}); err != nil {
-		t.Fatal(err)
-	}
+	seedInit(t, sh, events.Init{ID: "e1", PR: 7, Environment: "staging", Repo: "r"})
 
 	// Drive Handle with TWO gate targets so gate_targets gets TWO persisted rows.
 	if err := sh.Handle(context.Background(), 7, "staging", "r", reconcile.RunnerFinalize{

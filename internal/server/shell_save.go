@@ -77,7 +77,10 @@ func (sh *Shell) project(cs reconcile.ChangeSet, evs []reconcile.Event) error {
 	}
 	// Write the derived gated/safe overlay onto the changeset's stacks (the live
 	// page reads stacks.status). Mirrors the legacy gated-flip + gated→safe flip,
-	// now owned by the gate state. failed/moving always win, so skip them.
+	// now owned by the gate state. failed/aborted are exec-terminal and always
+	// win, so skip them; moving is NOT skipped, so gated/safe wins over moving
+	// for gate-target stacks (this only ever touches gate-target rows via
+	// `project = t.Target`, so a non-gate-target moving stack is untouched).
 	if display := overlayStatus(cs.Gate); display != "" {
 		if execID, ok := store.LatestExecutionID(sh.app.db, cs.PR, cs.Environment); ok {
 			for _, t := range desired {
@@ -86,7 +89,7 @@ func (sh *Shell) project(cs reconcile.ChangeSet, evs []reconcile.Event) error {
 					   WHERE execution_id = ? AND project = ?
 					     AND status NOT IN (?, ?)`,
 					display, execID, t.Target,
-					string(events.StatusFailed), string(events.StatusMoving)); err != nil {
+					string(events.StatusFailed), string(events.StatusAborted)); err != nil {
 					return err
 				}
 			}

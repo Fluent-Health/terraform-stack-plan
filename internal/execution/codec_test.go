@@ -7,14 +7,18 @@ import (
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 )
 
+func intptr(i int) *int { return &i }
+
 // allEventVariants lists every Event variant; the round-trip test below fails if
 // a new variant is added without a codec entry.
 func allEventVariants() []Event {
 	return []Event{
 		Started{Exec: State{ID: "e1", Repo: "r", SHA: "abc", Stacks: []Stack{{Path: "a", RunStatus: events.StatusRunning}}}},
-		PhaseChanged{Phase: events.PhaseApplying},
+		PhaseChanged{Phase: events.PhaseApplying, Label: "applying", Pct: intptr(50), ID: "e1", PR: 7, Environment: "nonprod", Context: "terraform/nonprod", Repo: "r", SHA: "abc"},
 		StackStatusChanged{Stack: "a", Status: events.StatusFailed, Detail: "boom"},
 		Failed{},
+		Succeeded{},
+		StacksAnnotated{Projects: map[string]string{"a": "p"}, Categories: map[string][]events.Category{"a": {events.Category{Name: "iam"}}}, Counts: map[string]events.Counts{"a": {}}, Moving: []string{"b"}},
 	}
 }
 

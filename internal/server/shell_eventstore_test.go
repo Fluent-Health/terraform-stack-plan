@@ -21,9 +21,7 @@ func TestShellAppendsAndReplaysGate(t *testing.T) {
 	ctx := context.Background()
 
 	// A clean (no-gate) finalize: gate should become Clean and be replayable.
-	err := sh.Handle(ctx, 7, "nonprod", "repo", reconcile.RunnerFinalize{
-		Projects: map[string]string{"a": "proj-a"},
-	})
+	err := sh.Handle(ctx, 7, "nonprod", "repo", reconcile.RunnerFinalize{})
 	if err != nil {
 		t.Fatalf("handle finalize: %v", err)
 	}

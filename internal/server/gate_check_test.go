@@ -41,7 +41,7 @@ func TestGateCheckCleanPlannedPasses(t *testing.T) {
 
 	// A clean finalize establishes a classified, zero-gate stream.
 	if err := a.shell.Handle(context.Background(), 7, "nonprod", "repo",
-		reconcile.RunnerFinalize{Projects: map[string]string{"a": "proj-a"}}); err != nil {
+		reconcile.RunnerFinalize{}); err != nil {
 		t.Fatalf("Handle finalize: %v", err)
 	}
 

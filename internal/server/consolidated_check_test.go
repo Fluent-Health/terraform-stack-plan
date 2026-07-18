@@ -60,12 +60,10 @@ func TestConsolidatedCheckHoldsOnOverlappingApply(t *testing.T) {
 
 	// …the runner replays the same execution id and finalizes a clean plan
 	// touching stacks/a.
-	if err := store.UpsertInit(a.db, events.Init{
+	seedInit(t, a.shell, events.Init{
 		ID: id, Repo: "o/r", SHA: "sha-one", PR: 7, Environment: "nonprod",
 		Context: "plan/nonprod", Stacks: []events.StackState{{Path: "stacks/a", Status: events.StatusSafe}},
-	}); err != nil {
-		t.Fatal(err)
-	}
+	})
 	if err := store.SetReport(a.db, id, "report"); err != nil {
 		t.Fatal(err)
 	}
@@ -99,12 +97,10 @@ func TestConsolidatedCheckClearConcludesSuccess(t *testing.T) {
 	a, fe, srv, snap := consolidatedApp(t)
 	webhookReq(t, srv, whSecret, "pull_request", prSyncPayload(7, "sha-one")).Body.Close()
 	id := fe.starts[0].ExecutionID
-	if err := store.UpsertInit(a.db, events.Init{
+	seedInit(t, a.shell, events.Init{
 		ID: id, Repo: "o/r", SHA: "sha-one", PR: 7, Environment: "nonprod",
 		Context: "plan/nonprod", Stacks: []events.StackState{{Path: "stacks/a", Status: events.StatusSafe}},
-	}); err != nil {
-		t.Fatal(err)
-	}
+	})
 	if err := store.SetReport(a.db, id, "report"); err != nil {
 		t.Fatal(err)
 	}
@@ -138,12 +134,10 @@ func TestConsolidatedReleaseFlipsHeldToSuccess(t *testing.T) {
 	}
 	webhookReq(t, srv, whSecret, "pull_request", prSyncPayload(7, "sha-one")).Body.Close()
 	id := fe.starts[0].ExecutionID
-	if err := store.UpsertInit(a.db, events.Init{
+	seedInit(t, a.shell, events.Init{
 		ID: id, Repo: "o/r", SHA: "sha-one", PR: 7, Environment: "nonprod",
 		Context: "plan/nonprod", Stacks: []events.StackState{{Path: "stacks/a", Status: events.StatusSafe}},
-	}); err != nil {
-		t.Fatal(err)
-	}
+	})
 	if code := post(t, srv, "/api/finalize", events.Finalize{ID: id, ReportMarkdown: "report"}); code != 200 {
 		t.Fatalf("finalize = %d", code)
 	}
@@ -200,12 +194,10 @@ func TestArmedTierPostsNoSeparateApplyLockCheck(t *testing.T) {
 
 	// Seed a reported plan for PR 7 in nonprod (stacks present ⇒
 	// LatestReportedExecutionID finds it, prChangedStacks returns ok=true).
-	if err := store.UpsertInit(a.db, events.Init{
+	seedInit(t, a.shell, events.Init{
 		ID: "seed-1", Repo: "o/r", SHA: "sha-zero", PR: 7, Environment: "nonprod",
 		Context: "plan/nonprod", Stacks: []events.StackState{{Path: "stacks/a", Status: events.StatusSafe}},
-	}); err != nil {
-		t.Fatal(err)
-	}
+	})
 
 	webhookReq(t, srv, whSecret, "pull_request", prSyncPayload(7, "sha-one")).Body.Close()
 	mu.Lock()
@@ -243,12 +235,10 @@ func TestMergeGroupCheckNameFollowsArming(t *testing.T) {
 			a.Executor = &fakeExecutor{}
 		}
 		// Reported plan for PR 5 so prChangedStacks resolves the group's stacks.
-		if err := store.UpsertInit(a.db, events.Init{
+		seedInit(t, a.shell, events.Init{
 			ID: "seed-5", Repo: "o/r", SHA: "sha-five", PR: 5, Environment: "nonprod",
 			Context: "plan/nonprod", Stacks: []events.StackState{{Path: "stacks/a", Status: events.StatusSafe}},
-		}); err != nil {
-			t.Fatal(err)
-		}
+		})
 		if err := a.handleMergeGroup(context.Background(), "o/r", "mg-sha", "", "checks_requested"); err != nil {
 			t.Fatal(err)
 		}
@@ -282,12 +272,10 @@ func TestConsolidatedGateLockThenReleaseSucceeds(t *testing.T) {
 	// PR #7 opens a gated plan touching the same stack.
 	webhookReq(t, srv, whSecret, "pull_request", prSyncPayload(7, "sha-one")).Body.Close()
 	id := fe.starts[0].ExecutionID
-	if err := store.UpsertInit(a.db, events.Init{
+	seedInit(t, a.shell, events.Init{
 		ID: id, Repo: "o/r", SHA: "sha-one", PR: 7, Environment: "nonprod",
 		Context: "plan/nonprod", Stacks: []events.StackState{{Path: "stacks/a", Project: "proj-a", Status: events.StatusPlanned}},
-	}); err != nil {
-		t.Fatal(err)
-	}
+	})
 	if code := post(t, srv, "/api/finalize", events.Finalize{
 		ID: id, ReportMarkdown: "report",
 		Gates: []events.GateTarget{{Class: "iam", Target: "proj-a"}},
@@ -349,12 +337,10 @@ func TestSupersededHeldRecordDoesNotResurrectOldCheck(t *testing.T) {
 	// PR #7 opens at sha-one; its plan overlaps PR #3's claim and holds.
 	webhookReq(t, srv, whSecret, "pull_request", prSyncPayload(7, "sha-one")).Body.Close()
 	id1 := fe.starts[0].ExecutionID
-	if err := store.UpsertInit(a.db, events.Init{
+	seedInit(t, a.shell, events.Init{
 		ID: id1, Repo: "o/r", SHA: "sha-one", PR: 7, Environment: "nonprod",
 		Context: "plan/nonprod", Stacks: []events.StackState{{Path: "stacks/a", Status: events.StatusSafe}},
-	}); err != nil {
-		t.Fatal(err)
-	}
+	})
 	if err := store.SetReport(a.db, id1, "report"); err != nil {
 		t.Fatal(err)
 	}
@@ -368,12 +354,10 @@ func TestSupersededHeldRecordDoesNotResurrectOldCheck(t *testing.T) {
 	// PR #7 is superseded by a push to sha-two, which replays the same flow.
 	webhookReq(t, srv, whSecret, "pull_request", prSyncPayload(7, "sha-two")).Body.Close()
 	id2 := fe.starts[1].ExecutionID
-	if err := store.UpsertInit(a.db, events.Init{
+	seedInit(t, a.shell, events.Init{
 		ID: id2, Repo: "o/r", SHA: "sha-two", PR: 7, Environment: "nonprod",
 		Context: "plan/nonprod", Stacks: []events.StackState{{Path: "stacks/a", Status: events.StatusSafe}},
-	}); err != nil {
-		t.Fatal(err)
-	}
+	})
 	if err := store.SetReport(a.db, id2, "report"); err != nil {
 		t.Fatal(err)
 	}
@@ -433,12 +417,10 @@ func TestReevaluateHeldFallsBackToLegacyWhenDisarmed(t *testing.T) {
 
 	// A matching execution row for PR #7 so the legacy path has stacks to read
 	// if it ever needs to resolve them independently of the record.
-	if err := store.UpsertInit(a.db, events.Init{
+	seedInit(t, a.shell, events.Init{
 		ID: "exec-7", Repo: "o/r", SHA: "sha-one", PR: 7, Environment: "nonprod",
 		Context: "plan/nonprod", Stacks: []events.StackState{{Path: "stacks/a", Status: events.StatusSafe}},
-	}); err != nil {
-		t.Fatal(err)
-	}
+	})
 	if err := store.SetCheckRunID(a.db, "exec-7", 4242); err != nil {
 		t.Fatal(err)
 	}
@@ -516,12 +498,10 @@ func TestConsolidatedClearRecordSurvivesFailedPatch(t *testing.T) {
 	}
 	webhookReq(t, srv, whSecret, "pull_request", prSyncPayload(7, "sha-one")).Body.Close()
 	id := fe.starts[0].ExecutionID
-	if err := store.UpsertInit(a.db, events.Init{
+	seedInit(t, a.shell, events.Init{
 		ID: id, Repo: "o/r", SHA: "sha-one", PR: 7, Environment: "nonprod",
 		Context: "plan/nonprod", Stacks: []events.StackState{{Path: "stacks/a", Status: events.StatusSafe}},
-	}); err != nil {
-		t.Fatal(err)
-	}
+	})
 	if code := post(t, srv, "/api/finalize", events.Finalize{ID: id, ReportMarkdown: "report"}); code != 200 {
 		t.Fatalf("finalize = %d", code)
 	}

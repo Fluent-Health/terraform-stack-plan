@@ -36,24 +36,22 @@ func newApplyLockTestApp(t *testing.T) (*App, *recordingGitHub) {
 	return a, gh
 }
 
-// seedPlan upserts an execution with the given stacks so prChangedStacks
+// seedPlan registers an execution with the given stacks so prChangedStacks
 // (and EnvironmentsForPR) finds a plan for (pr, env).
-func seedPlan(t *testing.T, db *sql.DB, pr int, env, repo, headSHA string, stacks []string) {
+func seedPlan(t *testing.T, a *App, pr int, env, repo, headSHA string, stacks []string) {
 	t.Helper()
 	ss := make([]events.StackState, len(stacks))
 	for i, s := range stacks {
 		ss[i] = events.StackState{Path: s}
 	}
-	if err := store.UpsertInit(db, events.Init{
+	seedInit(t, a.shell, events.Init{
 		ID:          headSHA + "-" + env,
 		Repo:        repo,
 		SHA:         headSHA,
 		PR:          pr,
 		Environment: env,
 		Stacks:      ss,
-	}); err != nil {
-		t.Fatalf("seedPlan: %v", err)
-	}
+	})
 }
 
 // recordingGitHub is a test double that records UpdateCheckRun calls
@@ -146,7 +144,7 @@ func TestPostApplyLock(t *testing.T) {
 func TestMergeGroupHeldThenClaim(t *testing.T) {
 	a, gh := newApplyLockTestApp(t)
 	gh.mergeGroupPRs = []int{7}
-	seedPlan(t, a.db, 7, "prod", "o/r", "headPR", []string{"a", "b"}) // helper: Init w/ stacks
+	seedPlan(t, a, 7, "prod", "o/r", "headPR", []string{"a", "b"}) // helper: Init w/ stacks
 	// Another PR holds stack "a" => held (seed via the ledger, the fold backs evalApplyLock).
 	_ = a.shell.handleClaim("prod", claims.AcquireClaim{PR: 5, Stacks: []string{"a"}, Now: time.Now()})
 	if err := a.handleMergeGroup(ctx(), "o/r", "mgsha", "", "checks_requested"); err != nil {
@@ -205,7 +203,7 @@ func TestMergeGroupResolvesPRFromHeadRef(t *testing.T) {
 	gh := &recordingGitHub{}
 	a := New(db, gh, Config{PublicBaseURL: "https://srv", Environment: "prod"})
 	gh.mergeGroupPRs = nil // commits/{sha}/pulls empty for merge-queue temp commits
-	seedPlan(t, a.db, 7, "prod", "o/r", "mgsha", []string{"a"})
+	seedPlan(t, a, 7, "prod", "o/r", "mgsha", []string{"a"})
 	// Another PR holds stack "a" → PR 7's apply must be held (overlap).
 	_ = a.shell.handleClaim("prod", claims.AcquireClaim{PR: 5, Stacks: []string{"a"}, Now: time.Now()})
 	ref := "refs/heads/gh-readonly-queue/main/pr-7-deadbeef"
@@ -235,7 +233,7 @@ func TestMergeGroupPRResolutionError(t *testing.T) {
 func TestPRApplyLockEvaluateAndClaim(t *testing.T) {
 	a, gh := newApplyLockTestApp(t)
 	gh.prHeadSHA = "prhead"
-	seedPlan(t, a.db, 7, "prod", "o/r", "prhead", []string{"a"})
+	seedPlan(t, a, 7, "prod", "o/r", "prhead", []string{"a"})
 	// open/sync: disjoint ⇒ success on PR head.
 	a.handlePRApplyLock(ctx(), "o/r", 7, false)
 	if gh.lastUpdate.Conclusion != "success" {
@@ -263,7 +261,7 @@ func TestApplyFinalizeReleasesClaims(t *testing.T) {
 func TestSweepClaimsOnceReleasesAndReevaluates(t *testing.T) {
 	a, gh := newApplyLockTestApp(t)
 	// A held merge-group check waiting on stack "a" claimed by PR 5 with an expired lease.
-	seedPlan(t, a.db, 7, "prod", "o/r", "mgsha", []string{"a"})
+	seedPlan(t, a, 7, "prod", "o/r", "mgsha", []string{"a"})
 	// Seed via the ledger at a back-dated Now so the lease (Now+Lease()) is already
 	// expired relative to the sweep's a.now() — the fold backs the held re-eval.
 	_ = a.shell.handleClaim("prod", claims.AcquireClaim{PR: 5, Stacks: []string{"a"}, Now: time.Now().Add(-2 * claims.Lease())})
@@ -304,7 +302,7 @@ func TestSweepExpiredClaimsUsesInjectedClock(t *testing.T) {
 // known), since the pull_request webhook fires before the plan registers them.
 func TestPostPlanApplyLockOnFinalize(t *testing.T) {
 	a, gh := newApplyLockTestApp(t)
-	seedPlan(t, a.db, 7, "prod", "o/r", "sha7", []string{"a", "b"})
+	seedPlan(t, a, 7, "prod", "o/r", "sha7", []string{"a", "b"})
 	e, err := store.GetExecution(a.db, "sha7-prod")
 	if err != nil {
 		t.Fatal(err)

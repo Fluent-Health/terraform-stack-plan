@@ -2,7 +2,6 @@ package reconcile
 
 import (
 	"github.com/Fluent-Health/terraform-stack-plan/internal/approval"
-	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 )
 
 // Evolve applies a single domain Event to a ChangeSet, returning the new state.
@@ -11,50 +10,6 @@ import (
 // Evolve reduces them into state.
 func Evolve(cs ChangeSet, e Event) ChangeSet {
 	switch ev := e.(type) {
-
-	// --- execution facts ---
-
-	case ExecutionStarted:
-		cs.Exec = ev.Exec
-		if cs.Gate == nil {
-			cs.Gate = NotClassified{}
-		}
-		return cs
-
-	case PhaseChanged:
-		cs.Exec.Phase = ev.Phase
-		return cs
-
-	case StackStatusChanged:
-		for i := range cs.Exec.Stacks {
-			if cs.Exec.Stacks[i].Path == ev.Stack {
-				cs.Exec.Stacks[i].RunStatus = ev.Status
-				cs.Exec.Stacks[i].Detail = ev.Detail
-			}
-		}
-		return cs
-
-	case ExecutionFailed:
-		for i := range cs.Exec.Stacks {
-			switch cs.Exec.Stacks[i].RunStatus {
-			case events.StatusPending, events.StatusRunning,
-				events.StatusInitializing, events.StatusInitialized:
-				cs.Exec.Stacks[i].RunStatus = events.StatusFailed
-			}
-		}
-		return cs
-
-	case StacksClassified:
-		for i := range cs.Exec.Stacks {
-			p := &cs.Exec.Stacks[i]
-			if proj, ok := ev.Projects[p.Path]; ok {
-				p.Project = proj
-			}
-			if cats, ok := ev.Categories[p.Path]; ok {
-				p.Categories = cats
-			}
-		}
-		return cs
 
 	// --- run-triggering facts ---
 

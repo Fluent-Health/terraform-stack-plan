@@ -101,7 +101,8 @@ func TestReconcileGateFlipsActiveOnApproval(t *testing.T) {
 
 func TestLatestExecutionID(t *testing.T) {
 	db := newServerTestDB(t)
-	_ = store.UpsertInit(db, events.Init{ID: "e1", Repo: "o/r", PR: 7, Environment: "staging"})
+	a := New(db, &MockGitHub{}, Config{})
+	seedInit(t, a.shell, events.Init{ID: "e1", Repo: "o/r", PR: 7, Environment: "staging"})
 	id, ok := store.LatestExecutionID(db, 7, "staging")
 	if !ok || id != "e1" {
 		t.Fatalf("LatestExecutionID = %q, %v", id, ok)
@@ -254,12 +255,8 @@ func TestRevokeOrphansRevokesAcrossEnvironments(t *testing.T) {
 	// targets + their backend grant names (revokeOrphans fires PRClosed, which only
 	// revokes targets that carry a grant name). gather replays this stream — seeding
 	// flat gate_targets rows directly is no longer enough.
-	if err := store.UpsertInit(db, events.Init{ID: "e-np", PR: 7, Environment: "nonprod", Repo: "o/r"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.UpsertInit(db, events.Init{ID: "e-pr", PR: 7, Environment: "prod", Repo: "o/r"}); err != nil {
-		t.Fatal(err)
-	}
+	seedInit(t, a.shell, events.Init{ID: "e-np", PR: 7, Environment: "nonprod", Repo: "o/r"})
+	seedInit(t, a.shell, events.Init{ID: "e-pr", PR: 7, Environment: "prod", Repo: "o/r"})
 	if err := a.shell.Handle(context.Background(), 7, "nonprod", "o/r", reconcile.RunnerFinalize{
 		Gates: []events.GateTarget{{Class: "iam", Target: "proj-a"}}}); err != nil {
 		t.Fatal(err)

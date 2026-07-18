@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
-	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
 
 func TestStatusContext(t *testing.T) {
@@ -281,12 +280,12 @@ func TestOIDCOnlyEnforcedWithoutSecret(t *testing.T) {
 
 func TestRetiredViewerRoutesGone(t *testing.T) {
 	db := newServerTestDB(t)
-	_ = store.UpsertInit(db, events.Init{
+	a := New(db, &MockGitHub{}, Config{})
+	seedInit(t, a.shell, events.Init{
 		ID: "e1", Repo: "o/r", Environment: "staging",
 		Stacks: []events.StackState{{Path: "stacks/a"}},
 	})
 
-	a := New(db, &MockGitHub{}, Config{})
 	srv := httptest.NewServer(a.Routes())
 	defer srv.Close()
 

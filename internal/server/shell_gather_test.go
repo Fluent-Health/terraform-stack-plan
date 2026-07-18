@@ -7,7 +7,6 @@ import (
 	"github.com/Fluent-Health/terraform-stack-plan/internal/approval"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/reconcile"
-	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
 
 // gather no longer maps flat gate_targets rows (mapRawGate is gone) — it replays
@@ -24,9 +23,7 @@ func TestGatherReplaysSatisfied(t *testing.T) {
 	fake.Pool = []string{"sa0", "sa1"}
 	app.Approval = fake
 	sh := NewShell(app)
-	if err := store.UpsertInit(app.db, events.Init{ID: "e1", PR: 7, Environment: "staging", Repo: "r"}); err != nil {
-		t.Fatal(err)
-	}
+	seedInit(t, sh, events.Init{ID: "e1", PR: 7, Environment: "staging", Repo: "r"})
 
 	// Establish the gate (requests grants → Pending).
 	if err := sh.Handle(context.Background(), 7, "staging", "r", reconcile.RunnerFinalize{
@@ -80,9 +77,7 @@ func TestGatherReplaysNotClassifiedForEmptyStream(t *testing.T) {
 // A clean finalize (no gate targets) replays to Clean.
 func TestGatherReplaysCleanForGatelessFinalize(t *testing.T) {
 	sh := newTestShell(t)
-	if err := sh.Handle(context.Background(), 7, "staging", "r", reconcile.RunnerFinalize{
-		Projects: map[string]string{"a": "proj-a"},
-	}); err != nil {
+	if err := sh.Handle(context.Background(), 7, "staging", "r", reconcile.RunnerFinalize{}); err != nil {
 		t.Fatal(err)
 	}
 	world, err := sh.gather(7, "staging")

@@ -7,6 +7,7 @@ import (
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/catalog"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
+	"github.com/Fluent-Health/terraform-stack-plan/internal/execution"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/reconcile"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
@@ -89,7 +90,14 @@ func (a *App) handleInit(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	if err := store.UpsertInit(a.db, in); err != nil {
+	if err := a.shell.HandleExec(r.Context(), in.ID, execution.ReportInit{Exec: execInitFromEvents(in)}); err != nil {
+		http.Error(w, "store init", http.StatusInternalServerError)
+		return
+	}
+	// A fresh Init means this ID's runner is alive again — revive it if a prior
+	// attempt had marked it superseded/terminal (the aggregate's projection
+	// intentionally never touches superseded_by/created_at; see ReviveExecution).
+	if err := store.ReviveExecution(a.db, in.ID); err != nil {
 		http.Error(w, "store init", http.StatusInternalServerError)
 		return
 	}
@@ -140,7 +148,10 @@ func (a *App) handlePhase(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, err)
 		return
 	}
-	if err := store.UpsertPhase(a.db, p); err != nil {
+	if err := a.shell.HandleExec(r.Context(), p.ID, execution.ReportPhase{
+		ID: p.ID, Phase: p.Phase, Label: p.Label, Pct: p.ProgressPct,
+		Repo: p.Repo, SHA: p.SHA, PR: p.PR, Environment: p.Environment, Context: p.Context, LogURL: p.LogURL,
+	}); err != nil {
 		http.Error(w, "store phase", http.StatusInternalServerError)
 		return
 	}
@@ -175,7 +186,7 @@ func (a *App) handleUpdate(w http.ResponseWriter, r *http.Request) {
 		badRequest(w, err)
 		return
 	}
-	if err := store.UpdateStack(a.db, u.ID, u.Stack, u.Status, u.Detail); err != nil {
+	if err := a.shell.HandleExec(r.Context(), u.ID, execution.ReportTick{Stack: u.Stack, Status: u.Status, Detail: u.Detail}); err != nil {
 		http.Error(w, "update stack", http.StatusInternalServerError)
 		return
 	}
@@ -220,20 +231,12 @@ func (a *App) handleFinalize(w http.ResponseWriter, r *http.Request) {
 	if f.Failed {
 		// A stack still pending/running at a failed finalize did not itself fail —
 		// terramate aborted the run (e.g. a parallel sibling 403'd) before it
-		// reached a terminal tick. Mark it `aborted`, not `failed`, so innocent /
-		// no-change stacks are not mislabeled. The run-level failure conclusion
-		// comes from the persisted execution status below, not from counting
-		// failed stacks — so a true orchestrator crash with zero per-stack
-		// failures still concludes failure.
-		if _, err := a.db.Exec(
-			`UPDATE stacks SET status = ? WHERE execution_id = ? AND status IN (?, ?, ?, ?, ?)`,
-			string(events.StatusAborted), f.ID, string(events.StatusPending), string(events.StatusRunning),
-			string(events.StatusInitializing), string(events.StatusInitialized), string(events.StatusMoving)); err != nil {
-			http.Error(w, "mark aborted", http.StatusInternalServerError)
-			return
-		}
-		if err := store.SetExecutionStatus(a.db, f.ID, "failure"); err != nil {
-			http.Error(w, "set failure", http.StatusInternalServerError)
+		// reached a terminal tick. ReportFail's fold marks it `aborted`, not
+		// `failed`, so innocent / no-change stacks are not mislabeled, and sets the
+		// run-level status to "failure" regardless of per-stack counts — so a true
+		// orchestrator crash with zero per-stack failures still concludes failure.
+		if err := a.shell.HandleExec(r.Context(), f.ID, execution.ReportFail{}); err != nil {
+			http.Error(w, "reconcile fail", http.StatusInternalServerError)
 			return
 		}
 		a.drive(r.Context(), f.ID, a.baseURL(r), true)
@@ -250,40 +253,37 @@ func (a *App) handleFinalize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Backfill per-stack target/grouping key from the finalize payload.
-	for path, project := range f.Projects {
-		if _, err := a.db.Exec(
-			`UPDATE stacks SET project = ? WHERE execution_id = ? AND stack_path = ?`,
-			project, f.ID, path); err != nil {
-			http.Error(w, "backfill project", http.StatusInternalServerError)
-			return
-		}
+	// Annotate per-stack target/grouping key, matched categories, operation counts,
+	// and moving (cross-state-move) overlay from the finalize payload — folded by
+	// the execution aggregate and projected in one pass.
+	if err := a.shell.HandleExec(r.Context(), f.ID, execution.ReportAnnotate{
+		Projects: f.Projects, Categories: f.Categories, Counts: f.Counts, Moving: f.Moving,
+	}); err != nil {
+		http.Error(w, "annotate stacks", http.StatusInternalServerError)
+		return
 	}
-
-	// Backfill per-stack matched categories (for the group-DAG badges).
-	for path, cats := range f.Categories {
-		data, _ := json.Marshal(cats)
-		if _, err := a.db.Exec(
-			`UPDATE stacks SET categories = ? WHERE execution_id = ? AND stack_path = ?`,
-			string(data), f.ID, path); err != nil {
-			http.Error(w, "backfill categories", http.StatusInternalServerError)
-			return
-		}
-	}
-
-	// Backfill per-stack operation counts (for the blast-radius bar + op summaries).
-	for path, c := range f.Counts {
-		data, _ := json.Marshal(c)
-		if _, err := a.db.Exec(
-			`UPDATE stacks SET counts = ? WHERE execution_id = ? AND stack_path = ?`,
-			string(data), f.ID, path); err != nil {
-			http.Error(w, "backfill counts", http.StatusInternalServerError)
+	// A non-failed finalize is terminal for plan and verify runs — persist the
+	// run-level success or the execution reads in_progress forever (lifecycle
+	// bar stuck on its last phase, PRs list stuck "planning"). Apply contexts are
+	// excluded: the classify pass emits a mid-apply Finalize; driveApply owns
+	// their terminal status.
+	if !isApplyContext(e.StatusContext) {
+		if err := a.shell.HandleExec(r.Context(), f.ID, execution.ReportSucceed{}); err != nil {
+			http.Error(w, "reconcile succeed", http.StatusInternalServerError)
 			return
 		}
 	}
 
 	// Record the gate targets, request grants, and mark gated stacks — all handled
-	// by the reconcile core's RunnerFinalize transition.
+	// by the reconcile core's RunnerFinalize transition. Runs LAST among the
+	// stack-status writers above: every execution-aggregate HandleExec call
+	// (annotate, succeed) reprojects each stack's status column from its
+	// runner-told RunStatus, which knows nothing about gating — running the gate
+	// overlay after them lets it have the final word on which stacks read
+	// `gated`/`safe`, matching pre-cutover behavior where the gate call's direct
+	// SQL UPDATE was the last writer to stacks.status for this finalize. The
+	// gate overlay also targets stacks by `project`, so the annotate backfill
+	// above (which populates `project`) must land first for it to match any rows.
 	if err := a.shell.Handle(r.Context(), e.PR, e.Environment, e.Repo, reconcile.RunnerFinalize{
 		Gates:        f.Gates,
 		ApplyContext: isApplyContext(e.StatusContext),
@@ -292,32 +292,8 @@ func (a *App) handleFinalize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Mark moving stacks (adopting resources via a cross-state move) — non-gating,
-	// only changes the node from safe to moving. Skip stacks already gated/failed.
-	for _, path := range f.Moving {
-		if _, err := a.db.Exec(
-			`UPDATE stacks SET status = ? WHERE execution_id = ? AND stack_path = ? AND status NOT IN (?, ?)`,
-			string(events.StatusMoving), f.ID, path, string(events.StatusGated), string(events.StatusFailed)); err != nil {
-			http.Error(w, "mark moving", http.StatusInternalServerError)
-			return
-		}
-	}
-
 	if g, gerr := store.LoadGraph(a.db, f.ID); gerr == nil {
 		a.finalizeLogs(r.Context(), f.ID, g.Stacks)
-	}
-	// A non-failed finalize is terminal for plan and verify runs — persist the
-	// run-level success or the execution reads in_progress forever (lifecycle
-	// bar stuck on its last phase, PRs list stuck "planning"). Gate state is
-	// tracked separately (gate_targets), so a still-gated plan is a succeeded
-	// RUN awaiting approval, not a running one. Apply contexts are excluded:
-	// the classify pass emits a mid-apply Finalize; driveApply owns their
-	// terminal status.
-	if !isApplyContext(e.StatusContext) {
-		if err := store.SetExecutionStatus(a.db, f.ID, "success"); err != nil {
-			http.Error(w, "set success", http.StatusInternalServerError)
-			return
-		}
 	}
 	if !isApplyContext(e.StatusContext) && e.PR > 0 && !a.runTriggerArmed() {
 		// Legacy two-check mode only: consolidated tiers render the lock

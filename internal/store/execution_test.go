@@ -1,33 +1,83 @@
 package store
 
 import (
+	"database/sql"
 	"testing"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 )
 
-func sampleInit() events.Init {
-	return events.Init{
-		ID:          "exec-1",
-		Repo:        "owner/repo",
-		SHA:         "abc123",
-		PR:          42,
-		Environment: "staging",
-		LogURL:      "https://ci/log",
-		Context:     "iam/staging",
-		Stacks: []events.StackState{
-			{Path: "stacks/a", Project: "proj-a"}, // status defaults to pending
-			{Path: "stacks/b", Project: "proj-b", Status: events.StatusRunning},
-		},
-		Edges: []events.Edge{{From: "stacks/a", To: "stacks/b"}},
+// sampleExec returns a (ProjectedExecution, []ProjectedStack, [][2]string)
+// triple mirroring the shape shell.projectExecution writes from a folded
+// execution.State — the only path executions/stacks/edges rows are written
+// through now (UpsertInit/UpsertPhase/UpdateStack/SetExecutionStatus were the
+// legacy direct-write authority; the execution aggregate + these Project*
+// functions replaced it, see internal/execution and shell_exec.go).
+func sampleExec() (ProjectedExecution, []ProjectedStack, [][2]string) {
+	e := ProjectedExecution{
+		ID: "exec-1", Repo: "owner/repo", SHA: "abc123", PR: 42,
+		Environment: "staging", LogURL: "https://ci/log", Context: "iam/staging",
+		Status: "in_progress",
+	}
+	stacks := []ProjectedStack{
+		{Path: "stacks/a", Project: "proj-a", Status: events.StatusPending},
+		{Path: "stacks/b", Project: "proj-b", Status: events.StatusRunning},
+	}
+	edges := [][2]string{{"stacks/a", "stacks/b"}}
+	return e, stacks, edges
+}
+
+// seedExec writes an execution + its stacks/edges in one transaction, mirroring
+// shell.projectExecution's write pattern.
+func seedExec(t *testing.T, db *sql.DB, e ProjectedExecution, stacks []ProjectedStack, edges [][2]string) {
+	t.Helper()
+	tx, err := db.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ProjectExecutionRow(tx, e); err != nil {
+		tx.Rollback()
+		t.Fatalf("ProjectExecutionRow: %v", err)
+	}
+	for _, s := range stacks {
+		if err := ProjectStack(tx, e.ID, s); err != nil {
+			tx.Rollback()
+			t.Fatalf("ProjectStack: %v", err)
+		}
+	}
+	for _, ed := range edges {
+		if err := ProjectEdge(tx, e.ID, ed[0], ed[1]); err != nil {
+			tx.Rollback()
+			t.Fatalf("ProjectEdge: %v", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
 	}
 }
 
-func TestUpsertInitAndLoadGraph(t *testing.T) {
-	db := newTestDB(t)
-	if err := UpsertInit(db, sampleInit()); err != nil {
-		t.Fatalf("UpsertInit: %v", err)
+// mustProjectStack projects a single stack update in its own transaction — a
+// convenience for tests that only need to tick one stack after the initial seed.
+func mustProjectStack(t *testing.T, db *sql.DB, execID string, s ProjectedStack) {
+	t.Helper()
+	tx, err := db.Begin()
+	if err != nil {
+		t.Fatal(err)
 	}
+	if err := ProjectStack(tx, execID, s); err != nil {
+		tx.Rollback()
+		t.Fatalf("ProjectStack: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestLoadGraphAfterProjection(t *testing.T) {
+	db := newTestDB(t)
+	e, stacks, edges := sampleExec()
+	seedExec(t, db, e, stacks, edges)
+
 	g, err := LoadGraph(db, "exec-1")
 	if err != nil {
 		t.Fatalf("LoadGraph: %v", err)
@@ -48,113 +98,29 @@ func TestUpsertInitAndLoadGraph(t *testing.T) {
 
 func TestGetExecution(t *testing.T) {
 	db := newTestDB(t)
-	if err := UpsertInit(db, sampleInit()); err != nil {
-		t.Fatal(err)
-	}
-	e, err := GetExecution(db, "exec-1")
+	e, stacks, edges := sampleExec()
+	seedExec(t, db, e, stacks, edges)
+
+	got, err := GetExecution(db, "exec-1")
 	if err != nil {
 		t.Fatalf("GetExecution: %v", err)
 	}
-	if e.Repo != "owner/repo" || e.PR != 42 || e.Environment != "staging" {
-		t.Errorf("execution = %+v", e)
+	if got.Repo != "owner/repo" || got.PR != 42 || got.Environment != "staging" {
+		t.Errorf("execution = %+v", got)
 	}
-	if e.StatusContext != "iam/staging" {
-		t.Errorf("status context = %q", e.StatusContext)
-	}
-}
-
-func TestUpsertPhaseDoesNotClobberIdentity(t *testing.T) {
-	db := newTestDB(t)
-	if err := UpsertInit(db, sampleInit()); err != nil {
-		t.Fatal(err)
-	}
-	pctVal := 45
-	if err := UpsertPhase(db, events.PhaseEvent{
-		ID: "exec-1", Phase: events.PhasePlanning,
-		Label: "planning stacks...", ProgressPct: &pctVal,
-	}); err != nil {
-		t.Fatalf("UpsertPhase: %v", err)
-	}
-	e, err := GetExecution(db, "exec-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if e.Repo != "owner/repo" || e.PR != 42 || e.Environment != "staging" {
-		t.Errorf("phase bump clobbered identity: %+v", e)
-	}
-	if e.Phase != string(events.PhasePlanning) {
-		t.Errorf("phase = %q; want planning", e.Phase)
-	}
-	if !e.ProgressLabel.Valid || e.ProgressLabel.String != "planning stacks..." {
-		t.Errorf("progress label = %v, want planning stacks...", e.ProgressLabel)
-	}
-	if !e.ProgressPct.Valid || e.ProgressPct.Int64 != 45 {
-		t.Errorf("progress pct = %v, want 45", e.ProgressPct)
-	}
-}
-
-func TestUpsertPhaseBeforeInit(t *testing.T) {
-	db := newTestDB(t)
-	if err := UpsertPhase(db, events.PhaseEvent{ID: "exec-9", Phase: events.PhaseWarming}); err != nil {
-		t.Fatalf("UpsertPhase: %v", err)
-	}
-	in := sampleInit()
-	in.ID = "exec-9"
-	if err := UpsertInit(db, in); err != nil {
-		t.Fatalf("UpsertInit after phase: %v", err)
-	}
-	e, err := GetExecution(db, "exec-9")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if e.Repo != "owner/repo" || e.Phase != string(events.PhaseWarming) {
-		t.Errorf("converged row = %+v; want repo set and phase warming preserved", e)
-	}
-}
-
-func TestUpsertInitIsReRunnable(t *testing.T) {
-	db := newTestDB(t)
-	if err := UpsertInit(db, sampleInit()); err != nil {
-		t.Fatal(err)
-	}
-	// A tick advances stack a past pending.
-	if err := UpdateStack(db, "exec-1", "stacks/a", events.StatusFailed, "boom"); err != nil {
-		t.Fatal(err)
-	}
-	// Re-running the same Init is safe: identity intact, no duplicate edges, and
-	// the advanced stack status is preserved (not regressed back to pending).
-	if err := UpsertInit(db, sampleInit()); err != nil {
-		t.Fatalf("re-init: %v", err)
-	}
-	g, err := LoadGraph(db, "exec-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(g.Stacks) != 2 || len(g.Edges) != 1 {
-		t.Fatalf("re-init graph = %d stacks, %d edges; want 2,1 (no duplicates)", len(g.Stacks), len(g.Edges))
-	}
-	if g.Stacks[0].Path != "stacks/a" || g.Stacks[0].Status != events.StatusFailed {
-		t.Errorf("re-init stack a = %+v; want status preserved as failed", g.Stacks[0])
-	}
-	e, err := GetExecution(db, "exec-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if e.Repo != "owner/repo" || e.PR != 42 || e.Environment != "staging" {
-		t.Errorf("re-init clobbered identity: %+v", e)
+	if got.StatusContext != "iam/staging" {
+		t.Errorf("status context = %q", got.StatusContext)
 	}
 }
 
 func TestListExecutions(t *testing.T) {
 	db := newTestDB(t)
-	for _, in := range []events.Init{
+	for _, e := range []ProjectedExecution{
 		{ID: "e1", Repo: "o/r", PR: 1, Environment: "staging"},
 		{ID: "e2", Repo: "o/r", PR: 2, Environment: "prod"},
 		{ID: "e3", Repo: "o/r", PR: 1, Environment: "staging"},
 	} {
-		if err := UpsertInit(db, in); err != nil {
-			t.Fatal(err)
-		}
+		seedExec(t, db, e, nil, nil)
 	}
 
 	all, err := ListExecutions(db, 10)
@@ -188,9 +154,9 @@ func TestListExecutions(t *testing.T) {
 
 func TestLatestVerifyExecutionID(t *testing.T) {
 	db := newTestDB(t)
-	_ = UpsertInit(db, events.Init{ID: "plan-1", Repo: "o/r", PR: 7, Environment: "staging", Context: "plan/staging"})
-	_ = UpsertInit(db, events.Init{ID: "verify-1", Repo: "o/r", PR: 7, Environment: "staging", Context: "verify/staging"})
-	_ = UpsertInit(db, events.Init{ID: "verify-2", Repo: "o/r", PR: 7, Environment: "staging", Context: "verify/staging"})
+	seedExec(t, db, ProjectedExecution{ID: "plan-1", Repo: "o/r", PR: 7, Environment: "staging", Context: "plan/staging"}, nil, nil)
+	seedExec(t, db, ProjectedExecution{ID: "verify-1", Repo: "o/r", PR: 7, Environment: "staging", Context: "verify/staging"}, nil, nil)
+	seedExec(t, db, ProjectedExecution{ID: "verify-2", Repo: "o/r", PR: 7, Environment: "staging", Context: "verify/staging"}, nil, nil)
 
 	id, ok := LatestVerifyExecutionID(db, 7, "staging")
 	if !ok {
@@ -207,9 +173,7 @@ func TestLatestVerifyExecutionID(t *testing.T) {
 
 func TestLoadGraphSurfacesCounts(t *testing.T) {
 	db := newTestDB(t)
-	if err := UpsertInit(db, events.Init{ID: "e1", Stacks: []events.StackState{{Path: "a"}}}); err != nil {
-		t.Fatal(err)
-	}
+	seedExec(t, db, ProjectedExecution{ID: "e1"}, []ProjectedStack{{Path: "a"}}, nil)
 	if _, err := db.Exec(`UPDATE stacks SET counts = ? WHERE execution_id = ? AND stack_path = ?`,
 		`{"add":6,"change":2}`, "e1", "a"); err != nil {
 		t.Fatal(err)
@@ -223,46 +187,20 @@ func TestLoadGraphSurfacesCounts(t *testing.T) {
 	}
 }
 
-func TestUpsertInitPreservesStatus(t *testing.T) {
+// TestReviveExecutionResetsSupersededAndStatus: a fresh Init means the id's
+// runner is alive again — ReviveExecution resets a terminal/superseded row back
+// to in_progress with superseded_by cleared. This replaced the reset the legacy
+// UpsertInit performed atomically inside its own INSERT ... ON CONFLICT clause
+// (see ReviveExecution's doc comment).
+func TestReviveExecutionResetsSupersededAndStatus(t *testing.T) {
 	db := newTestDB(t)
-	in := events.Init{ID: "e1", Stacks: []events.StackState{{Path: "a", Status: events.StatusPending}}}
-	if err := UpsertInit(db, in); err != nil {
-		t.Fatal(err)
-	}
-	if err := UpdateStack(db, "e1", "a", events.StatusPlanned, ""); err != nil {
-		t.Fatal(err)
-	}
-	// A second Init (e.g. run register then run plan) must not regress the stack.
-	if err := UpsertInit(db, in); err != nil {
-		t.Fatal(err)
-	}
-	g, err := LoadGraph(db, "e1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if g.Stacks[0].Status != events.StatusPlanned {
-		t.Fatalf("status after re-Init = %q, want planned", g.Stacks[0].Status)
-	}
-}
+	seedExec(t, db, ProjectedExecution{ID: "e1", Repo: "o/r", Environment: "prod", Context: "apply/prod", Status: "in_progress"}, nil, nil)
 
-func TestUpsertInitReusedID(t *testing.T) {
-	db := newTestDB(t)
-	in := events.Init{ID: "e1", Repo: "o/r", Environment: "prod", Context: "apply/prod"}
-	if err := UpsertInit(db, in); err != nil {
-		t.Fatal(err)
-	}
-
-	// 1. Mark as completed (failed)
-	if err := SetExecutionStatus(db, "e1", "failure"); err != nil {
-		t.Fatal(err)
-	}
-
-	// 2. Mark as superseded
+	// Mark terminal + superseded (as a finished, replaced execution would be).
+	seedExec(t, db, ProjectedExecution{ID: "e1", Status: "failure"}, nil, nil)
 	if err := SupersedeExecution(db, "e1", "e-newer"); err != nil {
 		t.Fatal(err)
 	}
-
-	// Verify old states
 	old, err := GetExecution(db, "e1")
 	if err != nil {
 		t.Fatal(err)
@@ -271,12 +209,10 @@ func TestUpsertInitReusedID(t *testing.T) {
 		t.Fatalf("unexpected pre-state: %+v", old)
 	}
 
-	// 3. Re-run Init with same ID
-	if err := UpsertInit(db, in); err != nil {
+	if err := ReviveExecution(db, "e1"); err != nil {
 		t.Fatal(err)
 	}
 
-	// Verify states have reset
 	updated, err := GetExecution(db, "e1")
 	if err != nil {
 		t.Fatal(err)
@@ -289,32 +225,12 @@ func TestUpsertInitReusedID(t *testing.T) {
 	}
 }
 
-func TestSetExecutionStatus(t *testing.T) {
-	db := newTestDB(t) // use the package's existing test-db helper
-	if err := UpsertInit(db, events.Init{ID: "e1", Repo: "r", Context: "apply/prod",
-		Stacks: []events.StackState{{Path: "a", Status: events.StatusPending}}}); err != nil {
-		t.Fatal(err)
-	}
-	if err := SetExecutionStatus(db, "e1", "success"); err != nil {
-		t.Fatal(err)
-	}
-	e, err := GetExecution(db, "e1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if e.Status != "success" {
-		t.Fatalf("status = %q, want success", e.Status)
-	}
-}
-
-func TestUpdateStackAndReportAndRev(t *testing.T) {
+func TestReportRevAndCheckRunID(t *testing.T) {
 	db := newTestDB(t)
-	if err := UpsertInit(db, sampleInit()); err != nil {
-		t.Fatal(err)
-	}
-	if err := UpdateStack(db, "exec-1", "stacks/a", events.StatusFailed, "boom"); err != nil {
-		t.Fatalf("UpdateStack: %v", err)
-	}
+	e, stacks, edges := sampleExec()
+	seedExec(t, db, e, stacks, edges)
+
+	mustProjectStack(t, db, "exec-1", ProjectedStack{Path: "stacks/a", Status: events.StatusFailed, Detail: "boom"})
 	g, _ := LoadGraph(db, "exec-1")
 	if g.Stacks[0].Status != events.StatusFailed || g.Stacks[0].Detail != "boom" {
 		t.Errorf("stack a = %+v; want failed/boom", g.Stacks[0])
@@ -328,19 +244,16 @@ func TestUpdateStackAndReportAndRev(t *testing.T) {
 	if err := SetCheckRunID(db, "exec-1", 12345); err != nil {
 		t.Fatal(err)
 	}
-	e, _ := GetExecution(db, "exec-1")
-	if e.ReportMarkdown != "# report" || e.Rev != 1 || !e.CheckRunID.Valid || e.CheckRunID.Int64 != 12345 {
-		t.Errorf("execution after writes = %+v", e)
+	got, _ := GetExecution(db, "exec-1")
+	if got.ReportMarkdown != "# report" || got.Rev != 1 || !got.CheckRunID.Valid || got.CheckRunID.Int64 != 12345 {
+		t.Errorf("execution after writes = %+v", got)
 	}
 }
 
 func TestFindAndSupersedeExecution(t *testing.T) {
 	db := newTestDB(t)
-	exec1 := sampleInit()
-	exec1.ID = "exec-1"
-	if err := UpsertInit(db, exec1); err != nil {
-		t.Fatalf("UpsertInit exec1: %v", err)
-	}
+	exec1, stacks1, edges1 := sampleExec()
+	seedExec(t, db, exec1, stacks1, edges1)
 
 	// Lookup should find nothing yet (same incoming ID)
 	_, found, err := FindNonSupersededExecution(db, exec1.PR, exec1.Environment, exec1.SHA, exec1.Context, "exec-1")
@@ -351,11 +264,9 @@ func TestFindAndSupersedeExecution(t *testing.T) {
 		t.Errorf("found non-superseded execution prematurely")
 	}
 
-	exec2 := sampleInit()
+	exec2, stacks2, edges2 := sampleExec()
 	exec2.ID = "exec-2"
-	if err := UpsertInit(db, exec2); err != nil {
-		t.Fatalf("UpsertInit exec2: %v", err)
-	}
+	seedExec(t, db, exec2, stacks2, edges2)
 
 	// Lookup from exec-2 perspective should find exec-1
 	oldID, found, err := FindNonSupersededExecution(db, exec2.PR, exec2.Environment, exec2.SHA, exec2.Context, exec2.ID)
@@ -399,13 +310,11 @@ func TestLatestExecutionID(t *testing.T) {
 	}
 
 	// Insert one execution
-	exec1 := sampleInit()
+	exec1, stacks1, edges1 := sampleExec()
 	exec1.ID = "exec-latest-1"
 	exec1.PR = 7
 	exec1.Environment = "prod"
-	if err := UpsertInit(db, exec1); err != nil {
-		t.Fatal(err)
-	}
+	seedExec(t, db, exec1, stacks1, edges1)
 
 	id, ok := LatestExecutionID(db, 7, "prod")
 	if !ok || id != "exec-latest-1" {
@@ -417,21 +326,17 @@ func TestEnvironmentsForPR(t *testing.T) {
 	db := newTestDB(t)
 
 	// Insert two executions for the same PR with different environments
-	exec1 := sampleInit()
+	exec1, stacks1, edges1 := sampleExec()
 	exec1.ID = "exec-env-1"
 	exec1.PR = 12
 	exec1.Environment = "prod"
-	if err := UpsertInit(db, exec1); err != nil {
-		t.Fatal(err)
-	}
+	seedExec(t, db, exec1, stacks1, edges1)
 
-	exec2 := sampleInit()
+	exec2, stacks2, edges2 := sampleExec()
 	exec2.ID = "exec-env-2"
 	exec2.PR = 12
 	exec2.Environment = "staging"
-	if err := UpsertInit(db, exec2); err != nil {
-		t.Fatal(err)
-	}
+	seedExec(t, db, exec2, stacks2, edges2)
 
 	envs, err := EnvironmentsForPR(db, 12)
 	if err != nil {
@@ -456,25 +361,24 @@ func TestEnvironmentsForPR(t *testing.T) {
 	}
 }
 
-func TestUpsertPhaseAppendsHistory(t *testing.T) {
+func TestPhasesForOrdersOldestFirst(t *testing.T) {
 	db := newTestDB(t)
-	if err := UpsertInit(db, sampleInit()); err != nil {
-		t.Fatal(err)
-	}
-	for _, ph := range []events.Phase{events.PhaseWarming, events.PhasePlanning, events.PhaseReport} {
-		if err := UpsertPhase(db, events.PhaseEvent{ID: "exec-1", Phase: ph}); err != nil {
-			t.Fatalf("UpsertPhase %s: %v", ph, err)
-		}
-	}
-	// Legacy single-column overwrite still holds the latest phase.
-	e, err := GetExecution(db, "exec-1")
+	e, stacks, edges := sampleExec()
+	seedExec(t, db, e, stacks, edges)
+
+	tx, err := db.Begin()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if e.Phase != string(events.PhaseReport) {
-		t.Errorf("current phase = %q; want report", e.Phase)
+	for _, ph := range []string{"warming", "planning", "report"} {
+		if err := AppendPhaseHistory(tx, "exec-1", ph, "", nil); err != nil {
+			t.Fatalf("AppendPhaseHistory %s: %v", ph, err)
+		}
 	}
-	// History records every transition, oldest first.
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+
 	rows, err := PhasesFor(db, "exec-1")
 	if err != nil {
 		t.Fatalf("PhasesFor: %v", err)
@@ -504,25 +408,25 @@ func TestPhasesForEmpty(t *testing.T) {
 
 func TestFindExecutionBySHA(t *testing.T) {
 	db := newTestDB(t)
-	must := func(err error) {
-		t.Helper()
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-	must(UpsertInit(db, events.Init{ID: "e-serve", Repo: "o/r", SHA: "sha1", PR: 9, Environment: "nonprod", Context: "plan/nonprod"}))
-	must(UpsertInit(db, events.Init{ID: "e-noprfoo", Repo: "o/r", SHA: "sha1", PR: 0, Environment: "nonprod", Context: "plan/nonprod"}))
+	seedExec(t, db, ProjectedExecution{ID: "e-serve", Repo: "o/r", SHA: "sha1", PR: 9, Environment: "nonprod", Context: "plan/nonprod"}, nil, nil)
+	seedExec(t, db, ProjectedExecution{ID: "e-noprfoo", Repo: "o/r", SHA: "sha1", PR: 0, Environment: "nonprod", Context: "plan/nonprod"}, nil, nil)
 
 	id, ok, err := FindExecutionBySHA(db, "nonprod", "plan/nonprod", "sha1")
-	must(err)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !ok || id != "e-serve" {
 		t.Fatalf("got (%q,%v), want (e-serve,true)", id, ok)
 	}
 
 	// Superseded rows are excluded.
-	must(SupersedeExecution(db, "e-serve", "e-newer"))
+	if err := SupersedeExecution(db, "e-serve", "e-newer"); err != nil {
+		t.Fatal(err)
+	}
 	_, ok, err = FindExecutionBySHA(db, "nonprod", "plan/nonprod", "sha1")
-	must(err)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if ok {
 		t.Fatal("superseded execution should not be returned")
 	}
@@ -530,5 +434,94 @@ func TestFindExecutionBySHA(t *testing.T) {
 	// Miss returns ("", false, nil).
 	if id, ok, err := FindExecutionBySHA(db, "nonprod", "plan/nonprod", "absent"); err != nil || ok || id != "" {
 		t.Fatalf("miss = (%q,%v,%v)", id, ok, err)
+	}
+}
+
+func TestProjectExecutionRowOwnedColumnsOnly(t *testing.T) {
+	db := newTestDB(t)
+	tx, _ := db.Begin()
+	// Seed a row with a non-owned column set (report_markdown). repo/sha are
+	// NOT NULL in the schema, so the seed must supply placeholder values for
+	// them (they're owned columns and get overwritten by the projection below).
+	_, err := tx.Exec(`INSERT INTO executions (id, repo, sha, status, report_markdown) VALUES ('e1','seed-repo','seed-sha','in_progress','REPORT')`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ProjectExecutionRow(tx, ProjectedExecution{
+		ID: "e1", Repo: "r", SHA: "abc", PR: 7, Environment: "nonprod",
+		Context: "terraform/nonprod", Phase: "applying", Status: "success",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	tx.Commit()
+	e, err := GetExecution(db, "e1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e.Repo != "r" || e.PR != 7 || e.Status != "success" || e.Phase != "applying" {
+		t.Fatalf("owned columns not written: %#v", e)
+	}
+	if e.ReportMarkdown != "REPORT" {
+		t.Fatalf("non-owned report_markdown clobbered: %q", e.ReportMarkdown)
+	}
+}
+
+func TestProjectStackEdgeAndPhaseHistoryRoundTrip(t *testing.T) {
+	db := newTestDB(t)
+	tx, err := db.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(`INSERT INTO executions (id, repo, sha) VALUES ('e1','r','sha1')`); err != nil {
+		t.Fatal(err)
+	}
+	counts := &events.Counts{Add: 3, Change: 1}
+	if err := ProjectStack(tx, "e1", ProjectedStack{
+		Path: "stacks/a", Project: "proj-a", Status: events.StatusRunning,
+		Detail: "running now", Categories: []events.Category{{Name: "iam"}}, Counts: counts,
+	}); err != nil {
+		t.Fatalf("ProjectStack: %v", err)
+	}
+	if err := ProjectStack(tx, "e1", ProjectedStack{Path: "stacks/b", Project: "proj-b", Status: events.StatusPending}); err != nil {
+		t.Fatalf("ProjectStack: %v", err)
+	}
+	if err := ProjectEdge(tx, "e1", "stacks/a", "stacks/b"); err != nil {
+		t.Fatalf("ProjectEdge: %v", err)
+	}
+	// Duplicate edge insert must be ignored, not error.
+	if err := ProjectEdge(tx, "e1", "stacks/a", "stacks/b"); err != nil {
+		t.Fatalf("ProjectEdge dup: %v", err)
+	}
+	pct := 50
+	if err := AppendPhaseHistory(tx, "e1", "applying", "applying stacks...", &pct); err != nil {
+		t.Fatalf("AppendPhaseHistory: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+
+	g, err := LoadGraph(db, "e1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(g.Stacks) != 2 || len(g.Edges) != 1 {
+		t.Fatalf("graph = %d stacks, %d edges; want 2,1", len(g.Stacks), len(g.Edges))
+	}
+	if g.Stacks[0].Status != events.StatusRunning || g.Stacks[0].Detail != "running now" {
+		t.Errorf("stack a = %+v", g.Stacks[0])
+	}
+	if g.Stacks[0].Counts == nil || g.Stacks[0].Counts.Add != 3 {
+		t.Errorf("stack a counts = %+v", g.Stacks[0].Counts)
+	}
+	if len(g.Stacks[0].Categories) != 1 || g.Stacks[0].Categories[0].Name != "iam" {
+		t.Errorf("stack a categories = %+v", g.Stacks[0].Categories)
+	}
+
+	rows, err := PhasesFor(db, "e1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].Phase != "applying" || rows[0].Label != "applying stacks..." {
+		t.Errorf("phase history = %+v", rows)
 	}
 }

@@ -191,16 +191,13 @@ func TestAdminExecutionsCancel(t *testing.T) {
 	a := New(db, &MockGitHub{}, Config{})
 
 	// Seed an execution
-	err := store.UpsertInit(db, events.Init{
+	seedInit(t, a.shell, events.Init{
 		ID:          "exec-123",
 		PR:          7,
 		Environment: "staging",
 		Repo:        "fluent/repo",
 		SHA:         "abcdef",
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 
 	srv := httptest.NewServer(a.Routes())
 	defer srv.Close()

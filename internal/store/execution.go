@@ -3,7 +3,6 @@ package store
 import (
 	"database/sql"
 	"encoding/json"
-	"fmt"
 	"time"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
@@ -30,107 +29,131 @@ type Execution struct {
 	ChangeReasons  string `json:"-"`
 }
 
-// UpsertInit records an execution and its changed subgraph from an Init event.
-// Re-init with the same id is upsert-safe. The phase column is intentionally
-// left untouched: the lifecycle phase is owned by UpsertPhase, which may run
-// before Init. Stack status is set only on first insert; a repeat Init (e.g.
-// run register followed by run plan) never regresses an already-advanced stack.
-func UpsertInit(db *sql.DB, in events.Init) error {
-	return Transact(db, func(tx *sql.Tx) error {
-		if _, err := tx.Exec(
-			`INSERT INTO executions (id, repo, sha, pr, environment, log_url, status_context)
-			 VALUES (?,?,?,?,?,?,?)
-			 ON CONFLICT(id) DO UPDATE SET
-			   repo=excluded.repo,
-			   sha=excluded.sha,
-			   pr=excluded.pr,
-			   environment=excluded.environment,
-			   log_url=excluded.log_url,
-			   status_context=excluded.status_context,
-			   status=CASE WHEN executions.status != 'in_progress' OR COALESCE(executions.superseded_by, '') != '' THEN 'in_progress' ELSE executions.status END,
-			   superseded_by=CASE WHEN executions.status != 'in_progress' OR COALESCE(executions.superseded_by, '') != '' THEN '' ELSE executions.superseded_by END,
-			   created_at=CASE WHEN executions.status != 'in_progress' OR COALESCE(executions.superseded_by, '') != '' THEN CURRENT_TIMESTAMP ELSE executions.created_at END`,
-			in.ID, in.Repo, in.SHA, in.PR, in.Environment, in.LogURL, in.Context); err != nil {
-			return fmt.Errorf("insert execution: %w", err)
-		}
-		for _, s := range in.Stacks {
-			status := s.Status
-			if status == "" {
-				status = events.StatusPending
-			}
-			// Counts are normally nil at Init (finalize backfills them via its
-			// own UPDATE), but honor an inline value when the caller has one
-			// up front — harmless in production, and lets tests seed a graph's
-			// op counts without a full finalize round-trip.
-			var counts string
-			if s.Counts != nil {
-				data, err := json.Marshal(s.Counts)
-				if err != nil {
-					return fmt.Errorf("marshal counts %q: %w", s.Path, err)
-				}
-				counts = string(data)
-			}
-			if _, err := tx.Exec(
-				`INSERT INTO stacks (execution_id, stack_path, project, status, counts) VALUES (?,?,?,?,?)
-				 ON CONFLICT(execution_id, stack_path) DO UPDATE SET
-				   project=excluded.project`,
-				in.ID, s.Path, s.Project, string(status), counts); err != nil {
-				return fmt.Errorf("insert stack %q: %w", s.Path, err)
-			}
-		}
-		for _, e := range in.Edges {
-			if _, err := tx.Exec(
-				`INSERT OR IGNORE INTO edges (execution_id, from_stack, to_stack) VALUES (?,?,?)`,
-				in.ID, e.From, e.To); err != nil {
-				return fmt.Errorf("insert edge: %w", err)
-			}
-		}
-		return nil
-	})
+// ProjectedExecution is the execution-aggregate-owned projection of an
+// executions row, written by the (forthcoming) event-sourced projector.
+type ProjectedExecution struct {
+	ID            string
+	Repo          string
+	SHA           string
+	PR            int
+	Environment   string
+	Context       string
+	LogURL        string
+	Phase         string
+	Status        string
+	ProgressLabel string
+	ProgressPct   *int
 }
 
-// UpsertPhase sets the execution's lifecycle phase, creating a bare row if Init
-// has not run yet. Identity fields are only overwritten when the event carries a
-// non-zero value, so a bare phase bump never clobbers data set by an earlier
-// Init (and an early phase event survives a later Init).
-func UpsertPhase(db *sql.DB, p events.PhaseEvent) error {
+// ProjectedStack is the execution-aggregate-owned projection of a stacks row.
+type ProjectedStack struct {
+	Path       string
+	Project    string
+	Status     events.Status
+	Detail     string
+	Categories []events.Category
+	Counts     *events.Counts
+}
+
+// ProjectExecutionRow UPSERTs the execution-aggregate-owned columns of an
+// executions row, preserving non-owned columns (report_markdown, change_reasons,
+// superseded_by, check_run_id, created_at, rev) on conflict.
+func ProjectExecutionRow(tx *sql.Tx, e ProjectedExecution) error {
 	var label sql.NullString
-	if p.Label != "" {
-		label.Valid = true
-		label.String = p.Label
+	if e.ProgressLabel != "" {
+		label = sql.NullString{Valid: true, String: e.ProgressLabel}
 	}
 	var pct sql.NullInt64
-	if p.ProgressPct != nil {
-		pct.Valid = true
-		pct.Int64 = int64(*p.ProgressPct)
+	if e.ProgressPct != nil {
+		pct = sql.NullInt64{Valid: true, Int64: int64(*e.ProgressPct)}
 	}
+	_, err := tx.Exec(
+		`INSERT INTO executions (id, repo, sha, pr, environment, status_context, log_url, phase, status, progress_label, progress_pct)
+		 VALUES (?,?,?,?,?,?,?,?,?,?,?)
+		 ON CONFLICT(id) DO UPDATE SET
+		   repo=CASE WHEN excluded.repo='' THEN executions.repo ELSE excluded.repo END,
+		   sha=CASE WHEN excluded.sha='' THEN executions.sha ELSE excluded.sha END,
+		   pr=CASE WHEN excluded.pr=0 THEN executions.pr ELSE excluded.pr END,
+		   environment=CASE WHEN excluded.environment='' THEN executions.environment ELSE excluded.environment END,
+		   status_context=CASE WHEN excluded.status_context='' THEN executions.status_context ELSE excluded.status_context END,
+		   log_url=CASE WHEN excluded.log_url='' THEN executions.log_url ELSE excluded.log_url END,
+		   phase=CASE WHEN excluded.phase='' THEN executions.phase ELSE excluded.phase END,
+		   status=CASE WHEN excluded.status='' THEN executions.status ELSE excluded.status END,
+		   progress_label=CASE WHEN excluded.progress_label IS NULL THEN executions.progress_label ELSE excluded.progress_label END,
+		   progress_pct=CASE WHEN excluded.progress_pct IS NULL THEN executions.progress_pct ELSE excluded.progress_pct END`,
+		e.ID, e.Repo, e.SHA, e.PR, e.Environment, e.Context, e.LogURL, e.Phase, e.Status, label, pct)
+	return err
+}
 
-	return Transact(db, func(tx *sql.Tx) error {
-		if _, err := tx.Exec(
-			`INSERT INTO executions (id, repo, sha, pr, environment, log_url, status_context, phase, progress_label, progress_pct)
-			 VALUES (?,?,?,?,?,?,?,?,?,?)
-			 ON CONFLICT(id) DO UPDATE SET phase=excluded.phase,
-			   progress_label=CASE WHEN excluded.progress_label IS NULL THEN executions.progress_label ELSE excluded.progress_label END,
-			   progress_pct=CASE WHEN excluded.progress_pct IS NULL THEN executions.progress_pct ELSE excluded.progress_pct END,
-			   repo=CASE WHEN excluded.repo='' THEN executions.repo ELSE excluded.repo END,
-			   sha=CASE WHEN excluded.sha='' THEN executions.sha ELSE excluded.sha END,
-			   pr=CASE WHEN excluded.pr=0 THEN executions.pr ELSE excluded.pr END,
-			   environment=CASE WHEN excluded.environment='' THEN executions.environment ELSE excluded.environment END,
-			   status_context=CASE WHEN excluded.status_context='' THEN executions.status_context ELSE excluded.status_context END,
-			   log_url=CASE WHEN excluded.log_url='' THEN executions.log_url ELSE excluded.log_url END`,
-			p.ID, p.Repo, p.SHA, p.PR, p.Environment, p.LogURL, p.Context, string(p.Phase), label, pct); err != nil {
+// ProjectStack UPSERTs the execution-aggregate-owned columns of a stacks row.
+func ProjectStack(tx *sql.Tx, execID string, s ProjectedStack) error {
+	var cats string
+	if len(s.Categories) > 0 {
+		b, err := json.Marshal(s.Categories)
+		if err != nil {
 			return err
 		}
-		// Append an immutable history row so the lifecycle read model can derive
-		// per-phase durations (this phase's `at` = its start; the next phase's
-		// `at` = this phase's end). The single `phase` column above stays the
-		// current-phase overwrite for legacy reads.
-		_, err := tx.Exec(
-			`INSERT INTO execution_phases (execution_id, phase, label, progress_pct)
-			 VALUES (?,?,?,?)`,
-			p.ID, string(p.Phase), label, pct)
-		return err
-	})
+		cats = string(b)
+	}
+	var counts string
+	if s.Counts != nil {
+		b, err := json.Marshal(s.Counts)
+		if err != nil {
+			return err
+		}
+		counts = string(b)
+	}
+	_, err := tx.Exec(
+		`INSERT INTO stacks (execution_id, stack_path, project, status, detail, categories, counts)
+		 VALUES (?,?,?,?,?,?,?)
+		 ON CONFLICT(execution_id, stack_path) DO UPDATE SET
+		   project=CASE WHEN excluded.project='' THEN stacks.project ELSE excluded.project END,
+		   status=excluded.status, detail=excluded.detail,
+		   categories=CASE WHEN excluded.categories='' THEN stacks.categories ELSE excluded.categories END,
+		   counts=CASE WHEN excluded.counts='' THEN stacks.counts ELSE excluded.counts END`,
+		execID, s.Path, s.Project, string(s.Status), s.Detail, cats, counts)
+	return err
+}
+
+// ProjectEdge inserts a dependency edge, ignoring duplicates.
+func ProjectEdge(tx *sql.Tx, execID, from, to string) error {
+	_, err := tx.Exec(
+		`INSERT OR IGNORE INTO edges (execution_id, from_stack, to_stack) VALUES (?,?,?)`,
+		execID, from, to)
+	return err
+}
+
+// AppendPhaseHistory appends an immutable execution_phases row (lifecycle read model).
+func AppendPhaseHistory(tx *sql.Tx, execID, phase, label string, pct *int) error {
+	var l sql.NullString
+	if label != "" {
+		l = sql.NullString{Valid: true, String: label}
+	}
+	var p sql.NullInt64
+	if pct != nil {
+		p = sql.NullInt64{Valid: true, Int64: int64(*pct)}
+	}
+	_, err := tx.Exec(
+		`INSERT INTO execution_phases (execution_id, phase, label, progress_pct) VALUES (?,?,?,?)`,
+		execID, phase, l, p)
+	return err
+}
+
+// ReviveExecution resets a row's own supersession/status when it receives a
+// fresh Init: an execution ID that was previously marked superseded, failed, or
+// otherwise not "in_progress" is alive again — the runner reporting Init IS the
+// live run. Mirrors the reset the legacy UpsertInit performed atomically inside
+// its own INSERT ... ON CONFLICT clause; split out as its own statement because
+// the execution aggregate's ProjectExecutionRow deliberately never owns
+// superseded_by/created_at (see projectExecution's doc comment).
+func ReviveExecution(db *sql.DB, id string) error {
+	_, err := db.Exec(
+		`UPDATE executions SET
+		   status=CASE WHEN status != 'in_progress' OR COALESCE(superseded_by, '') != '' THEN 'in_progress' ELSE status END,
+		   superseded_by=CASE WHEN status != 'in_progress' OR COALESCE(superseded_by, '') != '' THEN '' ELSE superseded_by END,
+		   created_at=CASE WHEN status != 'in_progress' OR COALESCE(superseded_by, '') != '' THEN CURRENT_TIMESTAMP ELSE created_at END
+		 WHERE id = ?`, id)
+	return err
 }
 
 // PhaseRow is one recorded lifecycle phase transition of an execution.
@@ -178,14 +201,6 @@ func GetExecution(db *sql.DB, id string) (Execution, error) {
 		return Execution{}, err
 	}
 	return e, nil
-}
-
-// UpdateStack ticks one stack's status (and optional failure detail).
-func UpdateStack(db *sql.DB, id, stack string, status events.Status, detail string) error {
-	_, err := db.Exec(
-		`UPDATE stacks SET status = ?, detail = ? WHERE execution_id = ? AND stack_path = ?`,
-		string(status), detail, id, stack)
-	return err
 }
 
 // LoadGraph loads the stacks (ordered by path) and edges of an execution.
@@ -261,14 +276,6 @@ func SetChangeReasons(db *sql.DB, id string, reasons []events.ChangeReason) erro
 // GitHub's image proxy re-fetches on each state change).
 func BumpRev(db *sql.DB, id string) error {
 	_, err := db.Exec(`UPDATE executions SET rev = rev + 1 WHERE id = ?`, id)
-	return err
-}
-
-// SetExecutionStatus persists the execution-level commit status (e.g. terminal
-// "success"/"failure"). This is the signal isFinished reads for an apply; the
-// apply driver writes it once the apply concludes.
-func SetExecutionStatus(db *sql.DB, id, status string) error {
-	_, err := db.Exec(`UPDATE executions SET status = ? WHERE id = ?`, status, id)
 	return err
 }
 

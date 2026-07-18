@@ -832,15 +832,29 @@ hardening is in [`SECURITY.md`](../SECURITY.md).
 - **Exec executions store no per-stack plan diff**, so the SPA's Plan tab is
   empty for apply stacks — populated only by the plan driver's
   `Finalize.StackReports`.
-- **Execution/stack/edge status is still written *directly* by the ingest
-  handlers** (`handleInit`/`handleUpdate`/`handlePhase` → `store.UpsertInit`/
-  `UpdateStack`/`UpsertPhase`), not folded from an event log — the one place the
-  "projections are rebuilt from the fold, never written as truth" invariant does
-  not yet hold. `internal/execution` (the per-execution aggregate on the
-  `run:<execID>` stream, wired on the same decider host) exists for the cutover
-  but is currently **inert**; routing ingest through it — so `executions`/
-  `stacks`/`edges` become true projections — is issue #227 workstream A, in
-  progress.
+- **Execution/stack/edge status is event-sourced through the `internal/execution`
+  aggregate** (the per-execution `run:<execID>` stream on the shared decider host):
+  `handleInit`/`handlePhase`/`handleUpdate`/finalize drive it via `HandleExec`, and
+  `executions`/`stacks`/`edges` (+ the `execution_phases` history) are true
+  projections rebuilt from the fold — the source-of-truth invariant now holds for
+  execution state, not just gate/claim state. A small carve-out stays written
+  directly (not owned by the aggregate): `report_markdown`/`change_reasons`
+  (finalize presentation), `check_run_id` (a GitHub side-effect id), and
+  `superseded_by`/`created_at` (the re-init revival path via `store.ReviveExecution`,
+  pending the supersede consolidation in the next workstream-A PR).
+- **The gate overlay and the runner-told status share the `stacks.status` column**,
+  reconciled at the projection layer (the gate projection overlays `gated`/`safe`;
+  `projectExecution` writes the runner status; the overlay skips `failed`/`aborted`).
+  In the **normal flow** this is coherent and the plan-gate `gated` display is stable
+  (no exec signals arrive after a plan finalizes). Two residual, **apply-context-only
+  and self-healing** deltas exist: (a) because `projectExecution` reprojects *all*
+  stacks' status on every exec signal, a gate-target stack not yet ticked can
+  transiently read its runner status instead of `safe` when a sibling stack ticks;
+  (b) a failed apply's per-tick `ReportFail` marks still-in-flight siblings `aborted`
+  until each sends its own completion tick. Both are cosmetic, resting-state-correct,
+  and re-asserted by the next reconcile-loop gate tick. The clean fix (decouple the
+  runner status from the gate-overlay display, e.g. read-time derivation) is a
+  future refinement.
 - **The merge-queue hero depends on GitHub-App token visibility of
   `mergeQueue`** — repo/permission-dependent; every layer degrades to an empty
   queue and the hero hides rather than erroring.

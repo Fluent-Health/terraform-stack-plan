@@ -10,20 +10,13 @@ type Signal interface{ isSignal() }
 
 // --- edge-triggered told-facts from the CI runner ---
 
-type RunnerInit struct{ Exec Execution }
-type RunnerPhase struct{ Phase events.Phase }
-type RunnerUpdate struct {
-	Stack  string
-	Status events.Status
-	Detail string
-}
+// RunnerFinalize is the gate-lifecycle signal derived from a runner Finalize
+// report: execution-lifecycle facts (init/phase/tick/terminal/annotate) are
+// handled by the internal/execution aggregate; this signal carries only what
+// decideFinalize reads to establish/advance the gate.
 type RunnerFinalize struct {
-	Failed         bool
-	ReportMarkdown string
-	Projects       map[string]string            // stack path → grouping/target key
-	Categories     map[string][]events.Category // stack path → matched categories
-	Moving         []string                     // stack paths adopting via cross-state move
-	Gates          []events.GateTarget          // (class,target) pairs needing approval
+	Failed bool
+	Gates  []events.GateTarget // (class,target) pairs needing approval
 	// ApplyContext marks a finalize from the post-merge apply (apply/<env>) rather
 	// than the plan gate. An apply finalize is a RECOVERY signal, not an authority:
 	// it may add/refresh gate targets but must never weaken a gate the plan already
@@ -83,9 +76,6 @@ type InboundBuild struct {
 
 type ApplySucceeded struct{}
 
-func (RunnerInit) isSignal()     {}
-func (RunnerPhase) isSignal()    {}
-func (RunnerUpdate) isSignal()   {}
 func (RunnerFinalize) isSignal() {}
 func (PRClosed) isSignal()       {}
 func (GrantsObserved) isSignal() {}

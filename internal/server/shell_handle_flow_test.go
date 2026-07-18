@@ -7,7 +7,6 @@ import (
 	"github.com/Fluent-Health/terraform-stack-plan/internal/approval"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/reconcile"
-	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
 
 func newFlowShell(t *testing.T) (*Shell, *approval.Fake) {
@@ -16,10 +15,9 @@ func newFlowShell(t *testing.T) (*Shell, *approval.Fake) {
 	fake := approval.NewFake()
 	fake.Pool = []string{"sa0"}
 	app.Approval = fake
-	if err := store.UpsertInit(app.db, events.Init{ID: "e1", PR: 7, Environment: "staging", Repo: "r"}); err != nil {
-		t.Fatal(err)
-	}
-	return NewShell(app), fake
+	sh := NewShell(app)
+	seedInit(t, sh, events.Init{ID: "e1", PR: 7, Environment: "staging", Repo: "r"})
+	return sh, fake
 }
 
 func TestHandleApproveThenTickBecomesApplyAllowed(t *testing.T) {

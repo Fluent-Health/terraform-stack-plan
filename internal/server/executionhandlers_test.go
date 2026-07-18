@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
-	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
 
 func TestGetExecution(t *testing.T) {
@@ -32,9 +31,7 @@ func TestGetExecution(t *testing.T) {
 		Environment: "staging",
 		Stacks:      []events.StackState{{Path: "s/a"}},
 	}
-	if err := store.UpsertInit(db, initEv); err != nil {
-		t.Fatalf("UpsertInit: %v", err)
-	}
+	seedInit(t, a.shell, initEv)
 
 	// Seed gate target
 	seedProjectionTarget(t, db, 7, "staging", "gcp-pam", "proj-1", "grant-1", "ACTIVE", "requester-1")
@@ -109,12 +106,9 @@ func TestGetExecution(t *testing.T) {
 	// 3b. Test GET /api/execution/{id} with seeded dynamic progress
 	{
 		pctVal := 88
-		err := store.UpsertPhase(db, events.PhaseEvent{
+		seedPhase(t, a.shell, events.PhaseEvent{
 			ID: "e1", Phase: "custom-moves", Label: "custom moving...", ProgressPct: &pctVal,
 		})
-		if err != nil {
-			t.Fatal(err)
-		}
 
 		req, _ := http.NewRequest("GET", srv.URL+"/api/execution/e1", nil)
 		req.Header.Set("Authorization", "Bearer "+validToken)

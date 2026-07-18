@@ -11,7 +11,6 @@ import (
 	"testing"
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
-	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
 
 func pushBody(t *testing.T, data map[string]string) string {
@@ -28,7 +27,7 @@ func pushBody(t *testing.T, data map[string]string) string {
 func TestPushEventVerifies(t *testing.T) {
 	db := newServerTestDB(t)
 	a := New(db, &MockGitHub{}, Config{PushServiceAccount: "pusher@x.iam.gserviceaccount.com"})
-	_ = store.UpsertInit(db, events.Init{ID: "e1", Repo: "o/r", Stacks: []events.StackState{{Path: "s/a"}}})
+	seedInit(t, a.shell, events.Init{ID: "e1", Repo: "o/r", Stacks: []events.StackState{{Path: "s/a"}}})
 	a.PushVerifier = func(_ context.Context, bearer string) (string, error) {
 		if bearer == "good" {
 			return "pusher@x.iam.gserviceaccount.com", nil

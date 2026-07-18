@@ -30,6 +30,10 @@ func eventTag(e Event) string {
 		return "StackStatusChanged"
 	case Failed:
 		return "Failed"
+	case Succeeded:
+		return "Succeeded"
+	case StacksAnnotated:
+		return "StacksAnnotated"
 	default:
 		return ""
 	}
@@ -46,6 +50,10 @@ func UnmarshalEvent(tag string, data []byte) (Event, error) {
 		return unmarshalInto[StackStatusChanged](data)
 	case "Failed":
 		return unmarshalInto[Failed](data)
+	case "Succeeded":
+		return unmarshalInto[Succeeded](data)
+	case "StacksAnnotated":
+		return unmarshalInto[StacksAnnotated](data)
 	default:
 		return nil, fmt.Errorf("execution: unknown event tag %q", tag)
 	}

@@ -212,7 +212,7 @@ func TestFinalizeStoresPerStackPlan(t *testing.T) {
 	srv := httptest.NewServer(a.Routes())
 	defer srv.Close()
 
-	_ = store.UpsertInit(db, events.Init{ID: "e1", Repo: "o/r", Environment: "staging",
+	post(t, srv, "/api/init", events.Init{ID: "e1", Repo: "o/r", Environment: "staging",
 		Stacks: []events.StackState{{Path: "stacks/a"}}})
 	post(t, srv, "/api/finalize", events.Finalize{
 		ID:             "e1",
@@ -235,7 +235,7 @@ func TestFinalizeStoresCategories(t *testing.T) {
 	srv := httptest.NewServer(a.Routes())
 	defer srv.Close()
 
-	_ = store.UpsertInit(db, events.Init{ID: "e1", Repo: "o/r", Environment: "staging",
+	post(t, srv, "/api/init", events.Init{ID: "e1", Repo: "o/r", Environment: "staging",
 		Stacks: []events.StackState{{Path: "stacks/a"}}})
 	post(t, srv, "/api/finalize", events.Finalize{
 		ID:             "e1",
@@ -258,7 +258,7 @@ func TestFinalizeBackfillsCounts(t *testing.T) {
 	srv := httptest.NewServer(a.Routes())
 	defer srv.Close()
 
-	_ = store.UpsertInit(db, events.Init{ID: "e1", Repo: "o/r", Environment: "staging",
+	post(t, srv, "/api/init", events.Init{ID: "e1", Repo: "o/r", Environment: "staging",
 		Stacks: []events.StackState{{Path: "stacks/a"}}})
 	post(t, srv, "/api/finalize", events.Finalize{
 		ID:             "e1",
@@ -498,12 +498,10 @@ func TestInitRecoversPRFromSHAWhenMissing(t *testing.T) {
 	a, _, srv := newRunTriggerApp(t)
 
 	// A serve-queued plan run already exists for PR 12 at sha "deadbeefcafe".
-	if err := store.UpsertInit(a.db, events.Init{
+	seedInit(t, a.shell, events.Init{
 		ID: "run-12-nonprod-plan-deadbeefcafe-a1", Repo: "o/r", SHA: "deadbeefcafe",
 		PR: 12, Environment: "nonprod", Context: "plan/nonprod",
-	}); err != nil {
-		t.Fatal(err)
-	}
+	})
 
 	// A rerun's runner reports Init with pr=0 (lost _PR_NUMBER) and an empty gate
 	// context, same env + sha.
@@ -548,5 +546,33 @@ func TestClaimsReleaseHandlerBadRequest(t *testing.T) {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400 on invalid JSON", resp.StatusCode)
+	}
+}
+
+func TestHandleInitProjectsViaAggregate(t *testing.T) {
+	db := newServerTestDB(t)
+	gh := &MockGitHub{CreateCheckRunFn: func(ctx context.Context, repo, sha, env, url string) (int64, error) { return 1, nil }}
+	a := New(db, gh, Config{})
+	srv := httptest.NewServer(a.Routes())
+	defer srv.Close()
+
+	post(t, srv, "/api/init", events.Init{
+		ID: "e1", Repo: "o/r", SHA: "sha", PR: 7, Environment: "staging",
+		Stacks: []events.StackState{{Path: "a"}, {Path: "b"}},
+		Edges:  []events.Edge{{From: "a", To: "b"}},
+	})
+
+	// Projection populated…
+	if _, err := store.GetExecution(db, "e1"); err != nil {
+		t.Fatalf("execution row missing after init: %v", err)
+	}
+	g, err := store.LoadGraph(db, "e1")
+	if err != nil || len(g.Stacks) != 2 || len(g.Edges) != 1 {
+		t.Fatalf("graph not projected: %v (%d stacks, %d edges)", err, len(g.Stacks), len(g.Edges))
+	}
+	// …and the run stream replays a matching State (source of truth).
+	st, _, err := a.execDecider.Load(a.eventStore, runStreamID("e1"))
+	if err != nil || st.PR != 7 || len(st.Stacks) != 2 {
+		t.Fatalf("replayed state mismatch: %v %#v", err, st)
 	}
 }
