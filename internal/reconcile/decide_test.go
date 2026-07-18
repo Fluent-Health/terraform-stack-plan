@@ -10,14 +10,6 @@ import (
 
 // --- RunnerFinalize ---
 
-func TestDecideFinalizeFailed(t *testing.T) {
-	cs := ChangeSet{}
-	got := Decide(cs, RunnerFinalize{Failed: true})
-	if len(got) != 0 {
-		t.Fatalf("want no gate events for a failed run, got %#v", got)
-	}
-}
-
 func TestDecideFinalizeCleanGatePassed(t *testing.T) {
 	cs := ChangeSet{}
 	got := Decide(cs, RunnerFinalize{})

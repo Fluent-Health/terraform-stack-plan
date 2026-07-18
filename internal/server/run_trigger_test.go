@@ -470,7 +470,7 @@ func TestApplyCheckRerunRecoversPRFromStore(t *testing.T) {
 	}
 	webhookReq(t, srv, whSecret, "push", payload).Body.Close()
 	if err := a.shell.Handle(context.Background(), 41, "nonprod", "o/r",
-		reconcile.RunnerFinalize{Failed: true, ApplyContext: true}); err != nil {
+		reconcile.RunnerFinalize{ApplyContext: true}); err != nil {
 		t.Fatal(err)
 	}
 

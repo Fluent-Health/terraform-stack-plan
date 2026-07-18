@@ -53,11 +53,10 @@ func Decide(state ChangeSet, s Signal) []Event {
 	}
 }
 
-// decideFinalize implements the three RunnerFinalize outcomes (the gate-only
+// decideFinalize implements the two RunnerFinalize outcomes (the gate-only
 // half of a runner finalize; execution-lifecycle facts — including the
 // StacksAnnotated equivalent of the old StacksClassified backfill — are
 // handled by the internal/execution aggregate, not here):
-//   - failed: no gate events (the gate is untouched by a failed run).
 //   - clean (effective gate empty): emit GatePassed.
 //   - gated: emit Classified{effective} + TargetRevoked for each pruned
 //     dropped target (plan-authoritative only) + GateTargetRequested for the
@@ -66,10 +65,6 @@ func Decide(state ChangeSet, s Signal) []Event {
 //
 // decideFinalize computes the gate events for a RunnerFinalize signal.
 func decideFinalize(state ChangeSet, f RunnerFinalize) []Event {
-	if f.Failed {
-		return nil
-	}
-
 	var evs []Event
 
 	prior := priorTargets(state.Gate)
