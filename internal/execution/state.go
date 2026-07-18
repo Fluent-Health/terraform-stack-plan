@@ -21,6 +21,7 @@ type State struct {
 	ProgressLabel string
 	ProgressPct   *int
 	Status        string
+	SupersededBy  string
 	Stacks        []Stack
 	Edges         []Edge
 }
@@ -88,12 +89,16 @@ type ReportAnnotate struct {
 	Moving     []string
 }
 
-func (ReportInit) isSignal()     {}
-func (ReportPhase) isSignal()    {}
-func (ReportTick) isSignal()     {}
-func (ReportFail) isSignal()     {}
-func (ReportSucceed) isSignal()  {}
-func (ReportAnnotate) isSignal() {}
+// ReportSupersede marks this execution as superseded by another.
+type ReportSupersede struct{ By string }
+
+func (ReportInit) isSignal()      {}
+func (ReportPhase) isSignal()     {}
+func (ReportTick) isSignal()      {}
+func (ReportFail) isSignal()      {}
+func (ReportSucceed) isSignal()   {}
+func (ReportAnnotate) isSignal()  {}
+func (ReportSupersede) isSignal() {}
 
 // --- Event sum type (past-tense domain facts) ---
 
@@ -126,6 +131,7 @@ type StacksAnnotated struct {
 	Counts     map[string]events.Counts
 	Moving     []string
 }
+type Superseded struct{ By string }
 
 func (Started) isEvent()            {}
 func (PhaseChanged) isEvent()       {}
@@ -133,3 +139,4 @@ func (StackStatusChanged) isEvent() {}
 func (Failed) isEvent()             {}
 func (Succeeded) isEvent()          {}
 func (StacksAnnotated) isEvent()    {}
+func (Superseded) isEvent()         {}

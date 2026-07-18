@@ -131,6 +131,10 @@ func Evolve(s State, e Event) State {
 		}
 		return s
 
+	case Superseded:
+		s.SupersededBy = ev.By
+		return s
+
 	default:
 		return s
 	}

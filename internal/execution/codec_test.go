@@ -19,6 +19,7 @@ func allEventVariants() []Event {
 		Failed{},
 		Succeeded{},
 		StacksAnnotated{Projects: map[string]string{"a": "p"}, Categories: map[string][]events.Category{"a": {events.Category{Name: "iam"}}}, Counts: map[string]events.Counts{"a": {}}, Moving: []string{"b"}},
+		Superseded{By: "new-exec"},
 	}
 }
 

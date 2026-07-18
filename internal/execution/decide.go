@@ -20,6 +20,8 @@ func Decide(s State, sig Signal) []Event {
 		return []Event{Succeeded{}}
 	case ReportAnnotate:
 		return []Event{StacksAnnotated{Projects: v.Projects, Categories: v.Categories, Counts: v.Counts, Moving: v.Moving}}
+	case ReportSupersede:
+		return []Event{Superseded{By: v.By}}
 	default:
 		return nil
 	}

@@ -61,3 +61,13 @@ func TestDecideReportAnnotateEmitsStacksAnnotated(t *testing.T) {
 		t.Fatalf("want StacksAnnotated, got %T", got[0])
 	}
 }
+
+func TestDecideReportSupersedeEmitsSuperseded(t *testing.T) {
+	got := Decide(State{}, ReportSupersede{By: "new-exec"})
+	if len(got) != 1 {
+		t.Fatalf("want 1 event, got %d", len(got))
+	}
+	if s, ok := got[0].(Superseded); !ok || s.By != "new-exec" {
+		t.Fatalf("want Superseded{new-exec}, got %#v", got[0])
+	}
+}

@@ -34,6 +34,8 @@ func eventTag(e Event) string {
 		return "Succeeded"
 	case StacksAnnotated:
 		return "StacksAnnotated"
+	case Superseded:
+		return "Superseded"
 	default:
 		return ""
 	}
@@ -54,6 +56,8 @@ func UnmarshalEvent(tag string, data []byte) (Event, error) {
 		return unmarshalInto[Succeeded](data)
 	case "StacksAnnotated":
 		return unmarshalInto[StacksAnnotated](data)
+	case "Superseded":
+		return unmarshalInto[Superseded](data)
 	default:
 		return nil, fmt.Errorf("execution: unknown event tag %q", tag)
 	}
