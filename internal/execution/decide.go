@@ -21,6 +21,9 @@ func Decide(s State, sig Signal) []Event {
 	case ReportAnnotate:
 		return []Event{StacksAnnotated{Projects: v.Projects, Categories: v.Categories, Counts: v.Counts, Moving: v.Moving}}
 	case ReportSupersede:
+		if s.ID == "" {
+			return nil // no materialized execution to mark superseded (old direct UPDATE was a 0-row no-op)
+		}
 		return []Event{Superseded{By: v.By}}
 	default:
 		return nil
