@@ -40,8 +40,9 @@ func (sh *Shell) HandleExec(ctx context.Context, execID string, sig execution.Si
 
 // projectExecution rebuilds the execution-aggregate-owned columns of the
 // executions/stacks/edges rows from the folded state, and appends execution_phases
-// history for each PhaseChanged in the batch. Owned columns only — never touches
-// report_markdown/change_reasons/superseded_by/check_run_id/created_at.
+// history for each PhaseChanged in the batch. Owned columns include superseded_by
+// (and, transitively, created_at revival — see ProjectExecutionRow) as of the
+// supersede cutover; report_markdown/change_reasons/check_run_id remain untouched.
 func (sh *Shell) projectExecution(state execution.State, evs []execution.Event) error {
 	tx, err := sh.app.db.Begin()
 	if err != nil {
@@ -55,6 +56,7 @@ func (sh *Shell) projectExecution(state execution.State, evs []execution.Event) 
 		Environment: state.Environment, Context: state.Context, LogURL: state.LogURL,
 		Phase: string(state.Phase), Status: state.Status,
 		ProgressLabel: pl, ProgressPct: state.ProgressPct,
+		SupersededBy: state.SupersededBy,
 	}); err != nil {
 		return err
 	}

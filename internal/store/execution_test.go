@@ -196,11 +196,10 @@ func TestReviveExecutionResetsSupersededAndStatus(t *testing.T) {
 	db := newTestDB(t)
 	seedExec(t, db, ProjectedExecution{ID: "e1", Repo: "o/r", Environment: "prod", Context: "apply/prod", Status: "in_progress"}, nil, nil)
 
-	// Mark terminal + superseded (as a finished, replaced execution would be).
-	seedExec(t, db, ProjectedExecution{ID: "e1", Status: "failure"}, nil, nil)
-	if err := SupersedeExecution(db, "e1", "e-newer"); err != nil {
-		t.Fatal(err)
-	}
+	// Mark terminal + superseded (as a finished, replaced execution would be) —
+	// superseded_by is now an owned projected column, written the same way the
+	// aggregate would (ProjectExecutionRow), not the deleted SupersedeExecution.
+	seedExec(t, db, ProjectedExecution{ID: "e1", Status: "failure", SupersededBy: "e-newer"}, nil, nil)
 	old, err := GetExecution(db, "e1")
 	if err != nil {
 		t.Fatal(err)
@@ -277,10 +276,12 @@ func TestFindAndSupersedeExecution(t *testing.T) {
 		t.Errorf("FindNonSupersededExecution = %q, %t; want exec-1, true", oldID, found)
 	}
 
-	// Supersede old
-	if err := SupersedeExecution(db, "exec-1", "exec-2"); err != nil {
-		t.Fatalf("SupersedeExecution: %v", err)
-	}
+	// Supersede old — superseded_by is now the projection-owned column, written
+	// via ProjectExecutionRow (the deleted SupersedeExecution direct-write
+	// helper no longer exists; re-project exec1 with SupersededBy set, mirroring
+	// what the aggregate's projectExecution call does).
+	exec1.SupersededBy = "exec-2"
+	seedExec(t, db, exec1, nil, nil)
 
 	// Verify it was marked
 	e1, err := GetExecution(db, "exec-1")
@@ -419,10 +420,9 @@ func TestFindExecutionBySHA(t *testing.T) {
 		t.Fatalf("got (%q,%v), want (e-serve,true)", id, ok)
 	}
 
-	// Superseded rows are excluded.
-	if err := SupersedeExecution(db, "e-serve", "e-newer"); err != nil {
-		t.Fatal(err)
-	}
+	// Superseded rows are excluded — superseded_by is the projection-owned
+	// column now, so re-project e-serve with it set.
+	seedExec(t, db, ProjectedExecution{ID: "e-serve", SupersededBy: "e-newer"}, nil, nil)
 	_, ok, err = FindExecutionBySHA(db, "nonprod", "plan/nonprod", "sha1")
 	if err != nil {
 		t.Fatal(err)
@@ -463,6 +463,99 @@ func TestProjectExecutionRowOwnedColumnsOnly(t *testing.T) {
 	}
 	if e.ReportMarkdown != "REPORT" {
 		t.Fatalf("non-owned report_markdown clobbered: %q", e.ReportMarkdown)
+	}
+}
+
+// TestProjectExecutionRowOwnsSupersededBy: superseded_by is now an
+// execution-aggregate-owned column — ProjectExecutionRow writes it verbatim
+// from the folded state on every projection call (see execution.Evolve's
+// Superseded/Started cases), not just on the initial insert.
+func TestProjectExecutionRowOwnsSupersededBy(t *testing.T) {
+	db := newTestDB(t)
+	tx, _ := db.Begin()
+	// Fresh row, not superseded.
+	if err := ProjectExecutionRow(tx, ProjectedExecution{ID: "e1", Repo: "r", SHA: "s", Status: "in_progress"}); err != nil {
+		t.Fatal(err)
+	}
+	// Supersede projection writes the column from state.
+	if err := ProjectExecutionRow(tx, ProjectedExecution{ID: "e1", Status: "in_progress", SupersededBy: "e2"}); err != nil {
+		t.Fatal(err)
+	}
+	tx.Commit()
+	e, _ := GetExecution(db, "e1")
+	if e.SupersededBy != "e2" {
+		t.Fatalf("superseded_by = %q, want e2", e.SupersededBy)
+	}
+}
+
+// TestProjectExecutionRowRevivesCreatedAtOnReInit: a fresh in_progress Init for
+// a row that was terminal and/or superseded is a revival — created_at resets
+// (mirrors what the legacy UpsertInit / ReviveExecution did) and superseded_by
+// clears (the Started fold always produces a fresh state with SupersededBy="").
+func TestProjectExecutionRowRevivesCreatedAtOnReInit(t *testing.T) {
+	db := newTestDB(t)
+	// Seed a terminal, superseded row with an old created_at.
+	if _, err := db.Exec(`INSERT INTO executions (id, repo, sha, status, superseded_by, created_at)
+		VALUES ('e1','r','s','success','e2','2000-01-01T00:00:00Z')`); err != nil {
+		t.Fatal(err)
+	}
+	tx, _ := db.Begin()
+	// A fresh Init (in_progress, superseded_by cleared by the fold) must reset created_at + clear superseded_by.
+	if err := ProjectExecutionRow(tx, ProjectedExecution{ID: "e1", Repo: "r", SHA: "s", Status: "in_progress", SupersededBy: ""}); err != nil {
+		t.Fatal(err)
+	}
+	tx.Commit()
+	e, _ := GetExecution(db, "e1")
+	if e.SupersededBy != "" {
+		t.Fatalf("revive should clear superseded_by, got %q", e.SupersededBy)
+	}
+	if e.CreatedAt.Year() == 2000 {
+		t.Fatalf("revive should reset created_at, still %v", e.CreatedAt)
+	}
+}
+
+// TestProjectExecutionRowTickAfterSupersedeDoesNotResetCreatedAt guards the
+// created_at CASE against a subtle regression: a late tick on an
+// already-superseded-but-still-in_progress execution must NOT look like a
+// revival. The naive "old row already has a superseded_by" signal alone is
+// insufficient — it stays true on every subsequent write after the supersede,
+// so the CASE must additionally require that THIS write is actually clearing
+// superseded_by (the true revival signal) before resetting created_at. Uses an
+// explicit old created_at (like the revive test) so a spurious reset to "now"
+// is unambiguous rather than hidden by same-second timing.
+func TestProjectExecutionRowTickAfterSupersedeDoesNotResetCreatedAt(t *testing.T) {
+	db := newTestDB(t)
+	if _, err := db.Exec(`INSERT INTO executions (id, repo, sha, status, superseded_by, created_at)
+		VALUES ('e1','r','s','in_progress','', '2000-01-01T00:00:00Z')`); err != nil {
+		t.Fatal(err)
+	}
+
+	// Supersede the still-live execution (old.superseded_by was empty going in
+	// — this transition alone must not reset created_at either).
+	tx, _ := db.Begin()
+	if err := ProjectExecutionRow(tx, ProjectedExecution{ID: "e1", Status: "in_progress", SupersededBy: "e2"}); err != nil {
+		t.Fatal(err)
+	}
+	tx.Commit()
+	mid, _ := GetExecution(db, "e1")
+	if mid.CreatedAt.Year() != 2000 {
+		t.Fatalf("supersede of a still-live execution must not reset created_at, got %v", mid.CreatedAt)
+	}
+
+	// A late tick re-projects the same folded state (still in_progress, still
+	// superseded_by "e2" — Evolve's StackStatusChanged case touches neither).
+	tx, _ = db.Begin()
+	if err := ProjectExecutionRow(tx, ProjectedExecution{ID: "e1", Status: "in_progress", SupersededBy: "e2"}); err != nil {
+		t.Fatal(err)
+	}
+	tx.Commit()
+
+	after, _ := GetExecution(db, "e1")
+	if after.SupersededBy != "e2" {
+		t.Fatalf("superseded_by = %q, want e2", after.SupersededBy)
+	}
+	if after.CreatedAt.Year() != 2000 {
+		t.Fatalf("late tick after supersede must not reset created_at, got %v", after.CreatedAt)
 	}
 }
 

@@ -14,6 +14,7 @@ import (
 
 	"github.com/Fluent-Health/terraform-stack-plan/internal/approval"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
+	"github.com/Fluent-Health/terraform-stack-plan/internal/execution"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/store"
 )
 
@@ -574,5 +575,40 @@ func TestHandleInitProjectsViaAggregate(t *testing.T) {
 	st, _, err := a.execDecider.Load(a.eventStore, runStreamID("e1"))
 	if err != nil || st.PR != 7 || len(st.Stacks) != 2 {
 		t.Fatalf("replayed state mismatch: %v %#v", err, st)
+	}
+}
+
+// TestSupersedeIsEventSourced proves supersedeExecution routes the
+// superseded_by write through the execution aggregate (ReportSupersede), not a
+// direct column UPDATE — so it only survives replay because it's a Superseded
+// event in the stream. A late tick on the old (now-superseded) execution must
+// not clobber the projected superseded_by, since the fold carries it forward
+// unchanged from the earlier Superseded event.
+func TestSupersedeIsEventSourced(t *testing.T) {
+	sh := newTestShell(t)
+	ctx := context.Background()
+	old, nw := "run-7-nonprod-plan-aaa-a1", "run-7-nonprod-plan-bbb-a1"
+	mk := func(id string) {
+		if err := sh.HandleExec(ctx, id, execution.ReportInit{Exec: execution.State{
+			ID: id, PR: 7, Environment: "nonprod", Repo: "r", Stacks: []execution.Stack{{Path: "a"}},
+		}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mk(old)
+	mk(nw)
+	sh.app.supersedeExecution(ctx, old, nw)
+
+	e, _ := store.GetExecution(sh.app.db, old)
+	if e.SupersededBy != nw {
+		t.Fatalf("superseded_by = %q, want %s", e.SupersededBy, nw)
+	}
+	// A late tick on the old execution must NOT clobber superseded_by (it's replayed from the stream).
+	if err := sh.HandleExec(ctx, old, execution.ReportTick{Stack: "a", Status: events.StatusFailed}); err != nil {
+		t.Fatal(err)
+	}
+	e2, _ := store.GetExecution(sh.app.db, old)
+	if e2.SupersededBy != nw {
+		t.Fatalf("late tick clobbered superseded_by: %q", e2.SupersededBy)
 	}
 }
