@@ -360,10 +360,10 @@ armed tiers — driving the CI runs from webhooks. See
 
 ### Reconcile core
 
-`internal/reconcile` is the pure functional core for gate, execution-lifecycle,
-and claim-ledger state: `Decide(ChangeSet, Signal) → []Event` (all business
-logic, emitting past-tense facts like `GateSatisfied`/`TargetRevoked`/
-`ApplySucceeded`), `Evolve(ChangeSet, Event) → ChangeSet` (the total fold — an
+`internal/reconcile` is the pure functional core for gate/grant state:
+`Decide(ChangeSet, Signal) → []Event` (all business logic, emitting past-tense
+facts like `GateSatisfied`/`TargetRevoked`/`ApplySucceeded`),
+`Evolve(ChangeSet, Event) → ChangeSet` (the total fold — an
 empty state replayed through the log converges to the live snapshot), and
 `React(ChangeSet, []Event) → []Action` (the CQRS projection deriving idempotent
 shell effects: grant requests/revokes, claim releases, `RenderCheckRun`,
@@ -385,15 +385,18 @@ reconcile** (an unresolvable PAM re-list returns `503`); otherwise it reads the
 ### Store
 
 SQLite (pure-Go `modernc.org/sqlite`, `goose` migrations via `go:embed`) holds
-executions and their stack/edge subgraph, plus **two event-sourced aggregates**
-on a generic `internal/eventsourcing` decider-host — one engine, two stream
-scopes: the **gate aggregate** (the `exec:<pr>:<env>` stream; `gate_targets` is
-a rebuildable cross-PR index, never read as verdict truth) and the
-**claim-ledger aggregate** (the `env:<env>` stream; a `ClaimSet` folded over
-claim/renew/release events, where `held` is a **read-time projection** so
-expiry enforces at query time). Optimistic concurrency on `(stream_id,
-version)` surfaces as `ErrConcurrencyConflict`. serve also tracks per-stack
-execution status, surfaced to the check run and the UI.
+**three event-sourced aggregates** on a generic `internal/eventsourcing`
+decider-host — one engine, three stream scopes: the **gate aggregate**
+(`internal/reconcile`; the `exec:<pr>:<env>` stream; `gate_targets` is a
+rebuildable cross-PR index, never read as verdict truth), the **claim-ledger
+aggregate** (`internal/claims`; the `env:<env>` stream; a `ClaimSet` folded
+over claim/renew/release events, where `held` is a **read-time projection** so
+expiry enforces at query time), and the **execution aggregate**
+(`internal/execution`; the `run:<execID>` stream; the `executions`/`stacks`/
+`edges` tables plus the append-only `execution_phases` history are all
+projections rebuilt from the fold, including the aggregate-owned
+`superseded_by` column). Optimistic concurrency on `(stream_id, version)`
+surfaces as `ErrConcurrencyConflict`.
 
 ### GitHub check runs
 
