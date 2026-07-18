@@ -837,11 +837,15 @@ hardening is in [`SECURITY.md`](../SECURITY.md).
   `handleInit`/`handlePhase`/`handleUpdate`/finalize drive it via `HandleExec`, and
   `executions`/`stacks`/`edges` (+ the `execution_phases` history) are true
   projections rebuilt from the fold — the source-of-truth invariant now holds for
-  execution state, not just gate/claim state. A small carve-out stays written
-  directly (not owned by the aggregate): `report_markdown`/`change_reasons`
-  (finalize presentation), `check_run_id` (a GitHub side-effect id), and
-  `superseded_by`/`created_at` (the re-init revival path via `store.ReviveExecution`,
-  pending the supersede consolidation in the next workstream-A PR).
+  execution state, not just gate/claim state. `superseded_by` is likewise
+  aggregate-owned: both supersede triggers (the Runs-map `CancelRun` path and
+  `handleInit`'s direction-guarded `FindNonSupersededExecution`) emit a `Superseded`
+  fact on the *old* execution's stream, and the projection folds it — there is no
+  direct `superseded_by` write. The remaining carve-out stays written directly (not
+  owned by the aggregate): `report_markdown`/`change_reasons` (finalize
+  presentation), `check_run_id` (a GitHub side-effect id), and `created_at` (reset on
+  a reviving Init inside the projection's `ON CONFLICT` — it needs a wall-clock, which
+  the pure core has no access to).
 - **The gate overlay and the runner-told status share the `stacks.status` column**,
   reconciled at the projection layer (the gate projection overlays `gated`/`safe`;
   `projectExecution` writes the runner status; the overlay skips `failed`/`aborted`).
