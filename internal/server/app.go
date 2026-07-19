@@ -108,7 +108,9 @@ type App struct {
 	// claim ledger (the env:<env> stream). apply_claims is a derived projection.
 	claimsDecider eventsourcing.Decider[claims.ClaimSet, claims.Event]
 	// execDecider is the generic eventsourcing host wired to the per-execution
-	// lifecycle aggregate (stream "run:<execID>"). Inert until A2 rewires ingest.
+	// lifecycle aggregate (stream "run:<execID>"). The ingest handlers
+	// (handleInit/handlePhase/handleUpdate/finalize) drive it via HandleExec;
+	// executions/stacks/edges are projections rebuilt from its fold.
 	execDecider eventsourcing.Decider[execution.State, execution.Event]
 }
 

@@ -98,7 +98,7 @@ func TestDecideFinalizeCompletesRun(t *testing.T) {
 	st := ChangeSet{PR: 7, Environment: "nonprod", Runs: map[string]Run{
 		RunKindPlan: {ExecutionID: "e1", Kind: RunKindPlan, SHA: "sha1", BuildRef: "b-1", Attempt: 1, Phase: RunPhaseStarted},
 	}}
-	evs := Decide(st, RunnerFinalize{Failed: false})
+	evs := Decide(st, RunnerFinalize{})
 	found := false
 	for _, e := range evs {
 		if rc, ok := e.(RunCompleted); ok {
@@ -131,7 +131,7 @@ func TestDecideApplyFinalizeCompletesApplyRun(t *testing.T) {
 	st := ChangeSet{PR: 7, Environment: "nonprod", Runs: map[string]Run{
 		RunKindApply: {ExecutionID: "e-apply", Kind: RunKindApply, SHA: "mergesha", Attempt: 1, Phase: RunPhaseStarted},
 	}}
-	evs := Decide(st, RunnerFinalize{Failed: true, ApplyContext: true})
+	evs := Decide(st, RunnerFinalize{ApplyContext: true})
 	post := st
 	for _, e := range evs {
 		post = Evolve(post, e)

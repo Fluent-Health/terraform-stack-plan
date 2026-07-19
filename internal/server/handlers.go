@@ -28,17 +28,11 @@ func (a *App) handleClaimsList(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "list claims", http.StatusInternalServerError)
 		return
 	}
-	// Convert to events.Claim so the wire uses snake_case json tags, matching
-	// what the runner client (ClaimsList) decodes into []events.Claim.
+	// store.Claim is now a type alias of events.Claim, so claims is already []events.Claim.
 	// Return an empty JSON array (never null) when there are no claims.
-	out := make([]events.Claim, 0, len(claims))
-	for _, c := range claims {
-		out = append(out, events.Claim{
-			Environment: c.Environment,
-			StackPath:   c.StackPath,
-			OwnerPR:     c.OwnerPR,
-			ExpiresAt:   c.ExpiresAt,
-		})
+	out := claims
+	if out == nil {
+		out = []events.Claim{}
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(out)

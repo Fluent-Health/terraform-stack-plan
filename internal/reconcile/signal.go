@@ -15,8 +15,7 @@ type Signal interface{ isSignal() }
 // handled by the internal/execution aggregate; this signal carries only what
 // decideFinalize reads to establish/advance the gate.
 type RunnerFinalize struct {
-	Failed bool
-	Gates  []events.GateTarget // (class,target) pairs needing approval
+	Gates []events.GateTarget // (class,target) pairs needing approval
 	// ApplyContext marks a finalize from the post-merge apply (apply/<env>) rather
 	// than the plan gate. An apply finalize is a RECOVERY signal, not an authority:
 	// it may add/refresh gate targets but must never weaken a gate the plan already

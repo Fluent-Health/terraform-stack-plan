@@ -3,6 +3,8 @@ package store
 import (
 	"database/sql"
 	"time"
+
+	"github.com/Fluent-Health/terraform-stack-plan/internal/events"
 )
 
 // ReplaceClaims rewrites the apply_claims projection for env to exactly match
@@ -105,13 +107,10 @@ func SweepExpiredClaims(db *sql.DB, now time.Time) ([]string, error) {
 	return envs, nil
 }
 
-// Claim is one row from the apply_claims table, returned by ListClaims.
-type Claim struct {
-	Environment string
-	StackPath   string
-	OwnerPR     int
-	ExpiresAt   time.Time
-}
+// Claim is one apply-lock claim row. It is a type alias of events.Claim (the wire
+// type) so the ledger, the wire protocol, and persistence share one definition —
+// following the domain-alias discipline (see events.Counts = domain.Counts).
+type Claim = events.Claim
 
 // ListClaims returns all claims for env (any expiry) ordered by stack_path.
 func ListClaims(db *sql.DB, env string) ([]Claim, error) {
