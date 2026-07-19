@@ -1,6 +1,7 @@
 package uniqueness
 
 import (
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -11,6 +12,14 @@ import (
 	"github.com/Fluent-Health/terraform-stack-plan/internal/config"
 	"gopkg.in/yaml.v3"
 )
+
+// errNoEnvironments signals that a matched manifest carries no environments
+// block at all (a single-env / non-comparable instance — e.g. a per-env-file
+// BundleInstance with only top-level inputs). LoadUnits skips such a file
+// rather than failing: there are no cross-env values in it to compare. It is
+// NOT returned for a present-but-malformed environments block, which stays a
+// hard error.
+var errNoEnvironments = errors.New("uniqueness: manifest has no environments block")
 
 // Catalyst defaults for a SourceBlock left unspecified — mirrors
 // internal/config's defaults so LoadUnits behaves the same whether callers
@@ -44,8 +53,11 @@ const (
 // is NOT this function's concern: any such field is parsed as an ordinary
 // leaf, same as every other input. That's Evaluate's job.
 //
-// A matched file that can't be parsed, or that lacks the expected
-// EnvironmentsPath shape, is a hard error (fail loud) rather than a skip.
+// A matched file that can't be parsed, or whose environments block is present
+// but malformed (not a map, bad inputs shape), is a hard error (fail loud). A
+// matched file that lacks the environments block ENTIRELY is skipped, not an
+// error — it's a single-env / non-comparable instance (e.g. a per-env-file
+// BundleInstance with only top-level inputs) with no cross-env values to lint.
 func LoadUnits(root string, src config.SourceBlock) ([]Unit, error) {
 	glob := src.Glob
 	if glob == "" {
@@ -73,6 +85,9 @@ func LoadUnits(root string, src config.SourceBlock) ([]Unit, error) {
 	units := make([]Unit, 0, len(paths))
 	for _, rel := range paths {
 		u, err := loadUnit(root, rel, prefix, envPath, inputsPath)
+		if errors.Is(err, errNoEnvironments) {
+			continue // non-comparable single-env instance; skip, don't fail
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -159,7 +174,9 @@ func loadUnit(root, rel, prefix, envPath, inputsPath string) (Unit, error) {
 
 	envsRaw, ok := navigate(doc, envPath)
 	if !ok {
-		return Unit{}, fmt.Errorf("env_uniqueness: %s: no %q path found", rel, envPath)
+		// No environments block at all: skip (single-env / non-comparable
+		// instance), don't fail. A malformed block below is still a hard error.
+		return Unit{}, errNoEnvironments
 	}
 	envsMap, ok := envsRaw.(map[string]any)
 	if !ok {

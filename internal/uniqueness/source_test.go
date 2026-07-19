@@ -91,19 +91,66 @@ envs: {}
 	}
 }
 
-// TestLoadUnitsMissingEnvironmentsPath verifies LoadUnits fails loud (rather
-// than silently skipping) when a matched file lacks the expected
-// EnvironmentsPath shape.
-func TestLoadUnitsMissingEnvironmentsPath(t *testing.T) {
+// TestLoadUnitsSkipsNoEnvironmentsPath verifies LoadUnits SKIPS a matched file
+// that lacks the environments block entirely — a single-env / non-comparable
+// instance (e.g. a per-env-file BundleInstance with only top-level inputs) has
+// no cross-env values to compare — rather than failing loud. Comparable
+// instances discovered alongside it still load.
+func TestLoadUnitsSkipsNoEnvironmentsPath(t *testing.T) {
 	root := t.TempDir()
-	writeFile(t, filepath.Join(root, "components", "z", "instances", "bad.tm.yml"), `
+	// A valid, comparable instance.
+	writeFile(t, filepath.Join(root, "components", "a", "instances", "a.tm.yml"), `
+environments:
+  dev:
+    inputs:
+      x: 1
+`)
+	// A per-env-file instance with NO environments block — must be skipped.
+	writeFile(t, filepath.Join(root, "components", "b", "instances", "fh-dev-svc.tm.yml"), `
 metadata:
-  name: bad
+  name: fh-dev-svc
+spec:
+  inputs:
+    project_id: fh-dev-svc
+    tier_class: nonprod
 `)
 
-	_, err := LoadUnits(root, config.SourceBlock{})
-	if err == nil {
-		t.Fatal("LoadUnits() error = nil, want an error for a file missing the environments path")
+	units, err := LoadUnits(root, config.SourceBlock{})
+	if err != nil {
+		t.Fatalf("LoadUnits() error = %v, want nil (a no-environments file should be skipped)", err)
+	}
+	if len(units) != 1 || units[0].ID != "a/instances/a" {
+		t.Fatalf("LoadUnits() = %#v, want exactly the one comparable unit a/instances/a", units)
+	}
+}
+
+// TestLoadUnitsEmptyEnvironmentsMapLoads pins the skip boundary: a PRESENT but
+// empty `environments: {}` map is loaded as a (zero-env) unit, NOT skipped —
+// only a TOTALLY ABSENT environments path triggers the skip sentinel.
+func TestLoadUnitsEmptyEnvironmentsMapLoads(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "components", "z", "instances", "empty-envs.tm.yml"), `
+environments: {}
+`)
+	units, err := LoadUnits(root, config.SourceBlock{})
+	if err != nil {
+		t.Fatalf("LoadUnits() error = %v, want nil (empty environments map should load, not skip)", err)
+	}
+	if len(units) != 1 || len(units[0].Envs) != 0 {
+		t.Fatalf("LoadUnits() = %#v, want one unit with zero envs", units)
+	}
+}
+
+// TestLoadUnitsMalformedEnvironmentsStillErrors verifies fail-loud is preserved
+// for a file that HAS an environments block but of the wrong shape (not a map):
+// only a TOTAL ABSENCE of the environments path is a skip, not a malformed one.
+func TestLoadUnitsMalformedEnvironmentsStillErrors(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "components", "z", "instances", "bad.tm.yml"), `
+environments: "not a map"
+`)
+	if _, err := LoadUnits(root, config.SourceBlock{}); err == nil {
+		t.Fatal("LoadUnits() error = nil, want an error for a malformed (non-map) environments block")
 	}
 }
 
