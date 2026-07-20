@@ -181,10 +181,6 @@ tfstackplan run wrap [flags] -- <command> [args...]
 
 `--` is required; everything after it is the wrapped command.
 
-`run step` is kept as a deprecated alias for `run wrap` — same flags, same
-behaviour, plus a one-line deprecation warning on stderr — pending removal
-once CI scripts switch over.
-
 | Flag | Type | Default | Meaning |
 |---|---|---|---|
 | `--stack` | string | `""` | Stack path. Defaults to `$TFSTACKPLAN_STACK`. |

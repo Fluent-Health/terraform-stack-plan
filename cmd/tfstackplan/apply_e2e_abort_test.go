@@ -53,7 +53,7 @@ func tfstackplanBinary(t *testing.T) string {
 //   - a stub terraform on PATH that fails for stacks/fail and returns a
 //     "0 added, 0 changed, 0 destroyed" summary for stacks/nochange
 //   - the tfstackplan binary on PATH (so the fixture's apply script can invoke
-//     `tfstackplan run step` to tick per-stack outcomes in-process)
+//     `tfstackplan run wrap` to tick per-stack outcomes in-process)
 //
 // Returns the fixture root dir. Skips when terramate isn't runnable.
 func abortFixture(t *testing.T) string {
@@ -110,7 +110,7 @@ esac
 	}
 
 	// Symlink (or copy) the compiled tfstackplan binary so the fixture's apply
-	// script can invoke `tfstackplan run step`.
+	// script can invoke `tfstackplan run wrap`.
 	tfsBin := tfstackplanBinary(t)
 	if err := os.Symlink(tfsBin, filepath.Join(bin, "tfstackplan")); err != nil {
 		// Symlink may fail on some platforms; fall back to a hard-copy.
@@ -128,7 +128,7 @@ esac
 }
 
 // stackUpdateTracker records the last per-stack Update status emitted by
-// `run step` (via /api/update). It is an httptest handler substitute for the
+// `run wrap` (via /api/update). It is an httptest handler substitute for the
 // real server; it records enough state to assert truthful per-stack outcomes
 // without needing a live DB.
 type stackUpdateTracker struct {
@@ -166,13 +166,13 @@ func (tr *stackUpdateTracker) lastStatus(stack string) (events.Status, bool) {
 // TestApplyParallelAbortTruthfulStates is the capstone end-to-end test: a
 // parallel apply where stacks/fail's stub terraform exits non-zero must produce:
 //
-//   - stacks/fail    → `failed`   (run step ticks it on non-zero exit)
-//   - stacks/nochange → `nochange` (run step sees "0 added, 0 changed, 0 destroyed")
+//   - stacks/fail    → `failed`   (run wrap ticks it on non-zero exit)
+//   - stacks/nochange → `nochange` (run wrap sees "0 added, 0 changed, 0 destroyed")
 //   - stacks/dependent → never receives a terminal Update (it never ran; the
 //     server marks it `aborted` on Finalize{Failed:true})
 //
 // The key invariant: stacks/nochange must NOT be `failed` — that was the
-// blanket-failed bug that `run step` fixes by ticking real outcomes in-process
+// blanket-failed bug that `run wrap` fixes by ticking real outcomes in-process
 // before terramate aborts the parallel run.
 func TestApplyParallelAbortTruthfulStates(t *testing.T) {
 	dir := abortFixture(t)
@@ -192,27 +192,27 @@ func TestApplyParallelAbortTruthfulStates(t *testing.T) {
 		t.Fatalf("run apply (one failing stack) = %d, want 1", code)
 	}
 
-	// stacks/fail: run step must emit `failed` (stub terraform exits 1).
+	// stacks/fail: run wrap must emit `failed` (stub terraform exits 1).
 	if got, ok := tr.lastStatus("stacks/fail"); !ok || got != events.StatusFailed {
 		t.Errorf("stacks/fail: last Update status = (%q, present=%v), want (failed, true)", got, ok)
 	}
 
-	// stacks/nochange: run step must emit `nochange` (0/0/0 apply summary).
+	// stacks/nochange: run wrap must emit `nochange` (0/0/0 apply summary).
 	if got, ok := tr.lastStatus("stacks/nochange"); !ok || got != events.StatusNochange {
 		t.Errorf("stacks/nochange: last Update status = (%q, present=%v), want (nochange, true)", got, ok)
 	}
 
 	// The core invariant: nochange must never be `failed`.
 	if got, _ := tr.lastStatus("stacks/nochange"); got == events.StatusFailed {
-		t.Error("BLANKET-FAILED BUG: stacks/nochange was marked failed — run step must tick the real per-stack outcome")
+		t.Error("BLANKET-FAILED BUG: stacks/nochange was marked failed — run wrap must tick the real per-stack outcome")
 	}
 
 	// stacks/dependent was never started (blocked on the failing stacks/fail),
-	// so run step never ran for it — no terminal Update should exist for it.
+	// so run wrap never ran for it — no terminal Update should exist for it.
 	// The server marks it aborted via Finalize{Failed:true}; we assert here that
-	// it did NOT receive a false positive Update from run step.
+	// it did NOT receive a false positive Update from run wrap.
 	if got, ok := tr.lastStatus("stacks/dependent"); ok && isTerminal(got) {
-		t.Errorf("stacks/dependent: got unexpected terminal Update %q; it should have been aborted server-side, not ticked by run step", got)
+		t.Errorf("stacks/dependent: got unexpected terminal Update %q; it should have been aborted server-side, not ticked by run wrap", got)
 	}
 }
 

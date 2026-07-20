@@ -152,18 +152,18 @@ func TestLogStreamerThresholdFlush(t *testing.T) {
 	}
 }
 
-func TestRunStepRunningFlagValidation(t *testing.T) {
+func TestRunWrapRunningFlagValidation(t *testing.T) {
 	// Unknown --running status is a flag misuse → exit 2.
 	if code := runWrap([]string{"--stack", "a", "--running", "bogus", "--", "true"}); code != 2 {
-		t.Fatalf("run step --running bogus = %d, want 2", code)
+		t.Fatalf("run wrap --running bogus = %d, want 2", code)
 	}
 }
 
-func TestRunStepAliasWarnsAndDelegates(t *testing.T) {
-	// `run step` must keep working (downstream terramate scripts still call it)
-	// but print a one-line deprecation warning pointing at `run wrap`. Drive it
-	// through the real `run` dispatcher (runRun), the same path a
-	// `tfstackplan run step ...` invocation takes.
+func TestRunStepRemoved(t *testing.T) {
+	// `run step` was a deprecated alias for `run wrap` (#229), retained only until
+	// the infra terramate scripts switched over. Now removed (#236): it falls
+	// through to the unknown-subcommand path (exit 2), like any other typo — no
+	// delegation, no deprecation warning.
 	os.Unsetenv("TFSTACKPLAN_SERVER")
 	os.Unsetenv("TFSTACKPLAN_EXECUTION")
 
@@ -179,12 +179,11 @@ func TestRunStepAliasWarnsAndDelegates(t *testing.T) {
 	var buf bytes.Buffer
 	io.Copy(&buf, r)
 
-	if code != 0 {
-		t.Fatalf("run step alias exit = %d, want 0", code)
+	if code != 2 {
+		t.Fatalf("run step exit = %d, want 2 (unknown subcommand)", code)
 	}
-	if !strings.Contains(buf.String(), "run step is deprecated") ||
-		!strings.Contains(buf.String(), "run wrap") {
-		t.Errorf("run step did not emit the deprecation warning; stderr = %q", buf.String())
+	if !strings.Contains(buf.String(), "unknown subcommand") {
+		t.Errorf("run step should report an unknown subcommand; stderr = %q", buf.String())
 	}
 }
 
