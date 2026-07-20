@@ -128,9 +128,8 @@ the execution context from the `TFSTACKPLAN_*` environment, posts a best-effort
 update, and exits zero regardless of the server's response. It is a complete
 no-op offline. A tick never fails the build.
 
-In practice you will more often reach for `run wrap` (formerly `run step`;
-the old name still works as a deprecated alias pending removal once CI
-scripts switch), which wraps a single terraform command and handles the
+In practice you will more often reach for `run wrap` (formerly `run step`),
+which wraps a single terraform command and handles the
 before/after ticks automatically — including detecting `nochange` from
 terraform's output and streaming logs to the server as the command runs. The
 CI integration chapter covers when to use each, and why wrapping every

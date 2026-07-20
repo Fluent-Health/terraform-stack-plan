@@ -23,9 +23,6 @@ func runRun(args []string) int {
 		return runPhase(args[1:])
 	case "wrap":
 		return runWrap(args[1:])
-	case "step":
-		fmt.Fprintln(os.Stderr, "tfstackplan run step is deprecated; use run wrap")
-		return runWrap(args[1:])
 	case "register":
 		return runRegister(args[1:])
 	case "exec":

@@ -263,8 +263,7 @@ raw edges would otherwise dangle and the UI graph render blank.
   failing stack and never runs a *later* command, so a closing tick placed there
   would be silently skipped — putting the terminal tick inside the same command
   closes that gap. `--tty` runs it under a PTY (`creack/pty`, Unix-only) so
-  terraform emits ANSI colour. **`run step`** is a deprecated alias, retained
-  until the infra terramate scripts move over.
+  terraform emits ANSI colour.
 - **`run tick`** posts a best-effort per-stack `update`; **`run exec`** and the read
   verbs (`run status`/`run claims`/`run whoami`) round out the group (see
   [`docs/reference/cli.md`](reference/cli.md#run)). All are no-ops offline.
@@ -811,9 +810,6 @@ hardening is in [`SECURITY.md`](../SECURITY.md).
   `creack/pty` (needed for terraform to emit ANSI colour); on Windows or any
   allocation failure it falls back to the pipe path (logs one line, command
   still runs, exit code preserved).
-- **`run step` is a deprecated alias for `run wrap`, kept intentionally**,
-  retained until the infra terramate scripts move over; removal is a
-  follow-up, not a regression.
 
 **Serve / state / approvals**
 

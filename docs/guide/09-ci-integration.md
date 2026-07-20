@@ -29,8 +29,7 @@ merge     ──▶ CI apply job ─▶ tfstackplan run apply ──┘       (c
   concurrently, default 0 = serial), then revokes the grants.
 - **`run phase`** — emits a lifecycle phase event (`warming`, `initializing`,
   `planning`) so the check run appears early, before the first plan completes.
-- **`run wrap`** (formerly `run step`; the old name still works as a
-  deprecated alias pending removal once CI scripts switch) — wraps a single
+- **`run wrap`** (formerly `run step`) — wraps a single
   terraform command with lifecycle ticks:
   ticks `running` before, determines the terminal status after (`safe` /
   `nochange` / `failed`), and streams the command's output to the server as
