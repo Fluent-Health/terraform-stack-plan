@@ -6,7 +6,7 @@ metadata:
   annotations:
     backstage.io/techdocs-ref: dir:.
     # OSS tracking annotation. Set to "published" once the repo is made public.
-    fluentinhealth.com/oss: pending
+    fluentinhealth.com/oss: published
 spec:
   type: tool
   lifecycle: production
