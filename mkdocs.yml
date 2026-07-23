@@ -1,0 +1,24 @@
+site_name: tfstackplan
+site_description: Merge multiple Terraform plans into one reviewer-friendly markdown report.
+
+nav:
+  - Home: index.md
+  - Design: DESIGN.md
+  - Architecture: architecture/README.md
+  - Guide:
+      - The Gaps: guide/01-the-gaps.md
+      - Mental Model: guide/02-mental-model.md
+      - Quickstart: guide/03-quickstart.md
+      - Render: guide/04-render.md
+      - Classification: guide/05-classification.md
+      - Run: guide/06-run.md
+      - Serve: guide/07-serve.md
+      - State: guide/08-state.md
+      - CI Integration: guide/09-ci-integration.md
+  - Reference:
+      - Overview: reference/index.md
+      - CLI: reference/cli.md
+      - Configuration: reference/configuration.md
+      - Environment: reference/environment.md
+      - Install & Deploy: reference/install-and-deploy.md
+  - Image Assets: images/README.md
