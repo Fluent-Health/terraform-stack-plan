@@ -4,6 +4,7 @@ metadata:
   name: tfstackplan
   description: Merge multiple Terraform plans into one reviewer-friendly markdown report
   annotations:
+    backstage.io/techdocs-ref: dir:.
     # OSS tracking annotation. Set to "published" once the repo is made public.
     fluentinhealth.com/oss: pending
 spec:
