@@ -2,6 +2,7 @@ apiVersion: backstage.io/v1alpha1
 kind: Component
 metadata:
   name: tfstackplan
+  title: Terraform Stack Plan
   description: Merge multiple Terraform plans into one reviewer-friendly markdown report
   annotations:
     backstage.io/techdocs-ref: dir:.
