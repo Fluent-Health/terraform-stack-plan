@@ -180,7 +180,9 @@ func runWrap(args []string) int {
 			if status == events.StatusFailed {
 				detail = lastLine(ansi.Strip(captured.String()))
 			}
-			_ = client.Update(ctx, events.Update{ID: execID, Stack: s, Status: status, Detail: detail})
+			if err := client.Update(ctx, events.Update{ID: execID, Stack: s, Status: status, Detail: detail}); err != nil {
+				fmt.Fprintf(os.Stderr, "tfstackplan run wrap: %s: status %q not recorded: %v\n", s, status, err)
+			}
 		}
 	}
 	return exitCode

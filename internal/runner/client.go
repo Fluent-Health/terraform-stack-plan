@@ -195,13 +195,36 @@ func (c *Client) Phase(ctx context.Context, p events.PhaseEvent) error {
 	return c.finish("/api/phase", resp, err)
 }
 
-// Update ticks a single stack's status.
+// updateAttempts bounds Update's retries. A stack's terminal tick is the only
+// record serve has that the stack finished — an apply check concludes only when
+// every stack is terminal — so one transient 5xx must not lose it.
+var updateAttempts, updateBackoff = 3, 500 * time.Millisecond
+
+// Update ticks a single stack's status, retrying transport errors and 5xx
+// (re-applying a tick is idempotent: the fold just sets the status again).
 func (c *Client) Update(ctx context.Context, u events.Update) error {
 	if !c.Enabled() {
 		return nil
 	}
-	resp, err := c.api.UpdateStack(ctx, u)
-	return c.finish("/api/update", resp, err)
+	var err error
+	for i := 0; i < updateAttempts; i++ {
+		if i > 0 {
+			select {
+			case <-ctx.Done():
+				return err
+			case <-time.After(time.Duration(i) * updateBackoff):
+			}
+		}
+		var resp *http.Response
+		resp, err = c.api.UpdateStack(ctx, u)
+		if err == nil && resp.StatusCode/100 == 4 {
+			return c.finish("/api/update", resp, nil) // a 4xx will not heal on retry
+		}
+		if err = c.finish("/api/update", resp, err); err == nil {
+			return nil
+		}
+	}
+	return err
 }
 
 // Finalize records the terminal plan state (report, gates, moving/failed).

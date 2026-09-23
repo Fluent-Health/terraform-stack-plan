@@ -43,7 +43,15 @@ func Open(dsn string) (*sql.DB, error) {
 	// Inject per-connection PRAGMAs via the DSN so they apply to every connection
 	// in the pool. busy_timeout lets concurrent goroutines (e.g. the reconcile
 	// loop) retry on SQLITE_BUSY instead of failing immediately.
-	dsnWithPragmas := pragmaDSN(dsn, "journal_mode(WAL)", "busy_timeout(5000)")
+	//
+	// _txlock=immediate makes every db.Begin a BEGIN IMMEDIATE. A DEFERRED
+	// transaction that reads before it writes (EventStore.Append, claims) fails
+	// with SQLITE_BUSY at once when another connection commits in between —
+	// busy_timeout is never consulted for that upgrade — and a lost /api/update
+	// 500 left an apply hung in `report` with one stack `running`. Taking the
+	// write lock up front puts the wait where busy_timeout applies. busy_timeout
+	// goes first so a new pool connection's journal_mode pragma waits too.
+	dsnWithPragmas := pragmaDSN(dsn, "busy_timeout(5000)", "journal_mode(WAL)") + "&_txlock=immediate"
 	db, err := sql.Open("sqlite", dsnWithPragmas)
 	if err != nil {
 		return nil, fmt.Errorf("open db: %w", err)
