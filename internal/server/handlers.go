@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"time"
@@ -279,6 +280,21 @@ func (a *App) handleFinalize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The apply's terminal finalize: the runner emits PhaseReport only after the
+	// terramate apply script has returned, then Finalize{Failed: applyErr != nil}.
+	// The mid-apply classify Finalize is also non-failed but lands before
+	// PhaseApplying, so "non-failed while in report" identifies a successful
+	// apply. A stack still non-terminal then applied — only its tick was lost
+	// (one 500'd /api/update otherwise left the apply in `report` for good,
+	// since driveApply concludes only when every stack is terminal).
+	if isApplyContext(e.StatusContext) && e.Phase == string(events.PhaseReport) {
+		if err := a.concludeAppliedStacks(r.Context(), f.ID); err != nil {
+			http.Error(w, "conclude applied stacks", http.StatusInternalServerError)
+			return
+		}
+		a.drive(r.Context(), f.ID, a.baseURL(r), true)
+	}
+
 	if g, gerr := store.LoadGraph(a.db, f.ID); gerr == nil {
 		a.finalizeLogs(r.Context(), f.ID, g.Stacks)
 	}
@@ -297,6 +313,29 @@ func (a *App) handleFinalize(w http.ResponseWriter, r *http.Request) {
 		a.postPlanApplyLock(r.Context(), e)
 	}
 	w.WriteHeader(http.StatusOK)
+}
+
+// concludeAppliedStacks ticks every still-non-terminal stack of a successfully
+// applied execution to `safe`. Only called for a non-failed terminal apply
+// finalize — a failed one goes through ReportFail, which marks them aborted.
+func (a *App) concludeAppliedStacks(ctx context.Context, execID string) error {
+	g, err := store.LoadGraph(a.db, execID)
+	if err != nil {
+		return err
+	}
+	for _, s := range g.Stacks {
+		switch s.Status {
+		case events.StatusPending, events.StatusRunning,
+			events.StatusInitializing, events.StatusInitialized:
+			if err := a.shell.HandleExec(ctx, execID, execution.ReportTick{
+				Stack: s.Path, Status: events.StatusSafe,
+				Detail: "applied; its own completion tick never arrived, concluded by the apply finalize",
+			}); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // handleGetCatalog builds and returns the pre-aggregated component catalog.
