@@ -99,3 +99,23 @@ func TestGCSStorage(t *testing.T) {
 		t.Errorf("expected Put to succeed; err=%v", err)
 	}
 }
+
+func TestGCSBaseURL(t *testing.T) {
+	t.Setenv(EnvGCSURL, "")
+	if got := gcsBaseURL(); got != "https://storage.googleapis.com" {
+		t.Errorf("default = %q, want https://storage.googleapis.com", got)
+	}
+	t.Setenv(EnvGCSURL, "http://127.0.0.1:9999/")
+	if got := gcsBaseURL(); got != "http://127.0.0.1:9999" {
+		t.Errorf("override = %q, want trailing slash trimmed", got)
+	}
+}
+
+func TestNewGCSStorageUsesGCSBaseURL(t *testing.T) {
+	old := GCSBaseURL
+	t.Cleanup(func() { GCSBaseURL = old })
+	GCSBaseURL = "http://fake-gcs"
+	if got := NewGCSStorage(nil, "b", "p").baseURL; got != "http://fake-gcs" {
+		t.Errorf("baseURL = %q, want http://fake-gcs", got)
+	}
+}
