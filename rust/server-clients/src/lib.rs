@@ -11,9 +11,9 @@
 //! | `internal/server/githubreal.go`, `githubauth.go` | [`github::app`] |
 //! | `internal/gauth`, `internal/gauth/gauthtest` | [`gauth`] |
 //! | `cmd/tfstackplan/gcpcreds.go` | [`gcpcreds`] |
-//! | `internal/executor/cloudbuild.go` | [`executor::cloudbuild`] |
-//! | `cmd/tfstackplan/gcsobjects.go` | [`objects::Gcs`] |
-//! | `internal/approval/gcppam` | [`approval::gcppam`] |
+//! | `internal/executor/cloudbuild.go` | `executor::cloudbuild` |
+//! | `cmd/tfstackplan/gcsobjects.go` | `objects::Gcs` |
+//! | `internal/approval/gcppam` | `approval::gcppam` |
 #![forbid(unsafe_code)]
 
 use std::future::Future;
@@ -53,6 +53,25 @@ where
 
 /// A shared [`TokenSource`].
 pub type TokenFunc = Arc<dyn TokenSource>;
+
+/// Yields an access token for a given service account (Go's `ImpersonateFunc`). Any
+/// `Fn(String) -> impl Future<Output = Result<String>>` is one.
+#[async_trait]
+pub trait Impersonator: Send + Sync {
+    /// A token acting as `service_account`.
+    async fn impersonate(&self, service_account: &str) -> Result<String>;
+}
+
+#[async_trait]
+impl<F, Fut> Impersonator for F
+where
+    F: Fn(String) -> Fut + Send + Sync,
+    Fut: Future<Output = Result<String>> + Send,
+{
+    async fn impersonate(&self, service_account: &str) -> Result<String> {
+        self(service_account.to_string()).await
+    }
+}
 
 /// A client failure. The text is what Go's error would print, because some of it is
 /// stored (a failed build start lands in the gate's event log) or returned to callers.
