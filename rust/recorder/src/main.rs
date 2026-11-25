@@ -1,10 +1,16 @@
 //! Records the expected output of every replay case by running the Go binary.
 //!
-//! For each `cases/<name>.toml` it runs Go twice with the case's args, cwd and
-//! stdin (mirroring trycmd's `fs.base` / `fs.cwd` / `fs.sandbox` rules), then
-//! writes `<name>.stdout`, `<name>.stderr`, `status.code` in the toml and, for
-//! sandboxed cases, the files Go wrote into `<name>.out/`. A line that differs
-//! between the two runs keeps its common prefix and suffix with `[..]` between.
+//! For each `cases/<name>.toml` it runs Go three times with the case's args, cwd,
+//! stdin and env (mirroring trycmd's `fs.base` / `fs.cwd` / `fs.sandbox` rules),
+//! then writes `<name>.stdout`, `<name>.stderr`, `status.code` and
+//! `env.inherit = false` in the toml and, for sandboxed cases, the files Go
+//! created or changed into `<name>.out/`.
+//!
+//! Go runs with a cleared environment: `PATH`, `HOME` pointed at an empty temp
+//! dir, and the case's `env.add`. Any difference between the runs fails the
+//! recording, unless the case sets `wildcards = true`: then a differing line keeps
+//! its common prefix and suffix with `[..]` between, and the varying part may be
+//! at most [`MAX_WILDCARD`] characters.
 //!
 //! Usage: `cargo run -p recorder [-- <case-name>...]` from `rust/`, with
 //! `TFSTACKPLAN_GO_BIN` pointing at the Go binary.
@@ -17,6 +23,11 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
+
+/// How many times each case runs; their outputs must agree.
+const SAMPLES: usize = 3;
+/// The longest text a `[..]` may stand for, so a wildcard never hides a real difference.
+const MAX_WILDCARD: usize = 40;
 
 /// What one Go run produced.
 #[derive(PartialEq)]
@@ -101,10 +112,42 @@ fn record(go: &Path, toml_path: &Path) -> Result<()> {
         .unwrap_or(out_dir.exists());
     let stdin = toml_path.with_extension("stdin");
     let stdin = stdin.exists().then_some(stdin);
+    let wildcards = doc
+        .get("wildcards")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    if doc
+        .get("env")
+        .and_then(|t| t.get("inherit"))
+        .and_then(|v| v.as_bool())
+        == Some(true)
+    {
+        return Err("cases run with a cleared environment; remove env.inherit = true".into());
+    }
+    let env_add: Vec<(String, String)> = doc
+        .get("env")
+        .and_then(|t| t.get("add"))
+        .and_then(|t| t.as_table_like())
+        .map(|t| {
+            t.iter()
+                .map(|(k, v)| {
+                    v.as_str()
+                        .map(|v| (k.to_string(), v.to_string()))
+                        .ok_or_else(|| format!("env.add.{k} must be a string"))
+                })
+                .collect::<std::result::Result<Vec<_>, _>>()
+        })
+        .transpose()?
+        .unwrap_or_default();
+    let home = tempfile::Builder::new().prefix("tfsp-home-").tempdir()?;
+    let env = Env {
+        home: home.path(),
+        add: &env_add,
+    };
 
     let run = || -> Result<Run> {
         if !sandbox {
-            return run_go(go, &args, &cwd, stdin.as_deref(), None);
+            return run_go(go, &args, &cwd, stdin.as_deref(), &env, None);
         }
         let base = base
             .as_deref()
@@ -121,64 +164,93 @@ fn record(go: &Path, toml_path: &Path) -> Result<()> {
             &args,
             &tmp.path().join(rel),
             stdin.as_deref(),
+            &env,
             Some((base, tmp.path())),
         )
     };
-    let a = run()?;
-    let b = run()?;
-    if a.code != b.code {
-        return Err(format!("exit code differs between runs: {} vs {}", a.code, b.code).into());
+    let runs = (0..SAMPLES).map(|_| run()).collect::<Result<Vec<_>>>()?;
+    let first = &runs[0];
+    if runs.iter().any(|r| r.code != first.code) {
+        let codes: Vec<i32> = runs.iter().map(|r| r.code).collect();
+        return Err(format!("exit code differs between Go runs: {codes:?}").into());
     }
-    if a.files.keys().ne(b.files.keys()) {
-        return Err("the two runs wrote different files".into());
+    if runs.iter().any(|r| r.files.keys().ne(first.files.keys())) {
+        return Err("the Go runs wrote different files".into());
     }
+    let pick = |f: &dyn Fn(&Run) -> &str| runs.iter().map(f).collect::<Vec<_>>();
 
     fs::write(
         toml_path.with_extension("stdout"),
-        merge(&a.stdout, &b.stdout)?,
+        merge("stdout", &pick(&|r| &r.stdout), wildcards)?,
     )?;
     fs::write(
         toml_path.with_extension("stderr"),
-        merge(&a.stderr, &b.stderr)?,
+        merge("stderr", &pick(&|r| &r.stderr), wildcards)?,
     )?;
     if sandbox {
         if out_dir.exists() {
             fs::remove_dir_all(&out_dir)?;
         }
         fs::create_dir_all(&out_dir)?;
-        for (rel, content) in &a.files {
+        for rel in first.files.keys() {
             let dest = out_dir.join(rel);
             fs::create_dir_all(dest.parent().ok_or("output path has no parent dir")?)?;
-            fs::write(dest, merge(content, &b.files[rel])?)?;
+            let what = rel.display().to_string();
+            fs::write(dest, merge(&what, &pick(&|r| &r.files[rel]), wildcards)?)?;
         }
     }
     doc["status"] = toml_edit::table();
-    doc["status"]["code"] = toml_edit::value(i64::from(a.code));
+    doc["status"]["code"] = toml_edit::value(i64::from(first.code));
+    if doc.get("env").is_none() {
+        doc["env"] = toml_edit::table();
+    }
+    doc["env"]["inherit"] = toml_edit::value(false);
     fs::write(toml_path, doc.to_string())?;
     Ok(())
 }
 
+/// The environment Go runs with: nothing inherited except `PATH`.
+struct Env<'a> {
+    home: &'a Path,
+    add: &'a [(String, String)],
+}
+
 /// Runs Go once. With a sandbox `(base, root)`, also collects every file under
-/// `root` that is new or differs from `base`.
+/// `root` that is new or differs from `base`, and fails if one was deleted.
 fn run_go(
     go: &Path,
     args: &[String],
     cwd: &Path,
     stdin: Option<&Path>,
+    env: &Env<'_>,
     sandbox: Option<(&Path, &Path)>,
 ) -> Result<Run> {
     let stdin = match stdin {
         Some(p) => Stdio::from(fs::File::open(p)?),
         None => Stdio::null(),
     };
-    let out = Command::new(go)
-        .args(args)
+    let mut cmd = Command::new(go);
+    cmd.args(args)
         .current_dir(cwd)
         .stdin(stdin)
-        .output()?;
+        .env_clear()
+        .env("HOME", env.home);
+    if let Some(path) = std::env::var_os("PATH") {
+        cmd.env("PATH", path);
+    }
+    cmd.envs(env.add.iter().map(|(k, v)| (k, v)));
+    let out = cmd.output()?;
     let mut files = BTreeMap::new();
     if let Some((base, root)) = sandbox {
-        for rel in list_files(root)? {
+        let after = list_files(root)?;
+        if let Some(gone) = list_files(base)?.iter().find(|p| !after.contains(p)) {
+            return Err(format!(
+                "Go deleted {}; .out/ cannot record a deletion",
+                gone.display()
+            )
+            .into());
+        }
+        for rel in after {
             let now = fs::read(root.join(&rel))?;
             if fs::read(base.join(&rel)).ok().as_ref() != Some(&now) {
                 files.insert(rel, String::from_utf8(now)?);
@@ -193,44 +265,61 @@ fn run_go(
     })
 }
 
-/// Merges two runs line by line; a differing line becomes its common prefix,
-/// `[..]` and its common suffix.
-fn merge(a: &str, b: &str) -> Result<String> {
-    if a == b {
-        return Ok(a.to_owned());
+/// Merges the runs' `what` output line by line. Identical runs give the output
+/// itself. Otherwise, with `wildcards`, a differing line becomes its common prefix,
+/// `[..]` and its common suffix, if the varying part is short; without, it fails.
+fn merge(what: &str, runs: &[&str], wildcards: bool) -> Result<String> {
+    let first = runs[0];
+    if runs.iter().all(|r| *r == first) {
+        return Ok(first.to_owned());
     }
-    let (la, lb): (Vec<&str>, Vec<&str>) = (a.split('\n').collect(), b.split('\n').collect());
-    if la.len() != lb.len() {
-        return Err("output line count differs between runs; make the case deterministic".into());
+    let lines: Vec<Vec<&str>> = runs.iter().map(|r| r.split('\n').collect()).collect();
+    if lines.iter().any(|l| l.len() != lines[0].len()) {
+        return Err(format!(
+            "{what}: line count differs between Go runs; make the case deterministic"
+        )
+        .into());
     }
-    let lines: Vec<String> = la
-        .iter()
-        .zip(&lb)
-        .map(|(x, y)| {
-            if x == y {
-                x.to_string()
-            } else {
-                wildcard(x, y)
-            }
-        })
-        .collect();
-    Ok(lines.join("\n"))
+    let mut out = Vec::with_capacity(lines[0].len());
+    for i in 0..lines[0].len() {
+        let variants: Vec<&str> = lines.iter().map(|l| l[i]).collect();
+        if variants.iter().all(|v| *v == variants[0]) {
+            out.push(variants[0].to_owned());
+            continue;
+        }
+        if !wildcards {
+            return Err(format!(
+                "{what} line {} differs between Go runs: {variants:?}; make the case deterministic, or set `wildcards = true` in its toml",
+                i + 1
+            )
+            .into());
+        }
+        out.push(wildcard(&variants).map_err(|e| format!("{what} line {}: {e}", i + 1))?);
+    }
+    Ok(out.join("\n"))
 }
 
-fn wildcard(x: &str, y: &str) -> String {
-    let (cx, cy): (Vec<char>, Vec<char>) = (x.chars().collect(), y.chars().collect());
-    let pre = cx.iter().zip(&cy).take_while(|(a, b)| a == b).count();
-    let max_suf = cx.len().min(cy.len()) - pre;
-    let suf = cx
-        .iter()
-        .rev()
-        .zip(cy.iter().rev())
-        .take(max_suf)
-        .take_while(|(a, b)| a == b)
+/// The common prefix and suffix of `variants` around `[..]`, if the part that
+/// varies is at most [`MAX_WILDCARD`] characters in every variant.
+fn wildcard(variants: &[&str]) -> Result<String> {
+    let chars: Vec<Vec<char>> = variants.iter().map(|v| v.chars().collect()).collect();
+    let shortest = chars.iter().map(Vec::len).min().unwrap_or(0);
+    let same_at = |f: &dyn Fn(&Vec<char>) -> char| chars.iter().all(|c| f(c) == f(&chars[0]));
+    let pre = (0..shortest).take_while(|&i| same_at(&|c| c[i])).count();
+    let suf = (0..shortest - pre)
+        .take_while(|&i| same_at(&|c| c[c.len() - 1 - i]))
         .count();
-    let prefix: String = cx[..pre].iter().collect();
-    let suffix: String = cx[cx.len() - suf..].iter().collect();
-    format!("{prefix}[..]{suffix}")
+    let widest = chars.iter().map(|c| c.len() - pre - suf).max().unwrap_or(0);
+    if widest > MAX_WILDCARD {
+        return Err(format!(
+            "{widest} characters differ between Go runs, more than a [..] may cover ({MAX_WILDCARD}): {variants:?}"
+        )
+        .into());
+    }
+    let c = &chars[0];
+    let prefix: String = c[..pre].iter().collect();
+    let suffix: String = c[c.len() - suf..].iter().collect();
+    Ok(format!("{prefix}[..]{suffix}"))
 }
 
 fn list_files(root: &Path) -> Result<Vec<PathBuf>> {
