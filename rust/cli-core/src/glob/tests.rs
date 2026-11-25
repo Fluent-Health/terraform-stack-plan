@@ -1,0 +1,71 @@
+use super::*;
+
+// A slice of Go's path/filepath match_test.go table.
+#[test]
+fn go_match_table() {
+    let cases: &[(&str, &str, Result<bool, BadPattern>)] = &[
+        ("abc", "abc", Ok(true)),
+        ("*", "abc", Ok(true)),
+        ("*c", "abc", Ok(true)),
+        ("a*", "a", Ok(true)),
+        ("a*", "abc", Ok(true)),
+        ("a*", "ab/c", Ok(false)),
+        ("a*/b", "abc/b", Ok(true)),
+        ("a*/b", "a/c/b", Ok(false)),
+        ("a*b*c*d*e*/f", "axbxcxdxe/f", Ok(true)),
+        ("a*b*c*d*e*/f", "axbxcxdxexxx/f", Ok(true)),
+        ("a*b*c*d*e*/f", "axbxcxdxe/xxx/f", Ok(false)),
+        ("a*b*c*d*e*/f", "axbxcxdxexxx/fff", Ok(false)),
+        ("a*b?c*x", "abxbbxdbxebxczzx", Ok(true)),
+        ("a*b?c*x", "abxbbxdbxebxczzy", Ok(false)),
+        ("ab[c]", "abc", Ok(true)),
+        ("ab[b-d]", "abc", Ok(true)),
+        ("ab[e-g]", "abc", Ok(false)),
+        ("ab[^c]", "abc", Ok(false)),
+        ("ab[^b-d]", "abc", Ok(false)),
+        ("ab[^e-g]", "abc", Ok(true)),
+        ("a\\*b", "a*b", Ok(true)),
+        ("a\\*b", "ab", Ok(false)),
+        ("a?b", "a☺b", Ok(true)),
+        ("a[^a]b", "a☺b", Ok(true)),
+        ("a???b", "a☺b", Ok(false)),
+        ("a[^a][^a][^a]b", "a☺b", Ok(false)),
+        ("[a-ζ]*", "α", Ok(true)),
+        ("*[a-ζ]", "A", Ok(false)),
+        ("a?b", "a/b", Ok(false)),
+        ("a*b", "a/b", Ok(false)),
+        ("[\\]a]", "]", Ok(true)),
+        ("[\\-]", "-", Ok(true)),
+        ("[x\\-]", "x", Ok(true)),
+        ("[x\\-]", "-", Ok(true)),
+        ("[x\\-]", "z", Ok(false)),
+        ("[\\-x]", "x", Ok(true)),
+        ("[\\-x]", "-", Ok(true)),
+        ("[\\-x]", "a", Ok(false)),
+        ("[]a]", "]", Err(BadPattern)),
+        ("[-]", "-", Err(BadPattern)),
+        ("[x-]", "x", Err(BadPattern)),
+        ("[x-]", "-", Err(BadPattern)),
+        ("[x-]", "z", Err(BadPattern)),
+        ("[-x]", "x", Err(BadPattern)),
+        ("[-x]", "-", Err(BadPattern)),
+        ("[-x]", "a", Err(BadPattern)),
+        ("\\", "a", Err(BadPattern)),
+        ("[a-b-c]", "a", Err(BadPattern)),
+        ("[", "a", Err(BadPattern)),
+        ("[^", "a", Err(BadPattern)),
+        ("[^bc", "a", Err(BadPattern)),
+        ("a[", "a", Err(BadPattern)),
+        ("a[", "ab", Err(BadPattern)),
+        ("a[", "x", Err(BadPattern)),
+        ("a/b[", "x", Err(BadPattern)),
+        ("*x", "xxx", Ok(true)),
+    ];
+    for (pattern, name, want) in cases {
+        assert_eq!(
+            &matches(pattern, name),
+            want,
+            "Match({pattern:?}, {name:?})"
+        );
+    }
+}

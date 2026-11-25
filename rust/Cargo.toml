@@ -1,12 +1,39 @@
 [workspace]
 resolver = "3"
-members = ["tfstackplan", "recorder"]
+members = ["tfstackplan", "recorder", "cli-core", "clients", "casekit"]
 
 [workspace.package]
 edition = "2024"
 rust-version = "1.98"
 license = "Apache-2.0"
 publish = false
+
+# Shared pins. Young crates are pinned exactly, like the front door's own dev-dependencies.
+[workspace.dependencies]
+tfstackplan-cli = { path = "cli-core" }
+tfstackplan-clients = { path = "clients" }
+casekit = { path = "casekit" }
+# HCL: .tfstackplan.hcl, xmove manifests, stack.tm.hcl watches and backend blocks.
+hcl-rs = "=0.19.10"
+yaml-rust2 = "=0.13.2"
+regex = "=1.13.2"
+base64 = "=0.22.1"
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.154"
+# Blocking client: the CLI is synchronous, so no runtime of our own. rustls only (deny.toml).
+reqwest = { version = "=0.13.5", default-features = false, features = ["blocking", "form", "json", "rustls"] }
+# The process's TLS provider, installed once at startup: one provider compiled in, picked
+# explicitly, so rustls never has to guess (and never panics choosing between two).
+rustls = { version = "=0.23.46", default-features = false, features = ["aws_lc_rs", "std"] }
+# RSA-SHA256 for service-account JWTs; the same aws-lc that rustls already links.
+aws-lc-rs = "=1.19.0"
+rustls-pki-types = "=1.16.0"
+portable-pty = "=0.9.0"
+tempfile = "=3.27.0"
+toml_edit = "=0.25.21"
+trycmd = "=1.2.1"
+wiremock = "=0.6.5"
+tokio = { version = "=1.54.1", features = ["macros", "rt-multi-thread"] }
 
 # The lint baseline the organisation's other Rust services use, unchanged. CI builds with
 # -D warnings, so every `warn` here fails a pull request; `deny` marks what is never acceptable,
