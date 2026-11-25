@@ -387,3 +387,13 @@ fn apply_pending_moves_needs_terraform_only_when_pending() {
         "1 pending cross-state move(s): terraform not found on PATH: x"
     );
 }
+
+#[test]
+fn backups_join_like_filepath_join() {
+    let tmp = tempfile::tempdir().unwrap();
+    backup(Some(tmp.path()), "a/../b", "{}").unwrap();
+    backup(Some(tmp.path()), "/abs", "{}").unwrap();
+    assert!(tmp.path().join("b").is_dir());
+    assert!(!tmp.path().join("a").exists());
+    assert!(tmp.path().join("abs").is_dir());
+}

@@ -174,3 +174,13 @@ fn explicit_base_url_wins_and_is_trimmed() {
     let s = ObjectStore::new(token(), "b", "p", "http://explicit/").unwrap();
     assert_eq!(s.base_url(), "http://explicit");
 }
+
+#[test]
+fn lock_payload_is_go_json() {
+    let mut i = info();
+    i.who = "a<b>&c".into();
+    assert_eq!(
+        i.to_json(),
+        r#"{"ID":"abc","Operation":"tfstackplan state apply","Who":"a\u003cb\u003e\u0026c","Version":"tfstackplan","Created":"2026-01-01T00:00:00Z","Path":"gs://my-tf-state/stacks/foo/default.tflock"}"#
+    );
+}

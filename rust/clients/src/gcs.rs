@@ -8,26 +8,37 @@ use tfstackplan_cli::gourl::{path_escape, query_escape};
 use crate::TokenFn;
 
 /// Terraform's GCS backend lock object payload.
-#[derive(Clone, Debug, serde::Serialize)]
+#[derive(Clone, Debug)]
 pub struct LockInfo {
     /// Random hex id.
-    #[serde(rename = "ID")]
     pub id: String,
     /// What holds the lock.
-    #[serde(rename = "Operation")]
     pub operation: String,
     /// `user@host`.
-    #[serde(rename = "Who")]
     pub who: String,
     /// Tool version.
-    #[serde(rename = "Version")]
     pub version: String,
     /// RFC 3339 UTC time with nanoseconds.
-    #[serde(rename = "Created")]
     pub created: String,
     /// `gs://bucket/object`.
-    #[serde(rename = "Path")]
     pub path: String,
+}
+
+impl LockInfo {
+    /// `json.Marshal(info)`: Go's field order and Go's HTML-safe string escapes.
+    pub fn to_json(&self) -> String {
+        use tfstackplan_cli::gojson::{Value, marshal};
+        let v = Value::Object(vec![
+            ("ID".into(), Value::str(&self.id)),
+            ("Operation".into(), Value::str(&self.operation)),
+            ("Who".into(), Value::str(&self.who)),
+            ("Version".into(), Value::str(&self.version)),
+            ("Created".into(), Value::str(&self.created)),
+            ("Path".into(), Value::str(&self.path)),
+        ]);
+        // Only strings: marshalling cannot fail.
+        marshal(&v).unwrap_or_default()
+    }
 }
 
 /// Acquires and releases `<prefix>/default.tflock` in a state bucket.
@@ -69,7 +80,7 @@ impl Locker {
         info: &LockInfo,
     ) -> Result<Lock<'_>, String> {
         let object = format!("{prefix}/default.tflock");
-        let body = serde_json::to_vec(info).map_err(|e| format!("marshal lock info: {e}"))?;
+        let body = info.to_json().into_bytes();
         let token = (self.token)().map_err(|e| format!("auth token: {e}"))?;
         let url = format!(
             "{}/upload/storage/v1/b/{}/o?uploadType=media&name={}&ifGenerationMatch=0",

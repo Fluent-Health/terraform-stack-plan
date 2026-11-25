@@ -99,7 +99,12 @@ Service-account keys are signed with aws-lc-rs, which rustls already links. Goog
 credentials follow Go's lookup order (`GOOGLE_APPLICATION_CREDENTIALS`, the gcloud
 well-known file, the metadata server when on Google Cloud) and Go's ID-token strategies,
 including the Cloud Build fallback to `generateIdToken`. `external_account` credentials are
-not supported. Error text matches Go's where the CLI prints it (ADC discovery, oauth2
+not supported. Tokens are reused until shortly before they expire, with each Go library's
+margin: 10 s for access tokens, 225 s for ID tokens (a service-account key's ID token takes
+its expiry from its own `exp` claim, as the reply has no `expires_in`) and 5 min for the
+metadata server's. Metadata server calls use their own client with no proxy, as Go's
+metadata client does, so `HTTP_PROXY` on a runner cannot send them elsewhere. Error text
+matches Go's where the CLI prints it (ADC discovery, oauth2
 token errors, server responses); transport errors carry reqwest's wording.
 
 ## Replay cases run hermetically, with fake servers
@@ -132,7 +137,13 @@ The Go code drives terraform through terraform-exec v0.25.1. The Rust runner bui
 argv for each call (`init`, `state pull`, `state push`, `show -json`, `state mv`) and the
 same environment (`TF_IN_AUTOMATION=1`, the `TF_LOG*` variables cleared, the user agent
 suffix, `TF_WORKSPACE` removed), so terraform behaves the same under either binary. It skips
-terraform-exec's version probe and its parent-death signal, which needs an unsafe
-`pre_exec`. The replay runs `state apply` against real terraform with a local backend and
+terraform-exec's version probe.
+
+terraform-exec also starts terraform in its own process group with a parent-death signal
+(SIGKILL), so terraform dies with its parent. The parent-death signal needs an unsafe
+`pre_exec`, which no crate here allows, and a separate process group without it would let
+terraform outlive a cancelled CI job and keep pushing state with nobody watching. So the
+Rust runner leaves terraform in our process group: the signal that stops the job reaches
+both. The replay runs `state apply` against real terraform with a local backend and
 the builtin `terraform_data` resource, so no provider is downloaded. `--lock` is covered by
 the clients' wiremock tests only: terraform itself cannot talk to the fake GCS.
