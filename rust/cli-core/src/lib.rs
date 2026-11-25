@@ -20,6 +20,7 @@ pub mod gojson;
 pub mod goregex;
 pub mod gourl;
 pub mod hclx;
+mod isprint;
 pub mod jwt;
 pub mod statemove;
 pub mod uniqueness;

@@ -28,21 +28,31 @@ pub fn quote(s: &str) -> String {
     out
 }
 
-/// Go's `unicode.IsPrint`, closely enough for the strings this CLI quotes:
-/// letters, marks, numbers, punctuation, symbols and the ASCII space.
+/// `strconv.IsPrint`, from Go's own tables (see `isprint.rs`).
 pub fn is_print(c: char) -> bool {
-    if c == ' ' {
-        return true;
+    use crate::isprint::{IS_NOT_PRINT16, IS_NOT_PRINT32, IS_PRINT16, IS_PRINT32};
+    let r = c as u32;
+    if r <= 0xFF {
+        return (0x20..=0x7E).contains(&r) || ((0xA1..=0xFF).contains(&r) && r != 0xAD);
     }
-    if c.is_control() || c.is_whitespace() {
+    if r < 0x10000 {
+        let rr = r as u16;
+        let i = IS_PRINT16.partition_point(|&v| v < rr);
+        if i >= IS_PRINT16.len() || rr < IS_PRINT16[i & !1] || IS_PRINT16[i | 1] < rr {
+            return false;
+        }
+        return IS_NOT_PRINT16.binary_search(&rr).is_err();
+    }
+    let i = IS_PRINT32.partition_point(|&v| v < r);
+    if i >= IS_PRINT32.len() || r < IS_PRINT32[i & !1] || IS_PRINT32[i | 1] < r {
         return false;
     }
-    let u = c as u32;
-    // Format characters (Cf), private use (Co) and noncharacters are not printable.
-    !matches!(u,
-        0xAD | 0x600..=0x605 | 0x61C | 0x6DD | 0x70F | 0x180E | 0x200B..=0x200F
-        | 0x202A..=0x202E | 0x2060..=0x2064 | 0x2066..=0x206F | 0xFEFF | 0xFFF9..=0xFFFB
-        | 0xE000..=0xF8FF | 0xF0000..=0x10FFFF | 0xFFFE | 0xFFFF)
+    if r >= 0x20000 {
+        return true;
+    }
+    IS_NOT_PRINT32
+        .binary_search(&((r - 0x10000) as u16))
+        .is_err()
 }
 
 /// The shortest decimal digits and exponent of `f` (finite, non-zero):
@@ -76,8 +86,9 @@ pub fn format_f(f: f64) -> String {
     format!("{f}")
 }
 
-/// `fmt.Sprint(f)` / `%v` for a float64: `%g` with the shortest digits, switching to
-/// an exponent below 1e-4 or at 1e21 and above.
+/// `fmt.Sprint(f)` / `%v` for a float64: strconv's `'g'` with the shortest digits. For the
+/// shortest form strconv switches to an exponent when it is below -4 or at least 6
+/// (`ftoa.go`: `if shortest { eprec = 6 }`), so 1e6 prints as `1e+06`.
 pub fn format_v(f: f64) -> String {
     if f.is_nan() {
         return "NaN".to_string();
@@ -90,7 +101,7 @@ pub fn format_v(f: f64) -> String {
     }
     let (_, exp) = shortest(f);
     let x = exp - 1;
-    if !(-4..21).contains(&x) {
+    if !(-4..6).contains(&x) {
         format_e(f)
     } else {
         format_f(f)
