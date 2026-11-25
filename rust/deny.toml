@@ -27,6 +27,9 @@ unused-allowed-license = "allow"
 confidence-threshold = 0.9
 # Our own crates are not published.
 private = { ignore = true }
+# comrak (the /plan fragment's markdown renderer) uses finl_unicode, whose Unicode data tables
+# carry the OSI-approved Unicode-DFS-2016 terms. Allowed for that crate only.
+exceptions = [{ allow = ["Unicode-DFS-2016"], crate = "finl_unicode" }]
 
 [bans]
 multiple-versions = "warn"

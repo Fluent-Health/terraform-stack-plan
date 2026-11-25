@@ -15,12 +15,11 @@ use tracing::{info, warn};
 use crate::render::{check_run_name, run_context};
 use crate::{App, http};
 
-/// Go's `prFromMergeSubject`: squash "<title> (#N)" anchored at the end, or merge
+/// Go's `prFromMergeSubject`: squash `"<title> (#N)"` anchored at the end, or merge
 /// "Merge pull request #N from …"; 0 when neither matches.
 pub(crate) fn pr_from_merge_subject(subject: &str) -> i64 {
     // `\(#([0-9]+)\)\s*$`
-    let trimmed =
-        subject.trim_end_matches([' ', '\t', '\n', '\r', '\x0c']);
+    let trimmed = subject.trim_end_matches([' ', '\t', '\n', '\r', '\x0c']);
     if let Some(inner) = trimmed.strip_suffix(')')
         && let Some(open) = inner.rfind("(#")
     {

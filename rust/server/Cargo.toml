@@ -21,17 +21,26 @@ jiff.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["fs", "process"] }
 tracing.workspace = true
+tracing-subscriber = { version = "0.3.20", default-features = false, features = ["fmt", "std"] }
 rusqlite.workspace = true
 axum = "0.8.4"
 base64 = "=0.23.1"
 comrak = { version = "=1.2.0", default-features = false }
 hcl-rs = "=0.19.10"
 regex = "1.11.1"
+tempfile.workspace = true
+reqwest = { version = "=0.13.5", default-features = false, features = ["rustls", "json"] }
 futures-util = "0.3.31"
 serde_urlencoded = "0.7.1"
 tokio-stream = "0.1.17"
 
+[[test]]
+name = "replay"
+harness = false
+
 [dev-dependencies]
+aws-lc-rs = "1.19.0"
+hex = "0.4.3"
 tfstackplan-server-clients = { workspace = true, features = ["test-support"] }
 tempfile.workspace = true
 tower = { version = "0.5.2", features = ["util"] }

@@ -1977,6 +1977,8 @@ name = "tfstackplan"
 version = "0.0.0"
 dependencies = [
  "tempfile",
+ "tfstackplan-server",
+ "tokio",
  "trycmd",
 ]
 
@@ -2018,6 +2020,7 @@ dependencies = [
  "tokio-stream",
  "tower",
  "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

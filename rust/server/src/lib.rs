@@ -29,6 +29,7 @@ mod applylock;
 mod catalog;
 mod checkrun;
 pub mod config;
+pub mod demo;
 mod execution;
 pub mod gojson;
 mod http;
@@ -42,9 +43,9 @@ mod read;
 pub mod render;
 mod routes;
 pub mod serve;
+mod shell;
 #[cfg(test)]
 mod testutil;
-mod shell;
 mod webhook;
 
 pub use config::Config;

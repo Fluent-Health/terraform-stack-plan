@@ -635,9 +635,33 @@ async fn terminate() {
     ctrl_c.await;
 }
 
+/// Go's `log` timestamp, `2006/01/02 15:04:05`, in UTC (serve runs in UTC containers).
+struct GoTime;
+
+impl tracing_subscriber::fmt::time::FormatTime for GoTime {
+    fn format_time(&self, w: &mut tracing_subscriber::fmt::format::Writer<'_>) -> std::fmt::Result {
+        write!(
+            w,
+            "{}",
+            jiff::Timestamp::now().strftime("%Y/%m/%d %H:%M:%S")
+        )
+    }
+}
+
+/// Routes `tracing` events to stderr in Go's log format. Idempotent.
+pub fn init_logging() {
+    let _ = tracing_subscriber::fmt()
+        .with_writer(std::io::stderr)
+        .with_timer(GoTime)
+        .with_level(false)
+        .with_target(false)
+        .try_init();
+}
+
 /// `tfstackplan serve`: returns the process exit code.
 pub async fn run(args: Vec<String>) -> ExitCode {
     tfstackplan_server_clients::http::install_crypto_provider();
+    init_logging();
     let flags = match parse_flags(&args) {
         Ok(f) => f,
         Err(msg) => {
@@ -645,17 +669,65 @@ pub async fn run(args: Vec<String>) -> ExitCode {
             return ExitCode::from(2);
         }
     };
-    if flags.demo {
-        eprintln!(
-            "tfstackplan serve: demo mode is served by the Go binary; set TFSTACKPLAN_IMPL_SERVE=go"
-        );
-        return ExitCode::from(1);
-    }
-    let file = match load(&flags.config) {
+    let (app, _demo_dir) = if flags.demo {
+        eprintln!("tfstackplan serve: starting in credential-free demo mode...");
+        let dir = match tempfile::Builder::new()
+            .prefix("tfstackplan-demo-")
+            .tempdir()
+        {
+            Ok(d) => d,
+            Err(e) => {
+                eprintln!("tfstackplan serve: create temp dir: {e}");
+                return ExitCode::from(1);
+            }
+        };
+        match crate::demo::build_demo_app(&dir.path().join("demo.db")) {
+            Ok(app) => {
+                spawn_demo_seed(flags.addr.clone());
+                (app, Some(dir))
+            }
+            Err(e) => {
+                eprintln!("tfstackplan serve demo: {e}");
+                return ExitCode::from(1);
+            }
+        }
+    } else {
+        match configured_app(&flags.config).await {
+            Ok(app) => (app, None),
+            Err(code) => return code,
+        }
+    };
+    serve_app(app, &flags.addr).await
+}
+
+/// Seeds the demo scenario once the listener is up, then prints where to look.
+fn spawn_demo_seed(addr: String) {
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(150)).await;
+        let host = if addr.starts_with(':') {
+            format!("127.0.0.1{addr}")
+        } else {
+            addr
+        };
+        match crate::demo::seed_scenario(&format!("http://{host}")).await {
+            Err(e) => eprintln!("demo: seed scenario failed: {e}"),
+            Ok((plan, apply)) => {
+                let bar = "=================================================================";
+                eprint!(
+                    "\n{bar}\nDEMO MODE READY!\nSeeded Plan ID:      {plan}\nSeeded Apply ID:     {apply}\nExecution API:       http://{host}/api/execution/{plan}\nReady URL:           http://{host}/ready\nPoint a `tfstackplan ui` tier at http://{host} to browse it.\n{bar}\n\n"
+                );
+            }
+        }
+    });
+}
+
+/// Loads the config and builds the app; `Err` is the exit code after the message.
+async fn configured_app(config: &str) -> Result<Arc<App>, ExitCode> {
+    let file = match load(config) {
         Ok(f) => f,
         Err(e) => {
             eprintln!("tfstackplan serve: {e}");
-            return ExitCode::from(1);
+            return Err(ExitCode::from(1));
         }
     };
     let secret = if file.github_webhook_secret_env.is_empty() {
@@ -663,13 +735,17 @@ pub async fn run(args: Vec<String>) -> ExitCode {
     } else {
         std::env::var(&file.github_webhook_secret_env).unwrap_or_default()
     };
-    let app = match build_app(&file, secret, real_creds()).await {
-        Ok(a) => a,
+    match build_app(&file, secret, real_creds()).await {
+        Ok(a) => Ok(a),
         Err(e) => {
             eprintln!("tfstackplan serve: {e}");
-            return ExitCode::from(1);
+            Err(ExitCode::from(1))
         }
-    };
+    }
+}
+
+/// Starts the loops and serves until SIGTERM.
+async fn serve_app(app: Arc<App>, addr: &str) -> ExitCode {
     let loops = [
         tokio::spawn(Arc::clone(&app).reconcile_loop(Duration::from_secs(30))),
         tokio::spawn(
@@ -684,16 +760,16 @@ pub async fn run(args: Vec<String>) -> ExitCode {
             .clean_log_buffers(Duration::from_secs(24 * 3600))
             .await
     });
-    eprintln!("tfstackplan serve: listening on {}", flags.addr);
-    let bind = if flags.addr.starts_with(':') {
-        format!("0.0.0.0{}", flags.addr)
+    eprintln!("tfstackplan serve: listening on {addr}");
+    let bind = if addr.starts_with(':') {
+        format!("0.0.0.0{addr}")
     } else {
-        flags.addr.clone()
+        addr.to_string()
     };
     let listener = match TcpListener::bind(&bind).await {
         Ok(l) => l,
         Err(e) => {
-            eprintln!("tfstackplan serve: listen tcp {}: {e}", flags.addr);
+            eprintln!("tfstackplan serve: listen tcp {addr}: {e}");
             return ExitCode::from(1);
         }
     };

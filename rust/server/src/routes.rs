@@ -118,10 +118,16 @@ impl App {
             .and_then(|v| v.to_str().ok())
             .and_then(|h| h.strip_prefix("Bearer "))
         else {
-            return Err(Box::new(http::error(StatusCode::UNAUTHORIZED, "unauthorized")));
+            return Err(Box::new(http::error(
+                StatusCode::UNAUTHORIZED,
+                "unauthorized",
+            )));
         };
         let Ok(email) = verify(token.to_string()).await else {
-            return Err(Box::new(http::error(StatusCode::UNAUTHORIZED, "unauthorized")));
+            return Err(Box::new(http::error(
+                StatusCode::UNAUTHORIZED,
+                "unauthorized",
+            )));
         };
         let email = email.to_lowercase();
         let granted = self

@@ -887,12 +887,12 @@ pub fn count_stacks(stacks: &[StackState]) -> (usize, usize, usize) {
     (done_n, initialized, stacks.len())
 }
 
-/// The legacy plan check name: "plan/<env>".
+/// The legacy plan check name: `"plan/<env>"`.
 pub fn check_run_name(environment: &str) -> String {
     status_context(environment)
 }
 
-/// The consolidated per-tier check: "terraform/<env>".
+/// The consolidated per-tier check: `"terraform/<env>"`.
 pub fn consolidated_check_name(environment: &str) -> String {
     if environment.is_empty() {
         "terraform".into()
@@ -901,7 +901,7 @@ pub fn consolidated_check_name(environment: &str) -> String {
     }
 }
 
-/// The legacy merge-lock check: "apply-lock/<env>".
+/// The legacy merge-lock check: `"apply-lock/<env>"`.
 pub fn apply_lock_name(environment: &str) -> String {
     if environment.is_empty() {
         "apply-lock".into()
@@ -915,7 +915,7 @@ pub fn is_apply_context(ctx: &str) -> bool {
     ctx == "apply" || ctx.starts_with("apply/")
 }
 
-/// "plan/<env>", or "plan" without an environment.
+/// `"plan/<env>"`, or "plan" without an environment.
 pub fn status_context(environment: &str) -> String {
     if environment.is_empty() {
         "plan".into()
