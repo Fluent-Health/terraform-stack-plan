@@ -11,11 +11,31 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-/// A ported subcommand: gets the arguments after the subcommand name.
-type Handler = fn(&[OsString]) -> ExitCode;
+mod faces;
+mod fsx;
+mod proc;
+mod server;
 
-/// Subcommands that have a Rust implementation. Empty until the first port.
-const PORTED: &[(&str, Handler)] = &[];
+/// A ported subcommand: gets the arguments after the subcommand name.
+type Handler = fn(&[String]) -> ExitCode;
+
+/// Subcommands that have a Rust implementation.
+const PORTED: &[(&str, Handler)] = &[
+    ("state", faces::state::run),
+    ("claims", faces::claims::run),
+    ("catalog", faces::catalog::run),
+    ("uniqueness", faces::uniqueness::run),
+    ("whoami", faces::whoami::run),
+    ("admin", faces::admin::run),
+];
+
+/// `run` subcommands that have a Rust implementation. The rest of `run` (the
+/// plan/apply orchestrator) still runs in Go.
+const PORTED_RUN: &[(&str, Handler)] = &[
+    ("wrap", faces::wrap::run),
+    ("claims", faces::claims::run),
+    ("whoami", faces::whoami::run),
+];
 
 /// Runs the front door: dispatches to a ported subcommand or hands the call to
 /// the Go binary. The `tfstackplan` binary is only this call.
@@ -24,20 +44,34 @@ pub fn main() -> ExitCode {
     let name = subcommand(&args);
 
     if !forced_to_go(&name)
-        && let Some((_, handler)) = PORTED.iter().find(|(n, _)| *n == name)
+        && let Some((handler, skip)) = ported(&name, &args)
     {
-        // Go's dispatch treats a leading flag (or no args) as `render` with
-        // every argument as a render flag; only strip a named subcommand.
-        let rest = if args.first().is_some_and(|a| a == name.as_str()) {
-            &args[1..]
-        } else {
-            &args[..]
-        };
-        return handler(rest);
+        // One rustls provider for every HTTP client the faces build.
+        tfstackplan_clients::install_crypto_provider();
+        // Go reads arguments as strings; a non-UTF-8 byte becomes U+FFFD here.
+        let rest: Vec<String> = args[skip..]
+            .iter()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect();
+        return handler(&rest);
     }
 
     log_fallback(&name);
     run_go(&args)
+}
+
+/// The Rust handler for this call, and how many leading arguments name it. Go's
+/// dispatch treats a leading flag (or no args) as `render` with every argument as
+/// a render flag, so only a named subcommand is stripped.
+fn ported(name: &str, args: &[OsString]) -> Option<(Handler, usize)> {
+    let named = args.first().is_some_and(|a| a == name);
+    if name == "run" && named {
+        let sub = args.get(1)?.to_string_lossy();
+        let (_, handler) = PORTED_RUN.iter().find(|(n, _)| *n == sub)?;
+        return Some((*handler, 2));
+    }
+    let (_, handler) = PORTED.iter().find(|(n, _)| *n == name)?;
+    Some((*handler, usize::from(named)))
 }
 
 /// The subcommand Go would dispatch to: the first argument, or `render` when
