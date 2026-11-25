@@ -25,7 +25,8 @@ tracing.workspace = true
 jiff.workspace = true
 # One crypto stack for TLS, JWT signing, ID-token verification and webhook HMACs: aws-lc-rs.
 aws-lc-rs = "1.19.0"
-base64 = "0.22.1"
+# Pinned exactly: a recent release; the same version hyper-util already pulls in.
+base64 = "=0.23.1"
 hex = "0.4.3"
 # rustls without its default features so only the aws-lc-rs provider is compiled in.
 rustls = { version = "0.23.46", default-features = false, features = ["aws_lc_rs", "std", "tls12"] }
