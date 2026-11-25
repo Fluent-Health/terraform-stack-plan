@@ -32,6 +32,7 @@ serde_urlencoded = "0.7.1"
 tokio-stream = "0.1.17"
 
 [dev-dependencies]
+tfstackplan-server-clients = { workspace = true, features = ["test-support"] }
 tempfile.workspace = true
 tower = { version = "0.5.2", features = ["util"] }
 
