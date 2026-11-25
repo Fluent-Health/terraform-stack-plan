@@ -19,8 +19,12 @@ fn replay() {
     );
     let go = std::fs::canonicalize(go).unwrap();
 
-    let log = std::env::temp_dir().join(format!("tfsp-fallback-{}.log", std::process::id()));
-    let _ = std::fs::remove_file(&log);
+    // Removed when the test ends, even if it fails.
+    let scratch = tempfile::Builder::new()
+        .prefix("tfsp-replay-")
+        .tempdir()
+        .unwrap();
+    let log = scratch.path().join("fallback.log");
 
     let mut cases: Vec<PathBuf> = std::fs::read_dir(&cases_dir)
         .unwrap()
@@ -51,7 +55,6 @@ fn replay() {
         .unwrap_or_default()
         .lines()
         .count();
-    let _ = std::fs::remove_file(&log);
     let total = cases.len();
     let passed = total - failed.len();
 

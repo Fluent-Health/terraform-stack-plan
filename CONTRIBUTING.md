@@ -31,8 +31,9 @@ If you change it, or change Go output that the replay cases record, see
 
 ```bash
 CGO_ENABLED=0 go build -o rust/.go/tfstackplan-go ./cmd/tfstackplan
-cd rust && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
 ```
+
+then run the checks listed under *Before you push* in `rust/README.md`.
 
 New behaviour should come with tests. The project follows a test-driven style —
 write the failing test first, then the implementation.

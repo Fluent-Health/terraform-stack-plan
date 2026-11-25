@@ -28,8 +28,10 @@ ported.
 
 ## Building locally
 
-You need the Go toolchain from the repo root and Rust 1.99.1 (pinned in
-`rust-toolchain.toml`; rustup installs it on first use).
+You need the Go toolchain from the repo root and Rust 1.98.1 (pinned in
+`rust-toolchain.toml`; rustup installs it on first use), plus
+[cargo-nextest](https://nexte.st) and
+[cargo-deny](https://github.com/EmbarkStudios/cargo-deny) for the checks below.
 
 ```bash
 # from the repo root
@@ -42,6 +44,23 @@ target/release/tfstackplan -version
 ```
 
 `rust/.go/` and `rust/target/` are gitignored.
+
+## Before you push
+
+Run the same checks as the CI `rust` job, from `rust/`, and confirm each exits 0:
+
+```bash
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --locked -- -D warnings
+RUSTDOCFLAGS='-D warnings' cargo doc --workspace --no-deps --locked
+cargo nextest run --profile pr --workspace --locked
+cargo test --doc --workspace --locked
+cargo deny --locked check advisories bans licenses sources
+cargo run -p recorder && git diff --exit-code -- cases   # recordings still match Go
+```
+
+Unit tests live in a `tests.rs` beside the module (`#[cfg(test)] mod tests;`), not
+in an inline `mod tests { … }` block.
 
 ## Replay cases
 
@@ -78,7 +97,7 @@ TFSTACKPLAN_GO_BIN=$PWD/.go/tfstackplan-go cargo run -p recorder -- version # on
 
 ```bash
 cd rust
-cargo test   # uses TFSTACKPLAN_GO_BIN, else rust/.go/tfstackplan-go
+cargo nextest run   # uses TFSTACKPLAN_GO_BIN, else rust/.go/tfstackplan-go
 ```
 
 `tests/replay.rs` runs the front door against every case and writes
@@ -86,7 +105,7 @@ cargo test   # uses TFSTACKPLAN_GO_BIN, else rust/.go/tfstackplan-go
 Go. The report is committed. With nothing ported, the expected result is every
 case passing with every invocation falling back.
 
-CI (`rust` job in `.github/workflows/ci.yml`) runs fmt, clippy and the tests,
+CI (`rust` job in `.github/workflows/ci.yml`) runs the checks in *Before you push*,
 then re-records the cases and fails if `rust/cases` changed. If a Go change
 alters output, re-record in the same PR.
 

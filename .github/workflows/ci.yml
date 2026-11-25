@@ -104,14 +104,30 @@ jobs:
         working-directory: .
         run: CGO_ENABLED=0 go build -o "$TFSTACKPLAN_GO_BIN" ./cmd/tfstackplan
 
+      # Pinned like the toolchain, so CI and local runs use the same versions.
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest@0.9.152,cargo-deny@0.22.1
+
       - name: cargo fmt
-        run: cargo fmt --check
+        run: cargo fmt --all -- --check
 
       - name: cargo clippy
-        run: cargo clippy --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
-      - name: cargo test
-        run: cargo test
+      - name: rustdoc lints
+        run: cargo doc --workspace --no-deps --locked
+        env:
+          RUSTDOCFLAGS: -D warnings
+
+      - name: cargo nextest
+        run: cargo nextest run --profile pr --workspace --locked
+
+      - name: doctests
+        run: cargo test --doc --workspace --locked
+
+      - name: cargo deny
+        run: cargo deny --locked check advisories bans licenses sources
 
       - name: Recorded cases match the Go binary
         run: |

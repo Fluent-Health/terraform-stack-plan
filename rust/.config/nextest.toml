@@ -1,0 +1,7 @@
+# cargo-nextest configuration (https://nexte.st/docs/configuration/).
+#
+# `pr`: what a pull request build runs (.github/workflows/ci.yml). Today it is every test; a test
+# slow enough to leave out of pull requests goes in its default-filter, by name, with why.
+# Locally, `cargo nextest run` is the default profile.
+[profile.pr]
+fail-fast = false

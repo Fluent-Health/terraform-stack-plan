@@ -1,3 +1,5 @@
+# The organisation's other Rust services pin the same toolchain, so all of them move to a new
+# minor together. Moving it here moves Cargo.toml's rust-version in the same change.
 [toolchain]
-channel = "1.99.1"
+channel = "1.98.1"
 components = ["clippy", "rustfmt"]

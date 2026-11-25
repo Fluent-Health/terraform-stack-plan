@@ -33,3 +33,23 @@ and easy to regenerate. trycmd already handles sandboxes, exit codes and `[..]`
 wildcards, which is all render needs. Our own recorder fills the files from the
 Go binary rather than from the Rust binary (trycmd's own overwrite mode), so the
 recording is always Go's behavior and Rust has to match it.
+
+## Conventions follow the organisation's other Rust services
+
+The toolchain (1.98.1), the workspace lint baseline, `clippy.toml`, `deny.toml`, the build
+profiles and the nextest `pr` profile are the same as in the organisation's other Rust services.
+One toolchain and one lint and dependency policy means a reviewer who knows one of those
+services can read this one, and a toolchain or lint bump moves all of them together. The lint
+baseline denies `unsafe`, `unwrap` and leftover `dbg!`/`todo!`, and every lint silenced in code
+says why with `#[expect(..., reason = "...")]`. `deny.toml` allows only rustls for TLS, so the
+binary keeps running on a distroless image with no libssl. CI runs on GitHub Actions because
+this repository is public, with the same commands the other services run.
+
+## Crate layout
+
+Ported code is split by how often it changes and whether it does I/O. The first port, `render`,
+goes in a core library crate that does no I/O, reads no clock and is not async: plans in,
+markdown out. That keeps it testable case by case against the Go binary. Code that talks to
+GitHub, GCS or terraform goes in a separate clients crate. The `tfstackplan` binary stays the
+thin shell that parses arguments, reads files and wires the two together.
+

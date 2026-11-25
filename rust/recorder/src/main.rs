@@ -9,6 +9,8 @@
 //! Usage: `cargo run -p recorder [-- <case-name>...]` from `rust/`, with
 //! `TFSTACKPLAN_GO_BIN` pointing at the Go binary.
 
+#![forbid(unsafe_code)]
+
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -48,7 +50,11 @@ fn record_all() -> Result<()> {
     tomls.sort();
 
     for toml in tomls {
-        let name = toml.file_stem().unwrap().to_string_lossy().into_owned();
+        let name = toml
+            .file_stem()
+            .ok_or("case file has no name")?
+            .to_string_lossy()
+            .into_owned();
         if !only.is_empty() && !only.contains(&name) {
             continue;
         }
@@ -60,7 +66,7 @@ fn record_all() -> Result<()> {
 
 fn record(go: &Path, toml_path: &Path) -> Result<()> {
     let mut doc: toml_edit::DocumentMut = fs::read_to_string(toml_path)?.parse()?;
-    let dir = toml_path.parent().unwrap();
+    let dir = toml_path.parent().ok_or("case file has no parent dir")?;
 
     let args: Vec<String> = doc
         .get("args")
@@ -103,11 +109,13 @@ fn record(go: &Path, toml_path: &Path) -> Result<()> {
         let base = base
             .as_deref()
             .ok_or("a sandbox needs fs.base or a .in/ dir")?;
-        let tmp = TempDir::new()?;
+        let tmp = tempfile::Builder::new()
+            .prefix("tfsp-recorder-")
+            .tempdir()?;
         copy_dir(base, tmp.path())?;
         let rel = cwd
             .strip_prefix(base)
-            .map_err(|_| "fs.cwd must be inside fs.base")?;
+            .map_err(|e| format!("fs.cwd must be inside fs.base: {e}"))?;
         run_go(
             go,
             &args,
@@ -140,7 +148,7 @@ fn record(go: &Path, toml_path: &Path) -> Result<()> {
         fs::create_dir_all(&out_dir)?;
         for (rel, content) in &a.files {
             let dest = out_dir.join(rel);
-            fs::create_dir_all(dest.parent().unwrap())?;
+            fs::create_dir_all(dest.parent().ok_or("output path has no parent dir")?)?;
             fs::write(dest, merge(content, &b.files[rel])?)?;
         }
     }
@@ -245,53 +253,11 @@ fn list_files(root: &Path) -> Result<Vec<PathBuf>> {
 fn copy_dir(from: &Path, to: &Path) -> Result<()> {
     for rel in list_files(from)? {
         let dest = to.join(&rel);
-        fs::create_dir_all(dest.parent().unwrap())?;
+        fs::create_dir_all(dest.parent().ok_or("output path has no parent dir")?)?;
         fs::copy(from.join(&rel), dest)?;
     }
     Ok(())
 }
 
-/// A scratch directory removed on drop.
-struct TempDir(PathBuf);
-
-impl TempDir {
-    fn new() -> Result<Self> {
-        use std::sync::atomic::{AtomicU32, Ordering};
-        static N: AtomicU32 = AtomicU32::new(0);
-        let n = N.fetch_add(1, Ordering::Relaxed);
-        let p = std::env::temp_dir().join(format!("tfsp-recorder-{}-{n}", std::process::id()));
-        fs::create_dir_all(&p)?;
-        Ok(Self(p))
-    }
-
-    fn path(&self) -> &Path {
-        &self.0
-    }
-}
-
-impl Drop for TempDir {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
-    }
-}
-
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn merge_wildcards_only_the_differing_part() {
-        let got = merge("a\nrun id=123 ok\nz\n", "a\nrun id=98 ok\nz\n").unwrap();
-        assert_eq!(got, "a\nrun id=[..] ok\nz\n");
-    }
-
-    #[test]
-    fn merge_keeps_identical_output() {
-        assert_eq!(merge("same\n", "same\n").unwrap(), "same\n");
-    }
-
-    #[test]
-    fn merge_rejects_different_line_counts() {
-        assert!(merge("a\n", "a\nb\n").is_err());
-    }
-}
+mod tests;
