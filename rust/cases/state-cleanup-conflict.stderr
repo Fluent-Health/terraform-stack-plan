@@ -1,0 +1,1 @@
+state cleanup: pass exactly one of --pr <n>, --all, or --applied

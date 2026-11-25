@@ -1,0 +1,16 @@
+{
+  "format_version": "1.2",
+  "resource_changes": [
+    {
+      "address": "module.network.google_compute_network.vpc",
+      "mode": "managed",
+      "type": "google_compute_network",
+      "provider_name": "registry.terraform.io/hashicorp/google",
+      "change": {
+        "actions": [
+          "create"
+        ]
+      }
+    }
+  ]
+}

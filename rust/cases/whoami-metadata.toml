@@ -1,0 +1,15 @@
+bin.name = "tfstackplan"
+args = ["whoami"]
+fs.cwd = "../.."
+
+[harness]
+env = { TFSTACKPLAN_SERVER = "https://control-plane.example", GCE_METADATA_HOST = "{fakehost}" }
+
+[[harness.route]]
+method = "GET"
+path = "/computeMetadata/v1/instance/service-accounts/default/identity"
+status = 200
+body = 'eyJhbGciOiJub25lIn0.eyJlbWFpbCI6ImNpLWJvdEBleGFtcGxlLmNvbSIsInN1YiI6IjQyIn0.'
+
+[status]
+code = 0

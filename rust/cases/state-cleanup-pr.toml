@@ -1,0 +1,8 @@
+bin.name = "tfstackplan"
+args = ["state", "cleanup", "--dir", ".", "--pr", "2"]
+fs.base = "fixtures/state/tree"
+fs.sandbox = true
+fs.cwd = "fixtures/state/tree"
+
+[status]
+code = 0

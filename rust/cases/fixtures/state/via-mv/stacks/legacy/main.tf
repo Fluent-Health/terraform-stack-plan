@@ -1,0 +1,3 @@
+module "perms" {
+  source = "./perms"
+}

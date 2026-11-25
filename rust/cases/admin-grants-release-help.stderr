@@ -1,0 +1,11 @@
+Usage of admin grants release:
+  -class string
+    	grant class (required)
+  -env string
+    	environment name (required)
+  -pr int
+    	PR number (required)
+  -reason string
+    	reason for release (default "admin intervention")
+  -target string
+    	grant target (required)

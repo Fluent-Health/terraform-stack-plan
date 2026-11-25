@@ -1,0 +1,8 @@
+bin.name = "tfstackplan"
+args = ["state", "removed", "--dir", ".", "--stack", "stacks/app", "--pr", "3", "google_storage_bucket.main", "google_pubsub_topic.events"]
+fs.base = "fixtures/state/shims"
+fs.sandbox = true
+fs.cwd = "fixtures/state/shims"
+
+[status]
+code = 0

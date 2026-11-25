@@ -1,0 +1,3 @@
+PR-1	stacks/app	moved google_storage_bucket.old → google_storage_bucket.new
+PR-2	stacks/app	removed google_pubsub_topic.events
+PR-2	stacks/events	import google_pubsub_topic.events (id=projects/demo/topics/events)

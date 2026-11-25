@@ -1,0 +1,15 @@
+bin.name = "tfstackplan"
+args = ["claims", "list", "--env", "dev"]
+fs.cwd = "../.."
+
+[harness]
+env = { TFSTACKPLAN_SERVER = "{fake}" }
+
+[[harness.route]]
+method = "POST"
+path = "/api/claims/list"
+status = 500
+body = 'boom'
+
+[status]
+code = 1

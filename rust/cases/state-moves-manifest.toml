@@ -1,0 +1,6 @@
+bin.name = "tfstackplan"
+args = ["state", "moves-manifest", "--dir", "."]
+fs.cwd = "fixtures/state/tree"
+
+[status]
+code = 0

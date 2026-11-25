@@ -1,0 +1,6 @@
+bin.name = "tfstackplan"
+args = ["state", "apply", "--dir", "."]
+fs.cwd = "fixtures/state/same"
+
+[status]
+code = 0

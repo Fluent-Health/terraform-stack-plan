@@ -1,0 +1,3 @@
+Server URL: https://control-plane.example
+OIDC Audience: https://control-plane.example
+Identity: Lookup failed — Google ADC is unavailable: google: could not find default credentials. See https://cloud.google.com/docs/authentication/external/set-up-adc for more information

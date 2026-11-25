@@ -1,0 +1,27 @@
+{
+  "format_version": "1.2",
+  "resource_changes": [],
+  "prior_state": {
+    "format_version": "1.0",
+    "values": {
+      "root_module": {
+        "resources": [
+          {
+            "address": "module.perms.google_project_iam_member.reader",
+            "mode": "managed",
+            "type": "google_project_iam_member",
+            "provider_name": "registry.terraform.io/hashicorp/google",
+            "values": {}
+          },
+          {
+            "address": "module.perms.data.google_project.this",
+            "mode": "data",
+            "type": "google_project",
+            "provider_name": "registry.terraform.io/hashicorp/google",
+            "values": {}
+          }
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,6 @@
+bin.name = "tfstackplan"
+args = ["uniqueness"]
+fs.cwd = "fixtures/uniqueness/findings"
+
+[status]
+code = 1

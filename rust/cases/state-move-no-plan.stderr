@@ -1,0 +1,1 @@
+state move: stack "stacks/app": read plan: open stacks/app/tfplan.json: no such file or directory (run `tfstackplan run plan` first)

@@ -1,0 +1,6 @@
+bin.name = "tfstackplan"
+args = ["claims", "release", "--env", "dev", "--pr", "seven"]
+fs.cwd = "../.."
+
+[status]
+code = 2

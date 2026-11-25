@@ -1,0 +1,1 @@
+tfstackplan state: expected a subcommand (move|import|remove|removed|list|moves-manifest|cleanup|apply|check)

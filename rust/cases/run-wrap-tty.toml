@@ -1,0 +1,6 @@
+bin.name = "tfstackplan"
+args = ["run", "wrap", "--tty", "--", "sh", "-c", "test -t 1 && echo ISTTY || echo PIPE; exit 4"]
+fs.cwd = "../.."
+
+[status]
+code = 4

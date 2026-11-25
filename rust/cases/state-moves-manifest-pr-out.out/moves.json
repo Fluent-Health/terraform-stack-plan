@@ -1,0 +1,8 @@
+{
+  "tier/legacy": [
+    "module.perms"
+  ],
+  "tier/workloads/api": [
+    "module.access"
+  ]
+}

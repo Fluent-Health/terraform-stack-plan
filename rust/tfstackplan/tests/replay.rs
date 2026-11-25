@@ -1,6 +1,10 @@
 //! Replays every recorded case in `rust/cases/` against the front door and
 //! writes `rust/cases/replay-report.md`.
 //!
+//! Each case runs in the hermetic environment, with its `[harness]` fake server
+//! if it has one (see the `casekit` crate). A case that needs a program that is
+//! not on PATH is skipped and listed in the report.
+//!
 //! Needs the Go binary: `TFSTACKPLAN_GO_BIN`, else `rust/.go/tfstackplan-go`.
 
 use std::path::{Path, PathBuf};
@@ -36,18 +40,35 @@ fn replay() {
 
     // One TestCases per case, so a failure is counted instead of ending the run.
     let mut failed = Vec::new();
+    let mut skipped = Vec::new();
     for case in &cases {
+        let name = case.file_stem().unwrap().to_string_lossy().into_owned();
+        let doc: toml_edit::DocumentMut = std::fs::read_to_string(case).unwrap().parse().unwrap();
+        let harness = casekit::Harness::from_case(&doc).unwrap();
+        let missing = harness.missing_tools();
+        if !missing.is_empty() {
+            eprintln!("skipping {name}: {} not on PATH", missing.join(", "));
+            skipped.push(format!("{name} ({} not on PATH)", missing.join(", ")));
+            continue;
+        }
+        let session = harness.start().unwrap();
         let ok = std::panic::catch_unwind(|| {
-            trycmd::TestCases::new()
-                .register_bin("tfstackplan", trycmd::cargo::cargo_bin!("tfstackplan"))
+            let t = trycmd::TestCases::new();
+            t.register_bin("tfstackplan", trycmd::cargo::cargo_bin!("tfstackplan"))
                 .env("TFSTACKPLAN_GO_BIN", go.to_string_lossy())
-                .env("TFSTACKPLAN_FALLBACK_LOG", log.to_string_lossy())
-                .case(case)
-                .run();
+                .env("TFSTACKPLAN_FALLBACK_LOG", log.to_string_lossy());
+            for (k, v) in &session.env {
+                t.env(k, v);
+            }
+            if let (Some(url), Some(host)) = (session.fake_url(), session.fake_host()) {
+                t.insert_var(casekit::FAKE_VAR, url).unwrap();
+                t.insert_var(casekit::FAKE_HOST_VAR, host).unwrap();
+            }
+            t.case(case).run();
         })
         .is_ok();
         if !ok {
-            failed.push(case.file_stem().unwrap().to_string_lossy().into_owned());
+            failed.push(name);
         }
     }
 
@@ -55,7 +76,7 @@ fn replay() {
         .unwrap_or_default()
         .lines()
         .count();
-    let total = cases.len();
+    let total = cases.len() - skipped.len();
     let passed = total - failed.len();
 
     let mut report = format!(
@@ -67,6 +88,12 @@ fn replay() {
          | Rust-handled | {}/{total} |\n",
         total.saturating_sub(fallbacks)
     );
+    if !skipped.is_empty() {
+        report.push_str("\n## Skipped\n\n");
+        for name in &skipped {
+            report.push_str(&format!("- {name}\n"));
+        }
+    }
     if !failed.is_empty() {
         report.push_str("\n## Failed\n\n");
         for name in &failed {

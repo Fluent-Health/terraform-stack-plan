@@ -1,0 +1,7 @@
+Usage of state list:
+  -all
+    	list all moves (default)
+  -dir string
+    	terramate project root (required)
+  -pr string
+    	only this PR's moves

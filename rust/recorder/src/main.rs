@@ -6,6 +6,11 @@
 //! sandboxed cases, the files Go wrote into `<name>.out/`. A line that differs
 //! between the two runs keeps its common prefix and suffix with `[..]` between.
 //!
+//! Every run gets the hermetic environment and, if the case has a `[harness]`
+//! table, its fake server (see the `casekit` crate). The fake server's URL is
+//! recorded as `[FAKE]`. A case whose `harness.requires` names a program that is
+//! not on PATH is skipped and its recording left as it is.
+//!
 //! Usage: `cargo run -p recorder [-- <case-name>...]` from `rust/`, with
 //! `TFSTACKPLAN_GO_BIN` pointing at the Go binary.
 
@@ -58,15 +63,38 @@ fn record_all() -> Result<()> {
         if !only.is_empty() && !only.contains(&name) {
             continue;
         }
-        record(&go, &toml).map_err(|e| format!("{name}: {e}"))?;
-        println!("recorded {name}");
+        if record(&go, &toml).map_err(|e| format!("{name}: {e}"))? {
+            println!("recorded {name}");
+        }
     }
     Ok(())
 }
 
-fn record(go: &Path, toml_path: &Path) -> Result<()> {
+/// Records one case; `false` when it was skipped.
+fn record(go: &Path, toml_path: &Path) -> Result<bool> {
     let mut doc: toml_edit::DocumentMut = fs::read_to_string(toml_path)?.parse()?;
     let dir = toml_path.parent().ok_or("case file has no parent dir")?;
+    let mut harness = casekit::Harness::from_case(&doc)?;
+    // trycmd's own `[env] add` applies to Go too (after the harness env).
+    if let Some(add) = doc
+        .get("env")
+        .and_then(|e| e.get("add"))
+        .and_then(|a| a.as_table_like())
+    {
+        for (k, v) in add.iter() {
+            let v = v.as_str().ok_or("env.add values must be strings")?;
+            harness.env.push((k.to_string(), v.to_string()));
+        }
+    }
+    let missing = harness.missing_tools();
+    if !missing.is_empty() {
+        println!(
+            "skipped {}: {} not on PATH",
+            toml_path.file_stem().unwrap_or_default().to_string_lossy(),
+            missing.join(", ")
+        );
+        return Ok(false);
+    }
 
     let args: Vec<String> = doc
         .get("args")
@@ -102,9 +130,14 @@ fn record(go: &Path, toml_path: &Path) -> Result<()> {
     let stdin = toml_path.with_extension("stdin");
     let stdin = stdin.exists().then_some(stdin);
 
-    let run = || -> Result<Run> {
+    let run_in_session = |go: &Path,
+                          args: &[String],
+                          cwd: &Path,
+                          stdin: Option<&Path>,
+                          session: &casekit::Session|
+     -> Result<Run> {
         if !sandbox {
-            return run_go(go, &args, &cwd, stdin.as_deref(), None);
+            return run_go(go, args, cwd, stdin, &session.env, None);
         }
         let base = base
             .as_deref()
@@ -118,11 +151,26 @@ fn record(go: &Path, toml_path: &Path) -> Result<()> {
             .map_err(|e| format!("fs.cwd must be inside fs.base: {e}"))?;
         run_go(
             go,
-            &args,
+            args,
             &tmp.path().join(rel),
-            stdin.as_deref(),
+            stdin,
+            &session.env,
             Some((base, tmp.path())),
         )
+    };
+    let run = || -> Result<Run> {
+        let session = harness.start()?;
+        let run = run_in_session(go, &args, &cwd, stdin.as_deref(), &session)?;
+        Ok(Run {
+            code: run.code,
+            stdout: session.redact(&run.stdout),
+            stderr: session.redact(&run.stderr),
+            files: run
+                .files
+                .into_iter()
+                .map(|(k, v)| (k, session.redact(&v)))
+                .collect(),
+        })
     };
     let a = run()?;
     let b = run()?;
@@ -149,13 +197,15 @@ fn record(go: &Path, toml_path: &Path) -> Result<()> {
         for (rel, content) in &a.files {
             let dest = out_dir.join(rel);
             fs::create_dir_all(dest.parent().ok_or("output path has no parent dir")?)?;
-            fs::write(dest, merge(content, &b.files[rel])?)?;
+            // trycmd compares written files after turning `\` into `/` (path
+            // normalisation) on the actual side only, so record them that way.
+            fs::write(dest, merge(content, &b.files[rel])?.replace('\\', "/"))?;
         }
     }
     doc["status"] = toml_edit::table();
     doc["status"]["code"] = toml_edit::value(i64::from(a.code));
     fs::write(toml_path, doc.to_string())?;
-    Ok(())
+    Ok(true)
 }
 
 /// Runs Go once. With a sandbox `(base, root)`, also collects every file under
@@ -165,6 +215,7 @@ fn run_go(
     args: &[String],
     cwd: &Path,
     stdin: Option<&Path>,
+    env: &[(String, String)],
     sandbox: Option<(&Path, &Path)>,
 ) -> Result<Run> {
     let stdin = match stdin {
@@ -173,6 +224,7 @@ fn run_go(
     };
     let out = Command::new(go)
         .args(args)
+        .envs(env.iter().map(|(k, v)| (k, v)))
         .current_dir(cwd)
         .stdin(stdin)
         .output()?;
@@ -221,13 +273,22 @@ fn wildcard(x: &str, y: &str) -> String {
     let (cx, cy): (Vec<char>, Vec<char>) = (x.chars().collect(), y.chars().collect());
     let pre = cx.iter().zip(&cy).take_while(|(a, b)| a == b).count();
     let max_suf = cx.len().min(cy.len()) - pre;
-    let suf = cx
+    let mut suf = cx
         .iter()
         .rev()
         .zip(cy.iter().rev())
         .take(max_suf)
         .take_while(|(a, b)| a == b)
         .count();
+    // Widen to whole alphanumeric runs: two random ids may share a first or last
+    // digit by chance, and a third run would not.
+    let mut pre = pre;
+    while pre > 0 && cx[pre - 1].is_alphanumeric() {
+        pre -= 1;
+    }
+    while suf > 0 && cx[cx.len() - suf].is_alphanumeric() {
+        suf -= 1;
+    }
     let prefix: String = cx[..pre].iter().collect();
     let suffix: String = cx[cx.len() - suf..].iter().collect();
     format!("{prefix}[..]{suffix}")

@@ -1,0 +1,6 @@
+flag provided but not defined: -bogus
+Usage of catalog build:
+  -dir string
+    	terramate project root (required) (default ".")
+  -o string
+    	output file path (default: stdout)

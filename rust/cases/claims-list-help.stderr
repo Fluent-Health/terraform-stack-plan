@@ -1,0 +1,3 @@
+Usage of claims list:
+  -env string
+    	environment name (optional; defaults to discovering from repository)

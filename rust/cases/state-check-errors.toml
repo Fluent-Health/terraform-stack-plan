@@ -1,0 +1,6 @@
+bin.name = "tfstackplan"
+args = ["state", "check", "--dir", "."]
+fs.cwd = "fixtures/state/check-bad"
+
+[status]
+code = 1

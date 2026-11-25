@@ -1,0 +1,21 @@
+bin.name = "tfstackplan"
+args = ["run", "wrap", "--on-success", "planned", "--", "sh", "-c", "echo planning; exit 1"]
+fs.cwd = "../.."
+
+[harness]
+env = { TFSTACKPLAN_SERVER = "{fake}", TFSTACKPLAN_EXECUTION = "exec-1", TFSTACKPLAN_STACK = "stacks/dev/db" }
+
+[[harness.route]]
+method = "POST"
+path = "/api/update"
+status = 400
+body = 'stack not in execution'
+
+[[harness.route]]
+method = "POST"
+path = "/api/logs"
+status = 200
+body = ''
+
+[status]
+code = 1

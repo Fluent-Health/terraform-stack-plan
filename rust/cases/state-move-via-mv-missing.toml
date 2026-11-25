@@ -1,0 +1,8 @@
+bin.name = "tfstackplan"
+args = ["state", "move", "--dir", ".", "--pr", "21", "--via", "mv", "stacks/legacy:module.nothing", "stacks/platform:module.access"]
+fs.base = "fixtures/state/via-mv"
+fs.sandbox = true
+fs.cwd = "fixtures/state/via-mv"
+
+[status]
+code = 1

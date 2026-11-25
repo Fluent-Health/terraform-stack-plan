@@ -1,0 +1,6 @@
+bin.name = "tfstackplan"
+args = ["run", "wrap", "--running", "bogus", "--", "true"]
+fs.cwd = "../.."
+
+[status]
+code = 2

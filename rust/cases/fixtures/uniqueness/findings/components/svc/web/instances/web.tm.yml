@@ -1,0 +1,9 @@
+environments:
+  dev:
+    inputs:
+      account_id: 999999999
+      upstreams:
+        - acme-prod.internal.example.com
+  prod:
+    inputs:
+      account_id: 999999999

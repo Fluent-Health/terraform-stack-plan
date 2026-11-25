@@ -1,0 +1,5 @@
+Usage of admin executions cancel:
+  -id string
+    	execution ID (required)
+  -reason string
+    	reason for cancellation (default "admin intervention")

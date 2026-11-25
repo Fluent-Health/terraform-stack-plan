@@ -1,0 +1,9 @@
+bin.name = "tfstackplan"
+args = ["whoami"]
+fs.cwd = "../.."
+
+[harness]
+env = { TFSTACKPLAN_SERVER = "https://control-plane.example" }
+
+[status]
+code = 1

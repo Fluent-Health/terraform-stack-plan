@@ -1,0 +1,28 @@
+metadata:
+  name: api
+environments:
+  dev:
+    inputs:
+      account_id: "111122223333"
+      callback_url: https://hooks.example.com/cb
+      client_id: shared-client-<one>&two
+      hosts: [a.example.com, b.example.com]
+      enabled: true
+      timeout_ms: 30000000
+      per_env:
+        project: acme-dev
+      ratio: 1.5
+      big: 1234567890123456789012345
+  staging:
+    inputs:
+      client_id: shared-client-<one>&two
+      hosts: [a.example.com, b.example.com]
+      enabled: true
+      ratio: 1.5
+  prod:
+    inputs:
+      account_id: "111122223333"
+      callback_url: https://hooks.example.com/cb
+      leak: https://api.acme-stg.example.com/v1
+      big: 1234567890123456789012345
+      launched: 2024-01-15

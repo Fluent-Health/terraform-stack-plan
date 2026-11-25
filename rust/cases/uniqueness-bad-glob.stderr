@@ -1,0 +1,1 @@
+tfstackplan uniqueness: env_uniqueness: source glob "components/*.tm.yml" must have the <dir>/**/<pattern> shape

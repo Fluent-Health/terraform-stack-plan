@@ -1,0 +1,3 @@
+Server URL: [FAKE]/
+OIDC Audience: https://aud.example
+Identity: ci-bot@example.com
