@@ -28,6 +28,10 @@ pub struct Output {
     pub fits: bool,
     /// The classification sidecar JSON, when the config classifies.
     pub classification_json: Option<String>,
+    /// The report without the summary table (what `run` finalizes to the server).
+    pub markdown_no_table: String,
+    /// Each stack's full plan section, captured before the budget fit.
+    pub stack_reports: BTreeMap<String, String>,
 }
 
 /// Builds a report one stack at a time.
@@ -229,6 +233,8 @@ impl<'a> Builder<'a> {
                 ));
             }
         };
+        // The per-stack store has no comment-size budget: capture before fitting.
+        let stack_reports = render::per_stack(&self.report);
         let fits = fit::fit(&mut self.report, max_bytes);
         let classification_json = self.cfg.classification.as_ref().map(|cl| {
             let mut summary = classify::summarize(&self.all_cats, &cl.rules);
@@ -245,6 +251,8 @@ impl<'a> Builder<'a> {
             markdown: render::render(&self.report),
             fits,
             classification_json,
+            markdown_no_table: render::render_no_table(&self.report),
+            stack_reports,
         })
     }
 }

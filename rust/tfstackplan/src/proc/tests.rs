@@ -48,7 +48,7 @@ fn terramate_list_and_run_graph() {
 
 #[test]
 fn errors_read_like_go() {
-    let e = std::io::Error::from(std::io::ErrorKind::NotFound);
+    let e = std::io::Error::from_raw_os_error(2);
     assert_eq!(
         start_error("terramate", &e),
         "exec: \"terramate\": executable file not found in $PATH"

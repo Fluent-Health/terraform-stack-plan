@@ -16,7 +16,6 @@ mod fsx;
 mod proc;
 mod server;
 
-mod goflag;
 mod gofs;
 mod render;
 

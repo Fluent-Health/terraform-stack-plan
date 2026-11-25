@@ -13,7 +13,7 @@ pub fn start_error(bin: &str, e: &std::io::Error) -> String {
             tfstackplan_cli::gofmt::quote(bin)
         )
     } else {
-        format!("fork/exec {bin}: {}", crate::fsx::errno_text(e))
+        format!("fork/exec {bin}: {}", crate::gofs::errno_text(e))
     }
 }
 

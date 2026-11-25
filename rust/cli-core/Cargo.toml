@@ -11,6 +11,7 @@ description = "Pure logic behind the tfstackplan CLI faces: no I/O, no clock, no
 name = "tfstackplan_cli"
 
 [dependencies]
+tfstackplan-render.workspace = true
 hcl-rs.workspace = true
 yaml-rust2.workspace = true
 regex.workspace = true

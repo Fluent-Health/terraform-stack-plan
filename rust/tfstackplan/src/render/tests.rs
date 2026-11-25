@@ -172,3 +172,36 @@ fn build_skips_unparseable_file() {
     let idx = build_index(&testdata("bad"), &testdata(""));
     assert!(idx.lookup("", "google_storage_bucket", "ok").is_none());
 }
+
+/// Go's usage text for the render flag set, recorded from the Go binary.
+const GO_USAGE: &str = r#"Usage of tfstackplan render:
+  -config string
+    	HCL policy file (default: auto-discover .tfstackplan.hcl)
+  -details string
+    	details disclosure: auto|open|closed (default "closed")
+  -emit-classification-json string
+    	write computed classes as JSON
+  -link-var value
+    	link template variable as key=value (repeatable); sha=<sha> also derives sha_short
+  -marker string
+    	HTML-comment marker for CI upsert (default "tfstackplan")
+  -max-bytes int
+    	document byte budget (0 disables) (default 60000)
+  -output string
+    	output file ('-' = stdout) (default "-")
+  -plans-dir string
+    	directory of per-stack plans (each <stack>/tfplan.json)
+  -repo-root string
+    	repo root for computing link file paths (default ".")
+  -state-moves string
+    	JSON manifest of pending cross-state move targets per stack ({"<stack>":["<addr>",...]}); their planned creates classify as moves (non-iam). Keys must match the --plans-dir stack name.
+  -title string
+    	report title (default "Terraform plan")
+  -version
+    	print version and exit
+"#;
+
+#[test]
+fn usage_matches_go() {
+    assert_eq!(flags().usage(), GO_USAGE);
+}

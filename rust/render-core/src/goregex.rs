@@ -136,6 +136,16 @@ impl GoRegex {
     }
 
     /// `NumSubexp`.
+    /// The compiled `regex` (for callers that need its full API).
+    pub fn as_regex(&self) -> &regex::Regex {
+        &self.0
+    }
+
+    /// Consumes the wrapper, returning the compiled `regex`.
+    pub fn into_regex(self) -> regex::Regex {
+        self.0
+    }
+
     pub fn num_subexp(&self) -> usize {
         self.0.captures_len() - 1
     }

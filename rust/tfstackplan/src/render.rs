@@ -11,8 +11,8 @@ use tfstackplan_render::moveset::Manifest;
 use tfstackplan_render::source::{self, Index};
 use tfstackplan_render::{Builder, Output};
 
-use crate::goflag::{self, Kind, Stop};
 use crate::gofs;
+use tfstackplan_cli::flag::{FlagSet, ParseError, Parsed};
 
 const DEFAULT_MAX_BYTES: i64 = 60000;
 const PLAN_FILE: &str = "tfplan.json";
@@ -25,48 +25,30 @@ const VERSION: &str = match option_env!("TFSTACKPLAN_VERSION") {
     None => "dev",
 };
 
-const FLAGS: &[(&str, Kind)] = &[
-    ("plans-dir", Kind::Str),
-    ("title", Kind::Str),
-    ("marker", Kind::Str),
-    ("config", Kind::Str),
-    ("max-bytes", Kind::Int),
-    ("output", Kind::Str),
-    ("emit-classification-json", Kind::Str),
-    ("details", Kind::Str),
-    ("repo-root", Kind::Str),
-    ("state-moves", Kind::Str),
-    ("link-var", Kind::List),
-    ("version", Kind::Bool),
-];
-
-/// Go's usage text for the render flag set, byte for byte.
-const USAGE: &str = r#"Usage of tfstackplan render:
-  -config string
-    	HCL policy file (default: auto-discover .tfstackplan.hcl)
-  -details string
-    	details disclosure: auto|open|closed (default "closed")
-  -emit-classification-json string
-    	write computed classes as JSON
-  -link-var value
-    	link template variable as key=value (repeatable); sha=<sha> also derives sha_short
-  -marker string
-    	HTML-comment marker for CI upsert (default "tfstackplan")
-  -max-bytes int
-    	document byte budget (0 disables) (default 60000)
-  -output string
-    	output file ('-' = stdout) (default "-")
-  -plans-dir string
-    	directory of per-stack plans (each <stack>/tfplan.json)
-  -repo-root string
-    	repo root for computing link file paths (default ".")
-  -state-moves string
-    	JSON manifest of pending cross-state move targets per stack ({"<stack>":["<addr>",...]}); their planned creates classify as moves (non-iam). Keys must match the --plans-dir stack name.
-  -title string
-    	report title (default "Terraform plan")
-  -version
-    	print version and exit
-"#;
+/// The render flag set, declared like Go's `runRender`.
+fn flags() -> FlagSet {
+    let mut fs = FlagSet::new("tfstackplan render");
+    fs.string("plans-dir", "", "directory of per-stack plans (each <stack>/tfplan.json)")
+        .string("title", "Terraform plan", "report title")
+        .string("marker", "tfstackplan", "HTML-comment marker for CI upsert")
+        .string("config", "", "HCL policy file (default: auto-discover .tfstackplan.hcl)")
+        .int("max-bytes", DEFAULT_MAX_BYTES, "document byte budget (0 disables)")
+        .string("output", "-", "output file ('-' = stdout)")
+        .string("emit-classification-json", "", "write computed classes as JSON")
+        .string("details", "closed", "details disclosure: auto|open|closed")
+        .string("repo-root", ".", "repo root for computing link file paths")
+        .string(
+            "state-moves",
+            "",
+            "JSON manifest of pending cross-state move targets per stack ({\"<stack>\":[\"<addr>\",...]}); their planned creates classify as moves (non-iam). Keys must match the --plans-dir stack name.",
+        )
+        .list(
+            "link-var",
+            "link template variable as key=value (repeatable); sha=<sha> also derives sha_short",
+        )
+        .bool("version", false, "print version and exit");
+    fs
+}
 
 struct Opts {
     plans_dir: String,
@@ -82,29 +64,19 @@ struct Opts {
     link_vars: Vec<String>,
 }
 
-fn opts(v: &goflag::Values) -> Opts {
-    let s = |name: &str, def: &str| {
-        v.get(name)
-            .and_then(|x| x.last())
-            .cloned()
-            .unwrap_or_else(|| def.to_string())
-    };
+fn opts(p: &Parsed) -> Opts {
     Opts {
-        plans_dir: s("plans-dir", ""),
-        title: s("title", "Terraform plan"),
-        marker: s("marker", "tfstackplan"),
-        config: s("config", ""),
-        max_bytes: v
-            .get("max-bytes")
-            .and_then(|x| x.last())
-            .and_then(|x| goflag::parse_int(x).ok())
-            .unwrap_or(DEFAULT_MAX_BYTES),
-        output: s("output", "-"),
-        class_json: s("emit-classification-json", ""),
-        details: s("details", "closed"),
-        repo_root: s("repo-root", "."),
-        state_moves: s("state-moves", ""),
-        link_vars: v.get("link-var").cloned().unwrap_or_default(),
+        plans_dir: p.str("plans-dir").to_string(),
+        title: p.str("title").to_string(),
+        marker: p.str("marker").to_string(),
+        config: p.str("config").to_string(),
+        max_bytes: p.int("max-bytes"),
+        output: p.str("output").to_string(),
+        class_json: p.str("emit-classification-json").to_string(),
+        details: p.str("details").to_string(),
+        repo_root: p.str("repo-root").to_string(),
+        state_moves: p.str("state-moves").to_string(),
+        link_vars: p.list("link-var").to_vec(),
     }
 }
 
@@ -115,22 +87,19 @@ pub fn run(args: &[OsString]) -> ExitCode {
         .iter()
         .map(|a| a.to_string_lossy().into_owned())
         .collect();
-    let values = match goflag::parse(&args, FLAGS) {
-        Ok((v, _rest)) => v,
-        Err(Stop::Help) => {
-            eprint!("{USAGE}");
-            return ExitCode::SUCCESS;
-        }
-        Err(Stop::Error(msg)) => {
-            eprint!("{msg}\n{USAGE}");
-            return ExitCode::from(2);
+    let values = match flags().parse(&args) {
+        Ok(p) => p,
+        Err(e) => {
+            eprint!("{}", e.stderr());
+            // Go's runRender treats -h as success, any other flag error as 2.
+            return if matches!(e, ParseError::Help(_)) {
+                ExitCode::SUCCESS
+            } else {
+                ExitCode::from(2)
+            };
         }
     };
-    if values
-        .get("version")
-        .and_then(|v| v.last())
-        .is_some_and(|v| v == "true")
-    {
+    if values.bool("version") {
         println!("tfstackplan {VERSION}");
         return ExitCode::SUCCESS;
     }

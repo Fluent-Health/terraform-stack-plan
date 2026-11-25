@@ -94,7 +94,7 @@ impl Terraform {
                 format!(
                     "fork/exec {}: {}",
                     self.exec_path,
-                    crate::fsx::errno_text(&e)
+                    crate::gofs::errno_text(&e)
                 )
             })?;
         if !out.status.success() {

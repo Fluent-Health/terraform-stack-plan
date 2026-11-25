@@ -16,7 +16,7 @@ tfstackplan-clients = { path = "clients" }
 casekit = { path = "casekit" }
 # HCL: .tfstackplan.hcl, xmove manifests, stack.tm.hcl watches and backend blocks.
 hcl-rs = "=0.19.10"
-yaml-rust2 = "=0.13.2"
+yaml-rust2 = { version = "=0.10.4", default-features = false }
 regex = "=1.13.2"
 base64 = "=0.22.1"
 serde = { version = "=1.0.229", features = ["derive"] }

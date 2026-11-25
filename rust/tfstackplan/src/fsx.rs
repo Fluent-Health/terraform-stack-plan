@@ -29,38 +29,9 @@ pub fn load_config(path: &Path) -> Result<Config, String> {
     config::parse(&src, &path.to_string_lossy())
 }
 
-/// An `*os.PathError` message: `<op> <path>: <errno text>`, worded like Go's.
+/// An `*os.PathError` message for a `Path` (`gofs::path_error` does the wording).
 pub fn os_error(op: &str, path: &Path, e: &std::io::Error) -> String {
-    format!("{op} {}: {}", path.display(), errno_text(e))
-}
-
-/// The lower-case errno text Go prints (`no such file or directory`), falling
-/// back to Rust's description.
-pub fn errno_text(e: &std::io::Error) -> String {
-    use std::io::ErrorKind::*;
-    match e.kind() {
-        NotFound => "no such file or directory".into(),
-        PermissionDenied => "permission denied".into(),
-        IsADirectory => "is a directory".into(),
-        NotADirectory => "not a directory".into(),
-        AlreadyExists => "file exists".into(),
-        DirectoryNotEmpty => "directory not empty".into(),
-        _ => {
-            let s = e.to_string();
-            // Rust appends " (os error N)"; Go does not.
-            match s.find(" (os error") {
-                Some(i) => {
-                    let t = &s[..i];
-                    let mut c = t.chars();
-                    match c.next() {
-                        Some(f) => f.to_lowercase().collect::<String>() + c.as_str(),
-                        None => String::new(),
-                    }
-                }
-                None => s,
-            }
-        }
-    }
+    crate::gofs::path_error(op, &path.to_string_lossy(), e)
 }
 
 #[cfg(test)]
