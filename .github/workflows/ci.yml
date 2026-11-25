@@ -105,6 +105,21 @@ jobs:
         working-directory: .
         run: CGO_ENABLED=0 go build -o "$TFSTACKPLAN_GO_BIN" ./cmd/tfstackplan
 
+      # Replay cases for `state apply` and `catalog` run real terraform and terramate,
+      # at the versions in .tool-versions. Without them those cases are skipped, the
+      # replay report changes and the stale check below fails.
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.13.3
+          terraform_wrapper: false
+
+      - name: Install terramate
+        working-directory: .
+        run: |
+          curl -fsSLo "$RUNNER_TEMP/terramate.tgz" https://github.com/terramate-io/terramate/releases/download/v0.17.0/terramate_0.17.0_linux_x86_64.tar.gz
+          echo "2f2f7b14628e06bc1df3ac9cbdbe6a0d7edbd109b460503190f6bdc2f1605d79  $RUNNER_TEMP/terramate.tgz" | sha256sum -c -
+          sudo tar -xzf "$RUNNER_TEMP/terramate.tgz" -C /usr/local/bin terramate
+
       # Pinned like the toolchain, so CI and local runs use the same versions.
       - uses: taiki-e/install-action@v2
         with:
