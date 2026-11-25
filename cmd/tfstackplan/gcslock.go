@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/hashicorp/hcl/v2"
@@ -95,7 +96,7 @@ func newGCSLocker(token func(context.Context) (string, error), baseURL string) *
 	if baseURL == "" {
 		baseURL = cache.GCSBaseURL
 	}
-	return &gcsLocker{token: token, baseURL: baseURL, hc: http.DefaultClient}
+	return &gcsLocker{token: token, baseURL: strings.TrimRight(baseURL, "/"), hc: http.DefaultClient}
 }
 
 // lockInfo mirrors terraform's GCS backend lock object payload.
