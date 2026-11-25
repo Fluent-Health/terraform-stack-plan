@@ -176,7 +176,7 @@ fn apply_lock_check_round_trip() {
         head_sha: "sha1".into(),
         check_run_id: 99,
         pr: 7,
-        stacks: vec!["a".into(), "b".into()],
+        stacks: Some(vec!["a".into(), "b".into()]),
         state: "held".into(),
         kind: "merge_group".into(),
         ..ApplyLockCheck::default()
@@ -207,7 +207,7 @@ fn apply_lock_check_execution_id_round_trip() {
         check_run_id: 42,
         pr: 7,
         repo: "o/r".into(),
-        stacks: vec!["stacks/a".into()],
+        stacks: Some(vec!["stacks/a".into()]),
         state: state.into(),
         kind: "pr_head".into(),
         execution_id: id.into(),

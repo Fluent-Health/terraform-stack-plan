@@ -35,7 +35,8 @@ pub struct ApplyLockCheck {
     pub check_run_id: i64,
     pub pr: i64,
     pub repo: String,
-    pub stacks: Vec<String>,
+    /// `None` is Go's nil slice, stored as `null`; `Some(vec![])` is stored as `[]`.
+    pub stacks: Option<Vec<String>>,
     /// clear, held or unverifiable.
     pub state: String,
     /// merge_group or pr_head.
@@ -134,8 +135,7 @@ fn applylock_row(r: &Row<'_>) -> rusqlite::Result<ApplyLockCheck> {
         // Go ignores an unparseable stacks column.
         stacks: serde_json::from_str::<Option<Vec<String>>>(&stacks)
             .ok()
-            .flatten()
-            .unwrap_or_default(),
+            .flatten(),
         state: r.get(6)?,
         kind: r.get(7)?,
         execution_id: r.get(8)?,
@@ -243,12 +243,7 @@ impl Store {
 
     /// Records an apply-lock check, replacing the (environment, head SHA) row.
     pub fn upsert_apply_lock_check(&self, c: &ApplyLockCheck) -> Result<()> {
-        // Go marshals a nil slice as null.
-        let stacks = if c.stacks.is_empty() {
-            "null".to_string()
-        } else {
-            serde_json::to_string(&c.stacks)?
-        };
+        let stacks = serde_json::to_string(&c.stacks)?;
         self.write(|tx| {
             tx.execute(
                 "INSERT INTO applylock_checks (environment, head_sha, check_run_id, pr, repo, stacks, state, kind, execution_id, updated_at)
