@@ -782,8 +782,13 @@ hardening is in [`SECURITY.md`](../SECURITY.md).
 - **Rust port replay** — `rust/` holds a front door binary that runs a
   subcommand in Rust once it is ported and otherwise execs the Go binary. Every
   case in `rust/cases/` (trycmd format) is recorded from Go and replayed through
-  the front door; CI re-records and fails if the recording is stale. Nothing is
-  ported yet, so every case falls back to Go. See [`rust/README.md`](../rust/README.md).
+  the front door; CI re-records and fails if the recording is stale. `state`,
+  `claims`, `catalog`, `uniqueness`, `whoami`, `admin` and `run wrap`/`claims`/
+  `whoami` run in Rust; the rest of `run` and the other faces fall back to Go.
+  Cases that talk to GitHub, GCS or Google run against local fake servers
+  (`rust/casekit`) with an empty `HOME` and no real credentials; cases that need
+  terraform 1.13.3 or terramate 0.17.0 are skipped and listed when those are
+  absent, and CI installs both. See [`rust/README.md`](../rust/README.md).
 - **Wire goldens** pin the exact bytes of every `/api` response across
   versions. **gofmt CI gate**: the test job fails on any non-gofmt'd file
   (`gofmt -l .` catches what `vet` does not).
@@ -815,6 +820,13 @@ hardening is in [`SECURITY.md`](../SECURITY.md).
   `creack/pty` (needed for terraform to emit ANSI colour); on Windows or any
   allocation failure it falls back to the pipe path (logs one line, command
   still runs, exit code preserved).
+- **The Rust CLI faces differ from Go in a few places** (full list in
+  `rust/DECISIONS.md`): output that Go orders by map iteration is sorted;
+  HCL/YAML parse errors lack Go's file positions; `external_account`
+  credentials are not supported; `uniqueness` compares expiry against the UTC
+  date and does not yet merge YAML `<<` keys; the `state` terraform runner skips
+  terraform-exec's version probe. `TFSTACKPLAN_IMPL_<FACE>=go` sends a face back
+  to Go.
 
 **Serve / state / approvals**
 
