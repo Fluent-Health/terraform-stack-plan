@@ -1,0 +1,1 @@
+{"Modules":[{"Key":"","Source":"","Dir":"."},{"Key":"subnets","Source":"./modules/subnets","Dir":"modules/subnets"},{"Key":"remote","Source":"registry.terraform.io/example/thing/google","Dir":".terraform/modules/remote"}]}

@@ -1,0 +1,53 @@
+{
+  "format_version": "1.2",
+  "resource_changes": [
+    {
+      "address": "google_service_account.api",
+      "mode": "managed",
+      "type": "google_service_account",
+      "name": "api",
+      "provider_name": "registry.terraform.io/hashicorp/google",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "before": null,
+        "after": {
+          "account_id": "app-api",
+          "display_name": "API (SVC)"
+        },
+        "after_unknown": {},
+        "before_sensitive": {},
+        "after_sensitive": {}
+      }
+    },
+    {
+      "address": "google_storage_bucket.assets",
+      "mode": "managed",
+      "type": "google_storage_bucket",
+      "name": "assets",
+      "provider_name": "registry.terraform.io/hashicorp/google",
+      "change": {
+        "actions": [
+          "update"
+        ],
+        "before": {
+          "labels": {
+            "app": "api"
+          },
+          "location": "ASIA-SOUTH1"
+        },
+        "after": {
+          "labels": {
+            "app": "api",
+            "tier": "static"
+          },
+          "location": "ASIA-SOUTH1"
+        },
+        "after_unknown": {},
+        "before_sensitive": {},
+        "after_sensitive": {}
+      }
+    }
+  ]
+}

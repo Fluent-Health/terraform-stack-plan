@@ -1,0 +1,551 @@
+<!-- tfstackplan -->
+### Terraform plan  (8 stacks changed)
+
+[Build #7](https://ci.example.com/builds;region=asia-south1/7?project=example-ci) · [PR #42](https://git.example.com/example-org/example-infra/pull/42)
+
+| Stack | Add | Change | Destroy | Replace | Categories |
+| --- | ---: | ---: | ---: | ---: | --- |
+| data/warehouse | 0 | 0 | 6 | 0 | 🔐 iam  💣 destructive |
+| networking/shared-vpc | 0 | 5 | 0 | 2 | 💣 destructive |
+| observability/grafana | 5 | 6 | 0 | 0 | ✅ safe |
+| platform/nonprod | 0 | 4 | 0 | 0 | 🔐 iam |
+| security/secrets | 0 | 9 | 0 | 0 | 🔐 iam |
+| service-projects/app-dev | 4 | 3 | 0 | 0 | ✅ safe |
+| service-projects/app-prod | 0 | 6 | 0 | 0 | 🔐 iam |
+| service-projects/app-test | 0 | 8 | 0 | 0 | ✅ safe |
+
+<details><summary>📁&nbsp;<b><a href="https://git.example.com/example-org/example-infra/tree/0123456789abcdef/data/warehouse">data/warehouse</a></b> · 🔐 iam  💣 destructive · 6 destroy</summary>
+
+>
+> <details open><summary>➖&nbsp;<a href="https://git.example.com/example-org/example-infra/tree/0123456789abcdef/data/warehouse">google_project_iam_member.legacy_admins</a><br>&nbsp;&nbsp;&nbsp;&nbsp;2 attrs</summary>
+>
+> ```diff
+> - location = "us-central1"
+> - name     = "legacy_admins"
+> ```
+>
+> </details>
+>
+> <details open><summary>➖&nbsp;<a href="https://git.example.com/example-org/example-infra/tree/0123456789abcdef/data/warehouse">google_bigquery_dataset.legacy_users</a><br>&nbsp;&nbsp;&nbsp;&nbsp;2 attrs</summary>
+>
+> ```diff
+> - location = "us-central1"
+> - name     = "legacy_users"
+> ```
+>
+> </details>
+>
+> <details open><summary>➖&nbsp;<a href="https://git.example.com/example-org/example-infra/tree/0123456789abcdef/data/warehouse">google_storage_bucket.legacy_exports</a><br>&nbsp;&nbsp;&nbsp;&nbsp;2 attrs</summary>
+>
+> ```diff
+> - location = "us-central1"
+> - name     = "legacy_exports"
+> ```
+>
+> </details>
+>
+> <details open><summary>➖&nbsp;<a href="https://git.example.com/example-org/example-infra/tree/0123456789abcdef/data/warehouse">google_storage_bucket.legacy_imports</a><br>&nbsp;&nbsp;&nbsp;&nbsp;2 attrs</summary>
+>
+> ```diff
+> - location = "us-central1"
+> - name     = "legacy_imports"
+> ```
+>
+> </details>
+>
+> <details open><summary>➖&nbsp;<a href="https://git.example.com/example-org/example-infra/tree/0123456789abcdef/data/warehouse">google_pubsub_topic.legacy_stream</a><br>&nbsp;&nbsp;&nbsp;&nbsp;2 attrs</summary>
+>
+> ```diff
+> - location = "us-central1"
+> - name     = "legacy_stream"
+> ```
+>
+> </details>
+>
+> <details open><summary>➖&nbsp;<a href="https://git.example.com/example-org/example-infra/tree/0123456789abcdef/data/warehouse">google_pubsub_subscription.legacy_sub</a><br>&nbsp;&nbsp;&nbsp;&nbsp;2 attrs</summary>
+>
+> ```diff
+> - location = "us-central1"
+> - name     = "legacy_sub"
+> ```
+>
+> </details>
+
+</details>
+
+<details><summary>📁&nbsp;<b><a href="https://git.example.com/example-org/example-infra/tree/0123456789abcdef/networking/shared-vpc">networking/shared-vpc</a></b> · 💣 destructive · 5 change, 2 replace</summary>
+
+>
+> <details open><summary>✏️&nbsp;<a href="https://git.example.com/example-org/example-infra/tree/0123456789abcdef/networking/shared-vpc">google_compute_subnetwork.s0</a><br>&nbsp;&nbsp;&nbsp;&nbsp;2 changed</summary>
+>
+> ```diff
+> ~ retention_days = 23 → 46
+> ```
+>
+> </details>
+>
+> <details open><summary>✏️&nbsp;<a href="https://git.example.com/example-org/example-infra/tree/0123456789abcdef/networking/shared-vpc">google_compute_subnetwork.s1</a><br>&nbsp;&nbsp;&nbsp;&nbsp;2 changed</summary>
+>
+> ```diff
+> ~ retention_days = 24 → 47
+> ```
+>
+> </details>
+>
+> <details open><summary>✏️&nbsp;<a href="https://git.example.com/example-org/example-infra/tree/0123456789abcdef/networking/shared-vpc">google_compute_subnetwork.s2</a><br>&nbsp;&nbsp;&nbsp;&nbsp;2 changed</summary>
+>
+> ```diff
+> ~ retention_days = 25 → 48
+> ```
+>
+> </details>
+>
+> <details open><summary>✏️&nbsp;<a href="https://git.example.com/example-org/example-infra/tree/0123456789abcdef/networking/shared-vpc">google_compute_firewall.allow_internal</a><br>&nbsp;&nbsp;&nbsp;&nbsp;2 changed</summary>
+>
+> ```diff
+> ~ retention_days = 26 → 49
+> ```
+>
+> </details>
+>
+> <details open><summary>✏️&nbsp;<a href="https://git.example.com/example-org/example-infra/tree/0123456789abcdef/networking/shared-vpc">google_compute_firewall.allow_health</a><br>&nbsp;&nbsp;&nbsp;&nbsp;2 changed</summary>
+>
+> ```diff
+> ~ retention_days = 27 → 50
+> ```
+>
+> </details>
+>
+> <details open><summary>🔁&nbsp;<a href="https://git.example.com/example-org/example-infra/tree/0123456789abcdef/networking/shared-vpc">google_compute_instance.bastion</a><br>&nbsp;&nbsp;&nbsp;&nbsp;replace</summary>
+>
+> ```diff
+> ~ machine_type = "e2-small" → "e2-medium"
+> ```
+>
+> </details>
+>
+> <details open><summary>🔁&nbsp;<a href="https://git.example.com/example-org/example-infra/tree/0123456789abcdef/networking/shared-vpc">google_compute_address.nat</a><br>&nbsp;&nbsp;&nbsp;&nbsp;replace</summary>
+>
+> ```diff
+> ~ address_type = "INTERNAL" → "EXTERNAL"
+> ```
+>
+> </details>
+
+</details>
+
+<details><summary>📁&nbsp;<b><a href="https://git.example.com/example-org/example-infra/tree/0123456789abcdef/observability/grafana">observability/grafana</a></b> · ✅ safe · 5 add, 6 change</summary>
+
+>
+> <details open><summary>➕&nbsp;<a href="https://git.example.com/example-org/example-infra/tree/0123456789abcdef/observability/grafana">helm_release.grafana</a><br>&nbsp;&nbsp;&nbsp;&nbsp;3 attrs</summary>
+>
+> ```diff
+> + disabled = false
+> + location = "us-central1"
+> + name     = "grafana"
+> ```
+>
+> </details>
+>
+> <details open><summary>➕&nbsp;<a href="https://git.example.com/example-org/example-infra/tree/0123456789abcdef/observability/grafana">helm_release.loki</a><br>&nbsp;&nbsp;&nbsp;&nbsp;3 attrs</summary>
+>
+> ```diff
+> + disabled = false
+> + location = "us-central1"
+> + name     = "loki"
+> ```
+>
+> </details>
+>
+> <details open><summary>➕&nbsp;<a href="https://git.example.com/example-org/example-infra/tree/0123456789abcdef/observability/grafana">kubernetes_namespace.observability</a><br>&nbsp;&nbsp;&nbsp;&nbsp;3 attrs</summary>
+>
+> ```diff
+> + disabled = false
+> + location = "us-central1"
+> + name     = "observability"
+> ```
+>
+> </details>
+>
+> <details open><summary>➕&nbsp;<a href="https://git.example.com/example-org/example-infra/tree/0123456789abcdef/observability/grafana">kubernetes_service_account.grafana</a><br>&nbsp;&nbsp;&nbsp;&nbsp;3 attrs</summary>
+>
+> ```diff
+> + disabled = false
+> + location = "us-central1"
+> + name     = "grafana"
+> ```
+>
+> </details>
+>
+> <details open><summary>➕&nbsp;<a href="https://git.example.com/example-org/example-infra/tree/0123456789abcdef/observability/grafana">kubernetes_secret.grafana_admin</a><br>&nbsp;&nbsp;&nbsp;&nbsp;3 attrs</summary>
+>
+> ```diff
+> + disabled = false
+> + location = "us-central1"
+> + name     = "grafana_admin"
+> ```
+>
+> </details>
+>
+> <details open><summary>✏️&nbsp;<a href="https://git.example.com/example-org/example-infra/tree/0123456789abcdef/observability/grafana">kubernetes_config_map.dashboards</a><br>&nbsp;&nbsp;&nbsp;&nbsp;1 changed</summary>
+>
+> ```diff
+>
+> ```
+>
+> </details>
+>
+> <details open><summary>✏️&nbsp;<a href="https://git.example.com/example-org/example-infra/tree/0123456789abcdef/observability/grafana">kubernetes_manifest.ingress</a><br>&nbsp;&nbsp;&nbsp;&nbsp;1 changed</summary>
+>
+> ```diff
+>
+> ```
+>
+> </details>
+>
+> <details open><summary>✏️&nbsp;<a href="https://git.example.com/example-org/example-infra/tree/0123456789abcdef/observability/grafana">kubernetes_manifest.configmap</a><br>&nbsp;&nbsp;&nbsp;&nbsp;1 changed</summary>
+>
+> ```diff
+>
+> ```
+>
+> </details>
+>
+> <details open><summary>✏️&nbsp;<a href="https://git.example.com/example-org/example-infra/tree/0123456789abcdef/observability/grafana">google_storage_bucket.grafana_state</a><br>&nbsp;&nbsp;&nbsp;&nbsp;2 changed</summary>
+>
+> ```diff
+> ~ retention_days = 28 → 51
+> ```
+>
+> </details>
+>
+> <details open><summary>✏️&nbsp;<a href="https://git.example.com/example-org/example-infra/tree/0123456789abcdef/observability/grafana">google_storage_bucket.loki_chunks</a><br>&nbsp;&nbsp;&nbsp;&nbsp;2 changed</summary>
+>
+> ```diff
+> ~ retention_days = 29 → 52
+> ```
+>
+> </details>
+>
+> <details open><summary>✏️&nbsp;<a href="https://git.example.com/example-org/example-infra/tree/0123456789abcdef/observability/grafana">google_storage_bucket.loki_ruler</a><br>&nbsp;&nbsp;&nbsp;&nbsp;2 changed</summary>
+>
+> ```diff
+> ~ retention_days = 30 → 53
+> ```
+>
+> </details>
+
+</details>
+
+<details><summary>📁&nbsp;<b><a href="https://git.example.com/example-org/example-infra/tree/0123456789abcdef/platform/nonprod">platform/nonprod</a></b> · 🔐 iam · 4 change</summary>
+
+>
+> <details open><summary>✏️&nbsp;<a href="https://git.example.com/example-org/example-infra/tree/0123456789abcdef/platform/nonprod">google_project_iam_member.data_engineers</a><br>&nbsp;&nbsp;&nbsp;&nbsp;1 changed</summary>
+>
+> ```diff
+> ~ role = "roles/viewer" → "roles/editor"
+> ```
+>
+> </details>
+>
+> <details open><summary>✏️&nbsp;<a href="https://git.example.com/example-org/example-infra/tree/0123456789abcdef/platform/nonprod">google_project_iam_member.viewers</a><br>&nbsp;&nbsp;&nbsp;&nbsp;1 changed</summary>
+>
+> ```diff
+> ~ role = "roles/viewer" → "roles/editor"
+> ```
+>
+> </details>
+>
+> <details open><summary>✏️&nbsp;<a href="https://git.example.com/example-org/example-infra/tree/0123456789abcdef/platform/nonprod">google_storage_bucket.tfstate</a><br>&nbsp;&nbsp;&nbsp;&nbsp;2 changed</summary>
+>
+> ```diff
+> ~ retention_days = 7 → 30
+> ```
+>
+> </details>
+>
+> <details open><summary>✏️&nbsp;<a href="https://git.example.com/example-org/example-infra/tree/0123456789abcdef/platform/nonprod">google_storage_bucket.assets</a><br>&nbsp;&nbsp;&nbsp;&nbsp;2 changed</summary>
+>
+> ```diff
+> ~ retention_days = 8 → 31
+> ```
+>
+> </details>
+
+</details>
+
+<details><summary>📁&nbsp;<b><a href="https://git.example.com/example-org/example-infra/tree/0123456789abcdef/security/secrets">security/secrets</a></b> · 🔐 iam · 9 change</summary>
+
+>
+> <details open><summary>✏️&nbsp;<a href="https://git.example.com/example-org/example-infra/tree/0123456789abcdef/security/secrets">google_secret_manager_secret_version.api_key</a><br>&nbsp;&nbsp;&nbsp;&nbsp;1 changed</summary>
+>
+> ```diff
+> ~ secret_data = (sensitive value)
+> ```
+>
+> </details>
+>
+> <details open><summary>✏️&nbsp;<a href="https://git.example.com/example-org/example-infra/tree/0123456789abcdef/security/secrets">google_secret_manager_secret_version.tls_cert</a><br>&nbsp;&nbsp;&nbsp;&nbsp;1 changed</summary>
+>
+> ```diff
+> ~ secret_data = (sensitive value)
+> ```
+>
+> </details>
+>
+> <details open><summary>✏️&nbsp;<a href="https://git.example.com/example-org/example-infra/tree/0123456789abcdef/security/secrets">google_secret_manager_secret_version.oauth_secret</a><br>&nbsp;&nbsp;&nbsp;&nbsp;1 changed</summary>
+>
+> ```diff
+> ~ secret_data = (sensitive value)
+> ```
+>
+> </details>
+>
+> <details open><summary>✏️&nbsp;<a href="https://git.example.com/example-org/example-infra/tree/0123456789abcdef/security/secrets">google_secret_manager_secret_version.signing_key</a><br>&nbsp;&nbsp;&nbsp;&nbsp;1 changed</summary>
+>
+> ```diff
+> ~ secret_data = (sensitive value)
+> ```
+>
+> </details>
+>
+> <details open><summary>✏️&nbsp;<a href="https://git.example.com/example-org/example-infra/tree/0123456789abcdef/security/secrets">google_project_iam_member.secret_accessors</a><br>&nbsp;&nbsp;&nbsp;&nbsp;1 changed</summary>
+>
+> ```diff
+> ~ role = "roles/viewer" → "roles/editor"
+> ```
+>
+> </details>
+>
+> <details open><summary>✏️&nbsp;<a href="https://git.example.com/example-org/example-infra/tree/0123456789abcdef/security/secrets">google_project_iam_member.secret_admins</a><br>&nbsp;&nbsp;&nbsp;&nbsp;1 changed</summary>
+>
+> ```diff
+> ~ role = "roles/viewer" → "roles/editor"
+> ```
+>
+> </details>
+>
+> <details open><summary>✏️&nbsp;<a href="https://git.example.com/example-org/example-infra/tree/0123456789abcdef/security/secrets">google_storage_bucket.audit_logs</a><br>&nbsp;&nbsp;&nbsp;&nbsp;2 changed</summary>
+>
+> ```diff
+> ~ retention_days = 31 → 54
+> ```
+>
+> </details>
+>
+> <details open><summary>✏️&nbsp;<a href="https://git.example.com/example-org/example-infra/tree/0123456789abcdef/security/secrets">google_storage_bucket.backups</a><br>&nbsp;&nbsp;&nbsp;&nbsp;2 changed</summary>
+>
+> ```diff
+> ~ retention_days = 32 → 55
+> ```
+>
+> </details>
+>
+> <details open><summary>✏️&nbsp;<a href="https://git.example.com/example-org/example-infra/tree/0123456789abcdef/security/secrets">google_storage_bucket.archive</a><br>&nbsp;&nbsp;&nbsp;&nbsp;2 changed</summary>
+>
+> ```diff
+> ~ retention_days = 33 → 56
+> ```
+>
+> </details>
+
+</details>
+
+<details><summary>📁&nbsp;<b><a href="https://git.example.com/example-org/example-infra/tree/0123456789abcdef/service-projects/app-dev">service-projects/app-dev</a></b> · ✅ safe · 4 add, 3 change</summary>
+
+>
+> <details open><summary>➕&nbsp;<a href="https://git.example.com/example-org/example-infra/tree/0123456789abcdef/service-projects/app-dev">google_service_account.api</a><br>&nbsp;&nbsp;&nbsp;&nbsp;3 attrs</summary>
+>
+> ```diff
+> + disabled = false
+> + location = "us-central1"
+> + name     = "api"
+> ```
+>
+> </details>
+>
+> <details open><summary>➕&nbsp;<a href="https://git.example.com/example-org/example-infra/tree/0123456789abcdef/service-projects/app-dev">google_pubsub_topic.events</a><br>&nbsp;&nbsp;&nbsp;&nbsp;3 attrs</summary>
+>
+> ```diff
+> + disabled = false
+> + location = "us-central1"
+> + name     = "events"
+> ```
+>
+> </details>
+>
+> <details open><summary>➕&nbsp;<a href="https://git.example.com/example-org/example-infra/tree/0123456789abcdef/service-projects/app-dev">google_cloud_run_service.api</a><br>&nbsp;&nbsp;&nbsp;&nbsp;3 attrs</summary>
+>
+> ```diff
+> + disabled = false
+> + location = "us-central1"
+> + name     = "api"
+> ```
+>
+> </details>
+>
+> <details open><summary>➕&nbsp;<a href="https://git.example.com/example-org/example-infra/tree/0123456789abcdef/service-projects/app-dev">google_cloud_run_service.worker</a><br>&nbsp;&nbsp;&nbsp;&nbsp;3 attrs</summary>
+>
+> ```diff
+> + disabled = false
+> + location = "us-central1"
+> + name     = "worker"
+> ```
+>
+> </details>
+>
+> <details open><summary>✏️&nbsp;<a href="https://git.example.com/example-org/example-infra/tree/0123456789abcdef/service-projects/app-dev">google_storage_bucket.uploads</a><br>&nbsp;&nbsp;&nbsp;&nbsp;2 changed</summary>
+>
+> ```diff
+> ~ retention_days = 9 → 32
+> ```
+>
+> </details>
+>
+> <details open><summary>✏️&nbsp;<a href="https://git.example.com/example-org/example-infra/tree/0123456789abcdef/service-projects/app-dev">google_storage_bucket.exports</a><br>&nbsp;&nbsp;&nbsp;&nbsp;2 changed</summary>
+>
+> ```diff
+> ~ retention_days = 10 → 33
+> ```
+>
+> </details>
+>
+> <details open><summary>✏️&nbsp;<a href="https://git.example.com/example-org/example-infra/tree/0123456789abcdef/service-projects/app-dev">google_secret_manager_secret_version.db_password</a><br>&nbsp;&nbsp;&nbsp;&nbsp;1 changed</summary>
+>
+> ```diff
+> ~ secret_data = (sensitive value)
+> ```
+>
+> </details>
+
+</details>
+
+<details><summary>📁&nbsp;<b><a href="https://git.example.com/example-org/example-infra/tree/0123456789abcdef/service-projects/app-prod">service-projects/app-prod</a></b> · 🔐 iam · 6 change</summary>
+
+>
+> <details open><summary>✏️&nbsp;<a href="https://git.example.com/example-org/example-infra/tree/0123456789abcdef/service-projects/app-prod">google_project_iam_member.deployers</a><br>&nbsp;&nbsp;&nbsp;&nbsp;1 changed</summary>
+>
+> ```diff
+> ~ role = "roles/viewer" → "roles/editor"
+> ```
+>
+> </details>
+>
+> <details open><summary>✏️&nbsp;<a href="https://git.example.com/example-org/example-infra/tree/0123456789abcdef/service-projects/app-prod">kubernetes_config_map.app_config</a><br>&nbsp;&nbsp;&nbsp;&nbsp;1 changed</summary>
+>
+> ```diff
+>
+> ```
+>
+> </details>
+>
+> <details open><summary>✏️&nbsp;<a href="https://git.example.com/example-org/example-infra/tree/0123456789abcdef/service-projects/app-prod">google_storage_bucket.prod_state</a><br>&nbsp;&nbsp;&nbsp;&nbsp;2 changed</summary>
+>
+> ```diff
+> ~ retention_days = 19 → 42
+> ```
+>
+> </details>
+>
+> <details open><summary>✏️&nbsp;<a href="https://git.example.com/example-org/example-infra/tree/0123456789abcdef/service-projects/app-prod">google_storage_bucket.prod_assets</a><br>&nbsp;&nbsp;&nbsp;&nbsp;2 changed</summary>
+>
+> ```diff
+> ~ retention_days = 20 → 43
+> ```
+>
+> </details>
+>
+> <details open><summary>✏️&nbsp;<a href="https://git.example.com/example-org/example-infra/tree/0123456789abcdef/service-projects/app-prod">google_storage_bucket.prod_logs</a><br>&nbsp;&nbsp;&nbsp;&nbsp;2 changed</summary>
+>
+> ```diff
+> ~ retention_days = 21 → 44
+> ```
+>
+> </details>
+>
+> <details open><summary>✏️&nbsp;<a href="https://git.example.com/example-org/example-infra/tree/0123456789abcdef/service-projects/app-prod">google_storage_bucket.prod_backups</a><br>&nbsp;&nbsp;&nbsp;&nbsp;2 changed</summary>
+>
+> ```diff
+> ~ retention_days = 22 → 45
+> ```
+>
+> </details>
+
+</details>
+
+<details><summary>📁&nbsp;<b><a href="https://git.example.com/example-org/example-infra/tree/0123456789abcdef/service-projects/app-test">service-projects/app-test</a></b> · ✅ safe · 8 change</summary>
+
+>
+> <details open><summary>✏️&nbsp;<a href="https://git.example.com/example-org/example-infra/tree/0123456789abcdef/service-projects/app-test">google_storage_bucket.b0</a><br>&nbsp;&nbsp;&nbsp;&nbsp;2 changed</summary>
+>
+> ```diff
+> ~ retention_days = 11 → 34
+> ```
+>
+> </details>
+>
+> <details open><summary>✏️&nbsp;<a href="https://git.example.com/example-org/example-infra/tree/0123456789abcdef/service-projects/app-test">google_storage_bucket.b1</a><br>&nbsp;&nbsp;&nbsp;&nbsp;2 changed</summary>
+>
+> ```diff
+> ~ retention_days = 12 → 35
+> ```
+>
+> </details>
+>
+> <details open><summary>✏️&nbsp;<a href="https://git.example.com/example-org/example-infra/tree/0123456789abcdef/service-projects/app-test">google_storage_bucket.b2</a><br>&nbsp;&nbsp;&nbsp;&nbsp;2 changed</summary>
+>
+> ```diff
+> ~ retention_days = 13 → 36
+> ```
+>
+> </details>
+>
+> <details open><summary>✏️&nbsp;<a href="https://git.example.com/example-org/example-infra/tree/0123456789abcdef/service-projects/app-test">google_storage_bucket.b3</a><br>&nbsp;&nbsp;&nbsp;&nbsp;2 changed</summary>
+>
+> ```diff
+> ~ retention_days = 14 → 37
+> ```
+>
+> </details>
+>
+> <details open><summary>✏️&nbsp;<a href="https://git.example.com/example-org/example-infra/tree/0123456789abcdef/service-projects/app-test">google_storage_bucket.b4</a><br>&nbsp;&nbsp;&nbsp;&nbsp;2 changed</summary>
+>
+> ```diff
+> ~ retention_days = 15 → 38
+> ```
+>
+> </details>
+>
+> <details open><summary>✏️&nbsp;<a href="https://git.example.com/example-org/example-infra/tree/0123456789abcdef/service-projects/app-test">google_storage_bucket.b5</a><br>&nbsp;&nbsp;&nbsp;&nbsp;2 changed</summary>
+>
+> ```diff
+> ~ retention_days = 16 → 39
+> ```
+>
+> </details>
+>
+> <details open><summary>✏️&nbsp;<a href="https://git.example.com/example-org/example-infra/tree/0123456789abcdef/service-projects/app-test">google_storage_bucket.b6</a><br>&nbsp;&nbsp;&nbsp;&nbsp;2 changed</summary>
+>
+> ```diff
+> ~ retention_days = 17 → 40
+> ~ labels (yaml):
+>  env: nonprod
+> +team: platform
+>  
+> ```
+>
+> </details>
+>
+> <details open><summary>✏️&nbsp;<a href="https://git.example.com/example-org/example-infra/tree/0123456789abcdef/service-projects/app-test">google_storage_bucket.b7</a><br>&nbsp;&nbsp;&nbsp;&nbsp;2 changed</summary>
+>
+> ```diff
+> ~ retention_days = 18 → 41
+> ~ labels (yaml):
+>  env: nonprod
+> +team: platform
+>  
+> ```
+>
+> </details>
+
+</details>
