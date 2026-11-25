@@ -25,6 +25,15 @@ go vet ./...      # must be clean
 go test ./...     # must pass
 ```
 
+The Rust port lives in `rust/` (toolchain pinned in `rust/rust-toolchain.toml`).
+If you change it, or change Go output that the replay cases record, see
+[rust/README.md](./rust/README.md):
+
+```bash
+CGO_ENABLED=0 go build -o rust/.go/tfstackplan-go ./cmd/tfstackplan
+cd rust && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test
+```
+
 New behaviour should come with tests. The project follows a test-driven style —
 write the failing test first, then the implementation.
 
