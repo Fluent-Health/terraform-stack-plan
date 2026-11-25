@@ -105,3 +105,26 @@ from the log reproduces Go's tables. Two columns are not functions of any log an
 an execution's `failure` after a failed start, which Go writes from that round's events and a
 later round can overwrite, and a stack's last `gated`/`safe` overlay, which stays after its gate
 is released.
+
+## The serve clients: `tfstackplan-server-clients`
+
+Every client serve and ui use to reach GitHub or Google lives in `server-clients/`. It is not
+called `clients` because another branch may add a `rust/clients` crate for the CLI side, and
+two crates of that name would collide.
+
+One crypto library does everything: aws-lc-rs signs the GitHub App JWT and the
+service-account JWT-bearer assertion, verifies Google ID tokens, and computes the webhook
+HMAC. The JWTs are built by hand, as Go builds them, so there is no JWT crate whose defaults
+could drift (algorithm lists, leeway, skipped claims). rustls is built with only its aws-lc-rs
+provider, and `http::install_crypto_provider` installs it; `ring` is never compiled.
+
+ID-token verification copies Go's `idtoken.Validate` check by check: three segments,
+`now > exp` rejects with no clock-skew allowance, an RS256 signature against Google's JWKS, and
+the JWKS cached for `max-age` minus `Age`. It is stricter in three ways, each of which only
+rejects tokens Go accepts: the issuer must be Google's, only RS256 is taken (idtoken's ES256
+path is for IAP tokens, which carry IAP's issuer), and RSA keys must be 2048 to 8192 bits. An
+unknown key id refetches the JWKS at most once a minute.
+
+Environment inputs (`GOOGLE_APPLICATION_CREDENTIALS`, `GCE_METADATA_HOST`, the IAM Credentials
+base) go through `gcpcreds::Env` instead of being read inside the flows. Tests build an `Env`
+pointing at local fakes, since Rust tests cannot set environment variables safely.
