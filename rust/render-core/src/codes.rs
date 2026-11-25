@@ -50,7 +50,10 @@ impl std::error::Error for Error {}
 
 /// A coded error with a formatted message.
 pub fn error(code: Code, msg: impl Into<String>) -> Error {
-    Error { code, msg: msg.into() }
+    Error {
+        code,
+        msg: msg.into(),
+    }
 }
 
 #[cfg(test)]

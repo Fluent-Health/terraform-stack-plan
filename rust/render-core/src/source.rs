@@ -33,14 +33,23 @@ pub fn resource_blocks(text: &str) -> Option<Vec<(String, String, usize)>> {
         }
         let start = b.ident.span().map_or(0, |r| r.start);
         let line = text[..start.min(text.len())].matches('\n').count() + 1;
-        out.push((b.labels[0].as_str().to_string(), b.labels[1].as_str().to_string(), line));
+        out.push((
+            b.labels[0].as_str().to_string(),
+            b.labels[1].as_str().to_string(),
+            line,
+        ));
     }
     Some(out)
 }
 
 impl Index {
     /// Records a file's resources under a module key; the first declaration wins.
-    pub fn add_file(&mut self, module_key: &str, rel_file: &str, resources: Vec<(String, String, usize)>) {
+    pub fn add_file(
+        &mut self,
+        module_key: &str,
+        rel_file: &str,
+        resources: Vec<(String, String, usize)>,
+    ) {
         for (typ, name, line) in resources {
             self.m
                 .entry((module_key.to_string(), typ, name))
@@ -54,8 +63,11 @@ impl Index {
     /// Resolves a plan resource. `module_address` is the plan's (`""` for root,
     /// `module.a.module.b[0]` for nested); instance keys are ignored.
     pub fn lookup(&self, module_address: &str, typ: &str, name: &str) -> Option<&Loc> {
-        self.m
-            .get(&(module_key(module_address), typ.to_string(), name.to_string()))
+        self.m.get(&(
+            module_key(module_address),
+            typ.to_string(),
+            name.to_string(),
+        ))
     }
 }
 
@@ -88,11 +100,16 @@ pub fn under_dot_terraform(dir: &str) -> bool {
 pub fn parse_modules_json(data: &[u8]) -> Option<Vec<(String, String)>> {
     crate::gojson::check_valid(data).ok()?;
     let doc: serde_json::Value = serde_json::from_str(&String::from_utf8_lossy(data)).ok()?;
-    let field = |o: &serde_json::Map<String, serde_json::Value>, name: &str| -> Option<serde_json::Value> {
-        o.get(name)
-            .or_else(|| o.iter().find(|(k, _)| k.eq_ignore_ascii_case(name)).map(|(_, v)| v))
-            .cloned()
-    };
+    let field =
+        |o: &serde_json::Map<String, serde_json::Value>, name: &str| -> Option<serde_json::Value> {
+            o.get(name)
+                .or_else(|| {
+                    o.iter()
+                        .find(|(k, _)| k.eq_ignore_ascii_case(name))
+                        .map(|(_, v)| v)
+                })
+                .cloned()
+        };
     let text = |v: Option<serde_json::Value>| -> Option<String> {
         match v {
             None | Some(serde_json::Value::Null) => Some(String::new()),

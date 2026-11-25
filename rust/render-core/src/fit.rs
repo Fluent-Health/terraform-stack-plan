@@ -38,7 +38,12 @@ pub fn fit(r: &mut Report, budget: i64) -> bool {
         let mut costs: Vec<Vec<usize>> = r
             .stacks
             .iter()
-            .map(|s| s.changes.iter().map(|c| row_cost(&render_resource(c, r.details_open))).collect())
+            .map(|s| {
+                s.changes
+                    .iter()
+                    .map(|c| row_cost(&render_resource(c, r.details_open)))
+                    .collect()
+            })
             .collect();
         let mut heap = BinaryHeap::new();
         for (si, s) in r.stacks.iter().enumerate() {
@@ -77,7 +82,8 @@ pub fn fit(r: &mut Report, budget: i64) -> bool {
     // Phase 2: terminal cascade. The "needs" figure is the size before any mode change.
     let need = size;
     r.mode = Mode::SummaryOnly;
-    r.notice = "⚠️ Per-stack detail omitted to fit GitHub's size limit (see CI logs / artifact).".to_string();
+    r.notice = "⚠️ Per-stack detail omitted to fit GitHub's size limit (see CI logs / artifact)."
+        .to_string();
     if render(r).len() <= budget_bytes {
         return true;
     }

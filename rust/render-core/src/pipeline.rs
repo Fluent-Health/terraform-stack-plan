@@ -63,7 +63,13 @@ pub fn base_vars(pairs: &[String]) -> HashMap<String, String> {
 
 impl<'a> Builder<'a> {
     /// Starts a report: title, marker, run-level link variables (`key=value`).
-    pub fn new(cfg: &'a Config, moves: &'a Manifest, title: &str, marker: &str, link_vars: &[String]) -> Self {
+    pub fn new(
+        cfg: &'a Config,
+        moves: &'a Manifest,
+        title: &str,
+        marker: &str,
+        link_vars: &[String],
+    ) -> Self {
         let base = base_vars(link_vars);
         let classified = cfg.classification.is_some();
         let mut report = Report {
@@ -99,12 +105,21 @@ impl<'a> Builder<'a> {
 
     /// Whether resource links need a source index for each stack.
     pub fn wants_source(&self) -> bool {
-        self.cfg.links.as_ref().is_some_and(|l| !l.resource.is_empty())
+        self.cfg
+            .links
+            .as_ref()
+            .is_some_and(|l| !l.resource.is_empty())
     }
 
     /// Adds one stack: its name, plan bytes, its directory relative to the repo root (for the
     /// `{stack_dir}` link variable) and, when [`Self::wants_source`], its source index.
-    pub fn add_stack(&mut self, name: &str, data: &[u8], stack_dir: &str, source: Option<&Index>) -> Result<(), String> {
+    pub fn add_stack(
+        &mut self,
+        name: &str,
+        data: &[u8],
+        stack_dir: &str,
+        source: Option<&Index>,
+    ) -> Result<(), String> {
         let mut raw = plan::parse(name, data)?;
         let targets = self.moves.targets(name);
         let moved_count = raw.apply_state_moves(&targets);
@@ -132,7 +147,8 @@ impl<'a> Builder<'a> {
                 self.any_moved = true;
             }
             st.categories = cats.clone();
-            self.sidecar.insert(name.to_string(), (cats.clone(), raw.counts));
+            self.sidecar
+                .insert(name.to_string(), (cats.clone(), raw.counts));
             self.all_cats.push(cats);
         }
         for rc in std::mem::take(&mut raw.changes) {
@@ -167,7 +183,9 @@ impl<'a> Builder<'a> {
             }
             if let Some(l) = &self.cfg.links {
                 ch.url = st.url.clone();
-                if let Some(loc) = source.and_then(|s| s.lookup(&rc.module_address, &rc.type_, &rc.name)) {
+                if let Some(loc) =
+                    source.and_then(|s| s.lookup(&rc.module_address, &rc.type_, &rc.name))
+                {
                     let mut rv = stack_vars.clone();
                     for (k, v) in [
                         ("file", loc.file.clone()),
@@ -196,8 +214,20 @@ impl<'a> Builder<'a> {
         self.report.details_open = match details {
             "open" => true,
             "" | "closed" => false,
-            "auto" => self.report.stacks.iter().filter(|s| s.counts.any_change()).count() == 1,
-            other => return Err(format!("--details must be auto|open|closed, got {}", quote(other))),
+            "auto" => {
+                self.report
+                    .stacks
+                    .iter()
+                    .filter(|s| s.counts.any_change())
+                    .count()
+                    == 1
+            }
+            other => {
+                return Err(format!(
+                    "--details must be auto|open|closed, got {}",
+                    quote(other)
+                ));
+            }
         };
         let fits = fit::fit(&mut self.report, max_bytes);
         let classification_json = self.cfg.classification.as_ref().map(|cl| {
@@ -276,7 +306,11 @@ fn entries(cats: &[Category]) -> J {
                     ("category".to_string(), J::Str(c.name.clone())),
                     (
                         "icon".to_string(),
-                        if c.icon.is_empty() { J::Null } else { J::Str(c.icon.clone()) },
+                        if c.icon.is_empty() {
+                            J::Null
+                        } else {
+                            J::Str(c.icon.clone())
+                        },
                     ),
                 ];
                 if let Some(attrs) = c.attributes.as_ref().filter(|a| !a.is_empty()) {
@@ -285,7 +319,12 @@ fn entries(cats: &[Category]) -> J {
                         J::Obj(
                             attrs
                                 .iter()
-                                .map(|(k, vs)| (k.clone(), J::Arr(vs.iter().map(|v| J::Str(v.clone())).collect())))
+                                .map(|(k, vs)| {
+                                    (
+                                        k.clone(),
+                                        J::Arr(vs.iter().map(|v| J::Str(v.clone())).collect()),
+                                    )
+                                })
                                 .collect(),
                         ),
                     ));
@@ -316,7 +355,10 @@ fn counts_json(c: &Counts) -> J {
     )
 }
 
-fn sidecar_json(stacks: &BTreeMap<String, (Vec<Category>, Counts)>, summary: &[Category]) -> String {
+fn sidecar_json(
+    stacks: &BTreeMap<String, (Vec<Category>, Counts)>,
+    summary: &[Category],
+) -> String {
     let doc = J::Obj(vec![
         (
             "stacks".to_string(),

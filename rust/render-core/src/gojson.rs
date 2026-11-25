@@ -295,7 +295,10 @@ impl Scanner {
                     };
                     return Ok(());
                 }
-                Scanner::error(c, &format!("in literal {word} (expecting '{}')", rest[i] as char))
+                Scanner::error(
+                    c,
+                    &format!("in literal {word} (expecting '{}')", rest[i] as char),
+                )
             }
         }
     }

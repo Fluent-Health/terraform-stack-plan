@@ -31,7 +31,8 @@ pub fn path_error(op: &str, path: &str, e: &io::Error) -> String {
 pub fn read_file(path: &str) -> Result<Vec<u8>, String> {
     let mut f = fs::File::open(path).map_err(|e| path_error("open", path, &e))?;
     let mut buf = Vec::new();
-    f.read_to_end(&mut buf).map_err(|e| path_error("read", path, &e))?;
+    f.read_to_end(&mut buf)
+        .map_err(|e| path_error("read", path, &e))?;
     Ok(buf)
 }
 
@@ -130,7 +131,10 @@ pub fn rel(base: &str, target: &str) -> Option<String> {
         if p == "/" {
             Vec::new()
         } else {
-            p.trim_start_matches('/').split('/').map(str::to_string).collect()
+            p.trim_start_matches('/')
+                .split('/')
+                .map(str::to_string)
+                .collect()
         }
     };
     if base.starts_with('/') != target.starts_with('/') {

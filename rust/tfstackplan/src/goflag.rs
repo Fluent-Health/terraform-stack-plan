@@ -123,7 +123,10 @@ pub fn parse_int(s0: &str) -> Result<i64, &'static str> {
 }
 
 /// `FlagSet.Parse`. Returns the values and the arguments left after the flags.
-pub fn parse(args: &[String], flags: &[(&'static str, Kind)]) -> Result<(Values, Vec<String>), Stop> {
+pub fn parse(
+    args: &[String],
+    flags: &[(&'static str, Kind)],
+) -> Result<(Values, Vec<String>), Stop> {
     let mut values = Values::new();
     let mut i = 0;
     while i < args.len() {
@@ -153,7 +156,9 @@ pub fn parse(args: &[String], flags: &[(&'static str, Kind)]) -> Result<(Values,
             if name == "help" || name == "h" {
                 return Err(Stop::Help);
             }
-            return Err(Stop::Error(format!("flag provided but not defined: -{name}")));
+            return Err(Stop::Error(format!(
+                "flag provided but not defined: -{name}"
+            )));
         };
         let value = if kind == Kind::Bool {
             match value {

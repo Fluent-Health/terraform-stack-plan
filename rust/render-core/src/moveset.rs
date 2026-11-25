@@ -49,8 +49,8 @@ impl Manifest {
     pub fn parse(path: &str, data: &[u8]) -> Result<Manifest, String> {
         let fail = |e: String| format!("parse state-moves {}: {e}", quote(path));
         gojson::check_valid(data).map_err(fail)?;
-        let doc: serde_json::Value =
-            serde_json::from_str(&String::from_utf8_lossy(data)).map_err(|e| fail(e.to_string()))?;
+        let doc: serde_json::Value = serde_json::from_str(&String::from_utf8_lossy(data))
+            .map_err(|e| fail(e.to_string()))?;
         let type_err = |v: &serde_json::Value, t: &str| {
             fail(format!(
                 "json: cannot unmarshal {} into Go value of type {t}",

@@ -80,7 +80,11 @@ impl DiffConfig {
     /// matches.
     pub fn resolve(&self, resource_type: &str, attr: &str) -> String {
         for ov in &self.overrides {
-            if ov.type_pattern.as_ref().is_some_and(|re| !re.is_match(resource_type)) {
+            if ov
+                .type_pattern
+                .as_ref()
+                .is_some_and(|re| !re.is_match(resource_type))
+            {
                 continue;
             }
             if !ov.attribute.is_empty() && !glob_match(&ov.attribute, attr) {
@@ -277,14 +281,18 @@ fn levenshtein(a: &str, b: &str) -> usize {
     prev[b.len()]
 }
 
-fn name_suggestion<'a>(given: &str, suggestions: impl IntoIterator<Item = &'a str>) -> Option<&'a str> {
+fn name_suggestion<'a>(
+    given: &str,
+    suggestions: impl IntoIterator<Item = &'a str>,
+) -> Option<&'a str> {
     suggestions.into_iter().find(|s| levenshtein(given, s) < 3)
 }
 
 /// Evaluates an expression with no variables or functions, as hcl does with a nil context.
 fn eval(expr: &hcl::edit::expr::Expression) -> Result<hcl::Value, String> {
     let e: hcl::Expression = expr.clone().into();
-    e.evaluate(&hcl::eval::Context::new()).map_err(|e| e.to_string())
+    e.evaluate(&hcl::eval::Context::new())
+        .map_err(|e| e.to_string())
 }
 
 fn number_text(n: &hcl::Number) -> String {
@@ -306,7 +314,9 @@ fn convert(v: &hcl::Value, ty: Ty) -> Result<Val, String> {
         return Err("null value is not allowed".to_string());
     }
     match ty {
-        Ty::Str => as_string(v).map(Val::Str).ok_or_else(|| "string required".to_string()),
+        Ty::Str => as_string(v)
+            .map(Val::Str)
+            .ok_or_else(|| "string required".to_string()),
         Ty::Bool => match v {
             V::Bool(b) => Ok(Val::Bool(*b)),
             V::String(s) if s == "true" => Ok(Val::Bool(true)),
@@ -358,7 +368,11 @@ fn decode_expr(src: &Src<'_>, expr: &hcl::edit::expr::Expression, ty: Ty) -> Res
         } else {
             span.clone()
         };
-        src.diag(&start, "Unsuitable value type", &format!("Unsuitable value: {e}"))
+        src.diag(
+            &start,
+            "Unsuitable value type",
+            &format!("Unsuitable value: {e}"),
+        )
     })
 }
 
@@ -375,13 +389,22 @@ fn decode_body<'a>(
 ) -> Decoded<'a> {
     let mut out = Decoded::default();
     let present: Vec<&hcl::edit::structure::Attribute> = attributes(body).collect();
-    let find = |name: &str| present.iter().rev().find(|a| a.key.as_str() == name).copied();
+    let find = |name: &str| {
+        present
+            .iter()
+            .rev()
+            .find(|a| a.key.as_str() == name)
+            .copied()
+    };
     for spec in attrs {
         if spec.required && find(spec.name).is_none() {
             diags.push(src.diag(
                 &(open_brace.start..open_brace.start),
                 "Missing required argument",
-                &format!("The argument {} is required, but no definition was found.", quote(spec.name)),
+                &format!(
+                    "The argument {} is required, but no definition was found.",
+                    quote(spec.name)
+                ),
             ));
         }
     }
@@ -433,7 +456,10 @@ fn decode_body<'a>(
         diags.push(src.diag(
             &a.key.span().unwrap_or(0..0),
             "Unsupported argument",
-            &format!("An argument named {} is not expected here.{suggestion}", quote(name)),
+            &format!(
+                "An argument named {} is not expected here.{suggestion}",
+                quote(name)
+            ),
         ));
     }
     for b in blocks(body) {
@@ -452,7 +478,10 @@ fn decode_body<'a>(
         diags.push(src.diag(
             &b.ident.span().unwrap_or(0..0),
             "Unsupported block type",
-            &format!("Blocks of type {} are not expected here.{suggestion}", quote(ty)),
+            &format!(
+                "Blocks of type {} are not expected here.{suggestion}",
+                quote(ty)
+            ),
         ));
     }
     for spec in attrs {
@@ -535,9 +564,12 @@ fn build_derivations(label: &str, blocks: Vec<DeriveBlock>) -> Result<Vec<Deriva
         if b.pattern.is_empty() {
             return Err(format!("{label}: derive {a}: pattern is required"));
         }
-        let pattern = GoRegex::new(&b.pattern).map_err(|e| format!("{label}: derive {a}: bad pattern: {e}"))?;
+        let pattern = GoRegex::new(&b.pattern)
+            .map_err(|e| format!("{label}: derive {a}: bad pattern: {e}"))?;
         if pattern.num_subexp() == 0 {
-            return Err(format!("{label}: derive {a}: pattern needs a capture group"));
+            return Err(format!(
+                "{label}: derive {a}: pattern needs a capture group"
+            ));
         }
         let type_pattern = if b.type_pattern.is_empty() {
             None
@@ -582,8 +614,14 @@ fn decode_classification(src: &Src<'_>, blk: &Block) -> Result<Classification, S
     for b in blocks(&blk.body) {
         match b.ident.as_str() {
             "default" => {
-                let d = checked(src, &b.body, &src.open_brace(b), &[req("name", Ty::Str), opt("icon", Ty::Str)], &[])
-                    .map_err(|e| format!("default block: {e}"))?;
+                let d = checked(
+                    src,
+                    &b.body,
+                    &src.open_brace(b),
+                    &[req("name", Ty::Str), opt("icon", Ty::Str)],
+                    &[],
+                )
+                .map_err(|e| format!("default block: {e}"))?;
                 cl.default = Category {
                     name: d.str("name"),
                     icon: d.str("icon"),
@@ -608,10 +646,16 @@ fn decode_classification(src: &Src<'_>, blk: &Block) -> Result<Classification, S
                 if !diags.is_empty() {
                     return Err(format!("preset {}: {}", quote(name), diags_error(&diags)));
                 }
-                let mut rule = classify::preset_rule(name, &d.str("icon"), d.list("emit_attributes")).ok_or_else(|| {
-                    let names: Vec<&str> = classify::PRESET_NAMES.to_vec();
-                    format!("unknown preset {} (available: [{}])", quote(name), names.join(" "))
-                })?;
+                let mut rule =
+                    classify::preset_rule(name, &d.str("icon"), d.list("emit_attributes"))
+                        .ok_or_else(|| {
+                            let names: Vec<&str> = classify::PRESET_NAMES.to_vec();
+                            format!(
+                                "unknown preset {} (available: [{}])",
+                                quote(name),
+                                names.join(" ")
+                            )
+                        })?;
                 rule.derivations = build_derivations(&format!("preset {}", quote(name)), derives)?;
                 cl.rules.push(rule);
             }
@@ -641,10 +685,9 @@ fn decode_classification(src: &Src<'_>, blk: &Block) -> Result<Classification, S
                 }
                 let type_pattern = match d.str("resource_type_pattern") {
                     p if p.is_empty() => None,
-                    p => Some(
-                        GoRegex::new(&p)
-                            .map_err(|e| format!("rule {}: bad resource_type_pattern: {e}", quote(name)))?,
-                    ),
+                    p => Some(GoRegex::new(&p).map_err(|e| {
+                        format!("rule {}: bad resource_type_pattern: {e}", quote(name))
+                    })?),
                 };
                 let mut rule = Rule {
                     name: name.to_string(),
@@ -697,7 +740,10 @@ fn decode_diff(src: &Src<'_>, blk: &Block) -> Result<DiffConfig, String> {
         .map_err(|e| format!("diff rule: {e}"))?;
         let type_pattern = match r.str("resource_type_pattern") {
             p if p.is_empty() => None,
-            p => Some(GoRegex::new(&p).map_err(|e| format!("diff rule: bad resource_type_pattern: {e}"))?),
+            p => Some(
+                GoRegex::new(&p)
+                    .map_err(|e| format!("diff rule: bad resource_type_pattern: {e}"))?,
+            ),
         };
         d.overrides.push(DiffOverride {
             type_pattern,
@@ -721,8 +767,14 @@ fn decode_links(src: &Src<'_>, blk: &Block) -> Result<LinksConfig, String> {
         if b.ident.as_str() != "header" {
             return Err(format!("links: unknown block {}", quote(b.ident.as_str())));
         }
-        let h = checked(src, &b.body, &src.open_brace(b), &[req("label", Ty::Str), req("url", Ty::Str)], &[])
-            .map_err(|e| format!("links.header: {e}"))?;
+        let h = checked(
+            src,
+            &b.body,
+            &src.open_brace(b),
+            &[req("label", Ty::Str), req("url", Ty::Str)],
+            &[],
+        )
+        .map_err(|e| format!("links.header: {e}"))?;
         lc.header.push(HeaderLink {
             label: h.str("label"),
             url: h.str("url"),
@@ -750,7 +802,10 @@ fn check_progress(src: &Src<'_>, blk: &Block) -> Result<(), String> {
     for op in blocks(&blk.body) {
         let kind = op.ident.as_str();
         if kind != "plan" && kind != "apply" {
-            return Err(format!("progress: unknown block {} (want plan|apply)", quote(kind)));
+            return Err(format!(
+                "progress: unknown block {} (want plan|apply)",
+                quote(kind)
+            ));
         }
         for b in blocks(&op.body) {
             if b.ident.as_str() != "phase" {
@@ -760,14 +815,19 @@ fn check_progress(src: &Src<'_>, blk: &Block) -> Result<(), String> {
                 ));
             }
             if b.labels.len() != 1 {
-                return Err(format!("progress.{kind}.phase: expected one label (the phase name)"));
+                return Err(format!(
+                    "progress.{kind}.phase: expected one label (the phase name)"
+                ));
             }
             let phase = label_str(&b.labels[0]);
             if !PHASES.contains(&phase) {
                 return Err(format!("progress.{kind}: unknown phase {}", quote(phase)));
             }
             if let Some(Err(e)) = attr_value(src, &b.body, "weight", Ty::Float) {
-                return Err(format!("progress.{kind}.phase {} weight: {e}", quote(phase)));
+                return Err(format!(
+                    "progress.{kind}.phase {} weight: {e}",
+                    quote(phase)
+                ));
             }
         }
     }
@@ -807,7 +867,11 @@ pub fn load(path: &str, text: &str) -> Result<Config, String> {
                     &src,
                     &blk.body,
                     &src.open_brace(blk),
-                    &[opt("bucket", Ty::Str), opt("prefix", Ty::Str), opt("version", Ty::Str)],
+                    &[
+                        opt("bucket", Ty::Str),
+                        opt("prefix", Ty::Str),
+                        opt("version", Ty::Str),
+                    ],
                     &[],
                 )?;
             }

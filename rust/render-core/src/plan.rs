@@ -170,7 +170,10 @@ fn validate_format_version(v: &str) -> Result<(), String> {
         .unwrap_or_else(|_| unreachable!())
     });
     let Some(m) = re.captures(v) else {
-        return Err(format!("invalid format version {}: Malformed version: {v}", crate::gofmt::quote(v)));
+        return Err(format!(
+            "invalid format version {}: Malformed version: {v}",
+            crate::gofmt::quote(v)
+        ));
     };
     let mut segments = Vec::new();
     for s in m.get(1).map_or("", |g| g.as_str()).split('.') {
@@ -213,7 +216,11 @@ fn validate_format_version(v: &str) -> Result<(), String> {
     if ok {
         return Ok(());
     }
-    let mut shown = segments.iter().map(i64::to_string).collect::<Vec<_>>().join(".");
+    let mut shown = segments
+        .iter()
+        .map(i64::to_string)
+        .collect::<Vec<_>>()
+        .join(".");
     if !pre.is_empty() {
         shown.push('-');
         shown.push_str(pre);
@@ -289,14 +296,22 @@ pub fn parse(name: &str, data: &[u8]) -> Result<RawStack, String> {
                     serde_json::Value::Object(o) => v.push(o),
                     serde_json::Value::Null => {}
                     other => {
-                        return Err(wrap(top.type_error("resource_changes", other, "tfjson.ResourceChange")));
+                        return Err(wrap(top.type_error(
+                            "resource_changes",
+                            other,
+                            "tfjson.ResourceChange",
+                        )));
                     }
                 }
             }
             v
         }
         Some(other) => {
-            return Err(wrap(top.type_error("resource_changes", other, "[]*tfjson.ResourceChange")));
+            return Err(wrap(top.type_error(
+                "resource_changes",
+                other,
+                "[]*tfjson.ResourceChange",
+            )));
         }
     };
     // Decode every change first: Go reports a type error before validating the version.
@@ -325,7 +340,9 @@ pub fn parse(name: &str, data: &[u8]) -> Result<RawStack, String> {
         name: name.to_string(),
         ..RawStack::default()
     };
-    for (address, previous_address, module_address, mode, type_, rname, provider_name, change) in decoded {
+    for (address, previous_address, module_address, mode, type_, rname, provider_name, change) in
+        decoded
+    {
         let Some(c) = change else { continue };
         if mode == "data" {
             continue;
@@ -393,7 +410,11 @@ pub fn parse(name: &str, data: &[u8]) -> Result<RawStack, String> {
             raw,
             moved,
             move_direction: String::new(),
-            previous_address: if moved { previous_address } else { String::new() },
+            previous_address: if moved {
+                previous_address
+            } else {
+                String::new()
+            },
             imported,
             import_id: c.importing.clone().unwrap_or_default(),
         });
@@ -466,7 +487,11 @@ fn changed_attrs(c: &ParsedChange) -> Vec<RawAttr> {
 
 fn side_attrs(c: &ParsedChange, after: bool) -> Vec<RawAttr> {
     let (src, sens, unknown) = if after {
-        (as_map(&c.after), as_map(&c.after_sensitive), as_map(&c.after_unknown))
+        (
+            as_map(&c.after),
+            as_map(&c.after_sensitive),
+            as_map(&c.after_unknown),
+        )
     } else {
         (as_map(&c.before), as_map(&c.before_sensitive), None)
     };
@@ -503,7 +528,10 @@ fn raw_scalars(c: &ParsedChange) -> BTreeMap<String, Value> {
             if out.contains_key(k) {
                 continue;
             }
-            if truthy(lookup(after_sens, k)) || truthy(lookup(before_sens, k)) || truthy(lookup(unknown, k)) {
+            if truthy(lookup(after_sens, k))
+                || truthy(lookup(before_sens, k))
+                || truthy(lookup(unknown, k))
+            {
                 continue;
             }
             if matches!(v, Value::Str(_) | Value::Bool(_) | Value::Float(_)) {
@@ -522,11 +550,14 @@ fn derive_project(out: &mut BTreeMap<String, Value>) {
         return;
     }
     static RE: OnceLock<regex::Regex> = OnceLock::new();
-    let re = RE.get_or_init(|| regex::Regex::new(r"^projects/([^/]+)/").unwrap_or_else(|_| unreachable!()));
-    let found = out
-        .values()
-        .filter_map(Value::as_str)
-        .find_map(|s| re.captures(s).and_then(|m| m.get(1)).map(|m| m.as_str().to_string()));
+    let re = RE.get_or_init(|| {
+        regex::Regex::new(r"^projects/([^/]+)/").unwrap_or_else(|_| unreachable!())
+    });
+    let found = out.values().filter_map(Value::as_str).find_map(|s| {
+        re.captures(s)
+            .and_then(|m| m.get(1))
+            .map(|m| m.as_str().to_string())
+    });
     if let Some(p) = found {
         out.insert("project".to_string(), Value::Str(p));
     }

@@ -64,10 +64,14 @@ impl Value {
             serde_json::Value::Bool(b) => Value::Bool(b),
             serde_json::Value::Number(n) => Value::Float(n.as_f64().unwrap_or(0.0)),
             serde_json::Value::String(s) => Value::Str(s),
-            serde_json::Value::Array(a) => Value::Seq(a.into_iter().map(Value::from_json).collect()),
-            serde_json::Value::Object(o) => {
-                Value::Map(o.into_iter().map(|(k, v)| (k, Value::from_json(v))).collect())
+            serde_json::Value::Array(a) => {
+                Value::Seq(a.into_iter().map(Value::from_json).collect())
             }
+            serde_json::Value::Object(o) => Value::Map(
+                o.into_iter()
+                    .map(|(k, v)| (k, Value::from_json(v)))
+                    .collect(),
+            ),
         }
     }
 }

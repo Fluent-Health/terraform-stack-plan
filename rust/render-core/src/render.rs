@@ -45,7 +45,12 @@ fn changed_stacks(r: &Report) -> usize {
 }
 
 fn render_header(b: &mut String, r: &Report) {
-    let _ = write!(b, "### {}  ({} stacks changed)\n\n", r.title, changed_stacks(r));
+    let _ = write!(
+        b,
+        "### {}  ({} stacks changed)\n\n",
+        r.title,
+        changed_stacks(r)
+    );
     if !r.header_links.is_empty() {
         let parts: Vec<String> = r
             .header_links
@@ -76,7 +81,13 @@ fn render_table(b: &mut String, r: &Report) {
     let _ = writeln!(b, "| {} |", headers.join(" | "));
     let aligns: Vec<&str> = headers
         .iter()
-        .map(|h| if matches!(*h, "Stack" | "Categories") { "---" } else { "---:" })
+        .map(|h| {
+            if matches!(*h, "Stack" | "Categories") {
+                "---"
+            } else {
+                "---:"
+            }
+        })
         .collect();
     let _ = writeln!(b, "| {} |", aligns.join(" | "));
     for s in &r.stacks {
@@ -99,7 +110,11 @@ fn categories_cell(s: &Stack, r: &Report) -> String {
     if s.categories.is_empty() {
         return r.default.label();
     }
-    s.categories.iter().map(|c| c.label()).collect::<Vec<_>>().join("  ")
+    s.categories
+        .iter()
+        .map(|c| c.label())
+        .collect::<Vec<_>>()
+        .join("  ")
 }
 
 const OPEN_THRESHOLD: usize = 10;
@@ -170,7 +185,13 @@ pub fn blockquote(s: &str) -> String {
     }
     let lines: Vec<String> = s
         .split('\n')
-        .map(|ln| if ln.is_empty() { ">".to_string() } else { format!("> {ln}") })
+        .map(|ln| {
+            if ln.is_empty() {
+                ">".to_string()
+            } else {
+                format!("> {ln}")
+            }
+        })
         .collect();
     lines.join("\n") + "\n"
 }
@@ -187,7 +208,11 @@ pub fn render_resource(c: &Change, force_open: bool) -> String {
             leaves.extend(&f.leaves);
         }
     }
-    let force_sym = if c.action == Action::Forget { "⊘" } else { "" };
+    let force_sym = if c.action == Action::Forget {
+        "⊘"
+    } else {
+        ""
+    };
     let mut body = String::new();
     for line in align_leaves(&leaves, force_sym) {
         body.push_str(&line);
@@ -240,7 +265,9 @@ fn resource_summary(c: &Change) -> String {
             "out" => ("↗️", "moved out (relocating)".to_string()),
             "in-update" => ("🚚✏️", "moved in and updated".to_string()),
             "in" => ("↙️", "moved in (cross-state)".to_string()),
-            _ if !c.previous_address.is_empty() => ("↪️", format!("moved from {}", c.previous_address)),
+            _ if !c.previous_address.is_empty() => {
+                ("↪️", format!("moved from {}", c.previous_address))
+            }
             _ => ("↪️", "moved in (cross-state)".to_string()),
         };
         if n > 0 && c.move_direction != "in-update" {
@@ -283,7 +310,11 @@ fn align_leaves(leaves: &[&Leaf], force_sym: &str) -> Vec<String> {
         .iter()
         .map(|l| {
             let pad = " ".repeat(w - l.path.len());
-            let sym = if force_sym.is_empty() { l.op.sym() } else { force_sym };
+            let sym = if force_sym.is_empty() {
+                l.op.sym()
+            } else {
+                force_sym
+            };
             format!("{sym} {}{pad} = {}", l.path, l.value())
         })
         .collect()
@@ -309,13 +340,22 @@ fn render_minimal(b: &mut String, r: &Report) {
         t.forget += c.forget;
         t.sensitivity_only += c.sensitivity_only;
     }
-    let mut line = format!("{} stacks · {} adds · {} changes", r.stacks.len(), t.add, t.change);
+    let mut line = format!(
+        "{} stacks · {} adds · {} changes",
+        r.stacks.len(),
+        t.add,
+        t.change
+    );
     if t.sensitivity_only > 0 {
         let _ = write!(line, " ({} sensitivity-only)", t.sensitivity_only);
     }
     let _ = write!(line, " · {} destroys · {} replaces", t.destroy, t.replace);
     if t.import + t.moved + t.forget > 0 {
-        let _ = write!(line, " · {} imports · {} moves · {} forgets", t.import, t.moved, t.forget);
+        let _ = write!(
+            line,
+            " · {} imports · {} moves · {} forgets",
+            t.import, t.moved, t.forget
+        );
     }
     let _ = write!(b, "### {}\n\n{line}\n", r.title);
     if !r.notice.is_empty() {
@@ -330,7 +370,10 @@ fn change_word(c: &Counts) -> String {
     }
     if c.change > 0 {
         if c.sensitivity_only > 0 {
-            parts.push(format!("{} change ({} sensitivity-only)", c.change, c.sensitivity_only));
+            parts.push(format!(
+                "{} change ({} sensitivity-only)",
+                c.change, c.sensitivity_only
+            ));
         } else {
             parts.push(format!("{} change", c.change));
         }

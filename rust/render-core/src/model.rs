@@ -22,7 +22,10 @@ impl Action {
     /// Whether the action changes the real resource (create, update, delete, replace), as
     /// opposed to pure state bookkeeping (move, import, forget).
     pub fn mutates(self) -> bool {
-        matches!(self, Action::Add | Action::Change | Action::Destroy | Action::Replace)
+        matches!(
+            self,
+            Action::Add | Action::Change | Action::Destroy | Action::Replace
+        )
     }
 }
 

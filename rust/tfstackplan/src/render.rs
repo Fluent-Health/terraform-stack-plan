@@ -83,7 +83,12 @@ struct Opts {
 }
 
 fn opts(v: &goflag::Values) -> Opts {
-    let s = |name: &str, def: &str| v.get(name).and_then(|x| x.last()).cloned().unwrap_or_else(|| def.to_string());
+    let s = |name: &str, def: &str| {
+        v.get(name)
+            .and_then(|x| x.last())
+            .cloned()
+            .unwrap_or_else(|| def.to_string())
+    };
     Opts {
         plans_dir: s("plans-dir", ""),
         title: s("title", "Terraform plan"),
@@ -106,7 +111,10 @@ fn opts(v: &goflag::Values) -> Opts {
 /// Runs `render` with the arguments after the subcommand name and returns Go's exit code:
 /// 0 ok, 1 error, 2 bad flags or over budget.
 pub fn run(args: &[OsString]) -> ExitCode {
-    let args: Vec<String> = args.iter().map(|a| a.to_string_lossy().into_owned()).collect();
+    let args: Vec<String> = args
+        .iter()
+        .map(|a| a.to_string_lossy().into_owned())
+        .collect();
     let values = match goflag::parse(&args, FLAGS) {
         Ok((v, _rest)) => v,
         Err(Stop::Help) => {
@@ -178,7 +186,9 @@ fn render(o: &Opts) -> Result<Output, String> {
     for (name, plan_path) in &stacks {
         let data = gofs::read_file(plan_path).map_err(|e| format!("stack {}: {e}", quote(name)))?;
         let stack_dir = gofs::join(&[&o.repo_root, name]);
-        let source = b.wants_source().then(|| build_index(&stack_dir, &o.repo_root));
+        let source = b
+            .wants_source()
+            .then(|| build_index(&stack_dir, &o.repo_root));
         let rel_dir = rel_slash(&o.repo_root, &stack_dir);
         b.add_stack(name, &data, &rel_dir, source.as_ref())?;
     }

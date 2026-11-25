@@ -93,7 +93,10 @@ pub fn classify(s: &RawStack, rules: &[Rule], move_targets: &Set) -> Vec<Categor
         if matched.len() as i64 >= min {
             let mut attrs = extract(&matched, &r.emit_attributes, &r.derivations);
             if r.emit_attributes.iter().any(|n| n == "project")
-                && attrs.as_ref().and_then(|a| a.get("project")).is_none_or(Vec::is_empty)
+                && attrs
+                    .as_ref()
+                    .and_then(|a| a.get("project"))
+                    .is_none_or(Vec::is_empty)
                 && let Some(sp) = derive_stack_project(&s.changes)
             {
                 attrs
@@ -141,7 +144,11 @@ fn merge_attrs(a: Option<Attrs>, b: Option<&Attrs>) -> Option<Attrs> {
     if out.is_empty() {
         return None;
     }
-    Some(out.into_iter().map(|(k, v)| (k, v.into_iter().collect())).collect())
+    Some(
+        out.into_iter()
+            .map(|(k, v)| (k, v.into_iter().collect()))
+            .collect(),
+    )
 }
 
 fn extract(matched: &[&RawChange], names: &[String], derivations: &[Derivation]) -> Option<Attrs> {
@@ -168,7 +175,10 @@ fn change_attr(c: &RawChange, name: &str, derivations: &[Derivation]) -> Option<
         if d.attribute != name {
             continue;
         }
-        if d.type_pattern.as_ref().is_some_and(|tp| !tp.is_match(&c.type_)) {
+        if d.type_pattern
+            .as_ref()
+            .is_some_and(|tp| !tp.is_match(&c.type_))
+        {
             continue;
         }
         let Some(src) = c.raw.get(&d.from_attribute).and_then(Value::as_str) else {
@@ -215,7 +225,10 @@ fn scalar_string(v: &Value) -> String {
 }
 
 fn rule_matches(r: &Rule, c: &RawChange) -> bool {
-    if r.type_pattern.as_ref().is_some_and(|tp| !tp.is_match(&c.type_)) {
+    if r.type_pattern
+        .as_ref()
+        .is_some_and(|tp| !tp.is_match(&c.type_))
+    {
         return false;
     }
     r.actions.iter().all(|want| c.actions.contains(want))

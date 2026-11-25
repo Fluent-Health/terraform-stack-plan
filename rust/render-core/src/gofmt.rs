@@ -159,7 +159,10 @@ pub fn format_json_float(v: f64) -> String {
 /// Go's `int64(f) == f` test for a float that prints as an integer. Go converts an
 /// out-of-range float to the minimum int64 on amd64, so only in-range integers qualify.
 pub fn as_exact_i64(v: f64) -> Option<i64> {
-    if v.is_finite() && v.trunc() == v && (-9_223_372_036_854_775_808.0..9_223_372_036_854_775_808.0).contains(&v) {
+    if v.is_finite()
+        && v.trunc() == v
+        && (-9_223_372_036_854_775_808.0..9_223_372_036_854_775_808.0).contains(&v)
+    {
         Some(v as i64)
     } else {
         None
@@ -201,7 +204,9 @@ pub fn is_print(r: char) -> bool {
     if r >= 0x20000 {
         return true;
     }
-    IS_NOT_PRINT32.binary_search(&((r - 0x10000) as u16)).is_err()
+    IS_NOT_PRINT32
+        .binary_search(&((r - 0x10000) as u16))
+        .is_err()
 }
 
 /// `strconv.Quote`, which is what `fmt`'s `%q` prints for a string.

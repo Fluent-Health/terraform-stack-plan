@@ -19,7 +19,9 @@ enum ValueType {
 
 fn base64_re() -> &'static regex::Regex {
     static RE: OnceLock<regex::Regex> = OnceLock::new();
-    RE.get_or_init(|| regex::Regex::new(r"^[A-Za-z0-9+/\r\n]+={0,2}$").unwrap_or_else(|_| unreachable!()))
+    RE.get_or_init(|| {
+        regex::Regex::new(r"^[A-Za-z0-9+/\r\n]+={0,2}$").unwrap_or_else(|_| unreachable!())
+    })
 }
 
 /// Go's `base64.StdEncoding.DecodeString` succeeds (strict padding, `\r` and `\n` ignored).
@@ -55,7 +57,10 @@ fn detect(s: &str) -> ValueType {
     {
         return ValueType::Json;
     }
-    if trimmed.len() >= 100 && base64_re().is_match(trimmed) && base64_decodes(&trimmed.replace('\n', "")) {
+    if trimmed.len() >= 100
+        && base64_re().is_match(trimmed)
+        && base64_decodes(&trimmed.replace('\n', ""))
+    {
         return ValueType::Base64;
     }
     if let Ok(v) = yaml::load(s)
@@ -198,14 +203,20 @@ fn diff_internal(in_: &Input) -> Field {
     let structured = is_structured(&in_.before, &in_.after);
 
     if matches!(in_.before, Value::Null) && !matches!(in_.after, Value::Null) && !structured {
-        let json_or_yaml = as_.is_some_and(|a| matches!(detect(a), ValueType::Json | ValueType::Yaml));
+        let json_or_yaml =
+            as_.is_some_and(|a| matches!(detect(a), ValueType::Json | ValueType::Yaml));
         let has_override = !in_.force_differ.is_empty() && in_.force_differ != "auto";
         if !json_or_yaml && !has_override {
             return scalar_leaf(&in_.attr, LeafOp::Add, String::new(), scalar(&in_.after));
         }
     }
     if matches!(in_.after, Value::Null) && !matches!(in_.before, Value::Null) && !structured {
-        return scalar_leaf(&in_.attr, LeafOp::Remove, scalar(&in_.before), String::new());
+        return scalar_leaf(
+            &in_.attr,
+            LeafOp::Remove,
+            scalar(&in_.before),
+            String::new(),
+        );
     }
 
     match in_.force_differ.as_str() {
@@ -218,7 +229,12 @@ fn diff_internal(in_: &Input) -> Field {
         return structural(in_);
     }
     if !structured && bs.is_none() && as_.is_none() {
-        return scalar_leaf(&in_.attr, LeafOp::Change, scalar(&in_.before), scalar(&in_.after));
+        return scalar_leaf(
+            &in_.attr,
+            LeafOp::Change,
+            scalar(&in_.before),
+            scalar(&in_.after),
+        );
     }
 
     let (bs, as_) = (bs.unwrap_or(""), as_.unwrap_or(""));
@@ -229,7 +245,9 @@ fn diff_internal(in_: &Input) -> Field {
         } else {
             match detect(first_non_empty(bs, as_)) {
                 ValueType::Json | ValueType::Yaml => return structural(in_),
-                ValueType::Base64 => return block_field(&in_.attr, ladder_from(&in_.attr, Level::Summary, in_)),
+                ValueType::Base64 => {
+                    return block_field(&in_.attr, ladder_from(&in_.attr, Level::Summary, in_));
+                }
                 ValueType::Plain => kind = "line",
             }
         }
@@ -238,7 +256,12 @@ fn diff_internal(in_: &Input) -> Field {
         "structural" | "json" | "yaml" => structural(in_),
         _ => {
             if !bs.contains('\n') && !as_.contains('\n') && bs.len() < 60 && as_.len() < 60 {
-                return scalar_leaf(&in_.attr, LeafOp::Change, gofmt::quote(bs), gofmt::quote(as_));
+                return scalar_leaf(
+                    &in_.attr,
+                    LeafOp::Change,
+                    gofmt::quote(bs),
+                    gofmt::quote(as_),
+                );
             }
             block_field(&in_.attr, ladder_from(&in_.attr, Level::LineDiff, in_))
         }
@@ -315,7 +338,12 @@ fn redact_sensitive(v: &Value, s: &Value) -> Value {
         Value::Map(sm) => match v {
             Value::Map(vm) => Value::Map(
                 vm.iter()
-                    .map(|(k, val)| (k.clone(), redact_sensitive(val, sm.get(k).unwrap_or(&Value::Null))))
+                    .map(|(k, val)| {
+                        (
+                            k.clone(),
+                            redact_sensitive(val, sm.get(k).unwrap_or(&Value::Null)),
+                        )
+                    })
                     .collect(),
             ),
             _ => v.clone(),
@@ -341,7 +369,10 @@ fn ladder_from(attr: &str, top: Level, in_: &Input) -> Vec<Variant> {
         return vec![
             Variant::new(
                 Level::Summary,
-                format!("  {}", summary_line(attr, summary_kind(bs, as_), total, changed)),
+                format!(
+                    "  {}",
+                    summary_line(attr, summary_kind(bs, as_), total, changed)
+                ),
             ),
             Variant::new(Level::Hidden, String::new()),
         ];
@@ -393,7 +424,11 @@ fn magnitude(before: &str, after: &str) -> (usize, usize) {
     let out = unified_diff(&split_lines(before), &split_lines(after), 0);
     let changed = out
         .split('\n')
-        .filter(|ln| (ln.starts_with('+') || ln.starts_with('-')) && !ln.starts_with("+++") && !ln.starts_with("---"))
+        .filter(|ln| {
+            (ln.starts_with('+') || ln.starts_with('-'))
+                && !ln.starts_with("+++")
+                && !ln.starts_with("---")
+        })
         .count();
     (total, changed)
 }
@@ -411,7 +446,10 @@ fn indent(s: &str) -> String {
     if s.is_empty() {
         return String::new();
     }
-    s.split('\n').map(|l| format!("  {l}")).collect::<Vec<_>>().join("\n")
+    s.split('\n')
+        .map(|l| format!("  {l}"))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn line_count(s: &str) -> usize {
