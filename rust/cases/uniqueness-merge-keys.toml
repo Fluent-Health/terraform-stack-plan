@@ -1,0 +1,6 @@
+bin.name = "tfstackplan"
+args = ["uniqueness"]
+fs.cwd = "fixtures/uniqueness/merge"
+
+[status]
+code = 1

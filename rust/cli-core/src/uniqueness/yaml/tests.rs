@@ -80,3 +80,19 @@ fn top_level_shapes() {
     // Top-level keys decode into strings from their source text.
     assert_eq!(doc("1: x\n"), vec![("1".to_string(), Value::str("x"))]);
 }
+
+// yaml.v3 merges `<<` keys (a map or a list of maps); the parent's own keys win.
+#[test]
+fn merge_keys_merge_like_yaml_v3() {
+    let d = doc(
+        "base: &b\n  project: acme-shared\n  region: x\nother: &o\n  zone: z\nprod:\n  <<: [*b, *o]\n  region: y\n",
+    );
+    assert_eq!(
+        get(&d, "prod"),
+        &Value::Map(vec![
+            ("project".into(), Value::str("acme-shared")),
+            ("region".into(), Value::str("y")),
+            ("zone".into(), Value::str("z")),
+        ])
+    );
+}

@@ -1,0 +1,16 @@
+# Both environments pull the same billing account in through a YAML merge key.
+shared: &shared
+  billing_account_id: "0123456789"
+  region: example-east1
+environments:
+  dev:
+    inputs:
+      <<: *shared
+      tier_class: nonprod
+      project_id: acme-dev
+  prod:
+    inputs:
+      <<: [*shared]
+      tier_class: prod
+      project_id: acme-prod
+      region: example-west1

@@ -35,6 +35,21 @@ pub struct Time {
 }
 
 impl Time {
+    /// The civil fields: year, month, day, hour, minute, second, nanoseconds and the UTC
+    /// offset in seconds.
+    pub fn fields(&self) -> (i32, u32, u32, u32, u32, u32, u32, i32) {
+        (
+            self.year,
+            self.month,
+            self.day,
+            self.hour,
+            self.minute,
+            self.second,
+            self.nanos,
+            self.offset_secs,
+        )
+    }
+
     /// `t.Format(time.RFC3339Nano)`.
     pub fn rfc3339_nano(&self) -> String {
         let mut s = format!(
@@ -785,6 +800,33 @@ pub fn load(s: &str) -> Result<Value, String> {
     match parse_first_document(s)? {
         None => Ok(Value::Null),
         Some(n) => decode(&n, Target::Any),
+    }
+}
+
+/// `yaml.Unmarshal(s, &m)` with `m map[string]any`, for a document whose root is a mapping:
+/// keys decode into strings, values into `any`, merge keys merge. `None` for an empty or null
+/// document. A root that is not a mapping is an error here; callers that print Go's
+/// `cannot unmarshal` text check the shape themselves first.
+pub fn load_string_map(s: &str) -> Result<Option<BTreeMap<String, Value>>, String> {
+    let Some(root) = parse_first_document(s)? else {
+        return Ok(None);
+    };
+    let root = match root {
+        Node::Alias(inner) => *inner,
+        n => n,
+    };
+    match root {
+        Node::Map { pairs } => {
+            check_duplicates(&pairs)?;
+            let mut out = OutMap::Strings(BTreeMap::new());
+            decode_mapping_into(&pairs, &mut out, None)?;
+            match out {
+                OutMap::Strings(m) => Ok(Some(m)),
+                OutMap::Any(_) => Err("non-string key in a string map".to_string()),
+            }
+        }
+        n if n.short_tag() == NULL => Ok(None),
+        _ => Err("cannot unmarshal into map[string]interface {}".to_string()),
     }
 }
 
