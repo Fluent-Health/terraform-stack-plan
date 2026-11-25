@@ -10,6 +10,10 @@ publish.workspace = true
 [lib]
 name = "tfstackplan_server_clients"
 
+[features]
+# The fake Google OIDC issuer (`gauth::gauthtest`) for other crates' tests.
+test-support = ["dep:axum"]
+
 [dependencies]
 tfstackplan-gate.workspace = true
 async-trait.workspace = true
@@ -17,6 +21,24 @@ serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
+tracing.workspace = true
+jiff.workspace = true
+# One crypto stack for TLS, JWT signing, ID-token verification and webhook HMACs: aws-lc-rs.
+aws-lc-rs = "1.19.0"
+base64 = "0.22.1"
+hex = "0.4.3"
+# rustls without its default features so only the aws-lc-rs provider is compiled in.
+rustls = { version = "0.23.46", default-features = false, features = ["aws_lc_rs", "std", "tls12"] }
+rustls-pki-types = { version = "1.16.0", features = ["std"] }
+# Pinned exactly: the 0.13 line is under a year old. `rustls` selects rustls with aws-lc-rs and
+# the platform verifier (system roots); no native-tls, no ring.
+reqwest = { version = "=0.13.5", default-features = false, features = ["rustls", "form"] }
+axum = { version = "0.8.4", optional = true }
+
+[dev-dependencies]
+axum = "0.8.4"
+tempfile.workspace = true
+tokio = { workspace = true, features = ["test-util"] }
 
 [lints]
 workspace = true

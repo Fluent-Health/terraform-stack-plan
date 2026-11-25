@@ -8,12 +8,51 @@
 //! | `internal/approval` (`Backend`, `Fake`) | [`approval`] |
 //! | `internal/executor` (`Backend`) | [`executor`] |
 //! | `internal/server/objects.go` (`ObjectStore`) | [`objects`] |
+//! | `internal/server/githubreal.go`, `githubauth.go` | [`github::app`] |
+//! | `internal/gauth`, `internal/gauth/gauthtest` | [`gauth`] |
+//! | `cmd/tfstackplan/gcpcreds.go` | [`gcpcreds`] |
+//! | `internal/executor/cloudbuild.go` | [`executor::cloudbuild`] |
+//! | `cmd/tfstackplan/gcsobjects.go` | [`objects::Gcs`] |
+//! | `internal/approval/gcppam` | [`approval::gcppam`] |
 #![forbid(unsafe_code)]
+
+use std::future::Future;
+use std::sync::Arc;
+
+use async_trait::async_trait;
 
 pub mod approval;
 pub mod executor;
+pub mod gauth;
+pub mod gcpcreds;
 pub mod github;
+pub mod http;
 pub mod objects;
+#[cfg(any(test, feature = "test-support"))]
+pub mod testserver;
+
+/// Yields a currently valid bearer token (Go's `TokenFunc`). Implementations cache and
+/// refresh; callers ask once per request. Any `Fn() -> impl Future<Output = Result<String>>`
+/// is one.
+#[async_trait]
+pub trait TokenSource: Send + Sync {
+    /// A token valid now.
+    async fn token(&self) -> Result<String>;
+}
+
+#[async_trait]
+impl<F, Fut> TokenSource for F
+where
+    F: Fn() -> Fut + Send + Sync,
+    Fut: Future<Output = Result<String>> + Send,
+{
+    async fn token(&self) -> Result<String> {
+        self().await
+    }
+}
+
+/// A shared [`TokenSource`].
+pub type TokenFunc = Arc<dyn TokenSource>;
 
 /// A client failure. The text is what Go's error would print, because some of it is
 /// stored (a failed build start lands in the gate's event log) or returned to callers.
@@ -22,12 +61,19 @@ pub enum Error {
     /// Any failure, carrying Go's error text.
     #[error("{0}")]
     Message(String),
-    /// An approval request hit an occupied requester slot.
+    /// An approval request hit an occupied requester slot. Boxed: the blocking grant is large
+    /// and every `Result` here carries this enum.
     #[error(transparent)]
-    SlotCollision(#[from] tfstackplan_gate::approval::SlotCollisionError),
+    SlotCollision(Box<tfstackplan_gate::approval::SlotCollisionError>),
     /// The object does not exist (GCS 404, or a missing local object).
     #[error("{0}")]
     NotFound(String),
+}
+
+impl From<tfstackplan_gate::approval::SlotCollisionError> for Error {
+    fn from(e: tfstackplan_gate::approval::SlotCollisionError) -> Error {
+        Error::SlotCollision(Box::new(e))
+    }
 }
 
 impl Error {

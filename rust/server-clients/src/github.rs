@@ -6,6 +6,48 @@ use async_trait::async_trait;
 
 use crate::Result;
 
+pub mod app;
+pub use app::RealClient;
+
+/// The per-environment check-run name branch protection requires: `plan/<environment>`,
+/// or `plan` when the environment is empty.
+pub fn check_run_name(environment: &str) -> String {
+    suffixed("plan", environment)
+}
+
+/// The one per-tier PR-head check that replaces `plan/<env>` and `apply-lock/<env>` once
+/// serve drives the runs itself: `terraform/<environment>`, or `terraform`.
+pub fn consolidated_check_name(environment: &str) -> String {
+    suffixed("terraform", environment)
+}
+
+/// The per-environment apply-lock check the merge queue requires: `apply-lock/<environment>`,
+/// or `apply-lock`.
+pub fn apply_lock_name(environment: &str) -> String {
+    suffixed("apply-lock", environment)
+}
+
+fn suffixed(base: &str, environment: &str) -> String {
+    if environment.is_empty() {
+        base.to_string()
+    } else {
+        format!("{base}/{environment}")
+    }
+}
+
+/// Go's `verifyGitHubSig`: whether `header` (`X-Hub-Signature-256`) is `sha256=` and the
+/// hex HMAC-SHA256 of `body` under `secret`. The MAC comparison is constant time.
+pub fn verify_github_signature(secret: &[u8], header: &str, body: &[u8]) -> bool {
+    let Some(hex_sig) = header.strip_prefix("sha256=") else {
+        return false;
+    };
+    let Ok(expected) = hex::decode(hex_sig) else {
+        return false;
+    };
+    let key = aws_lc_rs::hmac::Key::new(aws_lc_rs::hmac::HMAC_SHA256, secret);
+    aws_lc_rs::hmac::verify(&key, body, &expected).is_ok()
+}
+
 /// Everything a PATCH to a check run needs.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct CheckRunUpdate {
@@ -124,13 +166,16 @@ pub enum Call {
 
 type Hook<A, R> = Box<dyn Fn(A) -> Result<R> + Send + Sync>;
 
+/// `post_status` arguments: repo, sha, context, state, description, target URL.
+type PostStatusArgs = (String, String, String, String, String, String);
+
 /// Go's `MockGitHub`: every call is recorded, and an unset hook is a no-op that
 /// returns the zero value (check run id 0, empty SHA, not abandoned).
 #[derive(Default)]
 pub struct MockGitHub {
     pub create_check_run_fn: Option<Hook<(String, String, String, String), i64>>,
     pub update_check_run_fn: Option<Hook<(String, i64, CheckRunUpdate), ()>>,
-    pub post_status_fn: Option<Hook<(String, String, String, String, String, String), ()>>,
+    pub post_status_fn: Option<Hook<PostStatusArgs, ()>>,
     pub pr_head_sha_fn: Option<Hook<(String, i64), String>>,
     pub pr_abandoned_fn: Option<Hook<(String, i64), bool>>,
     pub merge_group_prs_fn: Option<Hook<(String, String), Vec<i64>>>,
@@ -280,3 +325,6 @@ impl GitHub for MockGitHub {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

@@ -70,7 +70,7 @@ impl Fake {
     fn lock(&self) -> Result<std::sync::MutexGuard<'_, FakeInner>> {
         self.inner
             .lock()
-            .map_err(|_| crate::Error::msg("approval fake: poisoned"))
+            .map_err(|_poisoned| crate::Error::msg("approval fake: poisoned"))
     }
 }
 
