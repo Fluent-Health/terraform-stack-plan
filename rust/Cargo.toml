@@ -1,9 +1,14 @@
 [workspace]
 resolver = "3"
-members = ["tfstackplan", "recorder", "gate-core", "store"]
+members = ["tfstackplan", "recorder", "gate-core", "store", "server", "server-clients"]
 
 [workspace.dependencies]
 tfstackplan-gate = { path = "gate-core" }
+tfstackplan-store = { path = "store" }
+tfstackplan-server-clients = { path = "server-clients" }
+async-trait = "0.1.89"
+tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "sync", "time", "signal", "net", "io-util"] }
+tracing = "0.1.41"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = { version = "1.0.152", features = ["raw_value"] }
 jiff = { version = "1.0.3", features = ["serde"] }
