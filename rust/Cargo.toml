@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["tfstackplan", "recorder", "cli-core", "clients", "casekit"]
+members = ["tfstackplan", "recorder", "render-core", "cli-core", "clients", "casekit"]
 
 [workspace.package]
 edition = "2024"
@@ -11,6 +11,7 @@ publish = false
 # Shared pins. Young crates are pinned exactly, like the front door's own dev-dependencies.
 [workspace.dependencies]
 tfstackplan-cli = { path = "cli-core" }
+tfstackplan-render = { path = "render-core" }
 tfstackplan-clients = { path = "clients" }
 casekit = { path = "casekit" }
 # HCL: .tfstackplan.hcl, xmove manifests, stack.tm.hcl watches and backend blocks.
@@ -32,6 +33,7 @@ portable-pty = "=0.9.0"
 tempfile = "=3.27.0"
 toml_edit = "=0.25.21"
 trycmd = "=1.2.1"
+proptest = { version = "=1.12.0", default-features = false, features = ["std"] }
 wiremock = "=0.6.5"
 tokio = { version = "=1.54.1", features = ["macros", "rt-multi-thread"] }
 

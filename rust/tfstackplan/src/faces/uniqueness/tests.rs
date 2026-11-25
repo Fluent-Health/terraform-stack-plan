@@ -114,10 +114,7 @@ fn dispatch_routes_uniqueness() {
         .1;
     let dir = repo(HCL_BASE, UNIT_CLEAN);
     assert_eq!(
-        ported(&[
-            "--dir".to_string(),
-            dir.path().to_string_lossy().into_owned()
-        ]),
+        ported(&["--dir".into(), dir.path().as_os_str().to_owned()]),
         ExitCode::SUCCESS
     );
 }

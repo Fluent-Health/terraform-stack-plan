@@ -23,7 +23,8 @@ fn ported_faces_and_run_subcommands() {
     assert_eq!(find(&["run", "claims", "list"]), Some(2));
     assert_eq!(find(&["run", "plan"]), None);
     assert_eq!(find(&["run"]), None);
-    assert_eq!(find(&["render"]), None);
+    assert_eq!(find(&["render"]), Some(1));
+    assert_eq!(find(&["--plans-dir", "x"]), Some(0));
+    assert_eq!(find(&[]), Some(0));
     assert_eq!(find(&["serve"]), None);
-    assert_eq!(find(&["--plans-dir", "x"]), None);
 }
