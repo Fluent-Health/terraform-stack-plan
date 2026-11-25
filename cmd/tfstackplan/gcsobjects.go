@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Fluent-Health/terraform-stack-plan/internal/cache"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/server"
 )
 
@@ -26,7 +27,7 @@ type gcsObjectStore struct {
 
 func newGCSObjectStore(token func(context.Context) (string, error), bucket, prefix, baseURL string) *gcsObjectStore {
 	if baseURL == "" {
-		baseURL = "https://storage.googleapis.com"
+		baseURL = cache.GCSBaseURL
 	}
 	return &gcsObjectStore{token: token, bucket: bucket, prefix: prefix, baseURL: strings.TrimRight(baseURL, "/"), hc: &http.Client{Timeout: 60 * time.Second}}
 }
