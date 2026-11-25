@@ -106,6 +106,8 @@ jobs:
         working-directory: rust
         env:
           TARGET: ${{ matrix.target }}
+          # Compiled in: ported subcommands (render answers -version) print it.
+          TFSTACKPLAN_VERSION: ${{ github.event.release.tag_name }}
         run: |
           rustup target add "$TARGET"
           cargo zigbuild --release --locked -p tfstackplan --target "$TARGET"
