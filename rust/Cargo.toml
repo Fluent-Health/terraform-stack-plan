@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["tfstackplan", "recorder", "gate-core", "store", "server", "server-clients"]
+members = ["tfstackplan", "recorder", "gate-core", "store", "server", "server-clients", "ui"]
 
 [workspace.dependencies]
 tfstackplan-gate = { path = "gate-core" }
