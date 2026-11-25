@@ -131,8 +131,10 @@ pub fn run(args: &[OsString]) -> ExitCode {
         .and_then(|v| v.last())
         .is_some_and(|v| v == "true")
     {
-        println!("tfstackplan {VERSION}");
-        return ExitCode::SUCCESS;
+        return match write_stdout(format!("tfstackplan {VERSION}\n").as_bytes()) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(code) => code,
+        };
     }
     let o = opts(&values);
     let out = match render(&o) {
@@ -143,9 +145,9 @@ pub fn run(args: &[OsString]) -> ExitCode {
         }
     };
     if o.output == "-" || o.output.is_empty() {
-        let mut stdout = std::io::stdout().lock();
-        let _ = stdout.write_all(out.markdown.as_bytes());
-        let _ = stdout.flush();
+        if let Err(code) = write_stdout(out.markdown.as_bytes()) {
+            return code;
+        }
     } else if let Err(e) = gofs::write_file(&o.output, out.markdown.as_bytes()) {
         eprintln!("tfstackplan: {e}");
         return ExitCode::FAILURE;
@@ -155,6 +157,21 @@ pub fn run(args: &[OsString]) -> ExitCode {
         return ExitCode::from(2);
     }
     ExitCode::SUCCESS
+}
+
+/// Exit status a shell reports for a process killed by SIGPIPE (128 + 13).
+const SIGPIPE_STATUS: u8 = 141;
+
+/// Writes to stdout as Go's `fmt.Print` does: other write errors are ignored, but a closed
+/// pipe ends the process. Go dies of SIGPIPE there; this crate forbids the unsafe code that
+/// re-raising the signal would need, so it exits with the status a shell shows for that
+/// death instead (see DECISIONS.md).
+fn write_stdout(data: &[u8]) -> Result<(), ExitCode> {
+    let mut stdout = std::io::stdout().lock();
+    match stdout.write_all(data).and_then(|()| stdout.flush()) {
+        Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => Err(ExitCode::from(SIGPIPE_STATUS)),
+        _ => Ok(()),
+    }
 }
 
 /// The whole pipeline, in Go's order, so the first error is the same one Go reports.
