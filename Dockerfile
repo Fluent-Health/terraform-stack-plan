@@ -13,7 +13,8 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}"
 FROM rust:1.98.1-slim-trixie AS rust
 WORKDIR /src
 COPY rust ./
-# Compiled in: ported subcommands (render answers -version) print it.
+# Compiled in for ported subcommands that print the version (once render is
+# in Rust it answers -version); unused until then.
 ARG VERSION=dev
 ENV TFSTACKPLAN_VERSION=${VERSION}
 RUN target="$(uname -m)-unknown-linux-musl" \

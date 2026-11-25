@@ -106,7 +106,8 @@ jobs:
         working-directory: rust
         env:
           TARGET: ${{ matrix.target }}
-          # Compiled in: ported subcommands (render answers -version) print it.
+          # Compiled in for ported subcommands that print the version (once render is
+          # in Rust it answers -version); unused until then.
           TFSTACKPLAN_VERSION: ${{ github.event.release.tag_name }}
         run: |
           rustup target add "$TARGET"
@@ -245,6 +246,8 @@ jobs:
           file: Dockerfile.release
           push: true
           platforms: linux/amd64,linux/arm64
+          # A pre-release (used to exercise this pipeline) never moves :latest;
+          # the empty line it leaves is ignored by the action.
           tags: |
             ${{ env.IMAGE }}:${{ github.event.release.tag_name }}
-            ${{ env.IMAGE }}:latest
+            ${{ !github.event.release.prerelease && format('{0}:latest', env.IMAGE) || '' }}
