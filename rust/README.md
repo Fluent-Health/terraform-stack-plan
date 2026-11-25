@@ -4,20 +4,30 @@
 holds the Rust side: a front door binary, a replay harness that checks it
 against the Go binary, and recorded cases.
 
-Nothing is ported yet. Every subcommand still runs in Go.
+`render` (including the legacy form with a leading flag or no arguments) runs in
+Rust. Every other subcommand still runs in Go.
+
+| Crate | What it holds |
+|---|---|
+| `tfstackplan/` | The front door binary. `src/render.rs` is `render`'s shell: Go-compatible flag parsing (`goflag.rs`), the plans-dir walk, config discovery, source indexing for resource links and every file read and write (`gofs.rs`, with Go's error text). |
+| `render-core/` | Package `tfstackplan-render`: the pure render pipeline, no I/O, clock or async. One module per Go package under `internal/` (`plan`, `moveset`, `model`, `classify`, `differ`, `render`, `fit`, `links`, `ansi`, `codes`, `source`, and the render part of `config`), plus `gofmt`, `goval`, `gojson`, `goregex`, `difflib` and `yaml`, which reproduce the Go library behaviour the output depends on. |
+| `recorder/` | Records the replay cases from the Go binary. |
 
 ## The front door
 
 `tfstackplan` (crate `tfstackplan/`) looks at the first argument to pick the
 subcommand, the same way Go does: a leading flag or no arguments means
-`render`. If the subcommand is in the `PORTED` table in `src/main.rs`, it runs
+`render`. If the subcommand is in the `PORTED` table in `src/lib.rs`, it runs
 in Rust. Otherwise the front door runs the Go binary with the same argv, env,
 stdin, stdout and stderr, and exits with its exit code. On unix it replaces its
 own process with Go (`exec`), so signals, the tty and the exit code all belong
 to Go. On other platforms it spawns Go, waits and passes the exit code on.
 
-The front door does not parse flags. Go owns its flags until a subcommand is
-ported.
+The front door does not parse flags for subcommands it passes on. A ported
+subcommand parses its own flags exactly as Go's `flag` package does.
+
+`-version` prints `tfstackplan dev`, or the value of `TFSTACKPLAN_VERSION` at
+build time (the Go release sets `main.version` the same way).
 
 | Variable | Effect |
 |---|---|
@@ -102,8 +112,18 @@ cargo nextest run   # uses TFSTACKPLAN_GO_BIN, else rust/.go/tfstackplan-go
 
 `tests/replay.rs` runs the front door against every case and writes
 `cases/replay-report.md` with cases passed and how many invocations fell back to
-Go. The report is committed. With nothing ported, the expected result is every
-case passing with every invocation falling back.
+Go. The report is committed. Today every case passes, the `render` cases are
+answered in Rust and the other subcommands fall back.
+
+### Go parity property test
+
+`tests/go_parity.rs` mutates the fixture plans at random (attribute values,
+including JSON and YAML strings, numbers and Unicode; sensitivity and
+known-after-apply markers; actions; dropped changes), renders each mutation with
+the Go binary and with the front door under random configs, budgets and
+`--details`, and requires identical stdout, stderr, exit code and
+classification JSON. It is skipped when the Go binary is absent.
+`PROPTEST_CASES` sets the number of cases (default 96).
 
 CI (`rust` job in `.github/workflows/ci.yml`) runs the checks in *Before you push*,
 then re-records the cases and fails if `rust/cases` changed. If a Go change

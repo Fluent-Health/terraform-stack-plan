@@ -53,3 +53,61 @@ markdown out. That keeps it testable case by case against the Go binary. Code th
 GitHub, GCS or terraform goes in a separate clients crate. The `tfstackplan` binary stays the
 thin shell that parses arguments, reads files and wires the two together.
 
+
+## Render: one pure core crate, Go's behaviour reproduced in small modules
+
+`render` is ported into `render-core` (package `tfstackplan-render`) as plain functions over
+bytes and strings; the binary does every read and write and calls it in Go's order, so the
+first error is the one Go reports. Where the output depends on Go library behaviour, a small
+module reproduces it instead of reaching for a crate that is close but not equal:
+`gofmt` (strconv float layout and `%q` quoting, using Go's own `IsPrint` tables), `goval` and
+`gojson` (what `encoding/json` decodes into `any`, how it encodes with HTML escaping, and its
+exact syntax error messages), `goregex` (Go's ASCII-only `\d`, `\w`, `\s`, `\b` on top of
+`regex`, and Go's error wording), `difflib` (the go-difflib port of Python's SequenceMatcher)
+and `yaml` (yaml.v3's scalar resolution and its libyaml emitter). There is no `terraform-json`
+crate, so plan JSON is read through `serde_json` into those Go-shaped values.
+
+## HCL is parsed with hcl-rs
+
+`hcl-rs` (pinned) parses the policy file and `.tf` sources; its re-exported `hcl-edit` keeps
+byte spans, which give hcl's `file:line,col-col: Summary; Detail` diagnostics for decode
+errors (unsupported or missing arguments, wrong labels, unsuitable value types). It accepts
+every config in `internal/config/testdata` and `examples/`. YAML syntax is parsed by
+`yaml-rust2`, a libyaml-style parser like the one inside yaml.v3; resolution and decoding on
+top of its events follow v3.
+
+## Fit keeps Go's choices but not its cost
+
+Go's fit degrades one attribute at a time and re-renders the whole report after every step,
+which is quadratic. The port makes the same choices in the same order (largest selected
+variant first, earliest on ties) but keeps the size current incrementally: a step changes one
+resource row, and a row's share of the document depends only on its own text. A test-only
+port of the Go loop and a property test check the two give identical reports, and the Go
+parity test covers it end to end. On a 20-stack by 50-resource plan set with the default
+budget, Go takes about 11 s and the port about 70 ms.
+
+## Go quirks kept on purpose
+
+These are Go's behaviour, kept so output stays byte-identical:
+
+- yaml.v3 output never folds long lines, and escapes every character above U+FFFF (emoji
+  included) in double quotes, because libyaml's printable check only knows 1 to 3 byte UTF-8.
+- An unquoted YAML date such as `2024-01-31` decodes to a timestamp and prints as
+  `2024-01-31T00:00:00Z`; `0777` is octal; `08` is the float 8.
+- The diff filter drops any diff line starting with `---` or `+++`, including a content line
+  such as a removed `--` YAML separator.
+- `difflib.SplitLines` adds a final empty line, so a structural diff ends with a lone ` `
+  context line.
+- Map key order in YAML output is yaml.v3's natural order (`a2` before `a10`); in JSON output
+  it is plain byte order.
+
+## Known differences
+
+Inputs real Terraform plans do not produce can still diverge: HCL syntax error messages
+(hcl-rs words them differently), invalid UTF-8 in a plan (Go replaces each bad byte with
+U+FFFD, the port replaces each bad sequence), JSON nested deeper than 128 levels or holding
+lone `\u` surrogates (`serde_json` refuses them), regex syntax only Go accepts (`\Q…\E`, `[`
+literal inside a class), YAML documents libyaml and yaml-rust2 disagree on, and some Go type
+error texts for wrongly typed plan fields. The `server`, `serve`, `ui` and `env_uniqueness`
+blocks of a policy file are accepted without checking their contents; Go's render would
+reject an invalid one.
