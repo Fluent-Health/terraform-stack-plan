@@ -19,12 +19,21 @@ serde.workspace = true
 serde_json.workspace = true
 jiff.workspace = true
 thiserror.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, features = ["fs", "process"] }
 tracing.workspace = true
+rusqlite.workspace = true
 axum = "0.8.4"
+base64 = "=0.23.1"
+comrak = { version = "=1.2.0", default-features = false }
+hcl-rs = "=0.19.10"
+regex = "1.11.1"
+futures-util = "0.3.31"
+serde_urlencoded = "0.7.1"
+tokio-stream = "0.1.17"
 
 [dev-dependencies]
 tempfile.workspace = true
+tower = { version = "0.5.2", features = ["util"] }
 
 [lints]
 workspace = true
