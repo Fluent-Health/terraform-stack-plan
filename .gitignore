@@ -3,6 +3,12 @@
 *.out
 /dist/
 
+# Rust port: build output and the Go binary the replay harness runs. Recorded
+# replay outputs (rust/cases/<name>.out/) are fixtures, not build output.
+/rust/target/
+/rust/.go/
+!/rust/cases/*.out
+
 # Secrets — never commit
 .env
 *.pem
