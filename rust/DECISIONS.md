@@ -128,3 +128,43 @@ unknown key id refetches the JWKS at most once a minute.
 Environment inputs (`GOOGLE_APPLICATION_CREDENTIALS`, `GCE_METADATA_HOST`, the IAM Credentials
 base) go through `gcpcreds::Env` instead of being read inside the flows. Tests build an `Env`
 pointing at local fakes, since Rust tests cannot set environment variables safely.
+
+## The serve HTTP layer: `tfstackplan-server`
+
+`server/` is axum. The `/api` operations are a table (`routes::API_ROUTES`: method, path,
+accepted scopes) that a test checks against `api/openapi.yaml`, so the spec stays the contract
+without a code generator. One handler binds parameters before auth, as oapi-codegen's wrappers
+do, then authorizes and dispatches. Unmatched paths and wrong methods answer exactly like Go's
+`http.ServeMux` (`404 page not found`, `405 Method Not Allowed` with `Allow`).
+
+The shell holds a tokio mutex per (pr, environment) across decide, persist and the React
+actions, looping on their feedback signals up to 16 times, as Go's `Shell.Handle` does. The
+store's own `KeyedLocks` are std mutexes and cannot be held across an await, so the server keeps
+its own async lock maps (gate, execution, environment) with Go's one-directional nesting. Every
+store call runs on the blocking pool (`App::db`): the busy handler sleeps.
+
+Wire compatibility is byte-level. `gojson` reproduces what the handlers depend on in Go's
+`encoding/json`: the encoder's HTML escaping and trailing newline, and the decoder's behaviour
+(first value only, case-insensitive keys, nulls skipped, the first type error reported with
+Go's text, `EOF`/`unexpected EOF`/scanner syntax errors). Request shapes are data
+(`gojson::shape`) rather than reflection. Response structs list fields in the order Go's types
+declare them. Go's committed wire goldens (`internal/server/testdata/wire`) are read in place by
+`server/src/tests.rs` and pass unchanged.
+
+Known differences, all outside the wire goldens: `/plan` fragments are rendered by comrak, not
+goldmark (both CommonMark plus GFM; the diff-fence colouring is the same); Go's
+`json.Unmarshal` of webhook payloads matches keys case-insensitively and this does not; Go
+ranges over maps in random order where this uses a stable order (inspect claims, catalog
+components, merge-group environments). `/healthz` (version and git SHA) exists only here; Go
+answers 404 there.
+
+`serve` reads only the HCL blocks it needs (`serve`, the unlabeled `server`, `class`,
+`progress`) and accepts the render blocks without validating them; the render port owns those.
+On SIGTERM it keeps accepting for two seconds, then stops and gives in-flight requests seven
+more, inside Cloud Run's ten-second grace.
+
+`server/tests/replay.rs` runs Go's `serve` and the Rust `serve` side by side from fresh
+databases and the same config, against one fake GitHub each, and compares every case's
+status, headers, body, GitHub calls and a dump of every table (timestamps masked). Auth is off
+in the replay: Go's verifier fetches Google's real certificate URL and cannot be pointed at a
+fake issuer, so the OIDC paths are covered by the ported tests instead.

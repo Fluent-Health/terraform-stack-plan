@@ -4,7 +4,9 @@
 holds the Rust side: a front door binary, a replay harness that checks it
 against the Go binary, and recorded cases.
 
-Nothing is ported yet. Every subcommand still runs in Go.
+`serve` runs in Rust (crates `server/`, `server-clients/`, on top of `gate-core/` and
+`store/`). Every other subcommand still runs in Go. `TFSTACKPLAN_IMPL_SERVE=go` sends
+`serve` back to Go.
 
 ## The front door
 
@@ -98,7 +100,13 @@ TFSTACKPLAN_GO_BIN=$PWD/.go/tfstackplan-go cargo run -p recorder -- version # on
 ```bash
 cd rust
 cargo nextest run   # uses TFSTACKPLAN_GO_BIN, else rust/.go/tfstackplan-go
+cargo test -p tfstackplan-server --test replay   # serve: Go and Rust side by side
 ```
+
+The serve replay starts Go's `serve` and the Rust `serve` with the same config against a
+fake GitHub (`TFSTACKPLAN_GITHUB_API_URL`), sends the same requests to both, and compares
+status, headers, bodies, GitHub calls and every table. It writes
+`cases/serve-replay-report.md`.
 
 `tests/replay.rs` runs the front door against every case and writes
 `cases/replay-report.md` with cases passed and how many invocations fell back to

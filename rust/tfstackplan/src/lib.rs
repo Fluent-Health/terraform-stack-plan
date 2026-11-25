@@ -14,8 +14,26 @@ use std::process::ExitCode;
 /// A ported subcommand: gets the arguments after the subcommand name.
 type Handler = fn(&[OsString]) -> ExitCode;
 
-/// Subcommands that have a Rust implementation. Empty until the first port.
-const PORTED: &[(&str, Handler)] = &[];
+/// Subcommands that have a Rust implementation.
+const PORTED: &[(&str, Handler)] = &[("serve", serve)];
+
+/// `tfstackplan serve` in Rust (`tfstackplan-server`), on a multi-threaded runtime.
+fn serve(args: &[OsString]) -> ExitCode {
+    let args: Vec<String> = args
+        .iter()
+        .map(|a| a.to_string_lossy().into_owned())
+        .collect();
+    match tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+    {
+        Ok(rt) => rt.block_on(tfstackplan_server::serve::run(args)),
+        Err(e) => {
+            eprintln!("tfstackplan serve: start runtime: {e}");
+            ExitCode::FAILURE
+        }
+    }
+}
 
 /// Runs the front door: dispatches to a ported subcommand or hands the call to
 /// the Go binary. The `tfstackplan` binary is only this call.
