@@ -7,14 +7,14 @@
 //!
 //! `dump` is a port of v3's `Marshal` encoder and the parts of its libyaml emitter that a
 //! decoded value can reach: block mappings and sequences at indent 4, `{}`/`[]` for empty ones,
-//! plain/single/double-quoted/literal scalars with v3's style choice, and line folding at 80
-//! columns.
+//! plain/single/double-quoted/literal scalars with v3's style choice. v3 sets no line width,
+//! so long scalars never fold.
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::OnceLock;
 
-use yaml_rust2::parser::{Event, Parser};
 use yaml_rust2::parser::Tag;
+use yaml_rust2::parser::{Event, Parser};
 use yaml_rust2::scanner::TScalarStyle;
 
 use crate::gofmt;
@@ -83,7 +83,9 @@ fn getnum(s: &[u8]) -> Option<(u32, &[u8])> {
         return None;
     }
     match s.get(1) {
-        Some(d1) if d1.is_ascii_digit() => Some((u32::from(d0 - b'0') * 10 + u32::from(d1 - b'0'), &s[2..])),
+        Some(d1) if d1.is_ascii_digit() => {
+            Some((u32::from(d0 - b'0') * 10 + u32::from(d1 - b'0'), &s[2..]))
+        }
         _ => Some((u32::from(d0 - b'0'), &s[1..])),
     }
 }
@@ -225,9 +227,14 @@ fn parse_timestamp(s: &str) -> Option<Time> {
     if i != 4 || i == b.len() || b[i] != b'-' {
         return None;
     }
-    [Layout::Zoned(b'T'), Layout::Zoned(b't'), Layout::Spaced, Layout::Date]
-        .into_iter()
-        .find_map(|l| parse_layout(s, l))
+    [
+        Layout::Zoned(b'T'),
+        Layout::Zoned(b't'),
+        Layout::Spaced,
+        Layout::Date,
+    ]
+    .into_iter()
+    .find_map(|l| parse_layout(s, l))
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -275,7 +282,11 @@ fn parse_int_base0(s: &str) -> (Option<i64>, Option<u64>) {
     let mag = u64::from_str_radix(digits, radix).ok();
     let int = mag.and_then(|m| {
         if neg {
-            if m <= 1 << 63 { Some((m as i64).wrapping_neg()) } else { None }
+            if m <= 1 << 63 {
+                Some((m as i64).wrapping_neg())
+            } else {
+                None
+            }
         } else {
             i64::try_from(m).ok()
         }
@@ -288,7 +299,8 @@ fn parse_int_base0(s: &str) -> (Option<i64>, Option<u64>) {
 fn yaml_style_float(s: &str) -> bool {
     static RE: OnceLock<regex::Regex> = OnceLock::new();
     RE.get_or_init(|| {
-        regex::Regex::new(r"^[-+]?(\.[0-9]+|[0-9]+(\.[0-9]*)?)([eE][-+]?[0-9]+)?$").unwrap_or_else(|_| unreachable!())
+        regex::Regex::new(r"^[-+]?(\.[0-9]+|[0-9]+(\.[0-9]*)?)([eE][-+]?[0-9]+)?$")
+            .unwrap_or_else(|_| unreachable!())
     })
     .is_match(s)
 }
@@ -299,10 +311,16 @@ fn parse_float(s: &str) -> Option<f64> {
     let ok = t.strip_prefix('-').unwrap_or(t);
     // Rust also accepts "inf"/"nan" spellings that cannot start with '.', '+', '-' or a digit
     // here except after a sign, which Go accepts too ("+inf"); keep them.
-    let f: f64 = if ok.eq_ignore_ascii_case("inf") || ok.eq_ignore_ascii_case("infinity") || ok.eq_ignore_ascii_case("nan") {
+    let f: f64 = if ok.eq_ignore_ascii_case("inf")
+        || ok.eq_ignore_ascii_case("infinity")
+        || ok.eq_ignore_ascii_case("nan")
+    {
         t.parse().ok()?
     } else {
-        if !ok.bytes().all(|c| c.is_ascii_digit() || matches!(c, b'.' | b'e' | b'E' | b'+' | b'-')) {
+        if !ok
+            .bytes()
+            .all(|c| c.is_ascii_digit() || matches!(c, b'.' | b'e' | b'E' | b'+' | b'-'))
+        {
             return None;
         }
         let f: f64 = t.parse().ok()?;
@@ -317,7 +335,10 @@ fn parse_float(s: &str) -> Option<f64> {
 /// What `resolve` returns: the resolved tag and value, or a decode error.
 fn resolve(tag: &str, s: &str) -> Result<(String, Value), String> {
     let tag = short_tag(tag);
-    if !matches!(tag.as_str(), "" | STR | BOOL | INT | FLOAT | NULL | TIMESTAMP) {
+    if !matches!(
+        tag.as_str(),
+        "" | STR | BOOL | INT | FLOAT | NULL | TIMESTAMP
+    ) {
         return Ok((tag, Value::Str(s.to_string())));
     }
     let (rtag, out) = resolve_plain(&tag, s);
@@ -609,7 +630,11 @@ fn decode(n: &Node, target: Target) -> Result<Value, String> {
             if target == Target::String {
                 return Err("cannot unmarshal !!seq into string".to_string());
             }
-            items.iter().map(|i| decode(i, Target::Any)).collect::<Result<_, _>>().map(Value::Seq)
+            items
+                .iter()
+                .map(|i| decode(i, Target::Any))
+                .collect::<Result<_, _>>()
+                .map(Value::Seq)
         }
         Node::Map { pairs } => {
             if target == Target::String {
@@ -672,7 +697,10 @@ fn check_duplicates(pairs: &[(Node, Node)]) -> Result<(), String> {
     for (i, (ki, _)) in pairs.iter().enumerate() {
         for (kj, _) in &pairs[i + 1..] {
             if ki.key_identity() == kj.key_identity() {
-                return Err(format!("mapping key {:?} already defined", ki.key_identity().1));
+                return Err(format!(
+                    "mapping key {:?} already defined",
+                    ki.key_identity().1
+                ));
             }
         }
     }
@@ -877,12 +905,16 @@ fn string_less(a: &str, b: &str) -> bool {
         }
         let mut ai = i;
         while ai < ar.len() && is_digit(ar[ai]) {
-            an = an.wrapping_mul(10).wrapping_add(i64::from(ar[ai] as u32) - i64::from(b'0'));
+            an = an
+                .wrapping_mul(10)
+                .wrapping_add(i64::from(ar[ai] as u32) - i64::from(b'0'));
             ai += 1;
         }
         let mut bi = i;
         while bi < br.len() && is_digit(br[bi]) {
-            bn = bn.wrapping_mul(10).wrapping_add(i64::from(br[bi] as u32) - i64::from(b'0'));
+            bn = bn
+                .wrapping_mul(10)
+                .wrapping_add(i64::from(br[bi] as u32) - i64::from(b'0'));
             bi += 1;
         }
         if an != bn {
@@ -926,8 +958,9 @@ fn merge_sort<T: Clone>(v: &mut [T], less: &impl Fn(&T, &T) -> bool) {
 // ---------------------------------------------------------------------------------------------
 // Dumping: v3's encoder and libyaml emitter.
 
+/// v3's indent. It sets no line width (libyaml then treats the width as unlimited), so the
+/// writers below never fold a long scalar and libyaml's folding branches are left out.
 const BEST_INDENT: i32 = 4;
-const BEST_WIDTH: i32 = 80;
 
 #[derive(Clone, Copy, PartialEq)]
 enum Style {
@@ -956,14 +989,15 @@ fn is_break_char(c: char) -> bool {
     matches!(c, '\r' | '\n' | '\u{85}' | '\u{2028}' | '\u{2029}')
 }
 
-/// libyaml's `is_printable` on a valid UTF-8 character.
+/// libyaml's `is_printable` on a valid UTF-8 character. It only looks at one- to three-byte
+/// sequences, so every character above U+FFFF (emoji included) counts as unprintable and is
+/// escaped in double quotes.
 fn is_printable(c: char) -> bool {
     let c = c as u32;
     c == 0x0A
         || (0x20..=0x7E).contains(&c)
         || (0xA0..=0xD7FF).contains(&c)
         || ((0xE000..=0xFFFD).contains(&c) && c != 0xFEFF)
-        || (0x10000..=0x10FFFF).contains(&c)
 }
 
 fn analyze_scalar(value: &str) -> Analysis {
@@ -1001,7 +1035,8 @@ fn analyze_scalar(value: &str) -> Analysis {
         let followed_by_whitespace = next.is_none_or(|n| n == ' ' || n == '\t');
         if i == 0 {
             match c {
-                '#' | ',' | '[' | ']' | '{' | '}' | '&' | '*' | '!' | '|' | '>' | '\'' | '"' | '%' | '@' | '`' => {
+                '#' | ',' | '[' | ']' | '{' | '}' | '&' | '*' | '!' | '|' | '>' | '\'' | '"'
+                | '%' | '@' | '`' => {
                     flow_indicators = true;
                     block_indicators = true;
                 }
@@ -1119,7 +1154,8 @@ fn is_base60_float(s: &str) -> bool {
         return false;
     }
     RE.get_or_init(|| {
-        regex::Regex::new(r"^[-+]?[0-9][0-9_]*(?::[0-5]?[0-9])+(?:\.[0-9_]*)?$").unwrap_or_else(|_| unreachable!())
+        regex::Regex::new(r"^[-+]?[0-9][0-9_]*(?::[0-5]?[0-9])+(?:\.[0-9_]*)?$")
+            .unwrap_or_else(|_| unreachable!())
     })
     .is_match(s)
 }
@@ -1127,7 +1163,21 @@ fn is_base60_float(s: &str) -> bool {
 fn is_old_bool(s: &str) -> bool {
     matches!(
         s,
-        "y" | "Y" | "yes" | "Yes" | "YES" | "on" | "On" | "ON" | "n" | "N" | "no" | "No" | "NO" | "off" | "Off" | "OFF"
+        "y" | "Y"
+            | "yes"
+            | "Yes"
+            | "YES"
+            | "on"
+            | "On"
+            | "ON"
+            | "n"
+            | "N"
+            | "no"
+            | "No"
+            | "NO"
+            | "off"
+            | "Off"
+            | "OFF"
     )
 }
 
@@ -1174,7 +1224,13 @@ impl Emitter {
         self.whitespace = true;
     }
 
-    fn write_indicator(&mut self, ind: &str, need_whitespace: bool, is_whitespace: bool, is_indention: bool) {
+    fn write_indicator(
+        &mut self,
+        ind: &str,
+        need_whitespace: bool,
+        is_whitespace: bool,
+        is_indention: bool,
+    ) {
         if need_whitespace && !self.whitespace {
             self.put(' ');
         }
@@ -1226,8 +1282,11 @@ impl Emitter {
             }
             Value::AnyMap(entries) => {
                 let mut sorted: Vec<&(Value, Value)> = entries.iter().collect();
-                merge_sort(&mut sorted, &|a: &&(Value, Value), b: &&(Value, Value)| key_less(&a.0, &b.0));
-                let pairs: Vec<(Value, &Value)> = sorted.into_iter().map(|(k, v)| (k.clone(), v)).collect();
+                merge_sort(&mut sorted, &|a: &&(Value, Value), b: &&(Value, Value)| {
+                    key_less(&a.0, &b.0)
+                });
+                let pairs: Vec<(Value, &Value)> =
+                    sorted.into_iter().map(|(k, v)| (k.clone(), v)).collect();
                 self.mapping(&pairs, parent);
             }
             _ => {
@@ -1285,7 +1344,9 @@ impl Emitter {
             style = Style::Double;
         }
         if style == Style::Plain {
-            if (self.flow_level > 0 && !a.flow_plain_allowed) || (self.flow_level == 0 && !a.block_plain_allowed) {
+            if (self.flow_level > 0 && !a.flow_plain_allowed)
+                || (self.flow_level == 0 && !a.block_plain_allowed)
+            {
                 style = Style::Single;
             }
             if value.is_empty() && (self.flow_level > 0 || simple_key) {
@@ -1299,31 +1360,23 @@ impl Emitter {
             style = Style::Double;
         }
         self.increase_indent(true, parent);
-        let allow_breaks = !simple_key;
         match style {
-            Style::Plain => self.write_plain(value, allow_breaks),
-            Style::Single => self.write_single(value, allow_breaks),
-            Style::Double => self.write_double(value, allow_breaks),
+            Style::Plain => self.write_plain(value),
+            Style::Single => self.write_single(value),
+            Style::Double => self.write_double(value),
             Style::Literal => self.write_literal(value),
         }
         self.pop_indent();
     }
 
-    fn write_plain(&mut self, value: &str, allow_breaks: bool) {
+    fn write_plain(&mut self, value: &str) {
         if !value.is_empty() && !self.whitespace {
             self.put(' ');
         }
-        let chars: Vec<char> = value.chars().collect();
-        let mut spaces = false;
         let mut breaks = false;
-        for (i, &c) in chars.iter().enumerate() {
+        for c in value.chars() {
             if c == ' ' {
-                if allow_breaks && !spaces && self.column > BEST_WIDTH && chars.get(i + 1) != Some(&' ') {
-                    self.write_indent();
-                } else {
-                    self.put(c);
-                }
-                spaces = true;
+                self.put(c);
             } else if is_break_char(c) {
                 if !breaks && c == '\n' {
                     self.put_break();
@@ -1336,7 +1389,6 @@ impl Emitter {
                 }
                 self.put(c);
                 self.indention = false;
-                spaces = false;
                 breaks = false;
             }
         }
@@ -1346,25 +1398,12 @@ impl Emitter {
         self.indention = false;
     }
 
-    fn write_single(&mut self, value: &str, allow_breaks: bool) {
+    fn write_single(&mut self, value: &str) {
         self.write_indicator("'", true, false, false);
-        let chars: Vec<char> = value.chars().collect();
-        let mut spaces = false;
         let mut breaks = false;
-        for (i, &c) in chars.iter().enumerate() {
+        for c in value.chars() {
             if c == ' ' {
-                if allow_breaks
-                    && !spaces
-                    && self.column > BEST_WIDTH
-                    && i > 0
-                    && i + 1 < chars.len()
-                    && chars.get(i + 1) != Some(&' ')
-                {
-                    self.write_indent();
-                } else {
-                    self.put(c);
-                }
-                spaces = true;
+                self.put(c);
             } else if is_break_char(c) {
                 if !breaks && c == '\n' {
                     self.put_break();
@@ -1380,7 +1419,6 @@ impl Emitter {
                 }
                 self.put(c);
                 self.indention = false;
-                spaces = false;
                 breaks = false;
             }
         }
@@ -1389,12 +1427,10 @@ impl Emitter {
         self.indention = false;
     }
 
-    fn write_double(&mut self, value: &str, allow_breaks: bool) {
-        let mut spaces = false;
+    fn write_double(&mut self, value: &str) {
         self.write_indicator("\"", true, false, false);
         let bom = value.starts_with('\u{FEFF}');
-        let chars: Vec<char> = value.chars().collect();
-        for (i, &c) in chars.iter().enumerate() {
+        for c in value.chars() {
             if !is_printable(c) || bom || is_break_char(c) || c == '"' || c == '\\' {
                 self.put('\\');
                 let v = c as u32;
@@ -1429,20 +1465,8 @@ impl Emitter {
                         }
                     }
                 }
-                spaces = false;
-            } else if c == ' ' {
-                if allow_breaks && !spaces && self.column > BEST_WIDTH && i > 0 && i + 1 < chars.len() {
-                    self.write_indent();
-                    if chars.get(i + 1) == Some(&' ') {
-                        self.put('\\');
-                    }
-                } else {
-                    self.put(c);
-                }
-                spaces = true;
             } else {
                 self.put(c);
-                spaces = false;
             }
         }
         self.write_indicator("\"", false, false, false);
@@ -1504,7 +1528,8 @@ fn scalar_text(v: &Value) -> (String, Style) {
         }
         Value::Time(t) => (t.rfc3339_nano(), Style::Plain),
         Value::Str(s) => {
-            let can_plain = matches!(resolve("", s), Ok((tag, _)) if tag == STR) && !(is_base60_float(s) || is_old_bool(s));
+            let can_plain = matches!(resolve("", s), Ok((tag, _)) if tag == STR)
+                && !(is_base60_float(s) || is_old_bool(s));
             let style = if s.contains('\n') {
                 Style::Literal
             } else if can_plain {
