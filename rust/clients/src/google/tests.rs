@@ -374,3 +374,130 @@ fn impersonated_account_from_url() {
         "sa@p.iam.gserviceaccount.com"
     );
 }
+
+/// An unsigned JWT whose payload carries only `exp`.
+fn jwt_with_exp(exp: u64) -> String {
+    let payload = URL_SAFE_NO_PAD.encode(serde_json::json!({ "exp": exp }).to_string());
+    format!("e30.{payload}.sig")
+}
+
+#[test]
+fn jwt_expiry_reads_exp() {
+    let now = now_secs();
+    let soon = jwt_expiry(&jwt_with_exp(now + 600)).unwrap();
+    let left = soon.saturating_duration_since(Instant::now());
+    assert!(left > Duration::from_secs(590) && left <= Duration::from_secs(600));
+    let past = jwt_expiry(&jwt_with_exp(now - 60)).unwrap();
+    assert!(past <= Instant::now());
+    assert!(jwt_expiry("not-a-jwt").is_none());
+}
+
+/// A service-account key and a token endpoint that answers every ID-token request with
+/// a token expiring `ttl` seconds from now; `want` is how many requests it must see.
+async fn sa_id_token_fetches(ttl: u64, calls: usize, want: u64) {
+    let srv = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/token"))
+        .respond_with(move |_: &wiremock::Request| {
+            ResponseTemplate::new(200)
+                .set_body_json(serde_json::json!({ "id_token": jwt_with_exp(now_secs() + ttl) }))
+        })
+        .expect(want)
+        .mount(&srv)
+        .await;
+    let dir = tempfile::tempdir().unwrap();
+    let creds = serde_json::json!({
+        "type": "service_account",
+        "client_email": "planner@example-project.iam.gserviceaccount.com",
+        "private_key": rsa_pem(),
+        "token_uri": format!("{}/token", srv.uri()),
+    });
+    let mut ep = endpoints(&srv.uri(), not_gce);
+    ep.credentials_file = write_creds(&dir, &creds);
+    blocking(move || {
+        let src = id_token_source_with("https://srv.example", ep).unwrap();
+        for _ in 0..calls {
+            src().unwrap();
+        }
+    })
+    .await;
+    srv.verify().await;
+}
+
+// Go (cloud.google.com/go/auth) takes a service account ID token's expiry from its `exp`
+// claim and refreshes it 225 s early. A token with an hour left is reused...
+#[tokio::test(flavor = "multi_thread")]
+async fn service_account_id_token_is_reused_until_exp() {
+    sa_id_token_fetches(3600, 3, 1).await;
+}
+
+// ...and one inside the 225 s window is fetched again on every call, never kept forever.
+#[tokio::test(flavor = "multi_thread")]
+async fn service_account_id_token_refreshes_after_exp() {
+    sa_id_token_fetches(100, 3, 4).await;
+}
+
+// Go's metadata client has no proxy. The parent runs `metadata_ignores_proxy_child` in a
+// fresh copy of this test binary with HTTP_PROXY pointing at a closed port; the metadata
+// call must still reach the fake server.
+#[tokio::test(flavor = "multi_thread")]
+async fn metadata_calls_ignore_proxy_env() {
+    let srv = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path(
+            "/computeMetadata/v1/instance/service-accounts/default/email",
+        ))
+        .and(header("Metadata-Flavor", "Google"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_string("sa@example.iam.gserviceaccount.com"),
+        )
+        .expect(1)
+        .mount(&srv)
+        .await;
+    let exe = std::env::current_exe().unwrap();
+    let host = srv.uri().trim_start_matches("http://").to_string();
+    let out = blocking(move || {
+        std::process::Command::new(exe)
+            .args([
+                "--exact",
+                "google::tests::metadata_ignores_proxy_child",
+                "--ignored",
+                "--nocapture",
+            ])
+            .env("TFSP_TEST_METADATA_HOST", host)
+            .env("HTTP_PROXY", "http://127.0.0.1:9")
+            .env("http_proxy", "http://127.0.0.1:9")
+            .env("ALL_PROXY", "http://127.0.0.1:9")
+            .env_remove("NO_PROXY")
+            .env_remove("no_proxy")
+            .output()
+            .unwrap()
+    })
+    .await;
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        out.status.success(),
+        "child failed:\n{stdout}\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(stdout.contains("1 passed"), "child did not run:\n{stdout}");
+    srv.verify().await;
+}
+
+#[test]
+#[ignore = "run by metadata_calls_ignore_proxy_env with a proxy set"]
+fn metadata_ignores_proxy_child() {
+    let host = std::env::var("TFSP_TEST_METADATA_HOST").unwrap();
+    let ep = Endpoints {
+        metadata_host: host,
+        ..endpoints("http://127.0.0.1:9", gce)
+    };
+    let email = metadata_get(&ep, "instance/service-accounts/default/email").unwrap();
+    assert_eq!(email, "sa@example.iam.gserviceaccount.com");
+}
+
+#[test]
+fn token_errors_quote_like_go() {
+    let err = parse_file(br#"{"type":"weird\u0007"}"#).unwrap_err();
+    assert_eq!(err, "unknown credential type: \"weird\\a\"");
+}
