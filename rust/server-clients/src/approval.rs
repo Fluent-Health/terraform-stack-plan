@@ -10,6 +10,8 @@ pub use tfstackplan_gate::approval::{Grant, GrantState, Request, SlotCollisionEr
 
 use crate::Result;
 
+pub mod gcppam;
+
 /// An approval provider.
 #[async_trait]
 pub trait Backend: Send + Sync {
@@ -128,3 +130,6 @@ impl Backend for Fake {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests;

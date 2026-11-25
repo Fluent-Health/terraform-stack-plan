@@ -4,6 +4,9 @@ use async_trait::async_trait;
 
 use crate::Result;
 
+pub mod cloudbuild;
+pub use cloudbuild::CloudBuild;
+
 /// One CI run to start.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RunRequest {

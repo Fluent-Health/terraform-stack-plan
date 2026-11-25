@@ -11,9 +11,9 @@
 //! | `internal/server/githubreal.go`, `githubauth.go` | [`github::app`] |
 //! | `internal/gauth`, `internal/gauth/gauthtest` | [`gauth`] |
 //! | `cmd/tfstackplan/gcpcreds.go` | [`gcpcreds`] |
-//! | `internal/executor/cloudbuild.go` | `executor::cloudbuild` |
-//! | `cmd/tfstackplan/gcsobjects.go` | `objects::Gcs` |
-//! | `internal/approval/gcppam` | `approval::gcppam` |
+//! | `internal/executor/cloudbuild.go` | [`executor::cloudbuild`] |
+//! | `cmd/tfstackplan/gcsobjects.go` | [`objects::Gcs`] |
+//! | `internal/approval/gcppam` | [`approval::gcppam`] |
 #![forbid(unsafe_code)]
 
 use std::future::Future;
