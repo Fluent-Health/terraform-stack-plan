@@ -89,7 +89,14 @@ fn to_ascii_perl_classes(pattern: &str) -> String {
 
 fn go_error(pattern: &str, e: &regex_syntax::ast::Error) -> String {
     let span = e.span();
-    let text = pattern.get(span.start.offset..span.end.offset).unwrap_or("");
+    let mut text = pattern
+        .get(span.start.offset..span.end.offset)
+        .unwrap_or("");
+    if text.is_empty() {
+        // An empty span points at one character (a repetition operator, for one).
+        let at = pattern.get(span.start.offset..).unwrap_or("");
+        text = at.char_indices().nth(1).map_or(at, |(i, _)| &at[..i]);
+    }
     let rest = pattern.get(span.start.offset..).unwrap_or("");
     let (code, expr) = match e.kind() {
         ErrorKind::ClassUnclosed => ("missing closing ]", rest),
@@ -97,16 +104,16 @@ fn go_error(pattern: &str, e: &regex_syntax::ast::Error) -> String {
         ErrorKind::GroupUnopened => ("unexpected )", pattern),
         ErrorKind::RepetitionMissing => ("missing argument to repetition operator", text),
         ErrorKind::EscapeUnexpectedEof => ("trailing backslash at end of expression", ""),
-        ErrorKind::EscapeUnrecognized | ErrorKind::EscapeHexInvalid | ErrorKind::EscapeHexInvalidDigit => {
-            ("invalid escape sequence", text)
-        }
+        ErrorKind::EscapeUnrecognized
+        | ErrorKind::EscapeHexInvalid
+        | ErrorKind::EscapeHexInvalidDigit => ("invalid escape sequence", text),
         ErrorKind::ClassRangeInvalid => ("invalid character class range", text),
         ErrorKind::RepetitionCountInvalid
         | ErrorKind::RepetitionCountDecimalEmpty
         | ErrorKind::RepetitionCountUnclosed => ("invalid repeat count", text),
-        ErrorKind::GroupNameInvalid | ErrorKind::GroupNameEmpty | ErrorKind::GroupNameDuplicate { .. } => {
-            ("invalid named capture", text)
-        }
+        ErrorKind::GroupNameInvalid
+        | ErrorKind::GroupNameEmpty
+        | ErrorKind::GroupNameDuplicate { .. } => ("invalid named capture", text),
         _ => return format!("error parsing regexp: {}: `{pattern}`", e.kind()),
     };
     format!("error parsing regexp: {code}: `{expr}`")
@@ -138,7 +145,10 @@ impl GoRegex {
         let caps = self.0.captures(s)?;
         Some(
             (0..caps.len())
-                .map(|i| caps.get(i).map_or(String::new(), |m| m.as_str().to_string()))
+                .map(|i| {
+                    caps.get(i)
+                        .map_or(String::new(), |m| m.as_str().to_string())
+                })
                 .collect(),
         )
     }

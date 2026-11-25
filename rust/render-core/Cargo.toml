@@ -16,3 +16,6 @@ yaml-rust2 = { version = "=0.10.4", default-features = false }
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+proptest = { version = "=1.12.0", default-features = false, features = ["std"] }
