@@ -1,0 +1,6 @@
+bin.name = "tfstackplan"
+args = ["render"]
+fs.cwd = "../.."
+
+[status]
+code = 1

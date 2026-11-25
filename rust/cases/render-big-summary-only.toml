@@ -1,0 +1,6 @@
+bin.name = "tfstackplan"
+args = ["render", "--plans-dir", "rust/cases/fixtures/big", "--config", "internal/config/testdata/full.hcl", "--max-bytes", "2500"]
+fs.cwd = "../.."
+
+[status]
+code = 0

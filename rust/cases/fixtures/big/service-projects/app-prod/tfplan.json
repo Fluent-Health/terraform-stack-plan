@@ -1,0 +1,147 @@
+{
+ "format_version": "1.2",
+ "resource_changes": [
+  {
+   "address": "google_project_iam_member.deployers",
+   "change": {
+    "actions": [
+     "update"
+    ],
+    "after": {
+     "role": "roles/editor"
+    },
+    "after_sensitive": {},
+    "after_unknown": {},
+    "before": {
+     "role": "roles/viewer"
+    },
+    "before_sensitive": {}
+   },
+   "name": "deployers",
+   "type": "google_project_iam_member"
+  },
+  {
+   "address": "kubernetes_config_map.app_config",
+   "change": {
+    "actions": [
+     "update"
+    ],
+    "after": {
+     "data": "statement_0000 allow action new\nstatement_0001 allow action new\nstatement_0002 allow action new\nstatement_0003 allow action new\nstatement_0004 allow action new\nstatement_0005 allow action new\nstatement_0006 allow action new\nstatement_0007 allow action new\nstatement_0008 allow action new\nstatement_0009 allow action new\nstatement_0010 allow action new\nstatement_0011 allow action new\nstatement_0012 allow action new\nstatement_0013 allow action new\nstatement_0014 allow action new\nstatement_0015 allow action new\nstatement_0016 allow action new\nstatement_0017 allow action new\nstatement_0018 allow action new\nstatement_0019 allow action new\nstatement_0020 allow action new\nstatement_0021 allow action new\nstatement_0022 allow action new\nstatement_0023 allow action new\nstatement_0024 allow action new\nstatement_0025 allow action new\nstatement_0026 allow action new\nstatement_0027 allow action new\nstatement_0028 allow action new\nstatement_0029 allow action new\nstatement_0030 allow action new\nstatement_0031 allow action new\nstatement_0032 allow action new\nstatement_0033 allow action new\nstatement_0034 allow action new\nstatement_0035 allow action new\nstatement_0036 allow action new\nstatement_0037 allow action new\nstatement_0038 allow action new\nstatement_0039 allow action new\nstatement_0040 allow action new\nstatement_0041 allow action new\nstatement_0042 allow action new\nstatement_0043 allow action new\nstatement_0044 allow action new\nstatement_0045 allow action new\nstatement_0046 allow action new\nstatement_0047 allow action new\nstatement_0048 allow action new\nstatement_0049 allow action new\nstatement_0050 allow action new\nstatement_0051 allow action new\nstatement_0052 allow action new\nstatement_0053 allow action new\nstatement_0054 allow action new\nstatement_0055 allow action new\nstatement_0056 allow action new\nstatement_0057 allow action new\nstatement_0058 allow action new\nstatement_0059 allow action new\nstatement_0060 allow action new\nstatement_0061 allow action new\nstatement_0062 allow action new\nstatement_0063 allow action new\nstatement_0064 allow action new\nstatement_0065 allow action new\nstatement_0066 allow action new\nstatement_0067 allow action new\nstatement_0068 allow action new\nstatement_0069 allow action new\nstatement_0070 allow action new\nstatement_0071 allow action new\nstatement_0072 allow action new\nstatement_0073 allow action new\nstatement_0074 allow action new\nstatement_0075 allow action new\nstatement_0076 allow action new\nstatement_0077 allow action new\nstatement_0078 allow action new\nstatement_0079 allow action new\nstatement_0080 allow action new\nstatement_0081 allow action new\nstatement_0082 allow action new\nstatement_0083 allow action new\nstatement_0084 allow action new\nstatement_0085 allow action new\nstatement_0086 allow action new\nstatement_0087 allow action new\nstatement_0088 allow action new\nstatement_0089 allow action new\n"
+    },
+    "after_sensitive": {},
+    "after_unknown": {},
+    "before": {
+     "data": "statement_0000 allow action old\nstatement_0001 allow action old\nstatement_0002 allow action old\nstatement_0003 allow action old\nstatement_0004 allow action old\nstatement_0005 allow action old\nstatement_0006 allow action old\nstatement_0007 allow action old\nstatement_0008 allow action old\nstatement_0009 allow action old\nstatement_0010 allow action old\nstatement_0011 allow action old\nstatement_0012 allow action old\nstatement_0013 allow action old\nstatement_0014 allow action old\nstatement_0015 allow action old\nstatement_0016 allow action old\nstatement_0017 allow action old\nstatement_0018 allow action old\nstatement_0019 allow action old\nstatement_0020 allow action old\nstatement_0021 allow action old\nstatement_0022 allow action old\nstatement_0023 allow action old\nstatement_0024 allow action old\nstatement_0025 allow action old\nstatement_0026 allow action old\nstatement_0027 allow action old\nstatement_0028 allow action old\nstatement_0029 allow action old\nstatement_0030 allow action old\nstatement_0031 allow action old\nstatement_0032 allow action old\nstatement_0033 allow action old\nstatement_0034 allow action old\nstatement_0035 allow action old\nstatement_0036 allow action old\nstatement_0037 allow action old\nstatement_0038 allow action old\nstatement_0039 allow action old\nstatement_0040 allow action old\nstatement_0041 allow action old\nstatement_0042 allow action old\nstatement_0043 allow action old\nstatement_0044 allow action old\nstatement_0045 allow action old\nstatement_0046 allow action old\nstatement_0047 allow action old\nstatement_0048 allow action old\nstatement_0049 allow action old\nstatement_0050 allow action old\nstatement_0051 allow action old\nstatement_0052 allow action old\nstatement_0053 allow action old\nstatement_0054 allow action old\nstatement_0055 allow action old\nstatement_0056 allow action old\nstatement_0057 allow action old\nstatement_0058 allow action old\nstatement_0059 allow action old\nstatement_0060 allow action old\nstatement_0061 allow action old\nstatement_0062 allow action old\nstatement_0063 allow action old\nstatement_0064 allow action old\nstatement_0065 allow action old\nstatement_0066 allow action old\nstatement_0067 allow action old\nstatement_0068 allow action old\nstatement_0069 allow action old\nstatement_0070 allow action old\nstatement_0071 allow action old\nstatement_0072 allow action old\nstatement_0073 allow action old\nstatement_0074 allow action old\nstatement_0075 allow action old\nstatement_0076 allow action old\nstatement_0077 allow action old\nstatement_0078 allow action old\nstatement_0079 allow action old\nstatement_0080 allow action old\nstatement_0081 allow action old\nstatement_0082 allow action old\nstatement_0083 allow action old\nstatement_0084 allow action old\nstatement_0085 allow action old\nstatement_0086 allow action old\nstatement_0087 allow action old\nstatement_0088 allow action old\nstatement_0089 allow action old\n"
+    },
+    "before_sensitive": {}
+   },
+   "name": "app_config",
+   "type": "kubernetes_config_map"
+  },
+  {
+   "address": "google_storage_bucket.prod_state",
+   "change": {
+    "actions": [
+     "update"
+    ],
+    "after": {
+     "labels": {
+      "env": "nonprod",
+      "team": "platform"
+     },
+     "retention_days": 42
+    },
+    "after_sensitive": {},
+    "after_unknown": {},
+    "before": {
+     "labels": {
+      "env": "nonprod"
+     },
+     "retention_days": 19
+    },
+    "before_sensitive": {}
+   },
+   "name": "prod_state",
+   "type": "google_storage_bucket"
+  },
+  {
+   "address": "google_storage_bucket.prod_assets",
+   "change": {
+    "actions": [
+     "update"
+    ],
+    "after": {
+     "labels": {
+      "env": "nonprod",
+      "team": "platform"
+     },
+     "retention_days": 43
+    },
+    "after_sensitive": {},
+    "after_unknown": {},
+    "before": {
+     "labels": {
+      "env": "nonprod"
+     },
+     "retention_days": 20
+    },
+    "before_sensitive": {}
+   },
+   "name": "prod_assets",
+   "type": "google_storage_bucket"
+  },
+  {
+   "address": "google_storage_bucket.prod_logs",
+   "change": {
+    "actions": [
+     "update"
+    ],
+    "after": {
+     "labels": {
+      "env": "nonprod",
+      "team": "platform"
+     },
+     "retention_days": 44
+    },
+    "after_sensitive": {},
+    "after_unknown": {},
+    "before": {
+     "labels": {
+      "env": "nonprod"
+     },
+     "retention_days": 21
+    },
+    "before_sensitive": {}
+   },
+   "name": "prod_logs",
+   "type": "google_storage_bucket"
+  },
+  {
+   "address": "google_storage_bucket.prod_backups",
+   "change": {
+    "actions": [
+     "update"
+    ],
+    "after": {
+     "labels": {
+      "env": "nonprod",
+      "team": "platform"
+     },
+     "retention_days": 45
+    },
+    "after_sensitive": {},
+    "after_unknown": {},
+    "before": {
+     "labels": {
+      "env": "nonprod"
+     },
+     "retention_days": 22
+    },
+    "before_sensitive": {}
+   },
+   "name": "prod_backups",
+   "type": "google_storage_bucket"
+  }
+ ]
+}

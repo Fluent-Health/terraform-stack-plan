@@ -1,0 +1,6 @@
+bin.name = "tfstackplan"
+args = ["render", "--plans-dir", "rust/cases/fixtures/small", "--details", "sideways"]
+fs.cwd = "../.."
+
+[status]
+code = 1

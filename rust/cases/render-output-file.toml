@@ -1,0 +1,7 @@
+bin.name = "tfstackplan"
+args = ["render", "--plans-dir", "small", "--config", "policy.hcl", "--output", "report.md", "--max-bytes", "3000"]
+fs.base = "fixtures"
+fs.sandbox = true
+
+[status]
+code = 0

@@ -1,0 +1,6 @@
+bin.name = "tfstackplan"
+args = ["render", "--plans-dir", "rust/cases/fixtures/small", "--config", "internal/config/testdata/links.hcl", "--link-var", "sha=0123456789abcdef", "--link-var", "pr=42", "--link-var", "build_id=7", "--details", "open"]
+fs.cwd = "../.."
+
+[status]
+code = 0

@@ -1,0 +1,147 @@
+{
+ "format_version": "1.2",
+ "resource_changes": [
+  {
+   "address": "google_storage_bucket.assets",
+   "change": {
+    "actions": [
+     "no-op"
+    ],
+    "after": {
+     "id": "google_storage_bucket.assets"
+    },
+    "after_sensitive": {},
+    "after_unknown": {},
+    "before": {
+     "id": "google_storage_bucket.assets"
+    },
+    "before_sensitive": {}
+   },
+   "name": "assets",
+   "previous_address": "google_storage_bucket.legacy_assets",
+   "type": "google_storage_bucket"
+  },
+  {
+   "address": "google_storage_bucket.state",
+   "change": {
+    "actions": [
+     "update"
+    ],
+    "after": {
+     "retention_days": 30
+    },
+    "after_sensitive": {},
+    "after_unknown": {},
+    "before": {
+     "retention_days": 7
+    },
+    "before_sensitive": {}
+   },
+   "name": "state",
+   "previous_address": "module.old.google_storage_bucket.state",
+   "type": "google_storage_bucket"
+  },
+  {
+   "address": "google_project_iam_member.viewers",
+   "change": {
+    "actions": [
+     "no-op"
+    ],
+    "after": {
+     "id": "google_project_iam_member.viewers"
+    },
+    "after_sensitive": {},
+    "after_unknown": {},
+    "before": {
+     "id": "google_project_iam_member.viewers"
+    },
+    "before_sensitive": {}
+   },
+   "name": "viewers",
+   "previous_address": "google_project_iam_member.legacy_viewers",
+   "type": "google_project_iam_member"
+  },
+  {
+   "address": "google_project.host",
+   "change": {
+    "actions": [
+     "no-op"
+    ],
+    "after": {
+     "id": "google_project.host"
+    },
+    "after_sensitive": {},
+    "after_unknown": {},
+    "before": {
+     "id": "google_project.host"
+    },
+    "before_sensitive": {},
+    "importing": {
+     "id": "my-host-project"
+    }
+   },
+   "name": "host",
+   "type": "google_project"
+  },
+  {
+   "address": "aws_s3_bucket.legacy",
+   "change": {
+    "actions": [
+     "forget"
+    ],
+    "after": null,
+    "after_sensitive": {},
+    "after_unknown": {},
+    "before": {
+     "name": "legacy",
+     "region": "us-east-1"
+    },
+    "before_sensitive": {}
+   },
+   "name": "legacy",
+   "type": "aws_s3_bucket"
+  },
+  {
+   "address": "google_compute_firewall.web",
+   "change": {
+    "actions": [
+     "update"
+    ],
+    "after": {
+     "allow": [
+      {
+       "ports": [
+        "443",
+        "8080"
+       ],
+       "protocol": "tcp"
+      }
+     ],
+     "source_ranges": [
+      "10.0.0.0/8",
+      "192.168.0.0/16"
+     ]
+    },
+    "after_sensitive": {},
+    "after_unknown": {},
+    "before": {
+     "allow": [
+      {
+       "ports": [
+        "80",
+        "8080"
+       ],
+       "protocol": "tcp"
+      }
+     ],
+     "source_ranges": [
+      "10.0.0.0/8"
+     ]
+    },
+    "before_sensitive": {}
+   },
+   "name": "web",
+   "type": "google_compute_firewall"
+  }
+ ]
+}

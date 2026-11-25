@@ -1,0 +1,95 @@
+{
+ "format_version": "1.2",
+ "resource_changes": [
+  {
+   "address": "google_project_iam_member.data_engineers",
+   "change": {
+    "actions": [
+     "update"
+    ],
+    "after": {
+     "role": "roles/editor"
+    },
+    "after_sensitive": {},
+    "after_unknown": {},
+    "before": {
+     "role": "roles/viewer"
+    },
+    "before_sensitive": {}
+   },
+   "name": "data_engineers",
+   "type": "google_project_iam_member"
+  },
+  {
+   "address": "google_project_iam_member.viewers",
+   "change": {
+    "actions": [
+     "update"
+    ],
+    "after": {
+     "role": "roles/editor"
+    },
+    "after_sensitive": {},
+    "after_unknown": {},
+    "before": {
+     "role": "roles/viewer"
+    },
+    "before_sensitive": {}
+   },
+   "name": "viewers",
+   "type": "google_project_iam_member"
+  },
+  {
+   "address": "google_storage_bucket.tfstate",
+   "change": {
+    "actions": [
+     "update"
+    ],
+    "after": {
+     "labels": {
+      "env": "nonprod",
+      "team": "platform"
+     },
+     "retention_days": 30
+    },
+    "after_sensitive": {},
+    "after_unknown": {},
+    "before": {
+     "labels": {
+      "env": "nonprod"
+     },
+     "retention_days": 7
+    },
+    "before_sensitive": {}
+   },
+   "name": "tfstate",
+   "type": "google_storage_bucket"
+  },
+  {
+   "address": "google_storage_bucket.assets",
+   "change": {
+    "actions": [
+     "update"
+    ],
+    "after": {
+     "labels": {
+      "env": "nonprod",
+      "team": "platform"
+     },
+     "retention_days": 31
+    },
+    "after_sensitive": {},
+    "after_unknown": {},
+    "before": {
+     "labels": {
+      "env": "nonprod"
+     },
+     "retention_days": 8
+    },
+    "before_sensitive": {}
+   },
+   "name": "assets",
+   "type": "google_storage_bucket"
+  }
+ ]
+}

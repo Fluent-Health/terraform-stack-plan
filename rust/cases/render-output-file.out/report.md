@@ -1,0 +1,102 @@
+<!-- tfstackplan -->
+### Terraform plan  (5 stacks changed)
+
+| Stack | Add | Change | Destroy | Replace | Categories |
+| --- | ---: | ---: | ---: | ---: | --- |
+| create | 1 | 0 | 0 | 0 | ✅ safe |
+| forget · 1 forget | 0 | 1 | 0 | 0 | ✅ safe |
+| mixed | 1 | 0 | 1 | 1 | 💣 destructive |
+| sensitive | 0 | 1 | 0 | 0 | ✅ safe |
+| update | 0 | 1 | 0 | 0 | 🔐 iam |
+
+<details><summary>📁&nbsp;<b>create</b> · ✅ safe · 1 add</summary>
+
+>
+> <details open><summary>➕&nbsp;google_service_account.api<br>&nbsp;&nbsp;&nbsp;&nbsp;3 attrs</summary>
+>
+> ```diff
+> + account_id = "app-api"
+> + disabled   = false
+> ~ unique_id  = (known after apply)
+> ```
+>
+> </details>
+
+</details>
+
+<details><summary>📁&nbsp;<b>forget</b> · ✅ safe · 1 change, 1 forget</summary>
+
+>
+> <details open><summary>✏️&nbsp;a.update<br>&nbsp;&nbsp;&nbsp;&nbsp;1 changed</summary>
+>
+> ```diff
+> ~ name = "old" → "new"
+> ```
+>
+> </details>
+>
+> <details open><summary>⏏️&nbsp;a.forget<br>&nbsp;&nbsp;&nbsp;&nbsp;forgotten · 1 attrs</summary>
+>
+> ```diff
+> ⊘ name = "b"
+> ```
+>
+> </details>
+
+</details>
+
+<details><summary>📁&nbsp;<b>mixed</b> · 💣 destructive · 1 add, 1 destroy, 1 replace</summary>
+
+>
+> <details open><summary>➕&nbsp;a.create<br>&nbsp;&nbsp;&nbsp;&nbsp;1 attrs</summary>
+>
+> ```diff
+> + name = "b"
+> ```
+>
+> </details>
+>
+> <details open><summary>➖&nbsp;a.del<br>&nbsp;&nbsp;&nbsp;&nbsp;1 attrs</summary>
+>
+> ```diff
+> - name = "b"
+> ```
+>
+> </details>
+>
+> <details open><summary>🔁&nbsp;a.repl<br>&nbsp;&nbsp;&nbsp;&nbsp;replace</summary>
+>
+> ```diff
+> ~ name = "x" → "y"
+> ```
+>
+> </details>
+
+</details>
+
+<details><summary>📁&nbsp;<b>sensitive</b> · ✅ safe · 1 change</summary>
+
+>
+> <details open><summary>✏️&nbsp;x.y<br>&nbsp;&nbsp;&nbsp;&nbsp;2 changed</summary>
+>
+> ```diff
+> ~ computed_id = (known after apply)
+> ~ secret_data = (sensitive value)
+> ```
+>
+> </details>
+
+</details>
+
+<details><summary>📁&nbsp;<b>update</b> · 🔐 iam · 1 change</summary>
+
+>
+> <details open><summary>✏️&nbsp;google_project_iam_member.editor<br>&nbsp;&nbsp;&nbsp;&nbsp;1 changed</summary>
+>
+> ```diff
+> ~ role = "roles/viewer" → "roles/editor"
+> ```
+>
+> </details>
+
+</details>

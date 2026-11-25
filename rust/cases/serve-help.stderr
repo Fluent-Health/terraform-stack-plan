@@ -1,0 +1,7 @@
+Usage of serve:
+  -addr string
+    	listen address (default ":8080")
+  -config string
+    	HCL config file (default ".tfstackplan.hcl")
+  -demo
+    	boot in credential-free demo mode with seeded data

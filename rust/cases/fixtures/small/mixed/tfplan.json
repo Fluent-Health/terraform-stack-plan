@@ -1,0 +1,17 @@
+{
+  "format_version": "1.2",
+  "resource_changes": [
+    { "address": "a.create", "type": "google_storage_bucket", "name": "create",
+      "change": { "actions": ["create"], "before": null, "after": {"name": "b"},
+        "after_unknown": {}, "before_sensitive": {}, "after_sensitive": {} } },
+    { "address": "a.del", "type": "google_storage_bucket", "name": "del",
+      "change": { "actions": ["delete"], "before": {"name": "b"}, "after": null,
+        "after_unknown": {}, "before_sensitive": {}, "after_sensitive": {} } },
+    { "address": "a.repl", "type": "google_sql_database", "name": "repl",
+      "change": { "actions": ["delete","create"], "before": {"name": "x"}, "after": {"name": "y"},
+        "after_unknown": {}, "before_sensitive": {}, "after_sensitive": {} } },
+    { "address": "a.noop", "type": "google_storage_bucket", "name": "noop",
+      "change": { "actions": ["no-op"], "before": {"name": "b"}, "after": {"name": "b"},
+        "after_unknown": {}, "before_sensitive": {}, "after_sensitive": {} } }
+  ]
+}

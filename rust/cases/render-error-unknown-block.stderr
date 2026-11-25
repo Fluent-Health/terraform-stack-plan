@@ -1,0 +1,1 @@
+tfstackplan: internal/config/testdata/unknownblock.hcl: unknown top-level block "nonsense"

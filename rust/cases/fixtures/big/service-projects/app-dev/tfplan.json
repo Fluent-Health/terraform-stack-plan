@@ -1,0 +1,156 @@
+{
+ "format_version": "1.2",
+ "resource_changes": [
+  {
+   "address": "google_service_account.api",
+   "change": {
+    "actions": [
+     "create"
+    ],
+    "after": {
+     "disabled": false,
+     "location": "us-central1",
+     "name": "api"
+    },
+    "after_sensitive": {},
+    "after_unknown": {},
+    "before": null,
+    "before_sensitive": {}
+   },
+   "name": "api",
+   "type": "google_service_account"
+  },
+  {
+   "address": "google_pubsub_topic.events",
+   "change": {
+    "actions": [
+     "create"
+    ],
+    "after": {
+     "disabled": false,
+     "location": "us-central1",
+     "name": "events"
+    },
+    "after_sensitive": {},
+    "after_unknown": {},
+    "before": null,
+    "before_sensitive": {}
+   },
+   "name": "events",
+   "type": "google_pubsub_topic"
+  },
+  {
+   "address": "google_cloud_run_service.api",
+   "change": {
+    "actions": [
+     "create"
+    ],
+    "after": {
+     "disabled": false,
+     "location": "us-central1",
+     "name": "api"
+    },
+    "after_sensitive": {},
+    "after_unknown": {},
+    "before": null,
+    "before_sensitive": {}
+   },
+   "name": "api",
+   "type": "google_cloud_run_service"
+  },
+  {
+   "address": "google_cloud_run_service.worker",
+   "change": {
+    "actions": [
+     "create"
+    ],
+    "after": {
+     "disabled": false,
+     "location": "us-central1",
+     "name": "worker"
+    },
+    "after_sensitive": {},
+    "after_unknown": {},
+    "before": null,
+    "before_sensitive": {}
+   },
+   "name": "worker",
+   "type": "google_cloud_run_service"
+  },
+  {
+   "address": "google_storage_bucket.uploads",
+   "change": {
+    "actions": [
+     "update"
+    ],
+    "after": {
+     "labels": {
+      "env": "nonprod",
+      "team": "platform"
+     },
+     "retention_days": 32
+    },
+    "after_sensitive": {},
+    "after_unknown": {},
+    "before": {
+     "labels": {
+      "env": "nonprod"
+     },
+     "retention_days": 9
+    },
+    "before_sensitive": {}
+   },
+   "name": "uploads",
+   "type": "google_storage_bucket"
+  },
+  {
+   "address": "google_storage_bucket.exports",
+   "change": {
+    "actions": [
+     "update"
+    ],
+    "after": {
+     "labels": {
+      "env": "nonprod",
+      "team": "platform"
+     },
+     "retention_days": 33
+    },
+    "after_sensitive": {},
+    "after_unknown": {},
+    "before": {
+     "labels": {
+      "env": "nonprod"
+     },
+     "retention_days": 10
+    },
+    "before_sensitive": {}
+   },
+   "name": "exports",
+   "type": "google_storage_bucket"
+  },
+  {
+   "address": "google_secret_manager_secret_version.db_password",
+   "change": {
+    "actions": [
+     "update"
+    ],
+    "after": {
+     "secret_data": "new"
+    },
+    "after_sensitive": {
+     "secret_data": true
+    },
+    "after_unknown": {},
+    "before": {
+     "secret_data": "old"
+    },
+    "before_sensitive": {
+     "secret_data": true
+    }
+   },
+   "name": "db_password",
+   "type": "google_secret_manager_secret_version"
+  }
+ ]
+}

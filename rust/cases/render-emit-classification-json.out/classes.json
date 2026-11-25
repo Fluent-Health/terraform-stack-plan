@@ -1,0 +1,71 @@
+{
+  "stacks": {
+    "create": {
+      "categories": [],
+      "counts": {
+        "add": 1
+      }
+    },
+    "forget": {
+      "categories": [],
+      "counts": {
+        "change": 1,
+        "forget": 1
+      }
+    },
+    "mixed": {
+      "categories": [
+        {
+          "category": "destructive",
+          "icon": "💣",
+          "attributes": {
+            "name": [
+              "b",
+              "y"
+            ]
+          }
+        }
+      ],
+      "counts": {
+        "add": 1,
+        "destroy": 1,
+        "replace": 1
+      }
+    },
+    "sensitive": {
+      "categories": [],
+      "counts": {
+        "change": 1
+      }
+    },
+    "update": {
+      "categories": [
+        {
+          "category": "iam",
+          "icon": "🔐"
+        }
+      ],
+      "counts": {
+        "change": 1
+      }
+    }
+  },
+  "summary": {
+    "categories": [
+      {
+        "category": "iam",
+        "icon": "🔐"
+      },
+      {
+        "category": "destructive",
+        "icon": "💣",
+        "attributes": {
+          "name": [
+            "b",
+            "y"
+          ]
+        }
+      }
+    ]
+  }
+}

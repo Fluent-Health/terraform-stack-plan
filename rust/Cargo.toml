@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["tfstackplan"]
+members = ["tfstackplan", "recorder"]
 
 [workspace.package]
 edition = "2024"

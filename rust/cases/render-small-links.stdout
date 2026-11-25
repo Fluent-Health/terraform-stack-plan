@@ -1,0 +1,104 @@
+<!-- tfstackplan -->
+### Terraform plan  (5 stacks changed)
+
+[Build #7](https://cb/7) · [PR #42](https://gh/o/r/pull/42)
+
+| Stack | Add | Change | Destroy | Replace |
+| --- | ---: | ---: | ---: | ---: |
+| create | 1 | 0 | 0 | 0 |
+| forget · 1 forget | 0 | 1 | 0 | 0 |
+| mixed | 1 | 0 | 1 | 1 |
+| sensitive | 0 | 1 | 0 | 0 |
+| update | 0 | 1 | 0 | 0 |
+
+<details open><summary>📁&nbsp;<b><a href="https://gh/o/r/tree/0123456789abcdef/create">create</a></b> · 1 add</summary>
+
+>
+> <details open><summary>➕&nbsp;<a href="https://gh/o/r/tree/0123456789abcdef/create">google_service_account.api</a><br>&nbsp;&nbsp;&nbsp;&nbsp;3 attrs</summary>
+>
+> ```diff
+> + account_id = "app-api"
+> + disabled   = false
+> ~ unique_id  = (known after apply)
+> ```
+>
+> </details>
+
+</details>
+
+<details open><summary>📁&nbsp;<b><a href="https://gh/o/r/tree/0123456789abcdef/forget">forget</a></b> · 1 change, 1 forget</summary>
+
+>
+> <details open><summary>✏️&nbsp;<a href="https://gh/o/r/tree/0123456789abcdef/forget">a.update</a><br>&nbsp;&nbsp;&nbsp;&nbsp;1 changed</summary>
+>
+> ```diff
+> ~ name = "old" → "new"
+> ```
+>
+> </details>
+>
+> <details open><summary>⏏️&nbsp;<a href="https://gh/o/r/tree/0123456789abcdef/forget">a.forget</a><br>&nbsp;&nbsp;&nbsp;&nbsp;forgotten · 1 attrs</summary>
+>
+> ```diff
+> ⊘ name = "b"
+> ```
+>
+> </details>
+
+</details>
+
+<details open><summary>📁&nbsp;<b><a href="https://gh/o/r/tree/0123456789abcdef/mixed">mixed</a></b> · 1 add, 1 destroy, 1 replace</summary>
+
+>
+> <details open><summary>➕&nbsp;<a href="https://gh/o/r/tree/0123456789abcdef/mixed">a.create</a><br>&nbsp;&nbsp;&nbsp;&nbsp;1 attrs</summary>
+>
+> ```diff
+> + name = "b"
+> ```
+>
+> </details>
+>
+> <details open><summary>➖&nbsp;<a href="https://gh/o/r/tree/0123456789abcdef/mixed">a.del</a><br>&nbsp;&nbsp;&nbsp;&nbsp;1 attrs</summary>
+>
+> ```diff
+> - name = "b"
+> ```
+>
+> </details>
+>
+> <details open><summary>🔁&nbsp;<a href="https://gh/o/r/tree/0123456789abcdef/mixed">a.repl</a><br>&nbsp;&nbsp;&nbsp;&nbsp;replace</summary>
+>
+> ```diff
+> ~ name = "x" → "y"
+> ```
+>
+> </details>
+
+</details>
+
+<details open><summary>📁&nbsp;<b><a href="https://gh/o/r/tree/0123456789abcdef/sensitive">sensitive</a></b> · 1 change</summary>
+
+>
+> <details open><summary>✏️&nbsp;<a href="https://gh/o/r/tree/0123456789abcdef/sensitive">x.y</a><br>&nbsp;&nbsp;&nbsp;&nbsp;2 changed</summary>
+>
+> ```diff
+> ~ computed_id = (known after apply)
+> ~ secret_data = (sensitive value)
+> ```
+>
+> </details>
+
+</details>
+
+<details open><summary>📁&nbsp;<b><a href="https://gh/o/r/tree/0123456789abcdef/update">update</a></b> · 1 change</summary>
+
+>
+> <details open><summary>✏️&nbsp;<a href="https://gh/o/r/tree/0123456789abcdef/update">google_project_iam_member.editor</a><br>&nbsp;&nbsp;&nbsp;&nbsp;1 changed</summary>
+>
+> ```diff
+> ~ role = "roles/viewer" → "roles/editor"
+> ```
+>
+> </details>
+
+</details>
