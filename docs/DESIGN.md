@@ -758,7 +758,12 @@ entrypoint is the same binary's `serve`. Because the binary is fully static
 `go:embed`, `go build` alone always works and the image needs no runtime
 files. The release GitHub Action builds the SPA once and overwrites
 `internal/ui/dist/` before each `go build`, so CI stays node-free while the
-committed placeholder keeps the tree buildable. Deployment notes are in
+committed placeholder keeps the tree buildable. Every archive and image ships
+two binaries side by side: `tfstackplan` is the Rust front door (static musl on
+Linux, built with cargo-zigbuild) and `tfstackplan-go` is the Go binary it runs
+for subcommands not ported yet. The release workflow runs the linux/amd64
+archive and the release image with `-version` and checks the tag before it
+uploads anything. Deployment notes are in
 [`docs/reference/install-and-deploy.md`](reference/install-and-deploy.md);
 hardening is in [`SECURITY.md`](../SECURITY.md).
 

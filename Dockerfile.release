@@ -1,7 +1,9 @@
-# Release image: bakes the pre-compiled binary built natively in GHA.
+# Release image: bakes the pre-compiled binaries built natively in GHA.
 # Eliminates QEMU emulation overhead, reducing build time from ~8m to <1m.
+# tfstackplan is the static (musl) Rust front door; it runs tfstackplan-go, the
+# static Go binary next to it, for every subcommand not ported to Rust yet.
 FROM gcr.io/distroless/static-debian12:nonroot
 ARG TARGETARCH
-COPY bin/linux/${TARGETARCH}/tfstackplan /usr/local/bin/tfstackplan
+COPY bin/linux/${TARGETARCH}/tfstackplan bin/linux/${TARGETARCH}/tfstackplan-go /usr/local/bin/
 EXPOSE 8080
 ENTRYPOINT ["tfstackplan", "serve"]
