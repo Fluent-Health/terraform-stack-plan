@@ -6,8 +6,8 @@ use std::process::ExitCode;
 use std::sync::Arc;
 use std::time::Duration;
 
-use hyper::service::service_fn;
 use hyper::server::conn::http1;
+use hyper::service::service_fn;
 use hyper_util::rt::{TokioIo, TokioTimer};
 use hyper_util::server::graceful::GracefulShutdown;
 use tfstackplan_server_clients::gauth::{self, ClaimsVerifier};

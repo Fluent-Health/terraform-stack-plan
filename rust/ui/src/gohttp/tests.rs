@@ -80,7 +80,9 @@ fn quote_and_ints_like_go() {
     assert_eq!(parse_int(b"+7"), Ok(7));
     assert_eq!(
         parse_int(b""),
-        Err("strconv.ParseInt: parsing \"\": invalid syntax".into())
+        Err(
+            "error binding string parameter: strconv.ParseInt: parsing \"\": invalid syntax".into()
+        )
     );
 }
 

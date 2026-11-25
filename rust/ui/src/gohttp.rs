@@ -501,9 +501,15 @@ pub fn go_quote(b: &[u8]) -> String {
     out
 }
 
-/// Go's `strconv.ParseInt(s, 10, 64)` as the oapi-codegen binders report it.
+/// Go's `strconv.ParseInt(s, 10, 64)` as the oapi-codegen binders report it (their
+/// `BindStringToObject` wraps the strconv error).
 pub fn parse_int(b: &[u8]) -> Result<i64, String> {
-    let err = |why: &str| format!("strconv.ParseInt: parsing {}: {why}", go_quote(b));
+    let err = |why: &str| {
+        format!(
+            "error binding string parameter: strconv.ParseInt: parsing {}: {why}",
+            go_quote(b)
+        )
+    };
     let Ok(s) = std::str::from_utf8(b) else {
         return Err(err("invalid syntax"));
     };

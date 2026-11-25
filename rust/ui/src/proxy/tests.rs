@@ -142,7 +142,7 @@ async fn parameter_errors_match_the_generated_router() {
     let cases = [
         (
             "/api/tiers/t/pr/abc",
-            "Invalid format for parameter n: strconv.ParseInt: parsing \"abc\": invalid syntax\n",
+            "Invalid format for parameter n: error binding string parameter: strconv.ParseInt: parsing \"abc\": invalid syntax\n",
         ),
         (
             "/api/tiers/t/lifecycle",
@@ -154,7 +154,7 @@ async fn parameter_errors_match_the_generated_router() {
         ),
         (
             "/api/tiers/t/executions?limit=99999999999999999999",
-            "Invalid format for parameter limit: strconv.ParseInt: parsing \"99999999999999999999\": value out of range\n",
+            "Invalid format for parameter limit: error binding string parameter: strconv.ParseInt: parsing \"99999999999999999999\": value out of range\n",
         ),
         (
             "/api/tiers/%25zz/approvals",
