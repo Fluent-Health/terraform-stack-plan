@@ -348,7 +348,8 @@ pub(crate) async fn inspect_grants(
         .db(move |s| {
             s.read(|c| {
                 let mut stmt = c.prepare(&sql)?;
-                stmt.query_map([], grant_row)?.collect::<rusqlite::Result<Vec<_>>>()
+                stmt.query_map([], grant_row)?
+                    .collect::<rusqlite::Result<Vec<_>>>()
             })
         })
         .await
@@ -814,3 +815,6 @@ pub(crate) async fn inspect_pool(app: Arc<App>) -> Response {
         waiting,
     })
 }
+
+#[cfg(test)]
+mod tests;

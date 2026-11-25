@@ -47,7 +47,10 @@ async fn authorize(app: &App, headers: &HeaderMap) -> Result<(), Box<Response>> 
         )));
     }
     let Ok(email) = verify(tok.to_string()).await else {
-        return Err(Box::new(http::error(StatusCode::UNAUTHORIZED, "invalid OIDC token")));
+        return Err(Box::new(http::error(
+            StatusCode::UNAUTHORIZED,
+            "invalid OIDC token",
+        )));
     };
     if !app.cfg.push_service_account.is_empty() && email != app.cfg.push_service_account {
         return Err(Box::new(http::error(
@@ -208,3 +211,6 @@ impl App {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

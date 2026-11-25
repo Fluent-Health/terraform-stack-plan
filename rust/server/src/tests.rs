@@ -326,3 +326,272 @@ async fn api_wire_compat() {
         failures.join("\n\n")
     );
 }
+
+// --- hub_test.go ---
+
+mod hub {
+    use std::time::Duration;
+
+    use crate::Hub;
+
+    #[tokio::test]
+    async fn hub_publish_reaches_subscriber() {
+        let h = Hub::default();
+        let mut sub = h.subscribe("e1|a");
+        h.publish("e1|a", "hello");
+        let got = tokio::time::timeout(Duration::from_secs(1), sub.rx.recv())
+            .await
+            .expect("subscriber did not receive the chunk");
+        assert_eq!(got.as_deref(), Some("hello"));
+    }
+
+    #[tokio::test]
+    async fn hub_publish_to_other_key_not_received() {
+        let h = Hub::default();
+        let mut sub = h.subscribe("e1|a");
+        h.publish("e1|b", "nope");
+        let got = tokio::time::timeout(Duration::from_millis(50), sub.rx.recv()).await;
+        assert!(got.is_err(), "received cross-key chunk {got:?}");
+    }
+
+    /// Go reads the closed channel after `unsub`; in Rust the receiver goes with
+    /// the dropped subscription, so this checks the subscriber is gone and a
+    /// publish to its key is a no-op.
+    #[test]
+    fn hub_unsubscribe_stops_delivery() {
+        let h = Hub::default();
+        let sub = h.subscribe("e1|a");
+        drop(sub);
+        h.publish("e1|a", "after-unsub");
+        assert!(
+            !h.subs.lock().expect("lock").contains_key("e1|a"),
+            "subscriber still registered after unsubscribe"
+        );
+    }
+
+    #[test]
+    fn hub_publish_non_blocking_on_full_channel() {
+        let h = Hub::default();
+        let _sub = h.subscribe("e1|a"); // never drained
+        let start = std::time::Instant::now();
+        for _ in 0..100_000 {
+            h.publish("e1|a", "x");
+        }
+        assert!(
+            start.elapsed() < Duration::from_secs(2),
+            "publish blocked on a full subscriber channel"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn hub_concurrent() {
+        let h = std::sync::Arc::new(Hub::default());
+        let tasks: Vec<_> = (0..20)
+            .map(|_| {
+                let h = std::sync::Arc::clone(&h);
+                tokio::spawn(async move {
+                    let mut sub = h.subscribe("k");
+                    h.publish("k", "v");
+                    let _ = tokio::time::timeout(Duration::from_secs(1), sub.rx.recv()).await;
+                })
+            })
+            .collect();
+        for t in tasks {
+            t.await.expect("task");
+        }
+        assert!(h.subs.lock().expect("lock").is_empty());
+    }
+}
+
+// --- e2e_test.go ---
+
+mod e2e {
+    use std::sync::Arc;
+
+    use serde_json::json;
+    use tfstackplan_gate::reconcile::{RunRequested, RunStartResult};
+    use tfstackplan_server_clients::github::MockGitHub;
+
+    use crate::testutil::{
+        check_updates, cloud_build_push, created_check_runs, push_verifier_app, send, store,
+    };
+    use crate::{App, Config};
+
+    async fn post(app: &Arc<App>, path: &str, body: serde_json::Value) {
+        send(app, "POST", path, "", &body.to_string()).await;
+    }
+
+    #[tokio::test]
+    async fn e2e_plan_lifecycle() {
+        let (_d, s) = store();
+        let mut gh = MockGitHub::default();
+        gh.create_check_run_fn = Some(Box::new(|_| Ok(42)));
+        let gh = Arc::new(gh);
+        let a = Arc::new(App::new(
+            Arc::clone(&s),
+            gh.clone(),
+            Config {
+                public_base_url: "https://srv".into(),
+                ..Config::default()
+            },
+        ));
+        post(&a, "/api/phase", json!({"id":"e1","repo":"o/r","sha":"sha","pr":7,"environment":"staging","phase":"warming"})).await;
+        post(
+            &a,
+            "/api/init",
+            json!({"id":"e1","repo":"o/r","sha":"sha","pr":7,"environment":"staging",
+            "stacks":[{"path":"a"},{"path":"b"}],"edges":[{"from":"a","to":"b"}]}),
+        )
+        .await;
+        post(
+            &a,
+            "/api/update",
+            json!({"id":"e1","stack":"a","status":"running"}),
+        )
+        .await;
+        post(
+            &a,
+            "/api/update",
+            json!({"id":"e1","stack":"a","status":"planned"}),
+        )
+        .await;
+        post(
+            &a,
+            "/api/update",
+            json!({"id":"e1","stack":"b","status":"planned"}),
+        )
+        .await;
+        post(
+            &a,
+            "/api/finalize",
+            json!({"id":"e1","report_markdown":"# report"}),
+        )
+        .await;
+
+        let plan_checks = created_check_runs(&gh)
+            .iter()
+            .filter(|n| !n.starts_with("apply-lock"))
+            .count();
+        assert_eq!(plan_checks, 1, "plan check runs created");
+        let ups = check_updates(&gh);
+        let final_concl = ups
+            .iter()
+            .rfind(|u| !u.conclusion.is_empty())
+            .map(|u| u.conclusion.as_str());
+        assert_eq!(final_concl, Some("success"));
+        assert!(
+            ups.len() >= 2,
+            "expected several check-run patches, got {}",
+            ups.len()
+        );
+        let e = s.get_execution("e1").expect("get").expect("row");
+        assert!(e.report_markdown == "# report" && e.rev != 0, "{e:?}");
+    }
+
+    /// Steps 1 and 2 of both inbound-rebuild tests: a serve plan run for PR 44
+    /// fails to start, then a rebuild serve did not launch arrives without
+    /// `_PR_NUMBER`. Returns (old id, adopted id).
+    async fn stuck_then_adopted(a: &Arc<App>, sha: &str) -> (String, String) {
+        a.handle(
+            44,
+            "nonprod",
+            "o/r",
+            RunRequested {
+                kind: "plan".into(),
+                sha: sha.into(),
+                branch: "feat/x".into(),
+                ..RunRequested::default()
+            }
+            .into(),
+        )
+        .await
+        .expect("run requested");
+        let old_id = a
+            .store()
+            .latest_execution_id(44, "nonprod")
+            .expect("latest")
+            .expect("no queued execution");
+        a.handle(
+            44,
+            "nonprod",
+            "o/r",
+            RunStartResult {
+                kind: "plan".into(),
+                execution_id: old_id.clone(),
+                err: "build failed before the runner reported".into(),
+                ..RunStartResult::default()
+            }
+            .into(),
+        )
+        .await
+        .expect("start result");
+        let code = cloud_build_push(
+            a,
+            &json!({"id":"build-rerun-ok","status":"WORKING",
+                    "substitutions":{"TRIGGER_NAME":"nonprod-plan","COMMIT_SHA":sha}}),
+        )
+        .await;
+        assert_eq!(code, 204, "push");
+        let old = a
+            .store()
+            .get_execution(&old_id)
+            .expect("get")
+            .expect("old row");
+        assert!(
+            !old.superseded_by.is_empty(),
+            "stuck run not superseded: {old:?}"
+        );
+        (old_id, old.superseded_by)
+    }
+
+    #[tokio::test]
+    async fn inbound_rebuild_recovers_stuck_check() {
+        let (_d, a) = push_verifier_app("cb-push@sa", "", &[("nonprod-plan", "plan")]);
+        let sha = "feedfacefeed00";
+        let (_old_id, adopted_id) = stuck_then_adopted(&a, sha).await;
+        post(
+            &a,
+            "/api/init",
+            json!({"id":"runner-rerun","repo":"o/r","sha":sha,"pr":0,"environment":"nonprod"}),
+        )
+        .await;
+        let runner = a
+            .store()
+            .get_execution("runner-rerun")
+            .expect("get")
+            .expect("runner row");
+        assert_eq!(runner.pr, 44, "runner Init did not recover PR: {runner:?}");
+        let adopted = a
+            .store()
+            .get_execution(&adopted_id)
+            .expect("get")
+            .expect("adopted row");
+        assert_eq!(adopted.superseded_by, "runner-rerun", "{adopted:?}");
+    }
+
+    #[tokio::test]
+    async fn inbound_rebuild_recovers_stuck_check_reused_id() {
+        let (_d, a) = push_verifier_app("cb-push@sa", "", &[("nonprod-plan", "plan")]);
+        let sha = "feedfacefeed00";
+        let (old_id, adopted_id) = stuck_then_adopted(&a, sha).await;
+        post(
+            &a,
+            "/api/init",
+            json!({"id":old_id,"repo":"o/r","sha":sha,"pr":0,"environment":"nonprod"}),
+        )
+        .await;
+        let old = a
+            .store()
+            .get_execution(&old_id)
+            .expect("get")
+            .expect("old row");
+        let adopted = a
+            .store()
+            .get_execution(&adopted_id)
+            .expect("get")
+            .expect("adopted row");
+        assert_eq!(old.status, "in_progress");
+        assert_eq!(old.superseded_by, "");
+        assert_eq!(adopted.superseded_by, old_id);
+    }
+}

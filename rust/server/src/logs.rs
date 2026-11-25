@@ -9,7 +9,7 @@ use std::time::Duration;
 use axum::body::{Body, Bytes};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::Response;
-use tfstackplan_gate::events::LogChunk;
+use tfstackplan_gate::events::{LogChunk, StackState};
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 use tokio::sync::mpsc;
 use tracing::warn;
@@ -144,8 +144,14 @@ impl App {
         let Ok(g) = self.db(move |s| s.load_graph(&id)).await else {
             return;
         };
+        self.finalize_logs(exec_id, &g.stacks).await;
+    }
+
+    /// Go's `finalizeLogs`: offloads `stacks`' buffers and, when all succeeded,
+    /// deletes the execution's buffer directory.
+    pub(crate) async fn finalize_logs(&self, exec_id: &str, stacks: &[StackState]) {
         let mut ok = true;
-        for st in &g.stacks {
+        for st in stacks {
             if self.offload_log(exec_id, &st.path).await.is_err() {
                 ok = false;
             }
@@ -170,8 +176,10 @@ impl App {
         let Ok(mut entries) = tokio::fs::read_dir(&self.cfg.logs_dir).await else {
             return;
         };
-        let cutoff = std::time::SystemTime::now()
-            .checked_sub(max_age)
+        let since_epoch = Duration::try_from(self.now().as_duration()).unwrap_or_default();
+        let cutoff = std::time::UNIX_EPOCH
+            .checked_add(since_epoch)
+            .and_then(|now| now.checked_sub(max_age))
             .unwrap_or(std::time::UNIX_EPOCH);
         while let Ok(Some(e)) = entries.next_entry().await {
             let Ok(meta) = e.metadata().await else {

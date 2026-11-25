@@ -393,3 +393,6 @@ pub(crate) fn gate_reconcile(app: Arc<App>) -> Response {
     tokio::spawn(async move { app.reconcile_pending().await });
     http::status(StatusCode::ACCEPTED)
 }
+
+#[cfg(test)]
+mod tests;

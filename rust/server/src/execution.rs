@@ -226,3 +226,6 @@ pub(crate) async fn events(app: Arc<App>, id: String) -> Response {
         }
     })
 }
+
+#[cfg(test)]
+mod tests;

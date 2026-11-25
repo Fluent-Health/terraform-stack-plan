@@ -172,3 +172,6 @@ pub(crate) async fn checks_override(app: Arc<App>, actor: String, body: &[u8]) -
         .await;
     finish(&app, req.pr, &req.environment, res)
 }
+
+#[cfg(test)]
+mod tests;

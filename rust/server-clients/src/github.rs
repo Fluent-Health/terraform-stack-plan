@@ -35,6 +35,17 @@ fn suffixed(base: &str, environment: &str) -> String {
     }
 }
 
+/// The `X-Hub-Signature-256` value GitHub sends for `body` under `secret` (Go's test
+/// `signPayload`).
+#[cfg(any(test, feature = "test-support"))]
+pub fn sign_github_payload(secret: &[u8], body: &[u8]) -> String {
+    let key = aws_lc_rs::hmac::Key::new(aws_lc_rs::hmac::HMAC_SHA256, secret);
+    format!(
+        "sha256={}",
+        hex::encode(aws_lc_rs::hmac::sign(&key, body).as_ref())
+    )
+}
+
 /// Go's `verifyGitHubSig`: whether `header` (`X-Hub-Signature-256`) is `sha256=` and the
 /// hex HMAC-SHA256 of `body` under `secret`. The MAC comparison is constant time.
 pub fn verify_github_signature(secret: &[u8], header: &str, body: &[u8]) -> bool {
