@@ -6,9 +6,26 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 )
+
+// EnvGCSURL overrides the GCS JSON API base URL (e.g. a local fake server).
+const EnvGCSURL = "TFSTACKPLAN_GCS_URL"
+
+// GCSBaseURL is the GCS JSON API base every GCS client in the binary uses,
+// read once from $TFSTACKPLAN_GCS_URL (unset = the real endpoint).
+var GCSBaseURL = gcsBaseURL()
+
+// gcsBaseURL returns $TFSTACKPLAN_GCS_URL without a trailing slash, or
+// https://storage.googleapis.com when it is unset or empty.
+func gcsBaseURL() string {
+	if v := strings.TrimRight(os.Getenv(EnvGCSURL), "/"); v != "" {
+		return v
+	}
+	return "https://storage.googleapis.com"
+}
 
 type StorageBackend interface {
 	Exists(ctx context.Context, key string) (bool, error)
@@ -28,7 +45,7 @@ func NewGCSStorage(token func(context.Context) (string, error), bucket, prefix s
 	return &GCSStorage{
 		bucket:  bucket,
 		prefix:  prefix,
-		baseURL: "https://storage.googleapis.com",
+		baseURL: GCSBaseURL,
 		token:   token,
 		hc:      &http.Client{Timeout: 60 * time.Second},
 	}
