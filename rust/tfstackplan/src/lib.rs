@@ -14,8 +14,12 @@ use std::process::ExitCode;
 /// A ported subcommand: gets the arguments after the subcommand name.
 type Handler = fn(&[OsString]) -> ExitCode;
 
-/// Subcommands that have a Rust implementation. Empty until the first port.
-const PORTED: &[(&str, Handler)] = &[];
+mod goflag;
+mod gofs;
+mod render;
+
+/// Subcommands that have a Rust implementation.
+const PORTED: &[(&str, Handler)] = &[("render", render::run)];
 
 /// Runs the front door: dispatches to a ported subcommand or hands the call to
 /// the Go binary. The `tfstackplan` binary is only this call.
