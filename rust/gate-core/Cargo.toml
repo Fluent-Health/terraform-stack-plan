@@ -1,0 +1,20 @@
+[package]
+name = "tfstackplan-gate"
+version = "0.0.0"
+description = "The pure gate and execution core behind `tfstackplan serve`: decide, evolve, react."
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+name = "tfstackplan_gate"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+jiff.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

@@ -1,6 +1,17 @@
 [workspace]
 resolver = "3"
-members = ["tfstackplan", "recorder"]
+members = ["tfstackplan", "recorder", "gate-core", "store"]
+
+[workspace.dependencies]
+tfstackplan-gate = { path = "gate-core" }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = { version = "1.0.152", features = ["raw_value"] }
+jiff = { version = "1.0.3", features = ["serde"] }
+thiserror = "2.0.20"
+# SQLite compiled into the binary (`bundled`): no system libsqlite3 to match, and the same
+# SQLite on every machine. Pinned exactly: a rusqlite bump moves the bundled SQLite with it.
+rusqlite = { version = "=0.43.0", features = ["bundled"] }
+tempfile = "=3.27.0"
 
 [workspace.package]
 edition = "2024"
