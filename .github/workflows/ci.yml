@@ -83,3 +83,42 @@ jobs:
 
       - name: Build
         run: yarn build
+
+  rust:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: rust
+    env:
+      TFSTACKPLAN_GO_BIN: ${{ github.workspace }}/rust/.go/tfstackplan-go
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.25'
+
+      # rustup (preinstalled on the runner) installs the toolchain and
+      # components pinned in rust/rust-toolchain.toml on first use.
+      - name: Build the Go binary
+        working-directory: .
+        run: CGO_ENABLED=0 go build -o "$TFSTACKPLAN_GO_BIN" ./cmd/tfstackplan
+
+      - name: cargo fmt
+        run: cargo fmt --check
+
+      - name: cargo clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: cargo test
+        run: cargo test
+
+      - name: Recorded cases match the Go binary
+        run: |
+          cargo run -p recorder
+          # diff shows changed recordings; status also catches new untracked ones.
+          if ! git diff --exit-code -- cases || [ -n "$(git status --porcelain -- cases)" ]; then
+            git status --short -- cases
+            echo "rust/cases is stale: Go output changed. Re-record with: cargo run -p recorder (see rust/README.md)"
+            exit 1
+          fi
