@@ -214,9 +214,11 @@ impl FlagSet {
             }
             args = &args[1..];
             let mut value: Option<&str> = None;
-            if let Some(i) = name[1..].find('=') {
-                value = Some(&name[i + 2..]);
-                name = &name[..i + 1];
+            // Go looks for '=' from the second byte. '=' is ASCII, so the split is always on a
+            // character boundary, whatever the name starts with.
+            if let Some(i) = name.bytes().skip(1).position(|b| b == b'=').map(|p| p + 1) {
+                value = Some(&name[i + 1..]);
+                name = &name[..i];
             }
             let Some(flag) = self.flags.get(name) else {
                 if name == "help" || name == "h" {
@@ -318,54 +320,88 @@ fn parse_bool(s: &str) -> Option<bool> {
     }
 }
 
-/// `strconv.ParseInt(s, 0, 64)` with the flag package's error words.
-fn parse_int(s: &str) -> Result<i64, &'static str> {
-    const SYNTAX: &str = "parse error";
-    const RANGE: &str = "value out of range";
-    let (neg, body) = match s.as_bytes().first() {
-        Some(b'+') => (false, &s[1..]),
-        Some(b'-') => (true, &s[1..]),
-        _ => (false, s),
-    };
-    if body.is_empty() {
-        return Err(SYNTAX);
+/// Go's `underscoreOK`: underscores only between digits, where a base prefix counts as a
+/// digit (`0x_1F` is fine).
+fn underscore_ok(s: &str) -> bool {
+    let s = s.strip_prefix(['+', '-']).unwrap_or(s).as_bytes();
+    // b'^' start, b'0' a digit or base prefix, b'_' an underscore, b'!' anything else.
+    let mut saw = b'^';
+    let mut i = 0;
+    let mut hex = false;
+    if s.len() >= 2 && s[0] == b'0' && matches!(s[1].to_ascii_lowercase(), b'b' | b'o' | b'x') {
+        i = 2;
+        saw = b'0';
+        hex = s[1].eq_ignore_ascii_case(&b'x');
     }
-    let lower = body.to_ascii_lowercase();
-    let (base, digits, prefixed) = if let Some(d) = lower.strip_prefix("0x") {
-        (16, d.to_string(), true)
-    } else if let Some(d) = lower.strip_prefix("0o") {
-        (8, d.to_string(), true)
-    } else if let Some(d) = lower.strip_prefix("0b") {
-        (2, d.to_string(), true)
-    } else if lower.len() > 1 && lower.starts_with('0') {
-        (8, lower[1..].to_string(), true)
-    } else {
-        (10, lower.clone(), false)
-    };
-    // Underscores are allowed only with a base prefix, and only between digits.
-    if digits.contains('_')
-        && (!prefixed || digits.starts_with('_') || digits.ends_with('_') || digits.contains("__"))
-    {
-        return Err(SYNTAX);
-    }
-    let digits: String = digits.chars().filter(|c| *c != '_').collect();
-    if digits.is_empty() {
-        return Err(SYNTAX);
-    }
-    let mut acc: i128 = 0;
-    for c in digits.chars() {
-        let d = c.to_digit(base).ok_or(SYNTAX)?;
-        acc = acc * i128::from(base) + i128::from(d);
-        if acc > i128::from(i64::MAX) + 1 {
-            // Keep scanning for syntax errors, but the value is out of range already.
-            for c in digits.chars() {
-                c.to_digit(base).ok_or(SYNTAX)?;
+    for &c in &s[i..] {
+        if c.is_ascii_digit() || (hex && c.is_ascii_hexdigit()) {
+            saw = b'0';
+        } else if c == b'_' {
+            if saw != b'0' {
+                return false;
             }
-            return Err(RANGE);
+            saw = b'_';
+        } else {
+            if saw == b'_' {
+                return false;
+            }
+            saw = b'!';
         }
     }
-    let v = if neg { -acc } else { acc };
-    i64::try_from(v).or(Err(RANGE))
+    saw != b'_'
+}
+
+/// `strconv.ParseInt(s, 0, 64)` with the flag package's error words ("parse error",
+/// "value out of range"). Like Go, an overflow is reported as soon as it happens.
+fn parse_int(s0: &str) -> Result<i64, &'static str> {
+    const SYNTAX: &str = "parse error";
+    const RANGE: &str = "value out of range";
+    let (neg, s) = match s0.as_bytes().first() {
+        Some(b'+') => (false, &s0[1..]),
+        Some(b'-') => (true, &s0[1..]),
+        _ => (false, s0),
+    };
+    if s.is_empty() {
+        return Err(SYNTAX);
+    }
+    let b = s.as_bytes();
+    let (base, digits) = if b[0] == b'0' {
+        if b.len() >= 3 && b[1].eq_ignore_ascii_case(&b'b') {
+            (2, &s[2..])
+        } else if b.len() >= 3 && b[1].eq_ignore_ascii_case(&b'o') {
+            (8, &s[2..])
+        } else if b.len() >= 3 && b[1].eq_ignore_ascii_case(&b'x') {
+            (16, &s[2..])
+        } else {
+            (8, &s[1..])
+        }
+    } else {
+        (10, s)
+    };
+    let mut n: u64 = 0;
+    let mut underscores = false;
+    for c in digits.chars() {
+        if c == '_' {
+            underscores = true;
+            continue;
+        }
+        let d = c.to_digit(base).ok_or(SYNTAX)?;
+        n = n
+            .checked_mul(u64::from(base))
+            .and_then(|n| n.checked_add(u64::from(d)))
+            .ok_or(RANGE)?;
+    }
+    if underscores && !underscore_ok(s0) {
+        return Err(SYNTAX);
+    }
+    if neg {
+        if n > 1 << 63 {
+            return Err(RANGE);
+        }
+        Ok((n as i64).wrapping_neg())
+    } else {
+        i64::try_from(n).map_err(|_overflow| RANGE)
+    }
 }
 
 #[cfg(test)]
