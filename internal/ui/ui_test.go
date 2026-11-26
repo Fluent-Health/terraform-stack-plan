@@ -341,6 +341,23 @@ func TestTierProxy(t *testing.T) {
 	if rr := get(t, h, "/api/tiers/nonprod/executions/nope", sess); rr.Code != http.StatusNotFound {
 		t.Errorf("tier 404 should pass through: %d", rr.Code)
 	}
+	// Dot segments and path-changing characters in the execution id are
+	// refused before the tier is contacted.
+	gotAuth = ""
+	for _, p := range []string{
+		"/api/tiers/nonprod/executions/%2e%2e",
+		"/api/tiers/nonprod/executions/%2E",
+		"/api/tiers/nonprod/executions/e1%3Fx=1",
+		"/api/tiers/nonprod/executions/e1%23frag",
+		"/api/tiers/nonprod/executions/e1%5C..%5Capi",
+	} {
+		if rr := get(t, h, p, sess); rr.Code != http.StatusBadRequest {
+			t.Errorf("%s: want 400, got %d", p, rr.Code)
+		}
+	}
+	if gotAuth != "" {
+		t.Error("rejected execution ids reached the tier")
+	}
 
 	// The tiers listing reflects config order.
 	rr = get(t, h, "/api/tiers", sess)
@@ -483,6 +500,11 @@ func TestStreamProxies(t *testing.T) {
 		"/api/tiers/nonprod/logs/e1/stacks%5C..%5Capi",
 		"/api/tiers/nonprod/logs/e1/stacks%2F%2Fa",
 		"/api/tiers/nonprod/logs/e1/stacks%2F..%2F..%2Fapi",
+		"/api/tiers/nonprod/executions/%2e%2e/events",
+		"/api/tiers/nonprod/executions/%2E/events",
+		"/api/tiers/nonprod/executions/e1%3Fx=1/events",
+		"/api/tiers/nonprod/executions/e1%23frag/events",
+		"/api/tiers/nonprod/executions/e1%5C..%5Capi/events",
 	} {
 		if rr := get(t, h, p, sess); rr.Code != http.StatusBadRequest {
 			t.Errorf("%s: want 400, got %d", p, rr.Code)

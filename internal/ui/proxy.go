@@ -71,6 +71,12 @@ func (s uiServer) GetTierExecution(w http.ResponseWriter, r *http.Request, tier 
 		http.Error(w, "unknown tier", http.StatusNotFound)
 		return
 	}
+	// The generated client escapes id but leaves dot segments, which the
+	// URL join would resolve to another tier endpoint.
+	if !safePathSegment(id) {
+		http.Error(w, "invalid path", http.StatusBadRequest)
+		return
+	}
 	resp, err := c.GetExecution(r.Context(), id)
 	s.relay(w, string(tier), resp, err)
 }

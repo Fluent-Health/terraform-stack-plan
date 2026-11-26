@@ -30,7 +30,12 @@ var streamClient = &http.Client{}
 func (a *App) registerStreamRoutes(mux *http.ServeMux) {
 	mux.Handle("GET /api/tiers/{tier}/executions/{id}/events",
 		a.sessionAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			a.proxyStream(w, r, r.PathValue("tier"), "/api/execution/"+url.PathEscape(r.PathValue("id"))+"/events")
+			id := r.PathValue("id")
+			if !safePathSegment(id) {
+				http.Error(w, "invalid path", http.StatusBadRequest)
+				return
+			}
+			a.proxyStream(w, r, r.PathValue("tier"), "/api/execution/"+url.PathEscape(id)+"/events")
 		})))
 	mux.Handle("GET /api/tiers/{tier}/logs/{exec}/{stack...}",
 		a.sessionAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
