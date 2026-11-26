@@ -143,7 +143,16 @@ One crypto library does everything: aws-lc-rs signs the GitHub App JWT and the
 service-account JWT-bearer assertion, verifies Google ID tokens, and computes the webhook
 HMAC. The JWTs are built by hand, as Go builds them, so there is no JWT crate whose defaults
 could drift (algorithm lists, leeway, skipped claims). rustls is built with only its aws-lc-rs
-provider, and `http::install_crypto_provider` installs it; `ring` is never compiled.
+provider, and `http::install_crypto_provider` installs it. `ring` is never compiled: it is in
+`Cargo.lock` only as an optional dependency of rustls-webpki and quinn-proto that no enabled
+feature pulls in, and `deny.toml` bans it so that stays true.
+
+The GitHub client caches its installation token until five minutes before GitHub's expiry, and
+drops it on any 401 so a revoked or rotated token is replaced on the next call. Client error
+strings name the endpoint and status but leave the response body out, since errors are logged:
+GitHub errors keep only the JSON `message` (cut at 200 characters), token-endpoint errors only
+the RFC 6749 `error` code, GCS uploads only the status. A JWKS fetch that fails is logged as a
+warning (never the token), because every ID token is then rejected and callers only see 401s.
 
 ID-token verification copies Go's `idtoken.Validate` check by check: three segments,
 `now > exp` rejects with no clock-skew allowance, an RS256 signature against Google's JWKS, and

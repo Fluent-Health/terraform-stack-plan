@@ -172,7 +172,15 @@ impl ClaimsVerifier {
             })
     }
 
+    /// Fetches the JWKS. A failure is logged here (never the token): every ID token is
+    /// rejected while the keys cannot be fetched, which callers only see as a 401.
     async fn fetch_certs(&self) -> Result<CachedCerts> {
+        self.fetch_certs_once().await.inspect_err(|e| {
+            tracing::warn!("gauth: JWKS fetch failed, ID token verification fails: {e}");
+        })
+    }
+
+    async fn fetch_certs_once(&self) -> Result<CachedCerts> {
         let url = &self.inner.certs_url;
         let resp = self
             .inner

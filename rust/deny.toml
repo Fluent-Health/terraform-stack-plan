@@ -39,6 +39,9 @@ deny = [
   # TLS is rustls everywhere: distroless carries no libssl, and one TLS stack is enough.
   { crate = "openssl-sys", reason = "use rustls" },
   { crate = "native-tls", reason = "use rustls" },
+  # aws-lc-rs is the one crypto provider (DECISIONS.md); ring sits in Cargo.lock only as an
+  # optional dependency of rustls-webpki and quinn-proto that no enabled feature pulls in.
+  { crate = "ring", reason = "aws-lc-rs is the only crypto provider" },
 ]
 
 [sources]

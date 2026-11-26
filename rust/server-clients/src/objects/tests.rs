@@ -72,7 +72,7 @@ async fn gcs_put_error_text() {
     let s = Gcs::new(tok(), "b", "", &srv.url).unwrap();
     assert_eq!(
         s.put("k", b"x".to_vec()).await.unwrap_err().to_string(),
-        "gcs put k: 403: denied"
+        "gcs put k: 403"
     );
     let srv = serve(|_| Resp::status(500, "")).await.unwrap();
     let s = Gcs::new(tok(), "b", "", &srv.url).unwrap();

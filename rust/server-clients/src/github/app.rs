@@ -23,6 +23,26 @@ use crate::{Error, Result};
 /// Overrides the GitHub REST base, e.g. to point at a local fake.
 pub const ENV_GITHUB_API_URL: &str = "TFSTACKPLAN_GITHUB_API_URL";
 
+/// The longest part of GitHub's error `message` an error string carries.
+const MESSAGE_LIMIT: usize = 200;
+
+/// `": <message>"` from a GitHub error body, truncated, or "" when it has none. The rest
+/// of the body never reaches an error string (errors are logged).
+fn error_message(body: &[u8]) -> String {
+    #[derive(Deserialize)]
+    struct E {
+        #[serde(default)]
+        message: String,
+    }
+    match serde_json::from_slice::<E>(body) {
+        Ok(E { message }) if !message.is_empty() => {
+            let cut: String = message.chars().take(MESSAGE_LIMIT).collect();
+            format!(": {cut}")
+        }
+        _ => String::new(),
+    }
+}
+
 /// The public GitHub API.
 pub const DEFAULT_API_BASE: &str = "https://api.github.com";
 
@@ -135,9 +155,9 @@ impl RealClient {
         if !is_2xx(status) {
             http::log_non_2xx("github", &Method::POST, &url, status.as_u16());
             return Err(Error::msg(format!(
-                "github: installation token exchange {}: {}",
+                "github: installation token exchange {}{}",
                 status.as_u16(),
-                String::from_utf8_lossy(&body)
+                error_message(&body)
             )));
         }
         #[derive(Deserialize)]
@@ -182,12 +202,18 @@ impl RealClient {
         let body = resp.bytes().await.unwrap_or_default().to_vec();
         if !is_2xx(status) {
             http::log_non_2xx("github", &method, url, status.as_u16());
+            if status == reqwest::StatusCode::UNAUTHORIZED {
+                // A revoked or rotated installation token: mint a fresh one next call.
+                if let Ok(mut cached) = self.token.lock() {
+                    *cached = None;
+                }
+            }
             return Err(Error::msg(format!(
-                "github: {} {}: {}: {}",
+                "github: {} {}: {}{}",
                 method,
                 url,
                 status.as_u16(),
-                String::from_utf8_lossy(&body)
+                error_message(&body)
             )));
         }
         Ok(body)

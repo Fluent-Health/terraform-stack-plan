@@ -166,6 +166,40 @@ async fn installation_token_is_cached_until_near_expiry() {
     assert_eq!(mints, 1);
 }
 
+#[tokio::test]
+async fn installation_token_is_dropped_on_401() {
+    let exp = jiff::Timestamp::now() + jiff::SignedDuration::from_hours(1);
+    let (srv, seen) = fake_github(move |r| match r.path.as_str() {
+        TOKEN_PATH => Resp::ok(format!(r#"{{"token":"ghs_test","expires_at":"{exp}"}}"#)),
+        "/repos/o/r/pulls/1" => Resp::status(401, r#"{"message":"Bad credentials"}"#),
+        _ => Resp::ok(r#"{"head":{"sha":"x"}}"#),
+    })
+    .await;
+    let c = new_test_client(&srv);
+    let err = c.pr_head_sha("o/r", 1).await.unwrap_err();
+    assert!(err.to_string().ends_with(": 401: Bad credentials"), "{err}");
+    c.pr_head_sha("o/r", 2).await.unwrap();
+    let mints = seen
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|r| r.path == TOKEN_PATH)
+        .count();
+    assert_eq!(mints, 2, "the 401 evicts the cached token");
+}
+
+#[test]
+fn error_message_keeps_only_a_truncated_message() {
+    assert_eq!(
+        error_message(br#"{"message":"boom","token":"t"}"#),
+        ": boom"
+    );
+    assert_eq!(error_message(b"<html>secret</html>"), "");
+    assert_eq!(error_message(br#"{"other":1}"#), "");
+    let long = format!(r#"{{"message":"{}"}}"#, "x".repeat(500));
+    assert_eq!(error_message(long.as_bytes()).len(), 2 + 200);
+}
+
 #[test]
 fn split_repo_cases() {
     assert!(split_repo("noslash").is_err());
@@ -290,10 +324,7 @@ async fn do_propagates_non_2xx() {
         .unwrap_err();
     assert_eq!(
         err.to_string(),
-        format!(
-            r#"github: POST {}/repos/o/r/check-runs: 500: {{"message":"boom"}}"#,
-            srv.url
-        )
+        format!("github: POST {}/repos/o/r/check-runs: 500: boom", srv.url)
     );
 }
 
@@ -311,7 +342,7 @@ async fn mint_token_failure_propagates() {
         .unwrap_err();
     assert_eq!(
         err.to_string(),
-        r#"github: resolve token: github: installation token exchange 401: {"message":"bad jwt"}"#
+        "github: resolve token: github: installation token exchange 401: bad jwt"
     );
     assert!(
         seen.lock().unwrap().iter().all(|r| r.path == TOKEN_PATH),

@@ -117,12 +117,7 @@ impl ObjectStore for Gcs {
         let status = resp.status();
         if !is_2xx(status) {
             http::log_non_2xx("gcs", &Method::POST, &url, status.as_u16());
-            let b = resp.bytes().await.unwrap_or_default();
-            return Err(Error::msg(format!(
-                "gcs put {name}: {}: {}",
-                status.as_u16(),
-                String::from_utf8_lossy(&b)
-            )));
+            return Err(Error::msg(format!("gcs put {name}: {}", status.as_u16())));
         }
         Ok(())
     }

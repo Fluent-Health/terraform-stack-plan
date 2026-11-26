@@ -574,6 +574,26 @@ async fn refresh_grant(hc: &reqwest::Client, u: &UserCreds) -> Result<TokenRespo
     .await
 }
 
+/// `": <code>"` for a token endpoint's `{"error": "<code>"}`, or "" when the body has no
+/// short `[a-z_]` code.
+fn oauth_error_code(body: &[u8]) -> String {
+    #[derive(Deserialize)]
+    struct E {
+        #[serde(default)]
+        error: String,
+    }
+    match serde_json::from_slice::<E>(body) {
+        Ok(E { error })
+            if !error.is_empty()
+                && error.len() <= 64
+                && error.bytes().all(|b| b.is_ascii_lowercase() || b == b'_') =>
+        {
+            format!(": {error}")
+        }
+        _ => String::new(),
+    }
+}
+
 async fn token_endpoint(
     hc: &reqwest::Client,
     url: &str,
@@ -589,9 +609,11 @@ async fn token_endpoint(
     let body = resp.bytes().await.unwrap_or_default();
     if !is_2xx(status) {
         http::log_non_2xx("google-oauth2", &Method::POST, url, status.as_u16());
+        // Only the RFC 6749 error code (`invalid_grant`) is kept from the body: errors are
+        // logged, and the rest may echo request details.
         return Err(Error::msg(format!(
-            "oauth2: cannot fetch token: {status}\nResponse: {}",
-            String::from_utf8_lossy(&body)
+            "oauth2: cannot fetch token: {status} from {url}{}",
+            oauth_error_code(&body)
         )));
     }
     serde_json::from_slice(&body).map_err(|e| Error::msg(format!("oauth2: cannot parse json: {e}")))
