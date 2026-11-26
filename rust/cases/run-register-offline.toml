@@ -1,0 +1,8 @@
+bin.name = "tfstackplan"
+args = ["run", "register", "--dir", "project"]
+fs.cwd = "fixtures/run-verbs"
+fs.base = "fixtures/run-verbs"
+fs.sandbox = true
+
+[status]
+code = 0

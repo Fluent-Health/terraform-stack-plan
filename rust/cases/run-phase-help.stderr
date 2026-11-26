@@ -1,0 +1,7 @@
+Usage of run phase:
+  -label string
+    	optional human-readable progress label
+  -phase string
+    	lifecycle phase name
+  -progress-pct int
+    	optional progress percentage (0-100) (default -1)

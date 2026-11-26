@@ -1,0 +1,8 @@
+flag needs an argument: -status
+Usage of run tick:
+  -detail string
+    	optional failure detail
+  -stack string
+    	stack path (defaults to $TFSTACKPLAN_STACK)
+  -status string
+    	stack status (e.g. running, planned, failed)

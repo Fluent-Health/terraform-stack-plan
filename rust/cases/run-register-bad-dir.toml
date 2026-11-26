@@ -1,0 +1,18 @@
+bin.name = "tfstackplan"
+args = ["run", "register", "--dir", "missing"]
+fs.cwd = "fixtures/run-verbs"
+fs.base = "fixtures/run-verbs"
+fs.sandbox = true
+
+[harness]
+requires = ["terramate"]
+env = { TFSTACKPLAN_SERVER = "{fake}", TFSTACKPLAN_EXECUTION = "exec-1" }
+
+[[harness.route]]
+method = "POST"
+path = "/api/init"
+status = 200
+body = ''
+
+[status]
+code = 1

@@ -1,0 +1,24 @@
+Execution ID: exec-1
+Repo/PR:      acme/infra #7
+Status:       IN_PROGRESS
+Phase:        applying
+Environment:  staging
+
+Stacks:
+  stacks/network                : SAFE         | +3, -0, ~1
+  stacks/very/long/database/stack/path: GATED        | No Changes
+
+Gates:
+  iam (proj-a): active
+Execution ID: exec-1
+Repo/PR:      acme/infra #7
+Status:       SUCCESS
+Phase:        applying
+Environment:  staging
+
+Stacks:
+  stacks/network                : SAFE         | +3, -0, ~1
+  stacks/very/long/database/stack/path: GATED        | No Changes
+
+Gates:
+  iam (proj-a): active

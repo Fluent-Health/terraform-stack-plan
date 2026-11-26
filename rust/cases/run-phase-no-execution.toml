@@ -1,0 +1,15 @@
+bin.name = "tfstackplan"
+args = ["run", "phase", "--phase", "warming"]
+fs.cwd = "../.."
+
+[harness]
+env = { TFSTACKPLAN_SERVER = "{fake}" }
+
+[[harness.route]]
+method = "POST"
+path = "/api/phase"
+status = 200
+body = ''
+
+[status]
+code = 0
