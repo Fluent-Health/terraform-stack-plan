@@ -210,3 +210,20 @@ databases and the same config, against one fake GitHub each, and compares every 
 status, headers, body, GitHub calls and a dump of every table (timestamps masked). Auth is off
 in the replay: Go's verifier fetches Google's real certificate URL and cannot be pointed at a
 fake issuer, so the OIDC paths are covered by the ported tests instead.
+
+## The ui service: `tfstackplan-ui`
+
+Two checks go beyond Go's ui. `GET /auth/approve` starts a PAM approval with only the
+SameSite=Lax session cookie behind it, which a top-level link from any site also carries, so
+it is refused with 403 unless `Sec-Fetch-Site` is `same-origin`. Without that header an
+`Origin`, else a `Referer`, must have exactly `public_base_url`'s scheme, host and port. The
+SPA opens the approval popup with `window.open` on a relative URL, and browsers send
+`Sec-Fetch-Site: same-origin` on that navigation. The ui replay
+(`ui/tests/replay/replay.py`) adds that header to its approve-start requests; Go ignores it.
+
+The stream proxies (`/api/tiers/{tier}/logs|plan/{exec}/{stack...}` and the events route)
+answer 400 when the decoded execution id or any stack segment is empty (a wholly empty stack,
+`.../logs/e1/`, is passed on as Go does), `.` or `..`, or holds
+`?`, `#` or `\`, and escape each stack segment. URL parsing resolves `..` even when it arrives
+as `%2e%2e`, so such a path would otherwise reach any route of the tier with the ui's own
+identity. `/api/tiers/{tier}/executions/{id}` refuses the same ids with the router's 400.

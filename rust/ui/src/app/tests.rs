@@ -108,3 +108,52 @@ async fn session_cookie_checks() {
     };
     assert_eq!(get(&h, "/api/me", Some(&other)).await.status, 401);
 }
+
+/// The routes that answer without a session: health, the login round trip, logout, the
+/// webhook relay (HMAC) and the SPA's static files.
+const SESSION_EXEMPT: &[&str] = &[
+    "/healthz",
+    "/ready",
+    "/auth/login",
+    "/auth/callback",
+    "/auth/logout",
+    "/github/webhook",
+    "/",
+];
+
+#[tokio::test]
+async fn every_route_but_the_exempt_ones_needs_a_session() {
+    let (h, _) = session_app(vec![crate::testutil::tier("prod", "http://127.0.0.1:9")]);
+    for (method, pattern, _) in super::PATTERNS {
+        if SESSION_EXEMPT.contains(pattern) {
+            continue;
+        }
+        let path: Vec<&str> = pattern
+            .split('/')
+            .map(|s| match s {
+                "{tier}" => "prod",
+                "{stack...}" => "stacks/a",
+                s if s.starts_with('{') => "1",
+                s => s,
+            })
+            .collect();
+        let mut path = path.join("/");
+        if path.ends_with("/lifecycle") {
+            path.push_str("?pr=1");
+        }
+        for cookie in [None, Some("tfsp_ui_session=garbage")] {
+            let rr = send(&h, req(method, &path, cookie)).await;
+            assert_eq!(
+                (rr.status, rr.body.as_str()),
+                (401, "unauthorized\n"),
+                "{method} {path} cookie {cookie:?}"
+            );
+        }
+    }
+    for p in SESSION_EXEMPT {
+        assert!(
+            super::PATTERNS.iter().any(|(_, pat, _)| pat == p),
+            "{p} is not routed"
+        );
+    }
+}

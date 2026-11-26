@@ -6,7 +6,7 @@ use tfstackplan_server_clients::testserver::{Resp, TestServer, serve};
 use super::{CLOUD_PLATFORM_SCOPE, approve_result};
 use crate::app::{App, Config};
 use crate::oauth::OAuth;
-use crate::testutil::{Got, TEST_CLIENT_ID, get, session_for, tier, url_query};
+use crate::testutil::{Got, TEST_CLIENT_ID, get, req, send, session_for, tier, url_query};
 
 const APPROVE_GRANT: &str = "projects/proj-1/locations/global/entitlements/iam/grants/g1";
 
@@ -48,13 +48,21 @@ impl Fixture {
         false
     }
 
+    /// The SPA's popup: a same-origin navigation.
     async fn start(&self, query: &str) -> Got {
-        get(
-            &self.app,
-            &format!("/auth/approve?{query}"),
-            Some(&self.sess),
-        )
-        .await
+        self.start_with(query, &[("sec-fetch-site", "same-origin")])
+            .await
+    }
+
+    async fn start_with(&self, query: &str, headers: &[(&str, &str)]) -> Got {
+        let mut r = req("GET", &format!("/auth/approve?{query}"), Some(&self.sess));
+        for (k, v) in headers {
+            r.headers_mut().insert(
+                axum::http::HeaderName::from_bytes(k.as_bytes()).unwrap(),
+                axum::http::HeaderValue::from_str(v).unwrap(),
+            );
+        }
+        send(&self.app, r).await
     }
 
     async fn callback(&self, query: &str, sess: &str) -> Got {
@@ -344,4 +352,51 @@ async fn approve_result_matches_go_template() {
     let body = String::from_utf8_lossy(&body);
     assert!(body.contains("<p>pam: 403: {&#34;error&#34;:{&#34;message&#34;:&#34;Permission &#39;x&#39; denied &lt;b&gt;&amp;&lt;/b&gt; &#43; \u{2028} \u{e9}&#34;}}</p>"), "{body}");
     assert!(body.contains("var payload = {\"message\":\"pam: 403: {\\\"error\\\":{\\\"message\\\":\\\"Permission 'x' denied \\u003cb\\u003e\\u0026\\u003c/b\\u003e + \\u2028 \u{e9}\\\"}}\",\"ok\":false,\"type\":\"tfsp-approval\"};"), "{body}");
+}
+
+#[tokio::test]
+async fn approve_start_refuses_cross_site_requests() {
+    let f = fixture().await;
+    let g = q(APPROVE_GRANT);
+    let query = format!("tier=prod&decision=approve&grant={g}");
+    let refused: &[&[(&str, &str)]] = &[
+        &[("sec-fetch-site", "cross-site")],
+        &[("sec-fetch-site", "same-site")],
+        &[("sec-fetch-site", "none")],
+        // Sec-Fetch-Site wins over a matching Origin.
+        &[
+            ("sec-fetch-site", "cross-site"),
+            ("origin", "https://ui.example.com"),
+        ],
+        &[],
+        &[("referer", "https://evil.example/https://ui.example.com/")],
+        &[("referer", "https://ui.example.com.evil.example/")],
+        &[("referer", "http://ui.example.com/")],
+        &[("referer", "https://ui.example.com:8443/")],
+        &[("origin", "null")],
+        // A present Origin is decisive; the Referer is not consulted.
+        &[
+            ("origin", "https://evil.example"),
+            ("referer", "https://ui.example.com/"),
+        ],
+    ];
+    for h in refused {
+        let rr = f.start_with(&query, h).await;
+        assert_eq!(
+            (rr.status, rr.body.as_str()),
+            (403, "cross-site approval request refused\n"),
+            "{h:?}"
+        );
+    }
+    let accepted: &[&[(&str, &str)]] = &[
+        &[("sec-fetch-site", "same-origin")],
+        &[("origin", "https://ui.example.com")],
+        &[("referer", "https://ui.example.com/pr/7")],
+        &[("referer", "https://ui.example.com:443/")],
+    ];
+    for h in accepted {
+        let rr = f.start_with(&query, h).await;
+        assert_eq!(rr.status, 302, "{h:?}");
+    }
+    assert_eq!(f.pam.lock().unwrap().calls, 0);
 }

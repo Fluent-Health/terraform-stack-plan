@@ -222,6 +222,9 @@ def sign(body):
 def cases(sess, other, expired, approve_states):
     S = {"Cookie": "tfsp_ui_session=" + sess}
     O = {"Cookie": "tfsp_ui_session=" + other}
+    # The approve start also needs a same-origin navigation (the SPA's popup sends it);
+    # the Rust ui refuses it otherwise, Go ignores the header.
+    SO = dict(S, **{"Sec-Fetch-Site": "same-origin"})
     q = lambda s: __import__("urllib.parse").parse.quote(s, safe="")
     g = q(GRANT)
     out = [
@@ -331,14 +334,14 @@ def cases(sess, other, expired, approve_states):
         ("POST", "/auth/logout", S, b""),
         # approvals (the start, and the callback guards that stop before Google)
         ("GET", "/auth/approve?tier=nonprod&decision=approve&reason=lgtm&grant=" + g, {}, None),
-        ("GET", "/auth/approve?tier=nonprod&decision=approve&reason=lgtm&grant=" + g, S, None),
-        ("GET", "/auth/approve?tier=nonprod&decision=deny&grant=" + g, S, None),
-        ("GET", "/auth/approve?tier=nope&decision=approve&grant=" + g, S, None),
-        ("GET", "/auth/approve?tier=nonprod&decision=maybe&grant=" + g, S, None),
-        ("GET", "/auth/approve?tier=nonprod&decision=approve&grant=not-a-grant", S, None),
-        ("GET", "/auth/approve?tier=nonprod&decision=approve&grant=caf%C3%A9%01%22", S, None),
-        ("GET", "/auth/approve?tier=nonprod&decision=approve&grant=%ff", S, None),
-        ("GET", "/auth/approve?tier=nonprod&decision=approve&grant=" + g + "&reason=" + "x" * 513, S, None),
+        ("GET", "/auth/approve?tier=nonprod&decision=approve&reason=lgtm&grant=" + g, SO, None),
+        ("GET", "/auth/approve?tier=nonprod&decision=deny&grant=" + g, SO, None),
+        ("GET", "/auth/approve?tier=nope&decision=approve&grant=" + g, SO, None),
+        ("GET", "/auth/approve?tier=nonprod&decision=maybe&grant=" + g, SO, None),
+        ("GET", "/auth/approve?tier=nonprod&decision=approve&grant=not-a-grant", SO, None),
+        ("GET", "/auth/approve?tier=nonprod&decision=approve&grant=caf%C3%A9%01%22", SO, None),
+        ("GET", "/auth/approve?tier=nonprod&decision=approve&grant=%ff", SO, None),
+        ("GET", "/auth/approve?tier=nonprod&decision=approve&grant=" + g + "&reason=" + "x" * 513, SO, None),
         ("GET", "/auth/approve/callback?code=c&state=bogus", S, None),
         ("GET", "/auth/approve/callback?code=c&state=bogus", {}, None),
         ("GET", "/auth/approve/callback?code=c&state=" + q(approve_states["expired"]), S, None),

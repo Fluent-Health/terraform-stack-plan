@@ -8,7 +8,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use axum::http::Method;
+use axum::http::{HeaderMap, Method};
 use jiff::{SignedDuration, Timestamp};
 use serde::{Deserialize, Serialize};
 use tfstackplan_server_clients::approval::gcppam::{self, DecideError};
@@ -21,6 +21,32 @@ use crate::session::Session;
 
 /// The scope PAM requires; there is no narrower one.
 pub(crate) const CLOUD_PLATFORM_SCOPE: &str = "https://www.googleapis.com/auth/cloud-platform";
+
+/// Whether a request came from a page of this ui. Browsers send `Sec-Fetch-Site` on every
+/// navigation, the SPA's `window.open` popup included, and it must be `same-origin`.
+/// Without it, an `Origin` (else `Referer`) must have exactly the scheme, host and port of
+/// `public_base_url`. Anything else, no header included, is refused.
+pub(crate) fn same_origin(h: &HeaderMap, public_base_url: &str) -> bool {
+    if let Some(site) = h.get("sec-fetch-site") {
+        return site.as_bytes() == b"same-origin";
+    }
+    // An opaque origin (`data:`, `file:`, `Origin: null`) serializes as "null".
+    let origin_of = |s: &str| {
+        reqwest::Url::parse(s)
+            .ok()
+            .map(|u| u.origin().ascii_serialization())
+            .filter(|o| o != "null")
+    };
+    let Some(want) = origin_of(public_base_url) else {
+        return false;
+    };
+    let got = h
+        .get("origin")
+        .or_else(|| h.get("referer"))
+        .and_then(|v| v.to_str().ok())
+        .and_then(origin_of);
+    got == Some(want)
+}
 
 /// The sealed OAuth state payload (Go's `approveState`, same JSON).
 #[derive(Debug, Serialize, Deserialize)]
@@ -48,12 +74,15 @@ impl App {
         c
     }
 
-    /// `GET /auth/approve?tier=..&grant=..&decision=approve|deny&reason=..`.
+    /// `GET /auth/approve?tier=..&grant=..&decision=approve|deny&reason=..`. Only the
+    /// SPA's own popup may start it (see [`same_origin`]): the session cookie alone would
+    /// let a link on any site start an approval as the victim.
     pub(crate) fn handle_approve_start(
         self: &Arc<Self>,
         sess: &Session,
         q: &str,
         method: &Method,
+        headers: &HeaderMap,
     ) -> Resp {
         let Some(oauth) = self
             .cfg
@@ -66,6 +95,13 @@ impl App {
                 "approvals are not configured (oauth + public_base_url required)",
             );
         };
+        if !same_origin(headers, &self.cfg.public_base_url) {
+            warn!(
+                "ui: approve start from {} refused: not same-origin",
+                sess.email
+            );
+            return gohttp::error(403, "cross-site approval request refused");
+        }
         let tier = gohttp::query_get(q, "tier");
         let grant = gohttp::query_get(q, "grant");
         let decision = gohttp::query_get(q, "decision");

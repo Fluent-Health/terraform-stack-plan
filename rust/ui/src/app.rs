@@ -177,7 +177,7 @@ impl App {
             Route::Callback => self.handle_callback(req.headers(), q).await,
             Route::Logout => crate::auth::handle_logout(),
             Route::ApproveStart => match self.session(req.headers()) {
-                Some(s) => self.handle_approve_start(&s, q, req.method()),
+                Some(s) => self.handle_approve_start(&s, q, req.method(), req.headers()),
                 None => unauthorized(),
             },
             Route::ApproveCallback => match self.session(req.headers()) {
@@ -191,17 +191,35 @@ impl App {
                     return unauthorized();
                 }
                 let tier = cap(0);
+                let exec = cap(1);
+                if !safe_segment(&exec) {
+                    return bad_segment();
+                }
+                let exec = gohttp::escape(&exec, Mode::PathSegment);
                 let rest = match route {
-                    Route::Events => format!(
-                        "/api/execution/{}/events",
-                        gohttp::escape(&cap(1), Mode::PathSegment)
-                    ),
-                    Route::Logs | Route::Plan => format!(
-                        "/{}/{}/{}",
-                        if route == Route::Logs { "logs" } else { "plan" },
-                        gohttp::escape(&cap(1), Mode::PathSegment),
-                        String::from_utf8_lossy(&cap(2))
-                    ),
+                    Route::Events => format!("/api/execution/{exec}/events"),
+                    Route::Logs | Route::Plan => {
+                        // An empty remainder (`.../logs/e1/`) is passed on as Go does;
+                        // the tier answers it. Otherwise no segment may be empty.
+                        let stack = cap(2);
+                        let segs: Vec<&[u8]> = if stack.is_empty() {
+                            Vec::new()
+                        } else {
+                            stack.split(|b| *b == b'/').collect()
+                        };
+                        if !segs.iter().all(|s| safe_segment(s)) {
+                            return bad_segment();
+                        }
+                        let stack: Vec<String> = segs
+                            .iter()
+                            .map(|s| gohttp::escape(s, Mode::PathSegment))
+                            .collect();
+                        format!(
+                            "/{}/{exec}/{}",
+                            if route == Route::Logs { "logs" } else { "plan" },
+                            stack.join("/")
+                        )
+                    }
                     _ => String::new(),
                 };
                 self.proxy_stream(req.headers(), q, &tier, &rest).await
@@ -272,6 +290,9 @@ impl App {
                 Route::TierExecution => {
                     let tier = bind_path(0, "tier")?;
                     let id = bind_path(1, "id")?;
+                    if !safe_segment(&id) {
+                        return Err(param_error("id", "not a single path segment"));
+                    }
                     (
                         tier,
                         format!("api/execution/{}", gohttp::escape(&id, Mode::PathSegment)),
@@ -327,6 +348,18 @@ impl App {
             .inspect_err(|e| warn!("ui: session rejected: {e}"))
             .ok()
     }
+}
+
+/// Whether a decoded path parameter is safe to put in one segment of a tier URL. `.` and
+/// `..` (which `%2e%2e` decodes to, and which URL parsing resolves even when escaped)
+/// would climb out of the proxied path to any tier route under the ui's own identity.
+pub(crate) fn safe_segment(s: &[u8]) -> bool {
+    !s.is_empty() && s != b"." && s != b".." && !s.iter().any(|b| matches!(b, b'?' | b'#' | b'\\'))
+}
+
+/// The answer to a stream path with an unsafe segment.
+fn bad_segment() -> Resp {
+    gohttp::error(400, "invalid path segment")
 }
 
 /// The generated router's 400 text for a parameter that does not bind.

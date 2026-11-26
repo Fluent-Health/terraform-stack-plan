@@ -268,3 +268,46 @@ async fn stream_token_failure_is_502() {
         );
     }
 }
+
+#[tokio::test]
+async fn dot_segments_never_reach_the_tier() {
+    let seen = Arc::new(Mutex::new(Vec::<String>::new()));
+    let s = Arc::clone(&seen);
+    let tier_srv = serve(move |r| {
+        s.lock().expect("lock").push(r.path.clone());
+        Resp::ok("{}")
+    })
+    .await
+    .expect("tier");
+    let (app, sess) = session_app(vec![tier_with_token("prod", &tier_srv.url, "s2s-token")]);
+    let s = Some(sess.as_str());
+    for path in [
+        "/api/tiers/prod/logs/%2e%2e/api/approvals",
+        "/api/tiers/prod/plan/%2E%2E/api/approvals",
+        "/api/tiers/prod/logs/%2e/x",
+        "/api/tiers/prod/logs/e1/%2e%2e/%2e%2e/api/approvals",
+        "/api/tiers/prod/logs/e1/a/%2e%2e",
+        "/api/tiers/prod/logs/e1/a%3Fb",
+        "/api/tiers/prod/logs/e1/a%23b",
+        "/api/tiers/prod/logs/e1/a%5Cb",
+        "/api/tiers/prod/logs/a%5C..%5Capi/x",
+        "/api/tiers/prod/executions/%2e%2e/events",
+    ] {
+        let rr = get(&app, path, s).await;
+        assert_eq!(
+            (rr.status, rr.body.as_str()),
+            (400, "invalid path segment\n"),
+            "{path}"
+        );
+    }
+    let rr = get(&app, "/api/tiers/prod/executions/%2e%2e", s).await;
+    assert_eq!(rr.status, 400);
+    assert!(seen.lock().expect("lock").is_empty(), "{seen:?}");
+    // A stack segment is escaped, not passed through raw.
+    let rr = get(&app, "/api/tiers/prod/logs/e1/stacks/a%20b", s).await;
+    assert_eq!(rr.status, 200);
+    assert_eq!(
+        seen.lock().expect("lock").as_slice(),
+        ["/logs/e1/stacks/a%20b"]
+    );
+}
