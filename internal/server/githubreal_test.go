@@ -336,3 +336,14 @@ func TestReRequestCheckRun(t *testing.T) {
 		t.Error("ReRequestCheckRun endpoint was not called")
 	}
 }
+
+func TestGitHubAPIBase(t *testing.T) {
+	t.Setenv(EnvGitHubAPIURL, "")
+	if got := githubAPIBase(); got != "https://api.github.com" {
+		t.Errorf("default = %q, want https://api.github.com", got)
+	}
+	t.Setenv(EnvGitHubAPIURL, "http://127.0.0.1:9999/")
+	if got := githubAPIBase(); got != "http://127.0.0.1:9999" {
+		t.Errorf("override = %q, want trailing slash trimmed", got)
+	}
+}

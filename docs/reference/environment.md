@@ -78,6 +78,28 @@ variables. See
 
 ---
 
+## Outbound API endpoints — `run`, `state` and `serve`
+
+These override the base URLs `tfstackplan` uses for GitHub and Google Cloud
+Storage, for example to point the binary at local fake servers in tests. Each
+is read once at startup and a trailing slash is trimmed. Unset or empty keeps
+the real endpoint. They are for tests only; never set them in a real job.
+
+| Variable | Default | Used by |
+|---|---|---|
+| `TFSTACKPLAN_GITHUB_API_URL` | `https://api.github.com` | `serve`'s GitHub App client (installation tokens, check runs, commit statuses, pull requests, GraphQL). |
+| `TFSTACKPLAN_GCS_URL` | `https://storage.googleapis.com` | The GCS JSON API clients: the provider cache (`run plan`/`run apply`), the state lock (`state`, `run apply`), and `serve`'s log object store. |
+
+> **Terraform ignores `TFSTACKPLAN_GCS_URL`.** It only moves tfstackplan's own
+> GCS calls. Terraform runs as a subprocess and keeps using its own GCS backend
+> endpoint, so with this variable set the `.tflock` that `state apply --lock`
+> and `run apply --state-lock` take lands on the override host and no longer
+> excludes terraform's real state. The override host also receives the GitHub
+> App JWT and installation tokens, or the GCS access token, that would have gone
+> to the real API.
+
+---
+
 ## `render` — no environment variables
 
 `render` reads no environment variables. All inputs are flags (`--plans-dir`,
@@ -89,7 +111,9 @@ variables. See
 
 `state move` reads `TFSTACKPLAN_PR` to key the shim files it writes (`PR-<n>`).
 When unset it falls back to the git branch name (`branch-<name>`) or `local`.
-No other `TFSTACKPLAN_*` variables are read by `state` subcommands.
+Apart from `TFSTACKPLAN_GCS_URL` (the state lock's GCS endpoint, see
+[Outbound API endpoints](#outbound-api-endpoints-run-state-and-serve)), no other
+`TFSTACKPLAN_*` variables are read by `state` subcommands.
 
 ---
 
@@ -105,5 +129,7 @@ No other `TFSTACKPLAN_*` variables are read by `state` subcommands.
 | `TFSTACKPLAN_SHA` | run | Read |
 | `TFSTACKPLAN_PR` | run, state | Read |
 | `TFSTACKPLAN_STACK` | run | Read |
+| `TFSTACKPLAN_GITHUB_API_URL` | serve | Read |
+| `TFSTACKPLAN_GCS_URL` | run, state, serve | Read |
 | `GOOGLE_OAUTH_ACCESS_TOKEN` | run apply (`--impersonate-requester`) | Written |
 | *(name in `github_webhook_secret_env`)* | serve | Read |
