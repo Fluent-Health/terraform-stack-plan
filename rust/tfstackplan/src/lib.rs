@@ -18,6 +18,7 @@ mod server;
 
 mod gofs;
 mod render;
+mod run;
 
 /// A ported subcommand: gets the arguments after the subcommand name.
 type Handler = fn(&[OsString]) -> ExitCode;
@@ -39,15 +40,13 @@ const PORTED: &[(&str, Handler)] = &[
     ("uniqueness", |a| faces::uniqueness::run(&strings(a))),
     ("whoami", |a| faces::whoami::run(&strings(a))),
     ("admin", |a| faces::admin::run(&strings(a))),
+    ("run", run_verb),
 ];
 
-/// `run` subcommands that have a Rust implementation. The rest of `run` (the
-/// plan/apply orchestrator) still runs in Go.
-const PORTED_RUN: &[(&str, Handler)] = &[
-    ("wrap", |a| faces::wrap::run(&strings(a))),
-    ("claims", |a| faces::claims::run(&strings(a))),
-    ("whoami", |a| faces::whoami::run(&strings(a))),
-];
+/// `run` and every verb under it (`run::run` answers an unknown verb as Go does).
+fn run_verb(args: &[OsString]) -> ExitCode {
+    run::run(&strings(args))
+}
 
 /// Runs the front door: dispatches to a ported subcommand or hands the call to
 /// the Go binary. The `tfstackplan` binary is only this call.
@@ -72,11 +71,6 @@ pub fn main() -> ExitCode {
 /// a render flag, so only a named subcommand is stripped.
 fn ported(name: &str, args: &[OsString]) -> Option<(Handler, usize)> {
     let named = args.first().is_some_and(|a| a == name);
-    if name == "run" && named {
-        let sub = args.get(1)?.to_string_lossy();
-        let (_, handler) = PORTED_RUN.iter().find(|(n, _)| *n == sub)?;
-        return Some((*handler, 2));
-    }
     let (_, handler) = PORTED.iter().find(|(n, _)| *n == name)?;
     Some((*handler, usize::from(named)))
 }

@@ -22,9 +22,9 @@ use tfstackplan_cli::statemove::{
 use super::{err, out, parse};
 use crate::fsx::os_error;
 
-mod exec;
-mod terraform;
-mod walk;
+pub(crate) mod exec;
+pub(crate) mod terraform;
+pub(crate) mod walk;
 
 const STATE_USAGE: &str = "tfstackplan state: expected a subcommand (move|import|remove|removed|list|moves-manifest|cleanup|apply|check)\n";
 
@@ -401,7 +401,7 @@ fn state_list(args: &[String]) -> ExitCode {
 }
 
 /// Go's `collectStateMoves` with the filesystem filled in.
-fn collect(dir: &str, want: &str) -> Result<BTreeMap<String, Vec<String>>, String> {
+pub(crate) fn collect(dir: &str, want: &str) -> Result<BTreeMap<String, Vec<String>>, String> {
     let shims = walk::discover(dir)?;
     let xmoves = walk::discover_xmoves(dir)?;
     let exists = |rel: &str| std::fs::metadata(paths::join(&[dir, rel])).is_ok();
@@ -613,17 +613,42 @@ fn state_apply(args: &[String]) -> ExitCode {
         return usage_err("state apply: --dir is required");
     }
     let execute = p.bool("execute");
-    let mut locker: Option<GcsLocker> = None;
+    let mut locker = None;
     if p.bool("lock") && execute {
-        let built = tfstackplan_clients::google::access_token_source()
-            .and_then(|token| tfstackplan_clients::gcs::Locker::new(token, ""));
-        match built {
-            Ok(l) => locker = Some(GcsLocker(l)),
+        match state_lock() {
+            Ok(l) => locker = Some(l),
             Err(e) => return fail("state apply: --lock:", &e),
         }
     }
-    let locker_ref: Option<&dyn exec::Locker> = match &locker {
-        Some(l) => Some(l),
+    let mut stdout = std::io::stdout();
+    if let Err(e) = apply_moves(dir, execute, locker.as_ref(), &mut stdout, None) {
+        return fail("state apply:", &e);
+    }
+    ExitCode::SUCCESS
+}
+
+/// The pessimistic GCS state lock (`--lock`, `run apply --state-lock`), built from ADC.
+pub(crate) struct StateLock(GcsLocker);
+
+/// Go's `gcsLockerFromADC`.
+pub(crate) fn state_lock() -> Result<StateLock, String> {
+    tfstackplan_clients::google::access_token_source()
+        .and_then(|token| tfstackplan_clients::gcs::Locker::new(token, ""))
+        .map(|l| StateLock(GcsLocker(l)))
+}
+
+/// Go's `applyPendingMoves` with the real terraform and backups: every pending
+/// xmove manifest under `dir`, executed or dry-run, each move line to `out` and
+/// `sink`.
+pub(crate) fn apply_moves(
+    dir: &str,
+    execute: bool,
+    lock: Option<&StateLock>,
+    out: &mut dyn std::io::Write,
+    sink: Option<exec::Sink<'_>>,
+) -> Result<(), String> {
+    let locker_ref: Option<&dyn exec::Locker> = match lock {
+        Some(l) => Some(&l.0),
         None => None,
     };
     let build = || -> Result<exec::ExecDeps<'_>, String> {
@@ -646,11 +671,7 @@ fn state_apply(args: &[String]) -> ExitCode {
             locker: locker_ref,
         })
     };
-    let mut stdout = std::io::stdout();
-    if let Err(e) = exec::apply_pending_moves(dir, execute, &build, &mut stdout, None) {
-        return fail("state apply:", &e);
-    }
-    ExitCode::SUCCESS
+    exec::apply_pending_moves(dir, execute, &build, out, sink)
 }
 
 const CHECK_USAGE: &str = "Usage: tfstackplan state check --dir DIR

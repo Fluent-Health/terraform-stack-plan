@@ -68,3 +68,18 @@ fn errors_read_like_go() {
 fn lines_trims_and_drops_blanks() {
     assert_eq!(lines(b" a \n\n b\r\n"), vec!["a", "b"]);
 }
+
+#[test]
+fn start_error_in_names_a_missing_dir_like_go() {
+    let e = std::io::Error::from(std::io::ErrorKind::NotFound);
+    // `sh` is on PATH, so the directory is what Go reports.
+    assert_eq!(
+        start_error_in("sh", Path::new("no-such-dir"), &e),
+        "chdir no-such-dir: no such file or directory"
+    );
+    // A missing program still wins, as Go looks it up first.
+    assert_eq!(
+        start_error_in("no-such-program-x", Path::new("no-such-dir"), &e),
+        "exec: \"no-such-program-x\": executable file not found in $PATH"
+    );
+}

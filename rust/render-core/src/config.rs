@@ -29,6 +29,21 @@ pub struct Config {
     pub diff: DiffConfig,
     /// `None` when there is no links block.
     pub links: Option<LinksConfig>,
+    /// The `class "<name>"` bindings' names, in order: the approval gates.
+    pub classes: Vec<String>,
+    /// The `cache {}` block as written (`run` fills in defaults); `None` when absent.
+    pub cache: Option<CacheBlock>,
+}
+
+/// A `cache {}` block's attributes as written (empty when not set).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CacheBlock {
+    /// GCS bucket.
+    pub bucket: String,
+    /// Object prefix.
+    pub prefix: String,
+    /// Cache version.
+    pub version: String,
 }
 
 impl Default for Config {
@@ -40,6 +55,8 @@ impl Default for Config {
                 ..DiffConfig::default()
             },
             links: None,
+            classes: Vec::new(),
+            cache: None,
         }
     }
 }
@@ -861,6 +878,7 @@ pub fn load(path: &str, text: &str) -> Result<Config, String> {
                     &[],
                 )
                 .map_err(|e| format!("class {}: {e}", quote(label_str(&blk.labels[0]))))?;
+                cfg.classes.push(label_str(&blk.labels[0]).to_string());
             }
             "cache" => {
                 checked(
@@ -874,6 +892,15 @@ pub fn load(path: &str, text: &str) -> Result<Config, String> {
                     ],
                     &[],
                 )?;
+                let get = |name: &str| match attr_value(&src, &blk.body, name, Ty::Str) {
+                    Some(Ok(Val::Str(v))) => v,
+                    _ => String::new(),
+                };
+                cfg.cache = Some(CacheBlock {
+                    bucket: get("bucket"),
+                    prefix: get("prefix"),
+                    version: get("version"),
+                });
             }
             "progress" => check_progress(&src, blk)?,
             "server" | "ui" | "serve" | "env_uniqueness" => {}

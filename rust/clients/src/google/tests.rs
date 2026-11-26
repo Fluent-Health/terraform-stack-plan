@@ -374,3 +374,46 @@ fn impersonated_account_from_url() {
         "sa@p.iam.gserviceaccount.com"
     );
 }
+
+// Go: realMintAccessToken (run apply --impersonate-requester).
+#[tokio::test(flavor = "multi_thread")]
+async fn impersonated_access_token_for_the_requester() {
+    let srv = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path(
+            "/computeMetadata/v1/instance/service-accounts/default/token",
+        ))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(serde_json::json!({"access_token": "ambient"})),
+        )
+        .mount(&srv)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/v1/projects/-/serviceAccounts/requester@example-project.iam.gserviceaccount.com:generateAccessToken"))
+        .and(header("Authorization", "Bearer ambient"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"accessToken": "elevated"})))
+        .mount(&srv)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/v1/projects/-/serviceAccounts/denied@example-project.iam.gserviceaccount.com:generateAccessToken"))
+        .respond_with(ResponseTemplate::new(403).set_body_string("denied"))
+        .mount(&srv)
+        .await;
+    let ep = endpoints(&srv.uri(), gce);
+    let (ok, err) = blocking(move || {
+        (
+            impersonated_access_token_with(
+                "requester@example-project.iam.gserviceaccount.com",
+                ep.clone(),
+            ),
+            impersonated_access_token_with("denied@example-project.iam.gserviceaccount.com", ep),
+        )
+    })
+    .await;
+    assert_eq!(ok.unwrap(), "elevated");
+    assert_eq!(
+        err.unwrap_err(),
+        "mint access token for denied@example-project.iam.gserviceaccount.com: impersonate: status code 403: denied"
+    );
+}

@@ -12,9 +12,14 @@ tfstackplan-cli.workspace = true
 tfstackplan-clients.workspace = true
 portable-pty.workspace = true
 tempfile.workspace = true
+flate2.workspace = true
+tar.workspace = true
+zip.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]
+wiremock.workspace = true
+tokio.workspace = true
 trycmd.workspace = true
 casekit.workspace = true
 toml_edit.workspace = true

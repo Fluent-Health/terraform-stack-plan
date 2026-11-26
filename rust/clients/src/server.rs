@@ -9,6 +9,8 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
+use tfstackplan_cli::run;
+
 use crate::TokenFn;
 
 /// One apply-lock claim (`events.Claim`).
@@ -273,6 +275,57 @@ impl Client {
     /// `/api/logs` (best effort; callers ignore the error).
     pub fn log_chunk(&self, lc: &LogChunk) -> Result<(), String> {
         self.post("/api/logs", lc).map(drop)
+    }
+}
+
+impl Client {
+    /// `/api/init`: registers the execution and its stack subgraph.
+    pub fn init(&self, i: &run::Init) -> Result<(), String> {
+        self.post("/api/init", i).map(drop)
+    }
+
+    /// `/api/phase`: narrates a lifecycle phase.
+    pub fn phase(&self, p: &run::PhaseEvent) -> Result<(), String> {
+        self.post("/api/phase", p).map(drop)
+    }
+
+    /// `/api/finalize`: the run's terminal state.
+    pub fn finalize(&self, f: &run::Finalize) -> Result<(), String> {
+        self.post("/api/finalize", f).map(drop)
+    }
+
+    /// `/api/gate/revoke`: best-effort grant cleanup after an apply.
+    pub fn gate_revoke(&self, g: &run::GateKey) -> Result<(), String> {
+        self.post("/api/gate/revoke", g).map(drop)
+    }
+
+    /// `/api/gate/check`, fail-closed: no server is satisfied, a transport
+    /// failure is unreachable, a non-2xx is the verdict its code names.
+    pub fn gate_check(&self, g: &run::GateKey) -> run::Verdict {
+        let path = "/api/gate/check";
+        match self.send(path, g) {
+            Ok(None) => run::Verdict {
+                kind: run::VerdictKind::Satisfied,
+                requester: String::new(),
+                err: String::new(),
+            },
+            Err(e) => run::Verdict {
+                kind: run::VerdictKind::Unreachable,
+                requester: String::new(),
+                err: e,
+            },
+            Ok(Some(resp)) => {
+                let status = resp.status().as_u16();
+                match resp.bytes() {
+                    Ok(body) => run::gate_verdict(status, &body),
+                    Err(e) => run::Verdict {
+                        kind: run::VerdictKind::Unreachable,
+                        requester: String::new(),
+                        err: format!("post {path}: read body: {e}"),
+                    },
+                }
+            }
+        }
     }
 }
 

@@ -17,6 +17,22 @@ pub fn start_error(bin: &str, e: &std::io::Error) -> String {
     }
 }
 
+/// Go's text for a failed start in working directory `dir`: a missing program
+/// still wins (Go looks it up first), then `chdir <dir>: <errno>` when the
+/// directory is unusable, else [`start_error`].
+pub fn start_error_in(bin: &str, dir: &Path, e: &std::io::Error) -> String {
+    let found = bin.contains('/') || crate::faces::state::terraform::look_path(bin).is_ok();
+    let chdir = match std::fs::metadata(dir) {
+        Err(m) => Some(crate::gofs::errno_text(&m)),
+        Ok(m) if !m.is_dir() => Some("not a directory".to_string()),
+        Ok(_) => None,
+    };
+    match chdir {
+        Some(why) if found => format!("chdir {}: {why}", dir.display()),
+        _ => start_error(bin, e),
+    }
+}
+
 /// Go's `ExitError` text: `exit status N`, or `signal: <name>`.
 pub fn exit_text(status: &std::process::ExitStatus) -> String {
     match status.code() {
@@ -66,7 +82,7 @@ pub fn terramate(dir: &Path, args: &[&str]) -> Result<Vec<u8>, String> {
         .args(args)
         .current_dir(dir)
         .output()
-        .map_err(|e| fail(start_error("terramate", &e), b""))?;
+        .map_err(|e| fail(start_error_in("terramate", dir, &e), b""))?;
     if !out.status.success() {
         return Err(fail(exit_text(&out.status), &out.stderr));
     }

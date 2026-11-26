@@ -14,7 +14,7 @@ use tfstackplan_render::{Builder, Output};
 use crate::gofs;
 use tfstackplan_cli::flag::{FlagSet, ParseError, Parsed};
 
-const DEFAULT_MAX_BYTES: i64 = 60000;
+pub(crate) const DEFAULT_MAX_BYTES: i64 = 60000;
 const PLAN_FILE: &str = "tfplan.json";
 const CONFIG_FILE: &str = ".tfstackplan.hcl";
 
@@ -50,18 +50,19 @@ fn flags() -> FlagSet {
     fs
 }
 
-struct Opts {
-    plans_dir: String,
-    title: String,
-    marker: String,
-    config: String,
-    max_bytes: i64,
-    output: String,
-    class_json: String,
-    details: String,
-    repo_root: String,
-    state_moves: String,
-    link_vars: Vec<String>,
+/// The render options (Go's `opts`); `run`'s classify pass builds one too.
+pub(crate) struct Opts {
+    pub(crate) plans_dir: String,
+    pub(crate) title: String,
+    pub(crate) marker: String,
+    pub(crate) config: String,
+    pub(crate) max_bytes: i64,
+    pub(crate) output: String,
+    pub(crate) class_json: String,
+    pub(crate) details: String,
+    pub(crate) repo_root: String,
+    pub(crate) state_moves: String,
+    pub(crate) link_vars: Vec<String>,
 }
 
 fn opts(p: &Parsed) -> Opts {
@@ -127,7 +128,7 @@ pub fn run(args: &[OsString]) -> ExitCode {
 }
 
 /// The whole pipeline, in Go's order, so the first error is the same one Go reports.
-fn render(o: &Opts) -> Result<Output, String> {
+pub(crate) fn render(o: &Opts) -> Result<Output, String> {
     if o.plans_dir.is_empty() {
         return Err("no input: pass --plans-dir".to_string());
     }
@@ -215,7 +216,7 @@ fn abs_or_self(p: &str) -> String {
 
 /// `config.Discover`: the nearest `.tfstackplan.hcl` at or above `dir`, stopping at the repo
 /// root (the first directory with a `.git` entry).
-fn discover(dir: &str) -> Option<String> {
+pub(crate) fn discover(dir: &str) -> Option<String> {
     let mut d = gofs::abs(dir).unwrap_or_else(|| dir.to_string());
     loop {
         let p = gofs::join(&[&d, CONFIG_FILE]);

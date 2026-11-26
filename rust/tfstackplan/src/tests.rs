@@ -19,10 +19,12 @@ fn ported_faces_and_run_subcommands() {
     let find = |a: &[&str]| ported(&subcommand(&args(a)), &args(a)).map(|(_, skip)| skip);
     assert_eq!(find(&["state", "list"]), Some(1));
     assert_eq!(find(&["whoami"]), Some(1));
-    assert_eq!(find(&["run", "wrap", "--", "true"]), Some(2));
-    assert_eq!(find(&["run", "claims", "list"]), Some(2));
-    assert_eq!(find(&["run", "plan"]), None);
-    assert_eq!(find(&["run"]), None);
+    assert_eq!(find(&["run", "wrap", "--", "true"]), Some(1));
+    assert_eq!(find(&["run", "claims", "list"]), Some(1));
+    assert_eq!(find(&["run", "status", "x"]), Some(1));
+    assert_eq!(find(&["run", "plan"]), Some(1));
+    assert_eq!(find(&["run", "bogus"]), Some(1));
+    assert_eq!(find(&["run"]), Some(1));
     assert_eq!(find(&["render"]), Some(1));
     assert_eq!(find(&["--plans-dir", "x"]), Some(0));
     assert_eq!(find(&[]), Some(0));
