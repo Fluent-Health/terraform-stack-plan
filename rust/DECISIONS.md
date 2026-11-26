@@ -195,6 +195,23 @@ These are Go's behaviour, kept so output stays byte-identical:
 - Map key order in YAML output is yaml.v3's natural order (`a2` before `a10`); in JSON output
   it is plain byte order.
 
+## A closed stdout exits 141
+
+Go's runtime dies of SIGPIPE when a write to a closed stdout fails, so a shell sees 141. Rust
+ignores SIGPIPE and returns the write error instead, and putting the default handler back
+needs unsafe code, which the crate forbids. So `render` (including `-version`) exits with 141
+itself on a broken stdout pipe and writes nothing else: the same status for a shell or
+`set -o pipefail`, but a parent calling `waitpid` sees a normal exit, not a signal. Other
+stdout errors are ignored, as `fmt.Print` ignores them.
+
+## Parity is with Go on linux/amd64
+
+The recordings and the parity test run the Go binary built for linux/amd64, and that is the
+behaviour the port copies where Go depends on the platform. The one known case: Go's
+`int64(f)` for a float at or above 2^63 (such as the JSON number 9223372036854775807) gives
+the minimum int64 on amd64 but saturates on arm64, so Go prints that number as
+`9.223372036854776e+18` on amd64 and as an integer on arm64. The port prints the amd64 form.
+
 ## Known differences
 
 Inputs real Terraform plans do not produce can still diverge: HCL syntax error messages

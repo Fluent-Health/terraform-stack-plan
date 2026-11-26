@@ -185,7 +185,17 @@ fn row_cost_matches_blockquote_growth() {
 
 fn arb_field() -> impl Strategy<Value = Field> {
     (
-        prop::collection::vec((0usize..4000, 0usize..20), 0..4),
+        // Mostly a few fixed sizes, so equal-size fields (Go's tie-break) are common.
+        prop::collection::vec(
+            (
+                prop_oneof![
+                    3 => prop::sample::select(vec![0usize, 12, 40, 400, 2000]),
+                    1 => 0usize..4000,
+                ],
+                0usize..3,
+            ),
+            0..4,
+        ),
         "[a-z]{1,6}",
         any::<bool>(),
     )

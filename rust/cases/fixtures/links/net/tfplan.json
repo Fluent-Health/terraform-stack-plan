@@ -1,0 +1,131 @@
+{
+  "format_version": "1.2",
+  "resource_changes": [
+    {
+      "address": "google_compute_network.main",
+      "mode": "managed",
+      "type": "google_compute_network",
+      "name": "main",
+      "provider_name": "registry.terraform.io/hashicorp/google",
+      "change": {
+        "actions": [
+          "update"
+        ],
+        "before": {
+          "name": "main-vpc",
+          "description": "old"
+        },
+        "after": {
+          "name": "main-vpc",
+          "description": "Shared VPC for test.\nManaged by Terraform.\n"
+        },
+        "after_unknown": {},
+        "before_sensitive": {},
+        "after_sensitive": {}
+      }
+    },
+    {
+      "address": "google_compute_router.nat[\"asia-south1\"]",
+      "mode": "managed",
+      "type": "google_compute_router",
+      "name": "nat",
+      "provider_name": "registry.terraform.io/hashicorp/google",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "before": null,
+        "after": {
+          "name": "nat-asia-south1",
+          "region": "asia-south1"
+        },
+        "after_unknown": {},
+        "before_sensitive": {},
+        "after_sensitive": {}
+      }
+    },
+    {
+      "address": "google_compute_firewall.allow_iap",
+      "mode": "managed",
+      "type": "google_compute_firewall",
+      "name": "allow_iap",
+      "provider_name": "registry.terraform.io/hashicorp/google",
+      "change": {
+        "actions": [
+          "update"
+        ],
+        "before": {
+          "target_tags": []
+        },
+        "after": {
+          "target_tags": [
+            "iap"
+          ]
+        },
+        "after_unknown": {},
+        "before_sensitive": {},
+        "after_sensitive": {}
+      }
+    },
+    {
+      "address": "module.subnets.google_compute_subnetwork.this[\"asia-south1\"]",
+      "mode": "managed",
+      "type": "google_compute_subnetwork",
+      "name": "this",
+      "provider_name": "registry.terraform.io/hashicorp/google",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "before": null,
+        "after": {
+          "ip_cidr_range": "10.0.0.0/24",
+          "name": "sub-asia-south1"
+        },
+        "after_unknown": {},
+        "before_sensitive": {},
+        "after_sensitive": {}
+      },
+      "module_address": "module.subnets"
+    },
+    {
+      "address": "module.remote.google_compute_address.ip",
+      "mode": "managed",
+      "type": "google_compute_address",
+      "name": "ip",
+      "provider_name": "registry.terraform.io/hashicorp/google",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "before": null,
+        "after": {
+          "name": "ip"
+        },
+        "after_unknown": {},
+        "before_sensitive": {},
+        "after_sensitive": {}
+      },
+      "module_address": "module.remote"
+    },
+    {
+      "address": "google_compute_route.missing",
+      "mode": "managed",
+      "type": "google_compute_route",
+      "name": "missing",
+      "provider_name": "registry.terraform.io/hashicorp/google",
+      "change": {
+        "actions": [
+          "delete"
+        ],
+        "before": {
+          "name": "gone"
+        },
+        "after": null,
+        "after_unknown": {},
+        "before_sensitive": {},
+        "after_sensitive": {}
+      }
+    }
+  ]
+}

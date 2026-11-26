@@ -91,8 +91,12 @@ Cases live in `cases/` in [trycmd](https://docs.rs/trycmd) format:
   `fs.sandbox = true` with `fs.base = "fixtures"`; trycmd copies that directory
   to a temp dir, runs there, and compares the files in `<name>.out/`.
 - `cases/fixtures/` holds plan trees: `small/` (the plan fixtures from
-  `internal/plan/testdata`), and `big/` and `state-ops/` (the inputs behind the
-  `examples/*.md` goldens), plus `policy.hcl` for the sandboxed cases.
+  `internal/plan/testdata`), `big/` and `state-ops/` (the inputs behind the
+  `examples/*.md` goldens), and `links/` with its source tree `links-src/` (`.tf`
+  files, a local module and `.terraform/modules/modules.json`) for resource
+  `{file}#L{line}` links. Beside them are `policy.hcl` for the sandboxed cases and
+  `prod-like.hcl`, a policy file shaped like a production one (links, cache,
+  progress and `env_uniqueness` blocks) with made-up names.
 
 To add a case, write the `.toml` with `bin.name`, `args` and `fs.cwd`, then
 record it.
@@ -166,7 +170,11 @@ including JSON and YAML strings, numbers and Unicode; sensitivity and
 known-after-apply markers; actions; dropped changes), renders each mutation with
 the Go binary and with the front door under random configs, budgets and
 `--details`, and requires identical stdout, stderr, exit code and
-classification JSON. It is skipped when the Go binary is absent.
+classification JSON. Plans are written with object keys in sorted or reversed
+order, and every run resolves resource links against the `.tf` tree in
+`cases/fixtures/links-src/` (the `links` fixture set always has links on). It is
+skipped, with a loud note, when the Go binary is absent, and fails instead when
+`CI` is set.
 `PROPTEST_CASES` sets the number of cases (default 96).
 
 CI (`rust` job in `.github/workflows/ci.yml`) runs the checks in *Before you push*,
