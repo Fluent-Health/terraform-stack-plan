@@ -410,7 +410,9 @@ func TestPublicSurfaceAndSPA(t *testing.T) {
 
 func TestStreamProxies(t *testing.T) {
 	var gotAuth, gotLastID, gotQuery string
+	var tierHits int
 	tierSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		tierHits++
 		gotAuth = r.Header.Get("Authorization")
 		gotLastID = r.Header.Get("Last-Event-ID")
 		gotQuery = r.URL.RawQuery
@@ -466,6 +468,28 @@ func TestStreamProxies(t *testing.T) {
 	// Plan fragment proxy.
 	if rr := get(t, h, "/api/tiers/nonprod/plan/e1/stacks/a", sess); rr.Code != 200 || !strings.Contains(rr.Body.String(), "<h3>stacks/a</h3>") {
 		t.Errorf("plan proxy: %d %s", rr.Code, rr.Body.String())
+	}
+
+	// Dot segments and other path-changing characters in exec/stack are
+	// refused before the tier is contacted (the bearer must not be walked
+	// to another tier endpoint).
+	hits := tierHits
+	for _, p := range []string{
+		"/api/tiers/nonprod/logs/%2e%2e/api/approvals",
+		"/api/tiers/nonprod/logs/e1/%2e%2e/%2e%2e/api/approvals",
+		"/api/tiers/nonprod/plan/e1/stacks/%2E/a",
+		"/api/tiers/nonprod/plan/e1/stacks/a%3Fx=1",
+		"/api/tiers/nonprod/plan/e1/stacks/a%23frag",
+		"/api/tiers/nonprod/logs/e1/stacks%5C..%5Capi",
+		"/api/tiers/nonprod/logs/e1/stacks%2F%2Fa",
+		"/api/tiers/nonprod/logs/e1/stacks%2F..%2F..%2Fapi",
+	} {
+		if rr := get(t, h, p, sess); rr.Code != http.StatusBadRequest {
+			t.Errorf("%s: want 400, got %d", p, rr.Code)
+		}
+	}
+	if tierHits != hits {
+		t.Errorf("rejected paths reached the tier %d time(s)", tierHits-hits)
 	}
 
 	// Session + tier guards hold on the stream routes too.

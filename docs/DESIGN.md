@@ -571,7 +571,10 @@ configured by the top-level `ui {}` block (`tier "<name>" { url }`, `oauth {}`,
   response bodies **verbatim**; a dead tier is a `502` naming it. Session-authed
   streaming proxies (outside the contract) cover the tier's SSE change stream,
   log reads (`?follow=1` with `Last-Event-ID` resume), and the rendered plan
-  HTML fragment, which the SPA injects rather than re-implementing.
+  HTML fragment, which the SPA injects rather than re-implementing. The
+  exec and stack path segments are refused (`400`) if empty, `.`, `..`, or
+  holding `?`, `#` or `\`, so a proxied path can't be steered to another
+  tier endpoint.
 - **GitHub App webhook relay** (`POST /github/webhook`): the single ingress for
   App-scoped deliveries (the Re-run buttons), forwarded **verbatim** to every
   tier's `/github/webhook`, so each serve verifies GitHub's HMAC end-to-end.

@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"strings"
 )
 
 // Streaming/HTML proxies — session-authed but outside the OpenAPI contract,
@@ -33,12 +34,38 @@ func (a *App) registerStreamRoutes(mux *http.ServeMux) {
 		})))
 	mux.Handle("GET /api/tiers/{tier}/logs/{exec}/{stack...}",
 		a.sessionAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			a.proxyStream(w, r, r.PathValue("tier"), "/logs/"+url.PathEscape(r.PathValue("exec"))+"/"+r.PathValue("stack"))
+			a.proxyExecStack(w, r, "/logs/")
 		})))
 	mux.Handle("GET /api/tiers/{tier}/plan/{exec}/{stack...}",
 		a.sessionAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			a.proxyStream(w, r, r.PathValue("tier"), "/plan/"+url.PathEscape(r.PathValue("exec"))+"/"+r.PathValue("stack"))
+			a.proxyExecStack(w, r, "/plan/")
 		})))
+}
+
+// proxyExecStack proxies the {exec}/{stack...} routes. The decoded segments
+// are checked before they go into the tier URL: a dot segment (e.g. an
+// encoded "..") would otherwise walk the proxied path to another tier
+// endpoint while carrying the UI's tier bearer.
+func (a *App) proxyExecStack(w http.ResponseWriter, r *http.Request, prefix string) {
+	exec := r.PathValue("exec")
+	segs := strings.Split(r.PathValue("stack"), "/")
+	escaped := make([]string, len(segs))
+	for i, seg := range append([]string{exec}, segs...) {
+		if !safePathSegment(seg) {
+			http.Error(w, "invalid path", http.StatusBadRequest)
+			return
+		}
+		if i > 0 {
+			escaped[i-1] = url.PathEscape(seg)
+		}
+	}
+	a.proxyStream(w, r, r.PathValue("tier"), prefix+url.PathEscape(exec)+"/"+strings.Join(escaped, "/"))
+}
+
+// safePathSegment rejects segments that could change the proxied path's
+// meaning once the tier (or anything in between) normalizes it.
+func safePathSegment(s string) bool {
+	return s != "" && s != "." && s != ".." && !strings.ContainsAny(s, "?#\\")
 }
 
 // proxyStream relays one tier response, flushing as bytes arrive so SSE
