@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"html/template"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -108,24 +109,47 @@ func (a *App) handleApproveStart(w http.ResponseWriter, r *http.Request) {
 // sameOriginRequest reports whether r was initiated by a page on the UI's own
 // origin. Browsers send Sec-Fetch-Site on navigations and window.open; when it
 // is missing (older browsers), fall back to Origin, then Referer, compared by
-// exact origin with the configured public base URL.
+// origin (scheme, host, port with defaults applied) with the configured public
+// base URL. An opaque "null" Origin is a refusal, not a reason to try Referer.
 func (a *App) sameOriginRequest(r *http.Request) bool {
 	if site := r.Header.Get("Sec-Fetch-Site"); site != "" {
 		return site == "same-origin"
 	}
-	want, err := url.Parse(a.cfg.PublicBaseURL)
-	if err != nil || want.Host == "" {
+	want, ok := originOf(a.cfg.PublicBaseURL)
+	if !ok {
 		return false
 	}
 	src := r.Header.Get("Origin")
-	if src == "" || src == "null" {
-		src = r.Header.Get("Referer")
-	}
-	got, err := url.Parse(src)
-	if err != nil || got.Host == "" {
+	if src == "null" {
 		return false
 	}
-	return strings.EqualFold(got.Scheme, want.Scheme) && strings.EqualFold(got.Host, want.Host)
+	if src == "" {
+		src = r.Header.Get("Referer")
+	}
+	got, ok := originOf(src)
+	return ok && got == want
+}
+
+// originOf returns raw's origin as scheme://host:port, lowercased, with the
+// scheme's default port filled in so "https://h" and "https://h:443" match.
+func originOf(raw string) (string, bool) {
+	u, err := url.Parse(raw)
+	if err != nil || u.Hostname() == "" {
+		return "", false
+	}
+	scheme := strings.ToLower(u.Scheme)
+	port := u.Port()
+	if port == "" {
+		switch scheme {
+		case "https":
+			port = "443"
+		case "http":
+			port = "80"
+		default:
+			return "", false
+		}
+	}
+	return scheme + "://" + net.JoinHostPort(strings.ToLower(u.Hostname()), port), true
 }
 
 // handleApproveCallback finishes it: validate the sealed intent, exchange the

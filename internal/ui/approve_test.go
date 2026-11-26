@@ -296,9 +296,12 @@ func TestApproveStartRefusesCrossSite(t *testing.T) {
 		{"wrong scheme origin", map[string]string{"Origin": "http://ui.example.com"}, http.StatusForbidden},
 		{"wrong port origin", map[string]string{"Origin": "https://ui.example.com:8443"}, http.StatusForbidden},
 		{"null origin", map[string]string{"Origin": "null"}, http.StatusForbidden},
+		{"null origin with matching referer", map[string]string{"Origin": "null", "Referer": "https://ui.example.com/approvals"}, http.StatusForbidden},
 		{"same-origin fetch metadata", map[string]string{"Sec-Fetch-Site": "same-origin"}, http.StatusFound},
 		{"matching origin", map[string]string{"Origin": "https://ui.example.com"}, http.StatusFound},
 		{"matching referer", map[string]string{"Referer": "https://ui.example.com/approvals"}, http.StatusFound},
+		{"matching referer with default port", map[string]string{"Referer": "https://ui.example.com:443/approvals"}, http.StatusFound},
+		{"matching origin with default port, mixed case", map[string]string{"Origin": "HTTPS://UI.Example.com:443"}, http.StatusFound},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
