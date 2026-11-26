@@ -291,6 +291,7 @@ fn detect_type() {
     assert!(detect(r#"{"a":1}"#) == ValueType::Json);
     assert!(detect("a: 1\nb: 2\n") == ValueType::Yaml);
     assert!(detect("just some text") == ValueType::Plain);
+    assert!(detect("1: one\ntrue: yes\n") == ValueType::Plain);
     assert!(detect(&"QUJD".repeat(60)) == ValueType::Base64);
 }
 
