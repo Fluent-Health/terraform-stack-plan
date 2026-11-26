@@ -320,3 +320,129 @@ fn every_spec_operation_is_routed_with_its_scopes() {
         assert_eq!(got, want, "scopes of {method} {path}");
     }
 }
+
+/// The routes that answer without the `/api` bearer: health, Pub/Sub (its own OIDC
+/// push token) and the GitHub webhook (HMAC).
+const AUTH_EXEMPT: &[(&str, &str)] = &[
+    ("GET", "/ready"),
+    ("GET", "/healthz"),
+    ("POST", "/pubsub/push"),
+    ("POST", "/pubsub/cloud-builds"),
+    ("POST", "/github/webhook"),
+];
+
+/// A concrete request path for a route pattern; parameters that bind before auth get
+/// values that bind.
+fn concrete(pattern: &str) -> String {
+    let p: Vec<String> = pattern
+        .split('/')
+        .map(|s| match s {
+            "{*stack}" => "stacks/a".to_string(),
+            s if s.starts_with('{') => "1".to_string(),
+            s => s.to_string(),
+        })
+        .collect();
+    let p = p.join("/");
+    if p == "/api/lifecycle" {
+        format!("{p}?pr=1")
+    } else {
+        p
+    }
+}
+
+#[tokio::test]
+async fn every_route_but_the_exempt_ones_needs_a_scoped_token() {
+    let (_d, a) = with_verifier(
+        &[
+            ("report@example.com", &["report"]),
+            ("read@example.com", &["read"]),
+            ("admin@example.com", &["admin"]),
+        ],
+        &[
+            ("tok-report", "report@example.com"),
+            ("tok-read", "read@example.com"),
+            ("tok-admin", "admin@example.com"),
+            ("tok-nobody", "stranger@example.com"),
+        ],
+    );
+    let mut routes: Vec<(&str, &str, &[&str])> = API_ROUTES.to_vec();
+    routes.extend([
+        ("GET", "/logs/{exec}/{*stack}", ANY),
+        ("GET", "/plan/{exec}/{*stack}", ANY),
+        ("GET", "/api/execution/{id}/events", ANY),
+    ]);
+    for (method, pattern, scopes) in routes {
+        assert!(
+            !AUTH_EXEMPT.iter().any(|(_, p)| *p == pattern),
+            "{pattern} is both gated and exempt"
+        );
+        let path = concrete(pattern);
+        for tok in ["", "garbage"] {
+            let got = send(&a, method, &path, tok, "").await.status;
+            assert_eq!(got, 401, "{method} {path} with token {tok:?}");
+        }
+        assert_eq!(
+            send(&a, method, &path, "tok-nobody", "").await.status,
+            403,
+            "{method} {path} with no scope"
+        );
+        for (tok, scope) in [
+            ("tok-report", SCOPE_REPORT),
+            ("tok-read", SCOPE_READ),
+            ("tok-admin", SCOPE_ADMIN),
+        ] {
+            if !scopes.contains(&scope) {
+                assert_eq!(
+                    send(&a, method, &path, tok, "").await.status,
+                    403,
+                    "{method} {path} with scope {scope}"
+                );
+            }
+        }
+    }
+    // The exempt routes skip the bearer middleware (whose texts are "unauthorized" and
+    // "forbidden"); their own checks answer instead.
+    for (method, path) in AUTH_EXEMPT {
+        let r = send(&a, method, path, "", "").await;
+        let text = r.text();
+        assert!(
+            text != "unauthorized\n" && text != "forbidden\n",
+            "{method} {path} = {} {text:?}: exempt routes skip the bearer check",
+            r.status
+        );
+    }
+}
+
+#[tokio::test]
+async fn api_body_over_the_limit_is_413() {
+    let (_d, a) = app();
+    let big = "x".repeat(API_BODY_LIMIT + 1);
+    let r = send(&a, "POST", "/api/logs", "", &big).await;
+    assert_eq!(r.status, 413);
+    assert_eq!(r.text(), "request body too large\n");
+}
+
+#[tokio::test]
+async fn push_bodies_over_2_mib_are_413() {
+    let (_d, a) = app();
+    let big = "x".repeat(PUSH_BODY_LIMIT + 1);
+    for path in ["/pubsub/push", "/pubsub/cloud-builds", "/github/webhook"] {
+        assert_eq!(send(&a, "POST", path, "", &big).await.status, 413, "{path}");
+    }
+}
+
+#[tokio::test]
+async fn unreadable_api_body_is_400() {
+    use tower::ServiceExt as _;
+    let (_d, a) = app();
+    let body = Body::from_stream(futures_util::stream::iter([Err::<Bytes, _>(
+        std::io::Error::other("connection reset"),
+    )]));
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/logs")
+        .body(body)
+        .unwrap();
+    let resp = a.router().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), 400);
+}

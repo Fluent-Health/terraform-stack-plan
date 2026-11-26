@@ -11,6 +11,10 @@ use std::time::Duration;
 use axum::Router;
 use axum::http::StatusCode;
 use axum::response::Response;
+use hyper::server::conn::http1;
+use hyper_util::rt::{TokioIo, TokioTimer};
+use hyper_util::server::graceful::GracefulShutdown;
+use hyper_util::service::TowerToHyperService;
 use tfstackplan_server_clients::approval::gcppam;
 use tfstackplan_server_clients::executor::cloudbuild::CloudBuild;
 use tfstackplan_server_clients::gauth;
@@ -582,8 +586,12 @@ pub fn parse_flags(args: &[String]) -> Result<Flags, String> {
     Ok(f)
 }
 
+/// How long a client may take to send the request headers (Go's `ReadHeaderTimeout`).
+const HEADER_READ_TIMEOUT: Duration = Duration::from_secs(10);
+
 /// Serves `router` on `listener` until `signal` resolves, then keeps accepting for
-/// `lame_duck`, stops accepting, and gives in-flight requests `drain` to finish.
+/// `lame_duck`, stops accepting, and gives in-flight requests `drain` to finish. Request
+/// headers must arrive within ten seconds (Go's `ReadHeaderTimeout`).
 pub async fn serve_until(
     listener: TcpListener,
     router: Router,
@@ -591,28 +599,50 @@ pub async fn serve_until(
     lame_duck: Duration,
     drain: Duration,
 ) -> std::io::Result<()> {
-    let (stop_tx, stop_rx) = tokio::sync::oneshot::channel::<()>();
-    let (stopped_tx, stopped_rx) = tokio::sync::oneshot::channel::<()>();
-    tokio::spawn(async move {
-        signal.await;
-        tokio::time::sleep(lame_duck).await;
-        let _ = stop_tx.send(());
-        let _ = stopped_tx.send(());
-    });
-    let server = axum::serve(listener, router).with_graceful_shutdown(async move {
-        let _ = stop_rx.await;
-    });
-    let server = std::pin::pin!(server.into_future());
-    tokio::select! {
-        r = server => r,
-        () = async {
-            let _ = stopped_rx.await;
-            tokio::time::sleep(drain).await;
-        } => {
-            warn!("serve: drain deadline passed with requests still in flight");
-            Ok(())
+    let graceful = GracefulShutdown::new();
+    let mut builder = http1::Builder::new();
+    builder
+        .timer(TokioTimer::new())
+        .header_read_timeout(HEADER_READ_TIMEOUT);
+    let svc = TowerToHyperService::new(router);
+    let accept = |stream: tokio::net::TcpStream| {
+        let conn = builder.serve_connection(TokioIo::new(stream), svc.clone());
+        let conn = graceful.watch(conn);
+        tokio::spawn(async move {
+            let _ = conn.await;
+        });
+    };
+    tokio::pin!(signal);
+    loop {
+        tokio::select! {
+            () = &mut signal => break,
+            conn = listener.accept() => {
+                if let Ok((stream, _)) = conn {
+                    accept(stream);
+                }
+            }
         }
     }
+    let linger = tokio::time::sleep(lame_duck);
+    tokio::pin!(linger);
+    loop {
+        tokio::select! {
+            () = &mut linger => break,
+            conn = listener.accept() => {
+                if let Ok((stream, _)) = conn {
+                    accept(stream);
+                }
+            }
+        }
+    }
+    drop(listener);
+    if tokio::time::timeout(drain, graceful.shutdown())
+        .await
+        .is_err()
+    {
+        warn!("serve: drain deadline passed with requests still in flight");
+    }
+    Ok(())
 }
 
 async fn terminate() {

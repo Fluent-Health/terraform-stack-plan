@@ -328,3 +328,30 @@ async fn sigterm_drains_an_in_flight_request() {
     assert_eq!(resp.text().await.unwrap(), "done");
     server.await.unwrap().unwrap();
 }
+
+#[tokio::test(start_paused = true)]
+async fn slow_request_headers_are_cut_off() {
+    use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let _server = tokio::spawn(serve_until(
+        listener,
+        Router::new(),
+        std::future::pending(),
+        Duration::ZERO,
+        Duration::ZERO,
+    ));
+    let mut conn = tokio::net::TcpStream::connect(addr).await.unwrap();
+    conn.write_all(b"GET /ready HTTP/1.1\r\nHost: x\r\n")
+        .await
+        .unwrap();
+    let started = tokio::time::Instant::now();
+    let mut buf = Vec::new();
+    let _ = conn.read_to_end(&mut buf).await;
+    assert!(
+        started.elapsed() >= HEADER_READ_TIMEOUT,
+        "closed after {:?}",
+        started.elapsed()
+    );
+    assert!(started.elapsed() < HEADER_READ_TIMEOUT * 2);
+}

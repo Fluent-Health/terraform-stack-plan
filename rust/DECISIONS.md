@@ -197,7 +197,13 @@ answers 404 there.
 `serve` reads only the HCL blocks it needs (`serve`, the unlabeled `server`, `class`,
 `progress`) and accepts the render blocks without validating them; the render port owns those.
 On SIGTERM it keeps accepting for two seconds, then stops and gives in-flight requests seven
-more, inside Cloud Run's ten-second grace.
+more, inside Cloud Run's ten-second grace. It serves HTTP/1.1 through hyper-util, like the ui,
+so request headers must arrive within ten seconds (Go's `ReadHeaderTimeout`).
+
+Go reads request bodies without a limit. Here Pub/Sub pushes and the GitHub webhook are capped
+at 2 MiB and `/api` bodies at 32 MiB, Cloud Run's HTTP/1 request limit, since `/api/logs`
+carries whatever log output piled up since the runner's last post. Past the cap the answer is
+413; a body that cannot be read is 400 instead of being handled as empty.
 
 `server/tests/replay.rs` runs Go's `serve` and the Rust `serve` side by side from fresh
 databases and the same config, against one fake GitHub each, and compares every case's

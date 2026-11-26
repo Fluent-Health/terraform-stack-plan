@@ -62,6 +62,27 @@ pub const API_ROUTES: &[(&str, &str, &[&str])] = &[
     ("POST", "/api/admin/checks/override", ADMIN),
 ];
 
+/// The largest Pub/Sub push or GitHub webhook body accepted (GitHub caps deliveries at
+/// 25 MB but ours are small; Pub/Sub pushes are a few KB).
+pub(crate) const PUSH_BODY_LIMIT: usize = 2 << 20;
+
+/// The largest `/api` body accepted. `/api/logs` carries whatever log output piled up since
+/// the last post, so the cap is Cloud Run's own HTTP/1 request limit: nothing larger
+/// reaches the service anyway.
+pub(crate) const API_BODY_LIMIT: usize = 32 << 20;
+
+/// The answer to an `/api` body that could not be read: 413 past the limit, else 400.
+fn body_error(e: &axum::Error) -> Response {
+    let mut src: Option<&(dyn std::error::Error + 'static)> = Some(e);
+    while let Some(err) = src {
+        if err.is::<http_body_util::LengthLimitError>() {
+            return http::error(StatusCode::PAYLOAD_TOO_LARGE, "request body too large");
+        }
+        src = err.source();
+    }
+    http::bad_request("cannot read request body")
+}
+
 fn scopes_of(path: &str) -> &'static [&'static str] {
     API_ROUTES
         .iter()
@@ -168,8 +189,10 @@ impl App {
             };
             r = r.route(path, mr);
         }
+        // The limit binds the `Bytes` extractors (Pub/Sub and the webhook); `/api` reads
+        // its body itself under API_BODY_LIMIT.
         r.fallback(|| async { http::not_found_page() })
-            .layer(DefaultBodyLimit::disable())
+            .layer(DefaultBodyLimit::max(PUSH_BODY_LIMIT))
             .with_state(Arc::clone(self))
     }
 }
@@ -347,9 +370,9 @@ async fn api(State(app): State<Arc<App>>, req: Request) -> Response {
         base_url: app.base_url(req.headers()),
         actor,
     };
-    let body: Bytes = match axum::body::to_bytes(req.into_body(), usize::MAX).await {
+    let body: Bytes = match axum::body::to_bytes(req.into_body(), API_BODY_LIMIT).await {
         Ok(b) => b,
-        Err(_) => Bytes::new(),
+        Err(e) => return body_error(&e),
     };
     let body = &body[..];
     match (matched.as_str(), bound) {
