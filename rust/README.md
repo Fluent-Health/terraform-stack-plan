@@ -55,6 +55,7 @@ target/release/tfstackplan -version
 Run the same checks as the CI `rust` job, from `rust/`, and confirm each exits 0:
 
 ```bash
+export TFSTACKPLAN_GO_BIN=$PWD/.go/tfstackplan-go
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
 RUSTDOCFLAGS='-D warnings' cargo doc --workspace --no-deps --locked
@@ -62,6 +63,7 @@ cargo nextest run --profile pr --workspace --locked
 cargo test --doc --workspace --locked
 cargo deny --locked check advisories bans licenses sources
 cargo run -p recorder && git diff --exit-code -- cases replay-report.md   # recordings still match Go
+test -z "$(git status --porcelain -- cases replay-report.md)"             # no new untracked recordings
 ```
 
 Unit tests live in a `tests.rs` beside the module (`#[cfg(test)] mod tests;`), not

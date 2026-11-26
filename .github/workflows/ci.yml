@@ -86,6 +86,8 @@ jobs:
 
   rust:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     defaults:
       run:
         working-directory: rust
@@ -106,7 +108,7 @@ jobs:
         run: CGO_ENABLED=0 go build -o "$TFSTACKPLAN_GO_BIN" ./cmd/tfstackplan
 
       # Pinned like the toolchain, so CI and local runs use the same versions.
-      - uses: taiki-e/install-action@v2
+      - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
         with:
           tool: cargo-nextest@0.9.152,cargo-deny@0.22.1
 
