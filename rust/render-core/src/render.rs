@@ -129,8 +129,8 @@ pub fn render_stack_section(b: &mut String, s: &Stack, r: &Report) {
     stack_section_from_blocks(b, s, r, &blocks);
 }
 
-/// The text a stack section wraps around its rendered resources. Fit uses it to size a
-/// section from cached resource renders.
+/// The text a stack section wraps around its rendered resources. The fit tests use it to
+/// build a section from resource renders they already have.
 pub fn stack_section_from_blocks(b: &mut String, s: &Stack, r: &Report, blocks: &[String]) {
     b.push_str(&stack_section_head(s, r));
     let body = format!("\n{}", blocks.join("\n\n"));

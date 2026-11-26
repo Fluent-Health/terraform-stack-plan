@@ -1,6 +1,8 @@
 //! A port of the parts of `github.com/pmezard/go-difflib` that `tfstackplan` uses: Python's
 //! `difflib.SequenceMatcher` (with its auto-junk heuristic) and the unified diff writer, without
 //! file headers.
+//!
+//! go-difflib is BSD-3-Clause; its licence text is in `rust/THIRD_PARTY_NOTICES`.
 
 use std::collections::{HashMap, HashSet};
 
