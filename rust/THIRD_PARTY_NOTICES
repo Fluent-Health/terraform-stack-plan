@@ -1,4 +1,4 @@
-Third-party notices for the Rust render port
+Third-party notices for the Rust ports
 
 Parts of the code under rust/ are ported from the projects below. Each section
 says what was ported and where it lives, followed by the upstream licence and

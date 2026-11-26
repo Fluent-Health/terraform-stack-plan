@@ -103,7 +103,8 @@ malformed file fails in the same cases with a different message; replay cases on
 the errors tfstackplan itself words. The shims and xmove manifests are built as strings,
 as Go builds them. YAML (uniqueness manifests) is parsed with `yaml-rust2` and converted to
 the values Go's yaml.v3 yields for `map[string]any`; a YAML syntax error is worded by
-`yaml-rust2`.
+`yaml-rust2`. Merge keys (`<<`) in uniqueness manifests are kept as ordinary keys where
+yaml.v3 merges them; the `run` port branch closes that gap.
 
 ## HTTP clients are blocking
 

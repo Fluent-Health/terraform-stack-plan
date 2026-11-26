@@ -7,7 +7,7 @@
 //! - fall back to Go exactly when its subcommand is not ported (or a kill switch
 //!   in its env sends it there), checked through the fallback log;
 //! - when sandboxed, leave exactly its base files, less its `deletes`, plus its
-//!   `.out/` files;
+//!   `.out/` files, with every base file not in `.out/` unchanged;
 //! - when not sandboxed, leave the repository checkout as it found it.
 //!
 //! A case with a `[harness]` table gets its fake server (see the `casekit`
@@ -43,6 +43,16 @@ struct Case {
     harness: casekit::Harness,
 }
 
+/// Variables the replay sets itself, which a case's `env.add` must not override.
+const RESERVED_ENV: &[&str] = &["TFSTACKPLAN_GO_BIN", "TFSTACKPLAN_FALLBACK_LOG", "HOME"];
+
+/// Whether recorded output holds a trycmd wildcard: `[..]` or a line that is just `...`.
+fn has_wildcard(b: &[u8]) -> bool {
+    b.windows(4).any(|w| w == b"[..]")
+        || b.split(|&c| c == b'\n')
+            .any(|l| l.strip_suffix(b"\r").unwrap_or(l) == b"...")
+}
+
 fn load(path: &Path) -> Result<Case, String> {
     let doc: toml_edit::DocumentMut = std::fs::read_to_string(path)
         .map_err(|e| e.to_string())?
@@ -68,7 +78,7 @@ fn load(path: &Path) -> Result<Case, String> {
                 .ok_or("`args` must be strings")
         })
         .collect::<Result<_, _>>()?;
-    let env_add = doc
+    let env_add: BTreeMap<String, String> = doc
         .get("env")
         .and_then(|t| t.get("add"))
         .and_then(|t| t.as_table_like())
@@ -78,6 +88,9 @@ fn load(path: &Path) -> Result<Case, String> {
                 .collect()
         })
         .unwrap_or_default();
+    if let Some(k) = RESERVED_ENV.iter().find(|k| env_add.contains_key(**k)) {
+        return Err(format!("env.add must not set {k}: the replay controls it"));
+    }
     let fs_get = |key: &str| doc.get("fs").and_then(|t| t.get(key));
     let fs_path = |key: &str| fs_get(key).and_then(|v| v.as_str()).map(|s| dir.join(s));
     let in_dir = path.with_extension("in");
@@ -99,6 +112,23 @@ fn load(path: &Path) -> Result<Case, String> {
         (true, None) => return Err("a sandbox needs fs.base".into()),
         (false, _) => None,
     };
+    let wildcards = doc
+        .get("wildcards")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    if !wildcards {
+        let mut expected = vec![path.with_extension("stdout"), path.with_extension("stderr")];
+        expected.extend(files(&out_dir).into_iter().map(|f| out_dir.join(f)));
+        if let Some(f) = expected
+            .iter()
+            .find(|f| std::fs::read(f).is_ok_and(|b| has_wildcard(&b)))
+        {
+            return Err(format!(
+                "{} has a wildcard (`[..]` or a `...` line) but the case lacks `wildcards = true`",
+                f.display()
+            ));
+        }
+    }
     Ok(Case {
         name: path
             .file_stem()
@@ -205,13 +235,20 @@ fn extra_checks(case: &Case, log: &Path, vars: &[(String, OsString)]) -> Option<
     want.retain(|f| !case.deletes.contains(f));
     want.extend(files(&case.out_dir));
     let got = files(sandbox.path());
-    (got != want).then(|| {
-        format!(
+    if got != want {
+        return Some(format!(
             "sandbox files differ from base - deletes + .out: extra {:?}, missing {:?}",
             got.difference(&want).collect::<Vec<_>>(),
             want.difference(&got).collect::<Vec<_>>()
-        )
-    })
+        ));
+    }
+    // Base files Go left alone must come out byte for byte the same.
+    let out = files(&case.out_dir);
+    files(base)
+        .into_iter()
+        .filter(|f| !case.deletes.contains(f) && !out.contains(f))
+        .find(|f| std::fs::read(sandbox.path().join(f)).ok() != std::fs::read(base.join(f)).ok())
+        .map(|f| format!("base file changed by Rust but not by Go: {}", f.display()))
 }
 
 #[test]
