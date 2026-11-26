@@ -121,8 +121,18 @@ jobs:
         env:
           RUSTDOCFLAGS: -D warnings
 
+      # The store's compatibility test opens a database this Go code wrote, so a
+      # Go change that alters what the store reads fails here, not later.
+      - name: Write the Go database for the store's compatibility test
+        working-directory: .
+        run: go test -count=1 -run TestWriteRustCompatDB ./internal/server/
+        env:
+          TFSTACKPLAN_RUST_COMPAT_DB: ${{ runner.temp }}/go.db
+
       - name: cargo nextest
         run: cargo nextest run --profile pr --workspace --locked
+        env:
+          TFSTACKPLAN_RUST_COMPAT_DB: ${{ runner.temp }}/go.db
 
       - name: doctests
         run: cargo test --doc --workspace --locked

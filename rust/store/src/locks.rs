@@ -32,8 +32,9 @@ impl<K: Eq + Hash> KeyedLocks<K> {
                 .entry(key)
                 .or_default(),
         );
-        // A panic inside `f` leaves no shared state half-changed: the store's
-        // transactions roll back on drop.
+        // A round is two transactions (append with snapshot, then projections), so
+        // a panic between them can leave a projection behind the log, as in Go. The
+        // next round on the key, or a rebuild, projects it again.
         let _guard = lock.lock().unwrap_or_else(PoisonError::into_inner);
         f()
     }

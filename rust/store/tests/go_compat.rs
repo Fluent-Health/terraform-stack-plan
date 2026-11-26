@@ -1,11 +1,13 @@
 //! Opens a database the Go binary wrote and checks the Rust store reads it the
 //! same way: no migration re-runs, every stored event and snapshot decodes and
 //! re-encodes to the same JSON, every stream replays to the state Go snapshotted,
-//! and rebuilding the projections from the log leaves Go's tables as they were.
+//! and rebuilding the projections from the log into empty tables gives Go's rows.
 //!
 //! `fixtures/go.db` comes from the Go test `TestWriteRustCompatDB`
 //! (`internal/server/rustcompat_test.go`), which drives Go's shell through every
-//! aggregate. Regenerate it from the repository root with:
+//! aggregate. CI writes a fresh one and points `TFSTACKPLAN_RUST_COMPAT_DB` at
+//! it, so the committed copy can't go stale unnoticed. Regenerate the committed
+//! copy from the repository root with:
 //!
 //! ```sh
 //! TFSTACKPLAN_RUST_COMPAT_DB=$PWD/rust/store/tests/fixtures/go.db \
@@ -28,8 +30,15 @@ use tfstackplan_gate::reconcile::{self, Gate};
 use tfstackplan_store::Store;
 
 /// A copy of the Go database in a temp dir, so the test never writes the fixture.
+/// `TFSTACKPLAN_RUST_COMPAT_DB` names a freshly written one (CI regenerates it
+/// from the Go code under review); otherwise the committed fixture is used.
 fn go_db() -> (tempfile::TempDir, PathBuf) {
-    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/go.db");
+    let fixture = std::env::var_os("TFSTACKPLAN_RUST_COMPAT_DB")
+        .filter(|p| !p.is_empty())
+        .map_or_else(
+            || Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/go.db"),
+            PathBuf::from,
+        );
     let dir = tempfile::Builder::new()
         .prefix("tfsp-compat-")
         .tempdir()
@@ -178,6 +187,63 @@ fn opens_folds_and_reprojects_a_go_database() {
     for stream in store.stream_ids("env:").expect("streams") {
         checked += check_stream::<Claims>(&store, &stream, |_: &mut claims::ClaimSet| {});
     }
+    // The fixture exercises every event kind, so every decoder is checked.
+    let conn = Connection::open(&path).expect("open");
+    let kinds: Vec<String> = rows(&conn, "SELECT DISTINCT type FROM events")
+        .into_iter()
+        .filter_map(|r| match r.into_iter().next() {
+            Some(Sql::Text(t)) => Some(t),
+            _ => None,
+        })
+        .collect();
+    for kind in [
+        "Classified",
+        "GrantObserved",
+        "GrantCleared",
+        "GateTargetRequested",
+        "GateSatisfied",
+        "GateBlocked",
+        "TargetRevoked",
+        "GatePassed",
+        "GateReleased",
+        "ClaimReleased",
+        "PRClosedRecorded",
+        "RunQueued",
+        "RunStarted",
+        "RunStartFailed",
+        "RunSuperseded",
+        "RunCompleted",
+        "RunAdopted",
+        "AdminGrantReleased",
+        "AdminExecutionCancelled",
+        "AdminGateSatisfied",
+        "AdminCheckOverridden",
+        "Started",
+        "PhaseChanged",
+        "StackStatusChanged",
+        "Failed",
+        "Succeeded",
+        "StacksAnnotated",
+        "Superseded",
+        "ClaimAcquired",
+        "ClaimRenewed",
+        "ClaimStackReleased",
+    ] {
+        assert!(
+            kinds.iter().any(|k| k == kind),
+            "the fixture has no {kind} event"
+        );
+    }
+    // ...including a grant state outside the normalised set.
+    let unknown: i64 = conn
+        .query_row(
+            "SELECT count(*) FROM events WHERE type = 'GrantObserved' AND data LIKE '%ACTIVATION_FAILED%'",
+            [],
+            |r| r.get(0),
+        )
+        .expect("count");
+    assert!(unknown > 0, "the fixture has no unknown grant state");
+
     let (total,): (i64,) = Connection::open(&path)
         .expect("open")
         .query_row("SELECT count(*) FROM events", [], |r| Ok((r.get(0)?,)))
@@ -188,7 +254,17 @@ fn opens_folds_and_reprojects_a_go_database() {
         "every event checked"
     );
 
+    // Rebuild from nothing, so a projection Rust fails to write shows up as a
+    // missing row instead of Go's row surviving an upsert.
+    Connection::open(&path)
+        .expect("open")
+        .execute_batch(
+            "DELETE FROM gate_targets; DELETE FROM apply_claims; DELETE FROM stacks;
+             DELETE FROM edges; DELETE FROM executions; DELETE FROM execution_phases;",
+        )
+        .expect("clear projections");
     store.rebuild_all().expect("rebuild");
+    let history = GoHistory::read(&store);
     drop(store);
     let after = projections(&path);
     for ((table, go), (_, rust)) in before.iter().zip(&after) {
@@ -199,41 +275,57 @@ fn opens_folds_and_reprojects_a_go_database() {
         assert_eq!(go.len(), rust.len(), "{table}: row count");
         for (g, r) in go.iter().zip(rust) {
             assert!(
-                g == r || go_history(table, g, r),
+                g == r || history.explains(table, g, r),
                 "{table}: Rust's projection differs from Go's\n   go {g:?}\n rust {r:?}"
             );
         }
     }
 }
 
-/// Whether two rows differ only in a column Go writes from a round's events
-/// rather than from any fold, which no replay can rebuild:
-/// - `executions.status` of a serve-started run: the round whose start failed
-///   marks it `failure`, and a later round on the execution's own stream (a
-///   supersede) re-projects it as `in_progress`. Which came last is in neither log.
-/// - `stacks.status` left `gated` or `safe`: a released gate stops writing the
-///   overlay, so its last value stays on the stacks.
-fn go_history(table: &str, go: &[Sql], rust: &[Sql]) -> bool {
-    let col = match table {
-        "executions" => 8,
-        "stacks" => 3,
-        _ => return false,
-    };
-    let text = |v: &Sql| match v {
-        Sql::Text(s) => s.clone(),
-        _ => String::new(),
-    };
-    let others_equal = go
-        .iter()
-        .zip(rust)
-        .enumerate()
-        .all(|(i, (g, r))| i == col || g == r);
-    let allowed = match table {
-        "executions" => {
-            text(&go[0]).starts_with("run-")
-                && [text(&go[col]), text(&rust[col])].contains(&"failure".to_string())
+/// What the logs say about the one column Go writes from a round's events in a
+/// way the log cannot order: `executions.status` of a serve-started run whose
+/// start failed. The gate round marks it `failure`; a later round on the
+/// execution's own stream (a supersede) projects it back to `in_progress`. Which
+/// of the two streams moved last is in neither log, and the rebuild projects the
+/// execution streams first, so Rust ends on `failure` where Go ended on
+/// `in_progress`.
+struct GoHistory {
+    /// Execution ids with a `RunStartFailed` in some gate stream.
+    failed_starts: Vec<String>,
+}
+
+impl GoHistory {
+    fn read(store: &Store) -> GoHistory {
+        let mut failed_starts = Vec::new();
+        for stream in store.stream_ids("exec:").expect("streams") {
+            for se in store.load_events(&stream).expect("events").0 {
+                if let reconcile::Event::RunStartFailed(rf) =
+                    reconcile::unmarshal_event(&se.kind, &se.data).expect("event")
+                {
+                    failed_starts.push(rf.execution_id);
+                }
+            }
         }
-        _ => ["gated", "safe"].contains(&text(&go[col]).as_str()),
-    };
-    others_equal && allowed
+        GoHistory { failed_starts }
+    }
+
+    /// Whether the rows differ only in that column, in that one way.
+    fn explains(&self, table: &str, go: &[Sql], rust: &[Sql]) -> bool {
+        const STATUS: usize = 8;
+        let text = |v: &Sql| match v {
+            Sql::Text(s) => s.clone(),
+            _ => String::new(),
+        };
+        let id = text(&go[0]);
+        table == "executions"
+            && id.starts_with("run-")
+            && self.failed_starts.contains(&id)
+            && text(&go[STATUS]) == "in_progress"
+            && text(&rust[STATUS]) == "failure"
+            && go
+                .iter()
+                .zip(rust)
+                .enumerate()
+                .all(|(i, (g, r))| i == STATUS || g == r)
+    }
 }

@@ -98,6 +98,54 @@ func TestWriteRustCompatDB(t *testing.T) {
 	handle(10, "nonprod", reconcile.RunRequested{Kind: reconcile.RunKindApply, SHA: "fedcba0987654321", Branch: "main"})
 	handle(10, "nonprod", reconcile.InboundBuild{Kind: reconcile.RunKindPlan, SHA: "abcdef1234567890", BuildRef: "build-1"})
 
+	// PR 12 nonprod: an executor starts the plan, the runner reports and
+	// finalizes it, and an all-active tick satisfies the gate.
+	app.Executor = &fakeExecutor{}
+	handle(12, "nonprod", reconcile.RunRequested{Kind: reconcile.RunKindPlan, SHA: "1234567890abcdef", Branch: "feat/y"})
+	w12, err := sh.gather(12, "nonprod")
+	if err != nil {
+		t.Fatal(err)
+	}
+	run12 := w12.Prior.Runs[reconcile.RunKindPlan].ExecutionID
+	exec(run12, execution.ReportTick{Stack: "stacks/f", Status: events.StatusPlanned})
+	handle(12, "nonprod", reconcile.RunnerFinalize{Gates: []events.GateTarget{{Class: "iam", Target: "p7"}}})
+	fake.Approve(approval.Request{Class: "iam", Target: "p7", PR: 12, Environment: "nonprod"})
+	tick(12, "nonprod", "iam", "p7")
+
+	// PR 13 staging: the backend reports a state outside the normalised set,
+	// which gcppam's mapState passes through unchanged.
+	handle(13, "staging", reconcile.RunnerFinalize{Gates: []events.GateTarget{{Class: "iam", Target: "p8"}}})
+	handle(13, "staging", reconcile.GateTick{Grants: []reconcile.ObservedGrant{
+		{Class: "iam", Target: "p8", Name: "grant-x", State: approval.GrantState("ACTIVATION_FAILED"), Requester: "sa0"},
+	}})
+
+	// Admin interventions, appended the way the admin handlers append them
+	// (without their background tick), then projected by a no-op round.
+	admin := func(pr int, env string, evs ...reconcile.Event) {
+		t.Helper()
+		stream := execStreamID(pr, env)
+		state, ver, err := app.gateDecider.Load(app.eventStore, stream)
+		if err != nil {
+			t.Fatal(err)
+		}
+		state.PR, state.Environment = pr, env
+		for _, e := range evs {
+			state = app.gateDecider.Evolve(state, e)
+		}
+		if err := app.gateDecider.Append(app.eventStore, stream, ver, evs, state); err != nil {
+			t.Fatal(err)
+		}
+		handle(pr, env, reconcile.GrantsObserved{})
+	}
+	admin(9, "prod", reconcile.AdminGateSatisfied{PR: 9, Environment: "prod", Class: "iam", Target: "p5", Actor: "admin@example.com", Reason: "approved by phone"})
+	admin(9, "prod", reconcile.AdminGrantReleased{PR: 9, Environment: "prod", Class: "net", Target: "p6", Actor: "admin@example.com", Reason: "stuck"})
+	admin(12, "nonprod", reconcile.AdminCheckOverridden{PR: 12, Env: "nonprod", CheckName: "terraform/nonprod", Conclusion: "success", Actor: "admin@example.com", Reason: "bypass"})
+	// handleAdminExecutionsCancel takes the kind from status_context and phase.
+	admin(10, "nonprod",
+		reconcile.AdminExecutionCancelled{Kind: "plan/nonprod", ExecutionID: "run-10-nonprod-plan-abcdef123456-a3", Actor: "admin@example.com", Reason: "stuck"},
+		reconcile.RunCompleted{Kind: "", ExecutionID: "run-10-nonprod-plan-abcdef123456-a3"},
+	)
+
 	// The staging claim ledger: two PRs, a renewal and a partial release.
 	now := time.Date(2026, 6, 24, 12, 0, 0, 123456789, time.UTC)
 	for _, cmd := range []claims.Command{
