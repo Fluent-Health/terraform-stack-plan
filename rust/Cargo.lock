@@ -648,6 +648,7 @@ name = "tfstackplan"
 version = "0.0.0"
 dependencies = [
  "tempfile",
+ "toml_edit",
  "trycmd",
 ]
 

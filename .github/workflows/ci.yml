@@ -149,3 +149,10 @@ jobs:
             echo "rust/cases is stale: Go output changed. Re-record with: cargo run -p recorder (see rust/README.md)"
             exit 1
           fi
+
+      - name: Replay report is current
+        run: |
+          if ! git diff --exit-code -- replay-report.md || [ -n "$(git status --porcelain -- replay-report.md)" ]; then
+            echo "rust/replay-report.md is stale: commit the report cargo nextest wrote (see rust/README.md)"
+            exit 1
+          fi
