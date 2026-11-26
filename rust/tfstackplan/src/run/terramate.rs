@@ -118,7 +118,9 @@ impl Terramate for Real {
             .args(o.args())
             .current_dir(&self.dir)
             .envs(env.iter().map(|(k, v)| (k, v)))
-            .stdin(Stdio::inherit())
+            // Go's nil Stdin is /dev/null: a terraform prompt fails fast
+            // instead of hanging the build.
+            .stdin(Stdio::null())
             .stdout(Stdio::from(std::io::stderr()))
             .stderr(Stdio::from(std::io::stderr()))
             .status()
