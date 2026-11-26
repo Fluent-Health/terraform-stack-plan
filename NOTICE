@@ -3,3 +3,6 @@ Copyright 2026 Fluent Health
 
 This product includes software developed at Fluent Health
 (https://github.com/Fluent-Health).
+
+The Rust ports under rust/ include code ported from third-party projects;
+their licences and notices are in rust/THIRD_PARTY_NOTICES.
