@@ -125,17 +125,12 @@ fn run_apply(
     let url = srv.url();
     let client = move || Client::new(&url, None).unwrap();
     let tmf = move |_: &str| -> Box<dyn Terramate> { Box::new(tm.clone()) };
-    let classify = |_: &dyn Terramate,
-                    _: &str,
-                    _: &[String],
-                    _: &str,
-                    _: bool,
-                    _: &str,
-                    parallel: i64| {
-        trace.classify_parallel.set(Some(parallel));
-        trace.classify_at.set(Some(srv.requests().len()));
-        stubs.classify.clone()
-    };
+    let classify =
+        |_: &dyn Terramate, _: &str, _: &[String], _: &str, _: bool, _: &str, parallel: i64| {
+            trace.classify_parallel.set(Some(parallel));
+            trace.classify_at.set(Some(srv.requests().len()));
+            stubs.classify.clone()
+        };
     let moves = |_: &str, _: Option<&StateLock>, _: &mut dyn FnMut(&str, &str)| stubs.moves.clone();
     let mint = |sa: &str| {
         trace.minted.borrow_mut().push(sa.to_string());
@@ -178,13 +173,26 @@ fn finalizes(srv: &FakeServer) -> Vec<serde_json::Value> {
         .collect()
 }
 
-const ENV: &[(&str, &str)] = &[("TFSTACKPLAN_PR", "7"), ("TFSTACKPLAN_ENVIRONMENT", "staging")];
+const ENV: &[(&str, &str)] = &[
+    ("TFSTACKPLAN_PR", "7"),
+    ("TFSTACKPLAN_ENVIRONMENT", "staging"),
+];
 
 // Go: TestRunApplyRequiresDir.
 #[test]
 fn requires_dir() {
     let srv = server((200, ""));
-    assert_eq!(run_apply(&[], ENV, &srv, changed(&[]), Stubs::default(), &Trace::default()), 2);
+    assert_eq!(
+        run_apply(
+            &[],
+            ENV,
+            &srv,
+            changed(&[]),
+            Stubs::default(),
+            &Trace::default()
+        ),
+        2
+    );
 }
 
 // Go: TestRunApplyFailsClosedOnUnsatisfiedGate.
@@ -192,19 +200,45 @@ fn requires_dir() {
 fn fails_closed_on_an_unsatisfied_gate() {
     let srv = server((409, "gate not satisfied\n"));
     let tm = changed(&["stacks/a"]);
-    let code = run_apply(&["--dir", "x"], ENV, &srv, tm.clone(), Stubs::default(), &Trace::default());
+    let code = run_apply(
+        &["--dir", "x"],
+        ENV,
+        &srv,
+        tm.clone(),
+        Stubs::default(),
+        &Trace::default(),
+    );
     assert_eq!(code, 1);
-    assert_eq!(paths(&srv).iter().filter(|p| *p == "/api/gate/check").count(), 1);
-    assert!(tm.ran.borrow().is_empty(), "apply script ran despite the gate");
+    assert_eq!(
+        paths(&srv)
+            .iter()
+            .filter(|p| *p == "/api/gate/check")
+            .count(),
+        1
+    );
+    assert!(
+        tm.ran.borrow().is_empty(),
+        "apply script ran despite the gate"
+    );
     assert!(first(&srv, "/api/init").is_some());
 }
 
 // Go: TestRunApplyAbortsDeferredFinalize.
 #[test]
 fn refused_gate_sends_the_abort_finalize() {
-    let srv = server((409, r#"{"code":"gate_not_satisfied","message":"gate not satisfied"}"#));
+    let srv = server((
+        409,
+        r#"{"code":"gate_not_satisfied","message":"gate not satisfied"}"#,
+    ));
     assert_eq!(
-        run_apply(&["--dir", "x"], ENV, &srv, changed(&["stacks/a"]), Stubs::default(), &Trace::default()),
+        run_apply(
+            &["--dir", "x"],
+            ENV,
+            &srv,
+            changed(&["stacks/a"]),
+            Stubs::default(),
+            &Trace::default()
+        ),
         1
     );
     let last = finalizes(&srv).pop().unwrap();
@@ -219,7 +253,17 @@ fn refused_gate_sends_the_abort_finalize() {
 #[test]
 fn zero_stacks_skip_the_gate() {
     let srv = server((200, ""));
-    assert_eq!(run_apply(&["--dir", "x"], ENV, &srv, changed(&[]), Stubs::default(), &Trace::default()), 0);
+    assert_eq!(
+        run_apply(
+            &["--dir", "x"],
+            ENV,
+            &srv,
+            changed(&[]),
+            Stubs::default(),
+            &Trace::default()
+        ),
+        0
+    );
     assert!(first(&srv, "/api/gate/check").is_none());
     assert!(first(&srv, "/api/init").is_some());
     let fins = finalizes(&srv);
@@ -231,7 +275,14 @@ fn zero_stacks_skip_the_gate() {
 #[test]
 fn classifies_before_the_gate() {
     let srv = server((200, ""));
-    run_apply(&["--dir", "x"], ENV, &srv, changed(&["cluster/test"]), Stubs::default(), &Trace::default());
+    run_apply(
+        &["--dir", "x"],
+        ENV,
+        &srv,
+        changed(&["cluster/test"]),
+        Stubs::default(),
+        &Trace::default(),
+    );
     assert!(before(&srv, "/api/finalize", "/api/gate/check"));
 }
 
@@ -244,7 +295,17 @@ fn apply_failure_finalizes_failed() {
         script_err: Some("exit status 1".into()),
         ..FakeTm::default()
     });
-    assert_eq!(run_apply(&["--dir", "x"], ENV, &srv, tm, Stubs::default(), &Trace::default()), 1);
+    assert_eq!(
+        run_apply(
+            &["--dir", "x"],
+            ENV,
+            &srv,
+            tm,
+            Stubs::default(),
+            &Trace::default()
+        ),
+        1
+    );
     assert!(finalizes(&srv).iter().any(|f| f["failed"] == true));
 }
 
@@ -257,7 +318,17 @@ fn state_move_failure_finalizes_and_skips_the_script() {
         moves: Err("boom".into()),
         ..Stubs::default()
     };
-    assert_eq!(run_apply(&["--dir", "x"], ENV, &srv, tm.clone(), stubs, &Trace::default()), 1);
+    assert_eq!(
+        run_apply(
+            &["--dir", "x"],
+            ENV,
+            &srv,
+            tm.clone(),
+            stubs,
+            &Trace::default()
+        ),
+        1
+    );
     let last = finalizes(&srv).pop().unwrap();
     assert_eq!(last["failed"], true);
     assert_eq!(last["report_markdown"], "cross-state move failed: boom");
@@ -270,7 +341,14 @@ fn state_move_failure_finalizes_and_skips_the_script() {
 fn happy_path_order() {
     let srv = server((200, ""));
     assert_eq!(
-        run_apply(&["--dir", "x"], ENV, &srv, changed(&["cluster/prod"]), Stubs::default(), &Trace::default()),
+        run_apply(
+            &["--dir", "x"],
+            ENV,
+            &srv,
+            changed(&["cluster/prod"]),
+            Stubs::default(),
+            &Trace::default()
+        ),
         0
     );
     assert!(before(&srv, "/api/init", "/api/finalize"));
@@ -289,13 +367,33 @@ fn parallel_reaches_the_script_and_the_classify_pass() {
     let srv = server((200, ""));
     let tm = changed(&["cluster/prod"]);
     let trace = Trace::default();
-    assert_eq!(run_apply(&["--dir", "x", "--parallel", "4"], ENV, &srv, tm.clone(), Stubs::default(), &trace), 0);
+    assert_eq!(
+        run_apply(
+            &["--dir", "x", "--parallel", "4"],
+            ENV,
+            &srv,
+            tm.clone(),
+            Stubs::default(),
+            &trace
+        ),
+        0
+    );
     assert_eq!(tm.ran.borrow()[0].0.parallel, 4);
     assert_eq!(trace.classify_parallel.get(), Some(4));
     let tm = changed(&["cluster/prod"]);
-    run_apply(&["--dir", "x"], ENV, &srv, tm.clone(), Stubs::default(), &Trace::default());
+    run_apply(
+        &["--dir", "x"],
+        ENV,
+        &srv,
+        tm.clone(),
+        Stubs::default(),
+        &Trace::default(),
+    );
     assert_eq!(tm.ran.borrow()[0].0.parallel, 0);
-    assert_eq!(tm.ran.borrow()[0].0.args(), args(&["script", "run", "--changed", "apply"]));
+    assert_eq!(
+        tm.ran.borrow()[0].0.args(),
+        args(&["script", "run", "--changed", "apply"])
+    );
 }
 
 // Go: TestApplyFinalizeCarriesCounts.
@@ -321,10 +419,23 @@ fn classify_finalize_carries_counts_and_gates() {
         classify: Ok(res),
         ..Stubs::default()
     };
-    assert_eq!(run_apply(&["--dir", "x"], ENV, &srv, changed(&["stacks/a"]), stubs, &Trace::default()), 0);
+    assert_eq!(
+        run_apply(
+            &["--dir", "x"],
+            ENV,
+            &srv,
+            changed(&["stacks/a"]),
+            stubs,
+            &Trace::default()
+        ),
+        0
+    );
     let fin = &finalizes(&srv)[0];
     assert_eq!(fin["counts"]["a"]["add"], 3);
-    assert_eq!(fin["gates"], serde_json::json!([{"class":"iam","target":"proj-a"}]));
+    assert_eq!(
+        fin["gates"],
+        serde_json::json!([{"class":"iam","target":"proj-a"}])
+    );
 }
 
 // Go: TestApplyFailsClosedOnClassifyFailureWhenImpersonating.
@@ -337,7 +448,17 @@ fn classify_failure_under_impersonation_fails_closed() {
         classify: Err("boom".into()),
         ..Stubs::default()
     };
-    assert_eq!(run_apply(&["--dir", "x", "--impersonate-requester"], ENV, &srv, tm.clone(), stubs, &trace), 1);
+    assert_eq!(
+        run_apply(
+            &["--dir", "x", "--impersonate-requester"],
+            ENV,
+            &srv,
+            tm.clone(),
+            stubs,
+            &trace
+        ),
+        1
+    );
     assert!(tm.ran.borrow().is_empty());
     assert!(trace.minted.borrow().is_empty());
     assert!(first(&srv, "/api/gate/check").is_none());
@@ -354,7 +475,17 @@ fn classify_failure_without_impersonation_continues() {
         classify: Err("boom".into()),
         ..Stubs::default()
     };
-    assert_eq!(run_apply(&["--dir", "x"], ENV, &srv, tm.clone(), stubs, &Trace::default()), 0);
+    assert_eq!(
+        run_apply(
+            &["--dir", "x"],
+            ENV,
+            &srv,
+            tm.clone(),
+            stubs,
+            &Trace::default()
+        ),
+        0
+    );
     assert!(first(&srv, "/api/gate/check").is_some());
     assert_eq!(tm.ran.borrow().len(), 1);
 }
@@ -363,7 +494,14 @@ fn classify_failure_without_impersonation_continues() {
 #[test]
 fn applying_phase_after_the_gate() {
     let srv = server((200, ""));
-    run_apply(&["--dir", "x"], ENV, &srv, changed(&["cluster/prod"]), Stubs::default(), &Trace::default());
+    run_apply(
+        &["--dir", "x"],
+        ENV,
+        &srv,
+        changed(&["cluster/prod"]),
+        Stubs::default(),
+        &Trace::default(),
+    );
     assert!(before(&srv, "/api/gate/check", "/api/phase"));
 }
 
@@ -374,12 +512,22 @@ fn impersonates_the_requester_in_the_scripts_env() {
     let tm = changed(&["stacks/a"]);
     let trace = Trace::default();
     assert_eq!(
-        run_apply(&["--dir", "x", "--impersonate-requester"], ENV, &srv, tm.clone(), Stubs::default(), &trace),
+        run_apply(
+            &["--dir", "x", "--impersonate-requester"],
+            ENV,
+            &srv,
+            tm.clone(),
+            Stubs::default(),
+            &trace
+        ),
         0
     );
     assert_eq!(*trace.minted.borrow(), vec!["poolA@x"]);
     let env = tm.ran.borrow()[0].1.clone();
-    assert!(env.contains(&("GOOGLE_OAUTH_ACCESS_TOKEN".to_string(), "tok-123".to_string())));
+    assert!(env.contains(&(
+        "GOOGLE_OAUTH_ACCESS_TOKEN".to_string(),
+        "tok-123".to_string()
+    )));
 }
 
 // Go: TestRunApplyMintFailClosedImpersonate.
@@ -392,7 +540,14 @@ fn mint_failure_fails_closed() {
         ..Stubs::default()
     };
     assert_eq!(
-        run_apply(&["--dir", "x", "--impersonate-requester"], ENV, &srv, tm.clone(), stubs, &Trace::default()),
+        run_apply(
+            &["--dir", "x", "--impersonate-requester"],
+            ENV,
+            &srv,
+            tm.clone(),
+            stubs,
+            &Trace::default()
+        ),
         1
     );
     assert!(tm.ran.borrow().is_empty());
@@ -404,9 +559,24 @@ fn no_impersonation_without_the_flag() {
     let srv = server((200, r#"{"requester":"poolA@x"}"#));
     let tm = changed(&["stacks/a"]);
     let trace = Trace::default();
-    assert_eq!(run_apply(&["--dir", "x"], ENV, &srv, tm.clone(), Stubs::default(), &trace), 0);
+    assert_eq!(
+        run_apply(
+            &["--dir", "x"],
+            ENV,
+            &srv,
+            tm.clone(),
+            Stubs::default(),
+            &trace
+        ),
+        0
+    );
     assert!(trace.minted.borrow().is_empty());
-    assert!(tm.ran.borrow()[0].1.iter().all(|(k, _)| k != "GOOGLE_OAUTH_ACCESS_TOKEN"));
+    assert!(
+        tm.ran.borrow()[0]
+            .1
+            .iter()
+            .all(|(k, _)| k != "GOOGLE_OAUTH_ACCESS_TOKEN")
+    );
 }
 
 // Go: TestRunApplyWarmsBeforeClassifyPass. The warming phase needs a cache block;
@@ -425,7 +595,14 @@ fn warms_before_the_classify_pass() {
     let dir = tmp.path().to_string_lossy().into_owned();
     let cfg = cfg.to_string_lossy().into_owned();
     assert_eq!(
-        run_apply(&["--dir", &dir, "--changed=false", "--config", &cfg], ENV, &srv, tm, Stubs::default(), &trace),
+        run_apply(
+            &["--dir", &dir, "--changed=false", "--config", &cfg],
+            ENV,
+            &srv,
+            tm,
+            Stubs::default(),
+            &trace
+        ),
         0
     );
     let phase_at = first(&srv, "/api/phase").expect("warming phase");

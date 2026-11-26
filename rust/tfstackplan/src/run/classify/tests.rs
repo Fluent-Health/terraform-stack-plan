@@ -38,7 +38,11 @@ fn reconciles_a_pending_cross_state_move() {
             "# tfstackplan:key=PR-1\nxmove {{\n  source_stack = \"{src}\"\n  moves = {{\n    \"module.main.module.cms[0]\" = \"module.cms\"\n  }}\n}}\n"
         ),
     );
-    write(dir, &format!("{dst}/providers.tf"), r#"provider "google" {}"#);
+    write(
+        dir,
+        &format!("{dst}/providers.tf"),
+        r#"provider "google" {}"#,
+    );
     write(
         dir,
         ".tfstackplan.hcl",
@@ -64,7 +68,11 @@ fn reconciles_a_pending_cross_state_move() {
 fn fails_closed_on_a_corrupt_xmove() {
     let tmp = tempfile::tempdir().unwrap();
     let dir = tmp.path();
-    write(dir, "stacks/a/tfplan.json", r#"{"format_version":"1.2","resource_changes":[]}"#);
+    write(
+        dir,
+        "stacks/a/tfplan.json",
+        r#"{"format_version":"1.2","resource_changes":[]}"#,
+    );
     write(
         dir,
         "stacks/a/_tfsp_xmove.PR-1.hcl",

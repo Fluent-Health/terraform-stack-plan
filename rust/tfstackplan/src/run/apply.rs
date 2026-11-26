@@ -189,7 +189,9 @@ pub fn apply(args: &[String], os: &Os<'_>, seams: &Seams<'_>) -> i32 {
                 moving: res.moving,
                 ..Finalize::default()
             });
-            err(&format!("tfstackplan run apply: classify gates: {summary}\n"));
+            err(&format!(
+                "tfstackplan run apply: classify gates: {summary}\n"
+            ));
         }
     }
 
@@ -228,10 +230,17 @@ pub fn apply(args: &[String], os: &Os<'_>, seams: &Seams<'_>) -> i32 {
             }
         }
     } else if impersonate {
-        err("tfstackplan run apply: gate resolved no leased requester — applying under the ambient identity (no gated targets for this PR/env)\n");
+        err(
+            "tfstackplan run apply: gate resolved no leased requester — applying under the ambient identity (no gated targets for this PR/env)\n",
+        );
     }
 
-    let _ = client.phase(&bare_phase(&exec_id, "moves", "executing state moves…", Some(15)));
+    let _ = client.phase(&bare_phase(
+        &exec_id,
+        "moves",
+        "executing state moves…",
+        Some(15),
+    ));
 
     // 7. The cross-state move pre-phase (fail closed).
     let lock = if p.bool("state-lock") {
@@ -253,7 +262,9 @@ pub fn apply(args: &[String], os: &Os<'_>, seams: &Seams<'_>) -> i32 {
         });
     };
     if let Err(e) = (seams.moves)(dir, lock.as_ref(), &mut sink) {
-        err(&format!("tfstackplan run apply: cross-state move failed: {e}\n"));
+        err(&format!(
+            "tfstackplan run apply: cross-state move failed: {e}\n"
+        ));
         let _ = client.finalize(&Finalize {
             id: exec_id.clone(),
             failed: true,
@@ -288,7 +299,12 @@ pub fn apply(args: &[String], os: &Os<'_>, seams: &Seams<'_>) -> i32 {
     {
         err(&format!("tfstackplan run apply: cache save: {e}\n"));
     }
-    let _ = client.phase(&bare_phase(&exec_id, "report", "generating report…", Some(98)));
+    let _ = client.phase(&bare_phase(
+        &exec_id,
+        "report",
+        "generating report…",
+        Some(98),
+    ));
 
     // 9. Always a terminal Finalize.
     let _ = client.finalize(&Finalize {

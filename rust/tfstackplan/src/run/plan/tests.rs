@@ -47,7 +47,8 @@ const PLAN_JSON: &str = r#"{"format_version":"1.2","resource_changes":[{"address
 /// Go's plan fixture copied into `dir`, made a project root without git, with a
 /// stub terraform; returns the scripts' PATH.
 fn fixture(dir: &Path) -> String {
-    let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../cmd/tfstackplan/testdata/planfixture");
+    let src =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../cmd/tfstackplan/testdata/planfixture");
     for rel in [
         ".tfstackplan.hcl",
         "terramate.tm.hcl",
@@ -58,7 +59,11 @@ fn fixture(dir: &Path) -> String {
         std::fs::create_dir_all(to.parent().unwrap()).unwrap();
         let mut text = std::fs::read_to_string(src.join(rel)).unwrap();
         if rel == "terramate.tm.hcl" {
-            text = text.replacen("terramate {", "terramate {\n  required_version = \">= 0.17.0\"", 1);
+            text = text.replacen(
+                "terramate {",
+                "terramate {\n  required_version = \">= 0.17.0\"",
+                1,
+            );
         }
         std::fs::write(to, text).unwrap();
     }
@@ -105,7 +110,8 @@ fn run_plan(a: &[&str], srv: &FakeServer, path: &str) -> i32 {
     let url = srv.url();
     let client = move || Client::new(&url, None).unwrap();
     let path = path.to_string();
-    let tmf = move |d: &str| -> Box<dyn Terramate> { Box::new(WithPath(Real::new(d), path.clone())) };
+    let tmf =
+        move |d: &str| -> Box<dyn Terramate> { Box::new(WithPath(Real::new(d), path.clone())) };
     plan(
         &args(a),
         &Os {
@@ -142,12 +148,28 @@ fn plans_classifies_and_finalizes() {
     let path = fixture(tmp.path());
     let srv = server();
     let dir = tmp.path().to_string_lossy().into_owned();
-    assert_eq!(run_plan(&["--dir", &dir, "--changed=false"], &srv, &path), 0);
-    assert_eq!(bodies(&srv, "/api/init")[0]["stacks"].as_array().unwrap().len(), 2);
+    assert_eq!(
+        run_plan(&["--dir", &dir, "--changed=false"], &srv, &path),
+        0
+    );
+    assert_eq!(
+        bodies(&srv, "/api/init")[0]["stacks"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
     let fin = bodies(&srv, "/api/finalize").pop().unwrap();
     assert!(!fin["report_markdown"].as_str().unwrap().is_empty());
-    assert_eq!(fin["gates"], serde_json::json!([{"class":"iam","target":"proj-a"}]));
-    assert!(fin["stack_reports"].as_object().is_some_and(|m| !m.is_empty()));
+    assert_eq!(
+        fin["gates"],
+        serde_json::json!([{"class":"iam","target":"proj-a"}])
+    );
+    assert!(
+        fin["stack_reports"]
+            .as_object()
+            .is_some_and(|m| !m.is_empty())
+    );
     assert!(fin["categories"].as_object().is_some_and(|m| !m.is_empty()));
     let logs = bodies(&srv, "/api/logs");
     for s in ["stacks/a", "stacks/b"] {
@@ -175,13 +197,25 @@ fn render_failure_sends_the_abort_finalize() {
     let dir = tmp.path().to_string_lossy().into_owned();
     assert_eq!(
         run_plan(
-            &["--dir", &dir, "--changed=false", "--config", &bad.to_string_lossy()],
+            &[
+                "--dir",
+                &dir,
+                "--changed=false",
+                "--config",
+                &bad.to_string_lossy()
+            ],
             &srv,
             &path
         ),
         1
     );
-    assert_eq!(bodies(&srv, "/api/init")[0]["stacks"].as_array().unwrap().len(), 2);
+    assert_eq!(
+        bodies(&srv, "/api/init")[0]["stacks"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
     let fin = bodies(&srv, "/api/finalize").pop().unwrap();
     assert_eq!(fin["failed"], true);
     assert_eq!(
@@ -211,7 +245,11 @@ fn classify_for_gate_returns_gates() {
         0,
     )
     .unwrap();
-    assert!(res.gates.iter().any(|g| g.class == "iam" && g.target == "proj-a"));
+    assert!(
+        res.gates
+            .iter()
+            .any(|g| g.class == "iam" && g.target == "proj-a")
+    );
     assert!(!res.report.is_empty());
     assert!(!res.categories.is_empty());
 }

@@ -67,6 +67,9 @@ fn final_flush_after_work() {
         },
     );
     assert_eq!(got, 7);
-    assert_eq!(*rec.chunks.lock().unwrap(), vec![("s".to_string(), "late\n".to_string())]);
+    assert_eq!(
+        *rec.chunks.lock().unwrap(),
+        vec![("s".to_string(), "late\n".to_string())]
+    );
     assert_eq!(while_pumping(None, &stacks, INTERVAL, || 1), 1);
 }

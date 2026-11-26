@@ -124,7 +124,12 @@ fn tm() -> std::rc::Rc<FakeTm> {
 fn tick_posts_update() {
     let srv = FakeServer::start(vec![ok("/api/update")]).unwrap();
     let code = with_os(&[("TFSTACKPLAN_EXECUTION", "e1")], Some(&srv), tm(), |os| {
-        tick(&args(&["--stack", "stacks/a", "--status", "failed", "--detail", "boom"]), os)
+        tick(
+            &args(&[
+                "--stack", "stacks/a", "--status", "failed", "--detail", "boom",
+            ]),
+            os,
+        )
     });
     assert_eq!(code, 0);
     assert_eq!(
@@ -138,7 +143,10 @@ fn tick_posts_update() {
 fn tick_stack_from_env() {
     let srv = FakeServer::start(vec![ok("/api/update")]).unwrap();
     with_os(
-        &[("TFSTACKPLAN_EXECUTION", "e1"), ("TFSTACKPLAN_STACK", "stacks/env")],
+        &[
+            ("TFSTACKPLAN_EXECUTION", "e1"),
+            ("TFSTACKPLAN_STACK", "stacks/env"),
+        ],
         Some(&srv),
         tm(),
         |os| tick(&args(&["--status", "running"]), os),
@@ -158,14 +166,16 @@ fn tick_offline_and_server_errors_exit_0() {
     );
     let srv = FakeServer::start(vec![route("/api/update", 500, "boom")]).unwrap();
     assert_eq!(
-        with_os(&[("TFSTACKPLAN_EXECUTION", "e1")], Some(&srv), tm(), |os| tick(
-            &args(&["--stack", "a", "--status", "running"]),
-            os
-        )),
+        with_os(&[("TFSTACKPLAN_EXECUTION", "e1")], Some(&srv), tm(), |os| {
+            tick(&args(&["--stack", "a", "--status", "running"]), os)
+        }),
         0
     );
     assert_eq!(paths(&srv).len(), 3, "retried 5xx");
-    assert_eq!(with_os(&[], None, tm(), |os| tick(&args(&["--bogus"]), os)), 2);
+    assert_eq!(
+        with_os(&[], None, tm(), |os| tick(&args(&["--bogus"]), os)),
+        2
+    );
 }
 
 // Go: TestRunUnknownSubcommand.
@@ -188,14 +198,28 @@ fn phase_posts_event_or_noops() {
         ],
         Some(&srv),
         tm(),
-        |os| phase(&args(&["--phase", "warming", "--label", "warming…", "--progress-pct", "40"]), os),
+        |os| {
+            phase(
+                &args(&[
+                    "--phase",
+                    "warming",
+                    "--label",
+                    "warming…",
+                    "--progress-pct",
+                    "40",
+                ]),
+                os,
+            )
+        },
     );
     assert_eq!(
         body(&srv, "/api/phase"),
         serde_json::json!({"id":"e1","repo":"acme/infra","pr":7,"environment":"staging","phase":"warming","label":"warming…","progress_pct":40})
     );
     let srv = FakeServer::start(vec![ok("/api/phase")]).unwrap();
-    with_os(&[], Some(&srv), tm(), |os| phase(&args(&["--phase", "warming"]), os));
+    with_os(&[], Some(&srv), tm(), |os| {
+        phase(&args(&["--phase", "warming"]), os)
+    });
     with_os(&[("TFSTACKPLAN_EXECUTION", "e1")], Some(&srv), tm(), |os| {
         phase(&args(&["--phase", "x", "--progress-pct", "101"]), os)
     });
@@ -207,7 +231,12 @@ fn phase_posts_event_or_noops() {
 #[test]
 fn register_offline_noop_and_online_init() {
     let t = tm();
-    assert_eq!(with_os(&[("TFSTACKPLAN_EXECUTION", "e1")], None, t.clone(), |os| register(&args(&[]), os)), 0);
+    assert_eq!(
+        with_os(&[("TFSTACKPLAN_EXECUTION", "e1")], None, t.clone(), |os| {
+            register(&args(&[]), os)
+        }),
+        0
+    );
     let srv = FakeServer::start(vec![ok("/api/init")]).unwrap();
     let t = std::rc::Rc::new(FakeTm {
         all: args(&["stacks/a", "stacks/b"]),
@@ -217,10 +246,18 @@ fn register_offline_noop_and_online_init() {
         }],
         ..FakeTm::default()
     });
-    with_os(&[("TFSTACKPLAN_EXECUTION", "e1")], Some(&srv), t, |os| register(&args(&[]), os));
+    with_os(&[("TFSTACKPLAN_EXECUTION", "e1")], Some(&srv), t, |os| {
+        register(&args(&[]), os)
+    });
     let init = body(&srv, "/api/init");
-    assert_eq!(init["stacks"][1], serde_json::json!({"path":"stacks/b","status":"pending"}));
-    assert_eq!(init["edges"], serde_json::json!([{"from":"stacks/a","to":"stacks/b"}]));
+    assert_eq!(
+        init["stacks"][1],
+        serde_json::json!({"path":"stacks/b","status":"pending"})
+    );
+    assert_eq!(
+        init["edges"],
+        serde_json::json!([{"from":"stacks/a","to":"stacks/b"}])
+    );
 }
 
 // Go: TestRunExecRequiresCommand, TestRunExecSuccess, TestRunExecFailure,
@@ -228,18 +265,51 @@ fn register_offline_noop_and_online_init() {
 // TestRunExecNoExecIDSkipsServer, TestRunExecNoPhaseSkipsPhasePost.
 #[test]
 fn exec_runs_ticks_and_finalizes() {
-    assert_eq!(with_os(&[], None, tm(), |os| exec(&args(&["--phase", "planning"]), os)), 2);
+    assert_eq!(
+        with_os(&[], None, tm(), |os| exec(
+            &args(&["--phase", "planning"]),
+            os
+        )),
+        2
+    );
     let srv = FakeServer::start(vec![ok("/api/phase"), ok("/api/finalize")]).unwrap();
     let e1 = [("TFSTACKPLAN_EXECUTION", "e1")];
-    assert_eq!(with_os(&e1, Some(&srv), tm(), |os| exec(&args(&["--phase", "testing", "--", "true"]), os)), 0);
+    assert_eq!(
+        with_os(&e1, Some(&srv), tm(), |os| exec(
+            &args(&["--phase", "testing", "--", "true"]),
+            os
+        )),
+        0
+    );
     assert_eq!(paths(&srv), vec!["/api/phase"]);
     assert_eq!(body(&srv, "/api/phase")["phase"], "testing");
-    assert_eq!(with_os(&e1, Some(&srv), tm(), |os| exec(&args(&["sh", "-c", "exit 3"]), os)), 3);
+    assert_eq!(
+        with_os(&e1, Some(&srv), tm(), |os| exec(
+            &args(&["sh", "-c", "exit 3"]),
+            os
+        )),
+        3
+    );
     assert_eq!(paths(&srv), vec!["/api/phase", "/api/finalize"]);
-    assert_eq!(body(&srv, "/api/finalize"), serde_json::json!({"id":"e1","report_markdown":"","failed":true}));
-    assert_eq!(with_os(&[], None, tm(), |os| exec(&args(&["sh", "-c", "exit 4"]), os)), 4);
+    assert_eq!(
+        body(&srv, "/api/finalize"),
+        serde_json::json!({"id":"e1","report_markdown":"","failed":true})
+    );
+    assert_eq!(
+        with_os(&[], None, tm(), |os| exec(
+            &args(&["sh", "-c", "exit 4"]),
+            os
+        )),
+        4
+    );
     let quiet = FakeServer::start(vec![]).unwrap();
-    assert_eq!(with_os(&[], Some(&quiet), tm(), |os| exec(&args(&["--phase", "x", "false"]), os)), 1);
+    assert_eq!(
+        with_os(&[], Some(&quiet), tm(), |os| exec(
+            &args(&["--phase", "x", "false"]),
+            os
+        )),
+        1
+    );
     assert!(quiet.requests().is_empty());
 }
 
@@ -251,19 +321,35 @@ fn lint_runs_the_script_and_finalizes_failure() {
         changed: args(&["stacks/a"]),
         ..FakeTm::default()
     });
-    let srv = FakeServer::start(vec![ok("/api/init"), ok("/api/phase"), ok("/api/finalize")]).unwrap();
+    let srv =
+        FakeServer::start(vec![ok("/api/init"), ok("/api/phase"), ok("/api/finalize")]).unwrap();
     let e1 = [("TFSTACKPLAN_EXECUTION", "e1")];
-    assert_eq!(with_os(&e1, Some(&srv), t.clone(), |os| lint(&args(&["--dir", "x", "--parallel", "3"]), os)), 0);
+    assert_eq!(
+        with_os(&e1, Some(&srv), t.clone(), |os| lint(
+            &args(&["--dir", "x", "--parallel", "3"]),
+            os
+        )),
+        0
+    );
     let (opts, env) = t.ran.borrow()[0].clone();
-    assert_eq!(opts.args(), args(&["script", "run", "--changed", "--parallel", "3", "lint"]));
-    assert_eq!(env, vec![("TFSTACKPLAN_EXECUTION".to_string(), "e1".to_string())]);
+    assert_eq!(
+        opts.args(),
+        args(&["script", "run", "--changed", "--parallel", "3", "lint"])
+    );
+    assert_eq!(
+        env,
+        vec![("TFSTACKPLAN_EXECUTION".to_string(), "e1".to_string())]
+    );
     assert_eq!(paths(&srv), vec!["/api/init", "/api/phase"]);
     let t = std::rc::Rc::new(FakeTm {
         changed: args(&["stacks/a"]),
         script_err: Some("exit status 1".into()),
         ..FakeTm::default()
     });
-    assert_eq!(with_os(&e1, Some(&srv), t, |os| lint(&args(&["--dir", "x"]), os)), 1);
+    assert_eq!(
+        with_os(&e1, Some(&srv), t, |os| lint(&args(&["--dir", "x"]), os)),
+        1
+    );
     assert_eq!(paths(&srv).last().unwrap(), "/api/finalize");
 }
 
@@ -271,13 +357,28 @@ fn lint_runs_the_script_and_finalizes_failure() {
 #[test]
 fn verify_reports_its_own_check_run() {
     assert_eq!(with_os(&[], None, tm(), |os| verify(&args(&[]), os)), 2);
-    let srv = FakeServer::start(vec![ok("/api/init"), ok("/api/phase"), ok("/api/finalize"), ok("/api/logs")]).unwrap();
+    let srv = FakeServer::start(vec![
+        ok("/api/init"),
+        ok("/api/phase"),
+        ok("/api/finalize"),
+        ok("/api/logs"),
+    ])
+    .unwrap();
     let t = std::rc::Rc::new(FakeTm {
         all: args(&["stacks/a", "stacks/b"]),
         ..FakeTm::default()
     });
-    let vars = [("TFSTACKPLAN_EXECUTION", "v1"), ("TFSTACKPLAN_ENVIRONMENT", "prod")];
-    assert_eq!(with_os(&vars, Some(&srv), t, |os| verify(&args(&["--dir", "x", "--changed=false"]), os)), 0);
+    let vars = [
+        ("TFSTACKPLAN_EXECUTION", "v1"),
+        ("TFSTACKPLAN_ENVIRONMENT", "prod"),
+    ];
+    assert_eq!(
+        with_os(&vars, Some(&srv), t, |os| verify(
+            &args(&["--dir", "x", "--changed=false"]),
+            os
+        )),
+        0
+    );
     assert_eq!(body(&srv, "/api/init")["context"], "verify/prod");
     assert_eq!(body(&srv, "/api/phase")["phase"], "verifying");
     assert_eq!(
@@ -289,7 +390,13 @@ fn verify_reports_its_own_check_run() {
         script_err: Some("exit status 2".into()),
         ..FakeTm::default()
     });
-    assert_eq!(with_os(&vars, Some(&srv), t, |os| verify(&args(&["--dir", "x", "--changed=false"]), os)), 1);
+    assert_eq!(
+        with_os(&vars, Some(&srv), t, |os| verify(
+            &args(&["--dir", "x", "--changed=false"]),
+            os
+        )),
+        1
+    );
     assert_eq!(
         body(&srv, "/api/finalize"),
         serde_json::json!({"id":"v1","report_markdown":"❌ Verification failed.","failed":true})
@@ -307,7 +414,23 @@ fn script_run_argv() {
     };
     assert_eq!(
         o.args(),
-        args(&["script", "run", "--changed", "--parallel", "4", "-B", "origin/main", "plan"])
+        args(&[
+            "script",
+            "run",
+            "--changed",
+            "--parallel",
+            "4",
+            "-B",
+            "origin/main",
+            "plan"
+        ])
     );
-    assert_eq!(ScriptOpts { script: "apply".into(), ..ScriptOpts::default() }.args(), args(&["script", "run", "apply"]));
+    assert_eq!(
+        ScriptOpts {
+            script: "apply".into(),
+            ..ScriptOpts::default()
+        }
+        .args(),
+        args(&["script", "run", "apply"])
+    );
 }

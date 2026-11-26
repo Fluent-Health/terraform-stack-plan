@@ -33,7 +33,10 @@ fn list_and_run_graph() {
     }
     let dir = project();
     let tm = Real::new(&dir.path().to_string_lossy());
-    assert_eq!(tm.list().unwrap(), vec!["stacks/dev/app/api", "stacks/dev/app/worker"]);
+    assert_eq!(
+        tm.list().unwrap(),
+        vec!["stacks/dev/app/api", "stacks/dev/app/worker"]
+    );
     assert_eq!(
         tm.run_graph().unwrap(),
         vec![Edge {
@@ -52,6 +55,11 @@ fn changed_without_git_is_an_error() {
         return;
     }
     let dir = project();
-    let err = Real::new(&dir.path().to_string_lossy()).changed_stacks("").unwrap_err();
-    assert!(err.starts_with("terramate list --changed: exit status 1: "), "{err}");
+    let err = Real::new(&dir.path().to_string_lossy())
+        .changed_stacks("")
+        .unwrap_err();
+    assert!(
+        err.starts_with("terramate list --changed: exit status 1: "),
+        "{err}"
+    );
 }

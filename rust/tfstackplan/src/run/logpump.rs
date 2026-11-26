@@ -63,7 +63,8 @@ impl<'a> Pump<'a> {
             data: String::from_utf8_lossy(&data).into_owned(),
         };
         if self.poster.post(&chunk).is_ok() {
-            self.offsets.insert(stack.to_string(), off + data.len() as u64);
+            self.offsets
+                .insert(stack.to_string(), off + data.len() as u64);
         }
     }
 

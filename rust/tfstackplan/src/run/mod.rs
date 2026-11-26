@@ -27,7 +27,9 @@ use terramate::{ScriptOpts, Terramate};
 /// Runs `run <verb>`.
 pub fn run(args: &[String]) -> ExitCode {
     let Some(verb) = args.first() else {
-        err("tfstackplan run: expected a subcommand (tick|phase|wrap|register|exec|lint|plan|apply|verify|claims|status|whoami)\n");
+        err(
+            "tfstackplan run: expected a subcommand (tick|phase|wrap|register|exec|lint|plan|apply|verify|claims|status|whoami)\n",
+        );
         return ExitCode::from(2);
     };
     let rest = &args[1..];
@@ -50,7 +52,10 @@ pub fn run(args: &[String]) -> ExitCode {
         "status" => code(status(rest, &os)),
         "whoami" => crate::faces::whoami::run(rest),
         other => {
-            err(&format!("tfstackplan run: unknown subcommand {}\n", quote(other)));
+            err(&format!(
+                "tfstackplan run: unknown subcommand {}\n",
+                quote(other)
+            ));
             ExitCode::from(2)
         }
     }
@@ -215,7 +220,11 @@ fn phase(args: &[String], os: &Os<'_>) -> i32 {
 fn register(args: &[String], os: &Os<'_>) -> i32 {
     let mut fs = FlagSet::new("run register");
     fs.string("dir", ".", "terramate root directory")
-        .bool("changed", false, "only changed stacks (terramate --changed)")
+        .bool(
+            "changed",
+            false,
+            "only changed stacks (terramate --changed)",
+        )
         .string("base", "", "git base ref for --changed");
     let Ok(p) = parse(&fs, args) else { return 2 };
     let client = (os.client)();
@@ -402,9 +411,17 @@ fn verify(args: &[String], os: &Os<'_>) -> i32 {
 /// `run status`: prints an execution, optionally watching it to its conclusion.
 fn status(args: &[String], os: &Os<'_>) -> i32 {
     let mut fs = FlagSet::new("run status");
-    fs.string("server", "", "server base URL (defaults to $TFSTACKPLAN_SERVER)")
-        .string("format", "text", "output format: text|json")
-        .bool("watch", false, "block and watch for real-time status updates");
+    fs.string(
+        "server",
+        "",
+        "server base URL (defaults to $TFSTACKPLAN_SERVER)",
+    )
+    .string("format", "text", "output format: text|json")
+    .bool(
+        "watch",
+        false,
+        "block and watch for real-time status updates",
+    );
     let Ok(p) = parse(&fs, args) else { return 2 };
     let mut exec_id = p.rest.first().cloned().unwrap_or_default();
     if exec_id.is_empty() {
@@ -442,7 +459,11 @@ fn status(args: &[String], os: &Os<'_>) -> i32 {
     }
     let srv = srv.trim_end_matches('/').to_string();
     let aud_env = (os.getenv)("TFSTACKPLAN_AUDIENCE");
-    let aud = if aud_env.is_empty() { srv.clone() } else { aud_env.clone() };
+    let aud = if aud_env.is_empty() {
+        srv.clone()
+    } else {
+        aud_env.clone()
+    };
     let token = match api_token(&aud) {
         Ok(t) => t,
         Err(e) => {

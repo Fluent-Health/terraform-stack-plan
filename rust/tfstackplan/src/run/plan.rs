@@ -116,8 +116,11 @@ pub fn warm_cache(
             return None;
         }
     };
-    let store = match tfstackplan_clients::cache::GcsStorage::new(token, &settings.bucket, &settings.prefix)
-    {
+    let store = match tfstackplan_clients::cache::GcsStorage::new(
+        token,
+        &settings.bucket,
+        &settings.prefix,
+    ) {
         Ok(s) => s,
         Err(e) => {
             err(&format!("{who}: warming cache warning: {e}\n"));
@@ -131,7 +134,10 @@ pub fn warm_cache(
             return None;
         }
     };
-    let paths: Vec<PathBuf> = stacks.iter().map(|s| PathBuf::from(gofs::join(&[dir, s]))).collect();
+    let paths: Vec<PathBuf> = stacks
+        .iter()
+        .map(|s| PathBuf::from(gofs::join(&[dir, s])))
+        .collect();
     if let Err(e) = pc.warm(&paths) {
         err(&format!("{who}: warming cache warning: {e}\n"));
     }
@@ -213,7 +219,12 @@ pub fn plan(args: &[String], os: &Os<'_>) -> i32 {
         err(&format!("tfstackplan run plan: cache save: {e}\n"));
     }
 
-    let _ = client.phase(&bare_phase(&exec_id, "classify", "classifying plans…", Some(95)));
+    let _ = client.phase(&bare_phase(
+        &exec_id,
+        "classify",
+        "classifying plans…",
+        Some(95),
+    ));
     let res = match render_classification(dir, &stacks, cfg_path) {
         Ok(r) => r,
         Err(e) => {
@@ -222,7 +233,12 @@ pub fn plan(args: &[String], os: &Os<'_>) -> i32 {
         }
     };
     out(&res.report);
-    let _ = client.phase(&bare_phase(&exec_id, "report", "generating report…", Some(98)));
+    let _ = client.phase(&bare_phase(
+        &exec_id,
+        "report",
+        "generating report…",
+        Some(98),
+    ));
 
     let change_reasons = if changed && client.enabled() {
         tm.why_changed(base).unwrap_or_default()
