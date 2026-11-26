@@ -51,17 +51,18 @@ fn hands_off_to_go_and_reports_why_it_cannot() {
     let log = dir.path().join("fallback.log");
     stub_go(&go, 0o755);
 
-    // Argv and the exit code pass through; the fallback is logged once.
+    // Argv and the exit code pass through; the fallback is logged once. The
+    // examples use `serve` because `render` is answered in Rust.
     let (code, stdout, _) = run(
         Path::new(FRONT_DOOR),
-        &["render", "--x", "y"],
+        &["serve", "--x", "y"],
         &[
             ("TFSTACKPLAN_GO_BIN", &go),
             ("TFSTACKPLAN_FALLBACK_LOG", &log),
         ],
     );
-    assert_eq!((code, stdout.as_str()), (3, "go:render --x y\n"));
-    assert_eq!(std::fs::read_to_string(&log).unwrap(), "render\n");
+    assert_eq!((code, stdout.as_str()), (3, "go:serve --x y\n"));
+    assert_eq!(std::fs::read_to_string(&log).unwrap(), "serve\n");
 
     // A missing binary is 127 and logs nothing.
     let missing = dir.path().join("missing");
@@ -74,14 +75,14 @@ fn hands_off_to_go_and_reports_why_it_cannot() {
         ],
     );
     assert_eq!(code, 127, "{stderr}");
-    assert_eq!(std::fs::read_to_string(&log).unwrap(), "render\n");
+    assert_eq!(std::fs::read_to_string(&log).unwrap(), "serve\n");
 
     // A file that is not executable is 126.
     let plain = dir.path().join("plain");
     stub_go(&plain, 0o644);
     let (code, _, stderr) = run(
         Path::new(FRONT_DOOR),
-        &[],
+        &["serve"],
         &[("TFSTACKPLAN_GO_BIN", &plain)],
     );
     assert_eq!(code, 126, "{stderr}");
@@ -89,7 +90,7 @@ fn hands_off_to_go_and_reports_why_it_cannot() {
     // Pointing TFSTACKPLAN_GO_BIN at the front door itself is refused.
     let (code, _, stderr) = run(
         Path::new(FRONT_DOOR),
-        &[],
+        &["serve"],
         &[("TFSTACKPLAN_GO_BIN", Path::new(FRONT_DOOR))],
     );
     assert_eq!(code, 126, "{stderr}");
