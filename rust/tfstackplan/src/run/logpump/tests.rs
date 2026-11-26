@@ -79,6 +79,10 @@ fn final_flush_after_work() {
 // budget in total. Before, every stack's post waited out the client's 10 s
 // timeout, in the tick and again in the flush (a minute for three stacks).
 #[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "a plain test thread, no Tokio worker: the sleep lets the first tick's post start"
+)]
 fn blackholed_server_bounds_the_stop() {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let url = format!("http://{}", listener.local_addr().unwrap());
@@ -97,7 +101,7 @@ fn blackholed_server_bounds_the_stop() {
         std::fs::write(root.path().join(s).join("f.log"), "line\n").unwrap();
     }
     let r = root.path().to_string_lossy().into_owned();
-    let start = std::time::Instant::now();
+    let start = Instant::now();
     let got = while_pumping(
         Some(Pump::new(&client, &r, "f.log", "e1")),
         &stacks,
