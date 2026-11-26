@@ -8,11 +8,12 @@ use std::sync::Arc;
 
 use axum::Router;
 use axum::body::{Body, Bytes};
+use axum::extract::rejection::BytesRejection;
 use axum::extract::{DefaultBodyLimit, Request, State};
 use axum::http::{HeaderMap, HeaderValue, Method, StatusCode, Uri, header};
-use axum::response::Response;
+use axum::response::{IntoResponse, Response};
 use axum::routing::{MethodRouter, get, post};
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::config::{SCOPE_ADMIN, SCOPE_READ, SCOPE_REPORT};
 use crate::{App, admin, execution, http, ingest, lifecycle, logs, pubsub, read, webhook};
@@ -464,20 +465,46 @@ fn head_strip(method: &Method, mut r: Response) -> Response {
     r
 }
 
-async fn pubsub_push(State(app): State<Arc<App>>, headers: HeaderMap, body: Bytes) -> Response {
-    pubsub::push(app, &headers, &body).await
+/// A push body the extractor refused. One over [`PUSH_BODY_LIMIT`] is logged (path and
+/// limit only) so an oversize push does not vanish silently.
+fn refused_push(path: &str, e: BytesRejection) -> Response {
+    if e.status() == StatusCode::PAYLOAD_TOO_LARGE {
+        warn!("server: {path}: body over the {PUSH_BODY_LIMIT}-byte limit, refused");
+    }
+    e.into_response()
+}
+
+async fn pubsub_push(
+    State(app): State<Arc<App>>,
+    headers: HeaderMap,
+    body: Result<Bytes, BytesRejection>,
+) -> Response {
+    match body {
+        Ok(body) => pubsub::push(app, &headers, &body).await,
+        Err(e) => refused_push("/pubsub/push", e),
+    }
 }
 
 async fn pubsub_cloud_builds(
     State(app): State<Arc<App>>,
     headers: HeaderMap,
-    body: Bytes,
+    body: Result<Bytes, BytesRejection>,
 ) -> Response {
-    pubsub::cloud_builds(app, &headers, &body).await
+    match body {
+        Ok(body) => pubsub::cloud_builds(app, &headers, &body).await,
+        Err(e) => refused_push("/pubsub/cloud-builds", e),
+    }
 }
 
-async fn github_webhook(State(app): State<Arc<App>>, headers: HeaderMap, body: Bytes) -> Response {
-    webhook::handle(app, &headers, &body).await
+async fn github_webhook(
+    State(app): State<Arc<App>>,
+    headers: HeaderMap,
+    body: Result<Bytes, BytesRejection>,
+) -> Response {
+    match body {
+        Ok(body) => webhook::handle(app, &headers, &body).await,
+        Err(e) => refused_push("/github/webhook", e),
+    }
 }
 
 #[cfg(test)]

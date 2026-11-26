@@ -285,6 +285,7 @@ async fn dot_segments_never_reach_the_tier() {
         "/api/tiers/prod/logs/%2e%2e/api/approvals",
         "/api/tiers/prod/plan/%2E%2E/api/approvals",
         "/api/tiers/prod/logs/%2e/x",
+        "/api/tiers/prod/logs/e1/",
         "/api/tiers/prod/logs/e1/%2e%2e/%2e%2e/api/approvals",
         "/api/tiers/prod/logs/e1/a/%2e%2e",
         "/api/tiers/prod/logs/e1/a%3Fb",

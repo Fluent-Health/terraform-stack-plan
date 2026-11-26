@@ -612,13 +612,18 @@ pub async fn serve_until(
             let _ = conn.await;
         });
     };
+    let mut backoff = Duration::ZERO;
     tokio::pin!(signal);
     loop {
         tokio::select! {
             () = &mut signal => break,
             conn = listener.accept() => {
-                if let Ok((stream, _)) = conn {
-                    accept(stream);
+                match conn {
+                    Ok((stream, _)) => {
+                        backoff = Duration::ZERO;
+                        accept(stream);
+                    }
+                    Err(e) => accept_backoff(&mut backoff, &e).await,
                 }
             }
         }
@@ -629,8 +634,12 @@ pub async fn serve_until(
         tokio::select! {
             () = &mut linger => break,
             conn = listener.accept() => {
-                if let Ok((stream, _)) = conn {
-                    accept(stream);
+                match conn {
+                    Ok((stream, _)) => {
+                        backoff = Duration::ZERO;
+                        accept(stream);
+                    }
+                    Err(e) => accept_backoff(&mut backoff, &e).await,
                 }
             }
         }
@@ -814,6 +823,14 @@ async fn serve_app(app: Arc<App>, addr: &str) -> ExitCode {
             ExitCode::from(1)
         }
     }
+}
+
+/// After a failed accept (say, out of file descriptors), wait before the next one as Go's
+/// `http.Server` does: 5 ms, doubling to at most 1 s, reset by a successful accept.
+async fn accept_backoff(delay: &mut Duration, err: &std::io::Error) {
+    *delay = (*delay * 2).clamp(Duration::from_millis(5), Duration::from_secs(1));
+    warn!("serve: accept failed, retrying in {delay:?}: {err}");
+    tokio::time::sleep(*delay).await;
 }
 
 #[cfg(test)]

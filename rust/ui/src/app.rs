@@ -199,14 +199,10 @@ impl App {
                 let rest = match route {
                     Route::Events => format!("/api/execution/{exec}/events"),
                     Route::Logs | Route::Plan => {
-                        // An empty remainder (`.../logs/e1/`) is passed on as Go does;
-                        // the tier answers it. Otherwise no segment may be empty.
+                        // No segment may be empty, so a wholly empty stack
+                        // (`.../logs/e1/`) is refused too.
                         let stack = cap(2);
-                        let segs: Vec<&[u8]> = if stack.is_empty() {
-                            Vec::new()
-                        } else {
-                            stack.split(|b| *b == b'/').collect()
-                        };
+                        let segs: Vec<&[u8]> = stack.split(|b| *b == b'/').collect();
                         if !segs.iter().all(|s| safe_segment(s)) {
                             return bad_segment();
                         }

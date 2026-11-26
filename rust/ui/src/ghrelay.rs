@@ -35,6 +35,7 @@ impl App {
     pub(crate) async fn handle_github_relay(self: &Arc<Self>, req: Request<Body>) -> Resp {
         let (parts, body) = req.into_parts();
         let Ok(body) = axum::body::to_bytes(body, RELAY_BODY_LIMIT).await else {
+            warn!("ui: /github/webhook: body over the {RELAY_BODY_LIMIT}-byte limit, refused");
             return gohttp::error(413, "payload too large");
         };
         if !self.cfg.github_webhook_secret.is_empty() {

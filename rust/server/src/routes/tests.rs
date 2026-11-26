@@ -331,6 +331,38 @@ const AUTH_EXEMPT: &[(&str, &str)] = &[
     ("POST", "/github/webhook"),
 ];
 
+/// The gated routes `router()` registers outside the `API_ROUTES` loop.
+const GATED_NON_API: [(&str, &str, &[&str]); 3] = [
+    ("GET", "/logs/{exec}/{*stack}", ANY),
+    ("GET", "/plan/{exec}/{*stack}", ANY),
+    ("GET", "/api/execution/{id}/events", ANY),
+];
+
+/// axum cannot list a router's routes, so this reads the literal paths `router()` passes to
+/// `.route(` and checks each is in the auth sweep above; the rest come from `API_ROUTES`.
+#[test]
+fn the_auth_sweep_covers_every_routed_path() {
+    let src = include_str!("../routes.rs");
+    let body = &src[src.find("pub fn router(").expect("router()")..];
+    let body = &body[..body.find("\n    }\n").expect("end of router()")];
+    let mut literal = 0;
+    for (i, _) in body.match_indices(".route(") {
+        let arg = body[i + ".route(".len()..].trim_start();
+        let Some(rest) = arg.strip_prefix('"') else {
+            assert!(arg.starts_with("path,"), "non-literal route: {arg:.40}");
+            continue;
+        };
+        let path = &rest[..rest.find('"').expect("closing quote")];
+        literal += 1;
+        assert!(
+            AUTH_EXEMPT.iter().any(|(_, p)| *p == path)
+                || GATED_NON_API.iter().any(|(_, p, _)| *p == path),
+            "{path} is routed but not in the auth sweep"
+        );
+    }
+    assert_eq!(literal, AUTH_EXEMPT.len() + GATED_NON_API.len());
+}
+
 /// A concrete request path for a route pattern; parameters that bind before auth get
 /// values that bind.
 fn concrete(pattern: &str) -> String {
@@ -366,11 +398,7 @@ async fn every_route_but_the_exempt_ones_needs_a_scoped_token() {
         ],
     );
     let mut routes: Vec<(&str, &str, &[&str])> = API_ROUTES.to_vec();
-    routes.extend([
-        ("GET", "/logs/{exec}/{*stack}", ANY),
-        ("GET", "/plan/{exec}/{*stack}", ANY),
-        ("GET", "/api/execution/{id}/events", ANY),
-    ]);
+    routes.extend(GATED_NON_API);
     for (method, pattern, scopes) in routes {
         assert!(
             !AUTH_EXEMPT.iter().any(|(_, p)| *p == pattern),

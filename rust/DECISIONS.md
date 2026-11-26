@@ -223,7 +223,10 @@ SPA opens the approval popup with `window.open` on a relative URL, and browsers 
 
 The stream proxies (`/api/tiers/{tier}/logs|plan/{exec}/{stack...}` and the events route)
 answer 400 when the decoded execution id or any stack segment is empty (a wholly empty stack,
-`.../logs/e1/`, is passed on as Go does), `.` or `..`, or holds
+`.../logs/e1/`, included), `.` or `..`, or holds
 `?`, `#` or `\`, and escape each stack segment. URL parsing resolves `..` even when it arrives
 as `%2e%2e`, so such a path would otherwise reach any route of the tier with the ui's own
-identity. `/api/tiers/{tier}/executions/{id}` refuses the same ids with the router's 400.
+identity. Go's ui answers the empty stack with the same 400 once its own fix
+merges. The Go binary the ui replay builds from this branch predates that fix, so the replay
+leaves the case out and the crate's proxy tests check it. (The approve-start change could
+stay in the replay because Go ignores the added header.) `/api/tiers/{tier}/executions/{id}` refuses the same ids with the router's 400.

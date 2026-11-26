@@ -313,7 +313,8 @@ def cases(sess, other, expired, approve_states):
         ("GET", "/api/tiers/nonprod/executions/e1/events", {}, None),
         ("GET", "/api/tiers/nonprod/logs/e1/stacks/a?follow=1",
          dict(S, **{"Last-Event-ID": "17", "Accept": "text/event-stream"}), None),
-        ("GET", "/api/tiers/nonprod/logs/e1/", S, None),
+        # A wholly empty stack (`.../logs/e1/`) is 400 in Rust and in Go once its fix
+        # lands; this Go reference still forwards it, so proxy/tests.rs covers it instead.
         ("GET", "/api/tiers/nonprod/logs/e%2F1/a/b%2Fc?x=%20", S, None),
         ("GET", "/api/tiers/nonprod/plan/e1/stacks/a", S, None),
         ("GET", "/api/tiers/nope/logs/e1/stacks/a", S, None),
