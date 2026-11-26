@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use crate::events::{Category, Counts, Phase, Status};
-use crate::json::nullable;
+use crate::json::{null_if_empty, nullable};
 use crate::reconcile::wrap_variants;
 
 /// The folded lifecycle of one execution. JSON field names are Go's.
@@ -36,7 +36,11 @@ pub struct State {
     pub superseded_by: String,
     #[serde(rename = "Stacks", deserialize_with = "nullable")]
     pub stacks: Vec<Stack>,
-    #[serde(rename = "Edges", deserialize_with = "nullable")]
+    #[serde(
+        rename = "Edges",
+        deserialize_with = "nullable",
+        serialize_with = "null_if_empty"
+    )]
     pub edges: Vec<Edge>,
 }
 
@@ -53,7 +57,11 @@ pub struct Stack {
     pub run_status: Status,
     #[serde(rename = "Detail")]
     pub detail: String,
-    #[serde(rename = "Categories", deserialize_with = "nullable")]
+    #[serde(
+        rename = "Categories",
+        deserialize_with = "nullable",
+        serialize_with = "null_if_empty"
+    )]
     pub categories: Vec<Category>,
     #[serde(rename = "Counts")]
     pub counts: Option<Counts>,
@@ -155,8 +163,62 @@ wrap_variants!(Event: Started, PhaseChanged, StackStatusChanged, Failed, Succeed
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Started {
-    #[serde(rename = "Exec")]
+    #[serde(rename = "Exec", serialize_with = "init_state")]
     pub exec: State,
+}
+
+/// The Init state as Go's `Started` event carries it: built by `execInitFromEvents`,
+/// whose stack list is nil (`null`) when the runner sent none. The folded state
+/// always holds a non-nil list (`[]`), so only the event differs.
+fn init_state<S: serde::Serializer>(st: &State, serializer: S) -> Result<S::Ok, S::Error> {
+    #[derive(Serialize)]
+    struct Wire<'a> {
+        #[serde(rename = "ID")]
+        id: &'a str,
+        #[serde(rename = "Repo")]
+        repo: &'a str,
+        #[serde(rename = "SHA")]
+        sha: &'a str,
+        #[serde(rename = "LogURL")]
+        log_url: &'a str,
+        #[serde(rename = "PR")]
+        pr: i64,
+        #[serde(rename = "Environment")]
+        environment: &'a str,
+        #[serde(rename = "Context")]
+        context: &'a str,
+        #[serde(rename = "Phase")]
+        phase: &'a Phase,
+        #[serde(rename = "ProgressLabel")]
+        progress_label: &'a str,
+        #[serde(rename = "ProgressPct")]
+        progress_pct: Option<i64>,
+        #[serde(rename = "Status")]
+        status: &'a str,
+        #[serde(rename = "SupersededBy")]
+        superseded_by: &'a str,
+        #[serde(rename = "Stacks", serialize_with = "null_if_empty")]
+        stacks: &'a Vec<Stack>,
+        #[serde(rename = "Edges", serialize_with = "null_if_empty")]
+        edges: &'a Vec<Edge>,
+    }
+    Wire {
+        id: &st.id,
+        repo: &st.repo,
+        sha: &st.sha,
+        log_url: &st.log_url,
+        pr: st.pr,
+        environment: &st.environment,
+        context: &st.context,
+        phase: &st.phase,
+        progress_label: &st.progress_label,
+        progress_pct: st.progress_pct,
+        status: &st.status,
+        superseded_by: &st.superseded_by,
+        stacks: &st.stacks,
+        edges: &st.edges,
+    }
+    .serialize(serializer)
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -204,13 +266,29 @@ pub struct Succeeded {}
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct StacksAnnotated {
-    #[serde(rename = "Projects", deserialize_with = "nullable")]
+    #[serde(
+        rename = "Projects",
+        deserialize_with = "nullable",
+        serialize_with = "null_if_empty"
+    )]
     pub projects: BTreeMap<String, String>,
-    #[serde(rename = "Categories", deserialize_with = "nullable")]
+    #[serde(
+        rename = "Categories",
+        deserialize_with = "nullable",
+        serialize_with = "null_if_empty"
+    )]
     pub categories: BTreeMap<String, Vec<Category>>,
-    #[serde(rename = "Counts", deserialize_with = "nullable")]
+    #[serde(
+        rename = "Counts",
+        deserialize_with = "nullable",
+        serialize_with = "null_if_empty"
+    )]
     pub counts: BTreeMap<String, Counts>,
-    #[serde(rename = "Moving", deserialize_with = "nullable")]
+    #[serde(
+        rename = "Moving",
+        deserialize_with = "nullable",
+        serialize_with = "null_if_empty"
+    )]
     pub moving: Vec<String>,
 }
 

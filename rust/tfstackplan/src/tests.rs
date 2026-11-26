@@ -30,8 +30,10 @@ fn subcommand_matches_go_dispatch() {
 }
 
 #[test]
-fn nothing_is_ported_yet() {
-    assert!(PORTED.is_empty());
+fn ported_subcommands() {
+    let names: Vec<&str> = PORTED.iter().map(|(n, _)| *n).collect();
+    assert_eq!(names, vec!["serve", "ui"]);
+    assert!(is_ported("serve"));
     assert!(!is_ported("render"));
 }
 

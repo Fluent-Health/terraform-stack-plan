@@ -27,6 +27,9 @@ unused-allowed-license = "allow"
 confidence-threshold = 0.9
 # Our own crates are not published.
 private = { ignore = true }
+# comrak (the /plan fragment's markdown renderer) uses finl_unicode, whose Unicode data tables
+# carry the OSI-approved Unicode-DFS-2016 terms. Allowed for that crate only.
+exceptions = [{ allow = ["Unicode-DFS-2016"], crate = "finl_unicode" }]
 
 [bans]
 multiple-versions = "warn"
@@ -36,6 +39,9 @@ deny = [
   # TLS is rustls everywhere: distroless carries no libssl, and one TLS stack is enough.
   { crate = "openssl-sys", reason = "use rustls" },
   { crate = "native-tls", reason = "use rustls" },
+  # aws-lc-rs is the one crypto provider (DECISIONS.md); ring sits in Cargo.lock only as an
+  # optional dependency of rustls-webpki and quinn-proto that no enabled feature pulls in.
+  { crate = "ring", reason = "aws-lc-rs is the only crypto provider" },
 ]
 
 [sources]

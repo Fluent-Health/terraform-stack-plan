@@ -132,3 +132,101 @@ the offset it was created with (`+05:30`, or `Z` for UTC); jiff always writes UT
 with `Z`. Both read either form, and the instant is the same. In SQLite, a claim's
 `expires_at` is compared as text, so the store writes Go's `time.String()` form for
 UTC there, never jiff's.
+
+## The serve clients: `tfstackplan-server-clients`
+
+Every client serve and ui use to reach GitHub or Google lives in `server-clients/`. It is not
+called `clients` because another branch may add a `rust/clients` crate for the CLI side, and
+two crates of that name would collide.
+
+One crypto library does everything: aws-lc-rs signs the GitHub App JWT and the
+service-account JWT-bearer assertion, verifies Google ID tokens, and computes the webhook
+HMAC. The JWTs are built by hand, as Go builds them, so there is no JWT crate whose defaults
+could drift (algorithm lists, leeway, skipped claims). rustls is built with only its aws-lc-rs
+provider, and `http::install_crypto_provider` installs it. `ring` is never compiled: it is in
+`Cargo.lock` only as an optional dependency of rustls-webpki and quinn-proto that no enabled
+feature pulls in, and `deny.toml` bans it so that stays true.
+
+The GitHub client caches its installation token until five minutes before GitHub's expiry, and
+drops it on any 401 so a revoked or rotated token is replaced on the next call. Client error
+strings name the endpoint and status but leave the response body out, since errors are logged:
+GitHub errors keep only the JSON `message` (cut at 200 characters), token-endpoint errors only
+the RFC 6749 `error` code, GCS uploads only the status. A JWKS fetch that fails is logged as a
+warning (never the token), because every ID token is then rejected and callers only see 401s.
+
+ID-token verification copies Go's `idtoken.Validate` check by check: three segments,
+`now > exp` rejects with no clock-skew allowance, an RS256 signature against Google's JWKS, and
+the JWKS cached for `max-age` minus `Age`. It is stricter in three ways, each of which only
+rejects tokens Go accepts: the issuer must be Google's, only RS256 is taken (idtoken's ES256
+path is for IAP tokens, which carry IAP's issuer), and RSA keys must be 2048 to 8192 bits. An
+unknown key id refetches the JWKS at most once a minute.
+
+Environment inputs (`GOOGLE_APPLICATION_CREDENTIALS`, `GCE_METADATA_HOST`, the IAM Credentials
+base) go through `gcpcreds::Env` instead of being read inside the flows. Tests build an `Env`
+pointing at local fakes, since Rust tests cannot set environment variables safely.
+
+## The serve HTTP layer: `tfstackplan-server`
+
+`server/` is axum. The `/api` operations are a table (`routes::API_ROUTES`: method, path,
+accepted scopes) that a test checks against `api/openapi.yaml`, so the spec stays the contract
+without a code generator. One handler binds parameters before auth, as oapi-codegen's wrappers
+do, then authorizes and dispatches. Unmatched paths and wrong methods answer exactly like Go's
+`http.ServeMux` (`404 page not found`, `405 Method Not Allowed` with `Allow`).
+
+The shell holds a tokio mutex per (pr, environment) across decide, persist and the React
+actions, looping on their feedback signals up to 16 times, as Go's `Shell.Handle` does. The
+store's own `KeyedLocks` are std mutexes and cannot be held across an await, so the server keeps
+its own async lock maps (gate, execution, environment) with Go's one-directional nesting. Every
+store call runs on the blocking pool (`App::db`): the busy handler sleeps.
+
+Wire compatibility is byte-level. `gojson` reproduces what the handlers depend on in Go's
+`encoding/json`: the encoder's HTML escaping and trailing newline, and the decoder's behaviour
+(first value only, case-insensitive keys, nulls skipped, the first type error reported with
+Go's text, `EOF`/`unexpected EOF`/scanner syntax errors). Request shapes are data
+(`gojson::shape`) rather than reflection. Response structs list fields in the order Go's types
+declare them. Go's committed wire goldens (`internal/server/testdata/wire`) are read in place by
+`server/src/tests.rs` and pass unchanged.
+
+Known differences, all outside the wire goldens: `/plan` fragments are rendered by comrak, not
+goldmark (both CommonMark plus GFM; the diff-fence colouring is the same); Go's
+`json.Unmarshal` of webhook payloads matches keys case-insensitively and this does not; Go
+ranges over maps in random order where this uses a stable order (inspect claims, catalog
+components, merge-group environments). `/healthz` (version and git SHA) exists only here; Go
+answers 404 there.
+
+`serve` reads only the HCL blocks it needs (`serve`, the unlabeled `server`, `class`,
+`progress`) and accepts the render blocks without validating them; the render port owns those.
+On SIGTERM it keeps accepting for two seconds, then stops and gives in-flight requests seven
+more, inside Cloud Run's ten-second grace. It serves HTTP/1.1 through hyper-util, like the ui,
+so request headers must arrive within ten seconds (Go's `ReadHeaderTimeout`).
+
+Go reads request bodies without a limit. Here Pub/Sub pushes and the GitHub webhook are capped
+at 2 MiB and `/api` bodies at 32 MiB, Cloud Run's HTTP/1 request limit, since `/api/logs`
+carries whatever log output piled up since the runner's last post. Past the cap the answer is
+413; a body that cannot be read is 400 instead of being handled as empty.
+
+`server/tests/replay.rs` runs Go's `serve` and the Rust `serve` side by side from fresh
+databases and the same config, against one fake GitHub each, and compares every case's
+status, headers, body, GitHub calls and a dump of every table (timestamps masked). Auth is off
+in the replay: Go's verifier fetches Google's real certificate URL and cannot be pointed at a
+fake issuer, so the OIDC paths are covered by the ported tests instead.
+
+## The ui service: `tfstackplan-ui`
+
+Two checks go beyond Go's ui. `GET /auth/approve` starts a PAM approval with only the
+SameSite=Lax session cookie behind it, which a top-level link from any site also carries, so
+it is refused with 403 unless `Sec-Fetch-Site` is `same-origin`. Without that header an
+`Origin`, else a `Referer`, must have exactly `public_base_url`'s scheme, host and port. The
+SPA opens the approval popup with `window.open` on a relative URL, and browsers send
+`Sec-Fetch-Site: same-origin` on that navigation. The ui replay
+(`ui/tests/replay/replay.py`) adds that header to its approve-start requests; Go ignores it.
+
+The stream proxies (`/api/tiers/{tier}/logs|plan/{exec}/{stack...}` and the events route)
+answer 400 when the decoded execution id or any stack segment is empty (a wholly empty stack,
+`.../logs/e1/`, included), `.` or `..`, or holds
+`?`, `#` or `\`, and escape each stack segment. URL parsing resolves `..` even when it arrives
+as `%2e%2e`, so such a path would otherwise reach any route of the tier with the ui's own
+identity. Go's ui answers the empty stack with the same 400 once its own fix
+merges. The Go binary the ui replay builds from this branch predates that fix, so the replay
+leaves the case out and the crate's proxy tests check it. (The approve-start change could
+stay in the replay because Go ignores the added header.) `/api/tiers/{tier}/executions/{id}` refuses the same ids with the router's 400.

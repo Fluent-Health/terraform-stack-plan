@@ -6,6 +6,11 @@ rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
+[dependencies]
+tfstackplan-server = { path = "../server" }
+tfstackplan-ui = { path = "../ui" }
+tokio.workspace = true
+
 [dev-dependencies]
 trycmd = "=1.2.1"
 tempfile = "=3.27.0"

@@ -14,8 +14,38 @@ use std::process::ExitCode;
 /// A ported subcommand: gets the arguments after the subcommand name.
 type Handler = fn(&[OsString]) -> ExitCode;
 
-/// Subcommands that have a Rust implementation. Empty until the first port.
-const PORTED: &[(&str, Handler)] = &[];
+/// Subcommands that have a Rust implementation.
+const PORTED: &[(&str, Handler)] = &[("serve", serve), ("ui", ui)];
+
+/// `tfstackplan serve` in Rust (`tfstackplan-server`).
+fn serve(args: &[OsString]) -> ExitCode {
+    block_on("serve", tfstackplan_server::serve::run(strings(args)))
+}
+
+/// `tfstackplan ui` in Rust (`tfstackplan-ui`).
+fn ui(args: &[OsString]) -> ExitCode {
+    block_on("ui", tfstackplan_ui::run(strings(args)))
+}
+
+fn strings(args: &[OsString]) -> Vec<String> {
+    args.iter()
+        .map(|a| a.to_string_lossy().into_owned())
+        .collect()
+}
+
+/// Runs a subcommand's future on a multi-threaded runtime.
+fn block_on(name: &str, fut: impl Future<Output = ExitCode>) -> ExitCode {
+    match tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+    {
+        Ok(rt) => rt.block_on(fut),
+        Err(e) => {
+            eprintln!("tfstackplan {name}: start runtime: {e}");
+            ExitCode::FAILURE
+        }
+    }
+}
 
 /// Exit code when the Go binary cannot be found (as a shell does for a missing command).
 pub const EXIT_GO_NOT_FOUND: u8 = 127;

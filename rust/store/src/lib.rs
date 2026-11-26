@@ -34,6 +34,7 @@ mod eventstore;
 mod execution;
 mod gate;
 mod locks;
+mod queries;
 mod steps;
 mod time;
 
@@ -43,6 +44,7 @@ pub use eventstore::StoredEvent;
 pub use execution::{ExecutionRow, PhaseRow, ProjectedExecution, ProjectedStack};
 pub use gate::{GateKey, GateTargetRow, OpenGrantPr, PendingApproval, PrTarget};
 pub use locks::KeyedLocks;
+pub use queries::{ApplyLockCheck, ExecutionSummary, PrMeta};
 pub use steps::{GateStep, env_stream_id, exec_stream_id, run_stream_id};
 
 use tfstackplan_gate::eventsourcing::CodecError;
