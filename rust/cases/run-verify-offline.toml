@@ -10,3 +10,6 @@ env = { TFSTACKPLAN_EXECUTION = "v-1" }
 
 [status]
 code = 0
+
+[env]
+inherit = false

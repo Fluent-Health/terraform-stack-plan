@@ -13,3 +13,6 @@ body = '{"ID":"exec-1","Repo":"acme/infra","SHA":"abc123","PR":7,"Environment":"
 
 [status]
 code = 0
+
+[env]
+inherit = false

@@ -13,3 +13,6 @@ body = 'eyJhbGciOiJub25lIn0.eyJlbWFpbCI6ImNpLWJvdEBleGFtcGxlLmNvbSIsInN1YiI6IjQy
 
 [status]
 code = 0
+
+[env]
+inherit = false

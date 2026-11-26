@@ -4,3 +4,6 @@ fs.cwd = "../.."
 
 [status]
 code = 3
+
+[env]
+inherit = false

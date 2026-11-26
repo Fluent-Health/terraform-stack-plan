@@ -13,3 +13,6 @@ body = 'not an admin'
 
 [status]
 code = 1
+
+[env]
+inherit = false

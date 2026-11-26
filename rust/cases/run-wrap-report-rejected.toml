@@ -19,3 +19,6 @@ body = ''
 
 [status]
 code = 1
+
+[env]
+inherit = false

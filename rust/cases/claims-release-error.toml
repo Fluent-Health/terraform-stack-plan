@@ -13,3 +13,6 @@ body = 'no such claim'
 
 [status]
 code = 1
+
+[env]
+inherit = false

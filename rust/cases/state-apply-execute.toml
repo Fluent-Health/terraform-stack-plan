@@ -3,9 +3,13 @@ args = ["state", "apply", "--dir", ".", "--execute"]
 fs.base = "fixtures/state/apply"
 fs.sandbox = true
 fs.cwd = "fixtures/state/apply"
+wildcards = true
 
 [harness]
 requires = ["terraform"]
 
 [status]
 code = 0
+
+[env]
+inherit = false

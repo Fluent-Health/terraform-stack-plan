@@ -2,6 +2,9 @@ bin.name = "tfstackplan"
 args = ["state", "apply", "--dir", "."]
 fs.cwd = "fixtures/state/apply"
 
+[env]
+inherit = false
+
 [env.add]
 PATH = "/nonexistent"
 

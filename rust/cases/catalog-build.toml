@@ -9,3 +9,6 @@ requires = ["terramate"]
 
 [status]
 code = 0
+
+[env]
+inherit = false

@@ -8,3 +8,6 @@ adc = "authorized_user"
 
 [status]
 code = 0
+
+[env]
+inherit = false

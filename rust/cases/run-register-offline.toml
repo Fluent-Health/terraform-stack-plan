@@ -6,3 +6,6 @@ fs.sandbox = true
 
 [status]
 code = 0
+
+[env]
+inherit = false

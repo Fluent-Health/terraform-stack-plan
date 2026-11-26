@@ -4,3 +4,6 @@ fs.cwd = "fixtures/uniqueness/findings"
 
 [status]
 code = 1
+
+[env]
+inherit = false

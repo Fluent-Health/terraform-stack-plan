@@ -13,3 +13,6 @@ body = 'boom'
 
 [status]
 code = 1
+
+[env]
+inherit = false
