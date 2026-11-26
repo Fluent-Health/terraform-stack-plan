@@ -33,7 +33,8 @@ pub fn start_error_in(bin: &str, dir: &Path, e: &std::io::Error) -> String {
     }
 }
 
-/// Go's `ExitError` text: `exit status N`, or `signal: <name>`.
+/// Go's `ExitError` text: `exit status N`, or `signal: <name>`, with
+/// ` (core dumped)` when the process dumped core.
 pub fn exit_text(status: &std::process::ExitStatus) -> String {
     match status.code() {
         Some(c) => format!("exit status {c}"),
@@ -41,8 +42,13 @@ pub fn exit_text(status: &std::process::ExitStatus) -> String {
             #[cfg(unix)]
             {
                 use std::os::unix::process::ExitStatusExt;
+                let core = if status.core_dumped() {
+                    " (core dumped)"
+                } else {
+                    ""
+                };
                 format!(
-                    "signal: {}",
+                    "signal: {}{core}",
                     signal_name(status.signal().unwrap_or_default())
                 )
             }
@@ -61,8 +67,13 @@ pub fn signal_name(sig: i32) -> String {
         2 => "interrupt".into(),
         3 => "quit".into(),
         6 => "aborted".into(),
+        7 => "bus error".into(),
         9 => "killed".into(),
+        10 => "user defined signal 1".into(),
+        11 => "segmentation fault".into(),
+        12 => "user defined signal 2".into(),
         13 => "broken pipe".into(),
+        14 => "alarm clock".into(),
         15 => "terminated".into(),
         n => format!("signal {n}"),
     }

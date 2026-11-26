@@ -99,29 +99,13 @@ impl Terraform {
                 )
             })?;
         if !out.status.success() {
-            let status = match out.status.code() {
-                Some(c) => format!("exit status {c}"),
-                None => {
-                    use std::os::unix::process::ExitStatusExt;
-                    format!("signal: {}", signal_name(out.status.signal().unwrap_or(0)))
-                }
-            };
             return Err(format!(
-                "{status}\n{}",
+                "{}\n{}",
+                crate::proc::exit_text(&out.status),
                 String::from_utf8_lossy(&out.stderr)
             ));
         }
         Ok(String::from_utf8_lossy(&out.stdout).into_owned())
-    }
-}
-
-fn signal_name(sig: i32) -> String {
-    match sig {
-        1 => "hangup".into(),
-        2 => "interrupt".into(),
-        9 => "killed".into(),
-        15 => "terminated".into(),
-        n => format!("signal {n}"),
     }
 }
 
