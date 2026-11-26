@@ -67,7 +67,7 @@ fn hands_off_to_go_and_reports_why_it_cannot() {
     let missing = dir.path().join("missing");
     let (code, _, stderr) = run(
         Path::new(FRONT_DOOR),
-        &["serve"],
+        &["run"],
         &[
             ("TFSTACKPLAN_GO_BIN", &missing),
             ("TFSTACKPLAN_FALLBACK_LOG", &log),
