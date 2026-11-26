@@ -7,8 +7,10 @@ notice text, copied verbatim.
 ================================================================================
 The Go programming language (https://github.com/golang/go)
 
-Ported: the strconv.IsPrint tables from src/strconv/isprint.go.
+Ported: the strconv.IsPrint tables from src/strconv/isprint.go, and filepath.Match
+from src/path/filepath/match.go.
 File: rust/cli-core/src/isprint.rs
+File: rust/cli-core/src/glob.rs
 Licence: BSD-3-Clause. LICENSE:
 ================================================================================
 

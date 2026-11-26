@@ -1,5 +1,7 @@
 //! Go's `filepath.Match` on unix, ported line for line: `*` and `?` stop at `/`,
-//! `[...]` classes with ranges and `^` negation, `\` escapes.
+//! `[...]` classes with ranges and `^` negation, `\` escapes. Ported from Go's
+//! `path/filepath/match.go`, Copyright 2010 The Go Authors, BSD-3-Clause; the licence text is in
+//! `rust/THIRD_PARTY_NOTICES`.
 
 /// The pattern is malformed (Go's `filepath.ErrBadPattern`).
 #[derive(Debug, Clone, PartialEq, Eq)]
