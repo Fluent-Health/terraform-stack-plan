@@ -132,6 +132,12 @@ status = 200
 body = '[]'
 ```
 
+Neither `env.add` nor `[harness] env` may set `HOME`, `TFSTACKPLAN_GO_BIN` or
+`TFSTACKPLAN_FALLBACK_LOG`, and they may set a credential variable
+(`GOOGLE_APPLICATION_CREDENTIALS`, `GOOGLE_OAUTH_ACCESS_TOKEN`, `CLOUDSDK_CONFIG`,
+`GCE_METADATA_HOST`) only to point it at the fake server (`{fake}` or
+`{fakehost}` in the value). The replay fails a case that does.
+
 A case with routes or `adc` gets a fake HTTP server on 127.0.0.1 for each run.
 Its URL differs per run, so recordings show it as `[FAKE]` (`[FAKEHOST]` for the
 bare host:port). With `adc`, the server also answers `POST /token` with an
@@ -174,7 +180,7 @@ cargo nextest run   # uses TFSTACKPLAN_GO_BIN, else rust/.go/tfstackplan-go
 stderr, exit code, `.out/` contents) and then checks what trycmd does not:
 
 - the case's fallback log has exactly one line when the subcommand should run in
-  Go (not ported, or a kill switch in its `env.add`) and none when it should run
+  Go (not ported, or a kill switch in its `env.add` or `[harness] env`) and none when it should run
   in Rust, so a ported subcommand cannot silently pass by running Go;
 - a sandboxed case leaves exactly its base files, less its `deletes`, plus its
   `.out/` files, so an extra or unexpectedly deleted file fails;

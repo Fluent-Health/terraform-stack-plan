@@ -43,8 +43,40 @@ struct Case {
     harness: casekit::Harness,
 }
 
-/// Variables the replay sets itself, which a case's `env.add` must not override.
+/// Variables the replay sets itself, which a case's `env.add` and
+/// `[harness] env` must not override.
 const RESERVED_ENV: &[&str] = &["TFSTACKPLAN_GO_BIN", "TFSTACKPLAN_FALLBACK_LOG", "HOME"];
+
+/// Credential variables `casekit` blanks. A case may set one only to point it at
+/// the fake server (`{fake}` or `{fakehost}` in the value).
+const CREDENTIAL_ENV: &[&str] = &[
+    "GOOGLE_APPLICATION_CREDENTIALS",
+    "GOOGLE_OAUTH_ACCESS_TOKEN",
+    "CLOUDSDK_CONFIG",
+    "GCE_METADATA_HOST",
+];
+
+/// The first variable in `env` that a case must not set, if any.
+fn reserved_key<'a>(env: impl IntoIterator<Item = (&'a str, &'a str)>) -> Option<&'a str> {
+    env.into_iter()
+        .find(|(k, v)| {
+            RESERVED_ENV.contains(k) || (CREDENTIAL_ENV.contains(k) && !v.contains("{fake"))
+        })
+        .map(|(k, _)| k)
+}
+
+/// A case's value for `k`: its `env.add`, else its `[harness] env` (the order
+/// the run applies them in, last wins).
+fn case_var(
+    env_add: &BTreeMap<String, String>,
+    harness_env: &[(String, String)],
+    k: &str,
+) -> Option<OsString> {
+    env_add
+        .get(k)
+        .or_else(|| harness_env.iter().find(|(hk, _)| hk == k).map(|(_, v)| v))
+        .map(OsString::from)
+}
 
 /// Whether recorded output holds a trycmd wildcard: `[..]` or a line that is just `...`.
 fn has_wildcard(b: &[u8]) -> bool {
@@ -88,7 +120,7 @@ fn load(path: &Path) -> Result<Case, String> {
                 .collect()
         })
         .unwrap_or_default();
-    if let Some(k) = RESERVED_ENV.iter().find(|k| env_add.contains_key(**k)) {
+    if let Some(k) = reserved_key(env_add.iter().map(|(k, v)| (k.as_str(), v.as_str()))) {
         return Err(format!("env.add must not set {k}: the replay controls it"));
     }
     let fs_get = |key: &str| doc.get("fs").and_then(|t| t.get(key));
@@ -129,6 +161,12 @@ fn load(path: &Path) -> Result<Case, String> {
             ));
         }
     }
+    let harness = casekit::Harness::from_case(&doc)?;
+    if let Some(k) = reserved_key(harness.env.iter().map(|(k, v)| (k.as_str(), v.as_str()))) {
+        return Err(format!(
+            "harness.env must not set {k}: the replay controls it"
+        ));
+    }
     Ok(Case {
         name: path
             .file_stem()
@@ -150,7 +188,7 @@ fn load(path: &Path) -> Result<Case, String> {
                     .collect()
             })
             .unwrap_or_default(),
-        harness: casekit::Harness::from_case(&doc)?,
+        harness,
     })
 }
 
@@ -201,7 +239,8 @@ fn run_front_door(case: &Case, cwd: &Path, vars: &[(String, OsString)]) {
 fn extra_checks(case: &Case, log: &Path, vars: &[(String, OsString)]) -> Option<String> {
     let args: Vec<OsString> = case.args.iter().map(OsString::from).collect();
     let name = tfstackplan::subcommand(&args);
-    let forced = tfstackplan::forced_to_go(&name, |k| case.env_add.get(k).map(OsString::from));
+    let forced =
+        tfstackplan::forced_to_go(&name, |k| case_var(&case.env_add, &case.harness.env, k));
     let expect_go = forced || !tfstackplan::is_ported(&args);
     let logged = std::fs::read_to_string(log).unwrap_or_default();
     let want = if expect_go {
@@ -375,4 +414,60 @@ fn replay() {
     std::fs::write(root.join("replay-report.md"), report).unwrap();
 
     assert!(failed.is_empty(), "replay failed: {failed:#?}");
+}
+
+#[test]
+fn reserved_keys_cover_env_add_and_harness_env() {
+    for k in CREDENTIAL_ENV {
+        assert!(casekit::HERMETIC_UNSET.contains(k), "{k} is not blanked");
+    }
+    assert_eq!(reserved_key([("HOME", "/tmp/x")]), Some("HOME"));
+    assert_eq!(
+        reserved_key([
+            ("TFSTACKPLAN_SERVER", "{fake}"),
+            ("TFSTACKPLAN_GO_BIN", "/bin/true")
+        ]),
+        Some("TFSTACKPLAN_GO_BIN")
+    );
+    assert_eq!(
+        reserved_key([("GOOGLE_APPLICATION_CREDENTIALS", "/home/me/key.json")]),
+        Some("GOOGLE_APPLICATION_CREDENTIALS")
+    );
+    assert_eq!(reserved_key([("GCE_METADATA_HOST", "{fakehost}")]), None);
+    assert_eq!(
+        reserved_key([("TFSTACKPLAN_SERVER", "https://x.example")]),
+        None
+    );
+
+    // load() runs the check over `[harness] env` as well as `env.add`.
+    let dir = tempfile::tempdir().unwrap();
+    let case = dir.path().join("c.toml");
+    std::fs::write(
+        &case,
+        "args = []\nfs.cwd = \".\"\n[env]\ninherit = false\n[harness]\nenv = { HOME = \"/root\" }\n",
+    )
+    .unwrap();
+    assert_eq!(
+        load(&case).err().as_deref(),
+        Some("harness.env must not set HOME: the replay controls it")
+    );
+}
+
+#[test]
+fn harness_env_kill_switch_forces_go() {
+    let none = BTreeMap::new();
+    let harness = vec![("TFSTACKPLAN_IMPL_WHOAMI".to_string(), "go".to_string())];
+    assert!(tfstackplan::forced_to_go("whoami", |k| case_var(
+        &none, &harness, k
+    )));
+    // env.add is applied after `[harness] env`, so it wins.
+    let add = BTreeMap::from([("TFSTACKPLAN_IMPL_WHOAMI".to_string(), "rust".to_string())]);
+    assert!(!tfstackplan::forced_to_go("whoami", |k| case_var(
+        &add, &harness, k
+    )));
+    assert!(!tfstackplan::forced_to_go("whoami", |k| case_var(
+        &none,
+        &[],
+        k
+    )));
 }
