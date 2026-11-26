@@ -43,12 +43,15 @@ fn server(gate: (u16, &str)) -> FakeServer {
     FakeServer::start(routes).unwrap()
 }
 
+/// One recorded `script_run`: its options and added environment.
+type ScriptCall = (ScriptOpts, Vec<(String, String)>);
+
 #[derive(Default)]
 struct FakeTm {
     changed: Vec<String>,
     all: Vec<String>,
     script_err: Option<String>,
-    ran: RefCell<Vec<(ScriptOpts, Vec<(String, String)>)>>,
+    ran: RefCell<Vec<ScriptCall>>,
 }
 
 impl Terramate for Rc<FakeTm> {

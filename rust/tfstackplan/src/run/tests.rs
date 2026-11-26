@@ -27,13 +27,16 @@ fn route(path: &str, status: u16, body: &str) -> Route {
 }
 
 /// A fake terramate: fixed stacks, a recorded script run with a chosen result.
+/// One recorded `script_run`: its options and added environment.
+pub type ScriptCall = (ScriptOpts, Vec<(String, String)>);
+
 #[derive(Default)]
 pub struct FakeTm {
     pub changed: Vec<String>,
     pub all: Vec<String>,
     pub edges: Vec<Edge>,
     pub script_err: Option<String>,
-    pub ran: RefCell<Vec<(ScriptOpts, Vec<(String, String)>)>>,
+    pub ran: RefCell<Vec<ScriptCall>>,
 }
 
 impl Terramate for FakeTm {
