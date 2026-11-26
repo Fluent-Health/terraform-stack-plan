@@ -351,12 +351,19 @@ struct Outcome {
 
 fn invoke(bin: &Path, dir: &Path, r: &Run, out_name: &str, go: &Path) -> Outcome {
     let classes = dir.join(format!("{out_name}.json"));
+    // The same environment the replay uses: nothing inherited but PATH, and an
+    // empty HOME, so no variable on the machine can sway either binary.
+    let home = dir.join("home");
+    std::fs::create_dir_all(&home).unwrap();
     let mut cmd = Command::new(bin);
     cmd.current_dir(root().join(".."))
-        .env("TFSTACKPLAN_GO_BIN", go)
-        .env_remove("TFSTACKPLAN_IMPL")
-        .env_remove("TFSTACKPLAN_IMPL_RENDER")
-        .arg("render")
+        .env_clear()
+        .env("HOME", &home)
+        .env("TFSTACKPLAN_GO_BIN", go);
+    if let Some(path) = std::env::var_os("PATH") {
+        cmd.env("PATH", path);
+    }
+    cmd.arg("render")
         .arg("--plans-dir")
         .arg(dir.join("plans"))
         .args(["--max-bytes", r.max_bytes, "--details", r.details])

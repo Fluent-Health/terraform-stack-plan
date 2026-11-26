@@ -14,6 +14,7 @@ proptest = { version = "=1.12.0", default-features = false, features = ["std"] }
 serde_json = "=1.0.154"
 trycmd = "=1.2.1"
 tempfile = "=3.27.0"
+toml_edit = "=0.25.21"
 
 [lints]
 workspace = true

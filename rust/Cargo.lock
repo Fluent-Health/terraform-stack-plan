@@ -696,6 +696,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tfstackplan-render",
+ "toml_edit",
  "trycmd",
 ]
 

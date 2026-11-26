@@ -31,10 +31,15 @@ build time (the Go release sets `main.version` the same way).
 
 | Variable | Effect |
 |---|---|
-| `TFSTACKPLAN_GO_BIN` | Path to the Go binary. Default: `tfstackplan-go` next to the front door executable. If neither exists the front door prints one error and exits 1. |
-| `TFSTACKPLAN_IMPL=go` | Kill switch: send every subcommand to Go. |
+| `TFSTACKPLAN_GO_BIN` | Path to the Go binary. It must be a path (absolute, or with a `/`), not a bare name, and must not be the front door itself. Default: `tfstackplan-go` next to the front door executable, with symlinks to the front door resolved first. |
+| `TFSTACKPLAN_IMPL=go` | Kill switch: send every subcommand to Go. The value is case-insensitive. |
 | `TFSTACKPLAN_IMPL_<SUBCOMMAND>=go` | Send one subcommand to Go, for example `TFSTACKPLAN_IMPL_RENDER=go`. |
-| `TFSTACKPLAN_FALLBACK_LOG` | If set to a file path, append one line with the subcommand name each time the front door falls back to Go. |
+| `TFSTACKPLAN_FALLBACK_LOG` | If set to a file path, append one line with the subcommand name each time the front door hands a call to Go (after it found the Go binary). |
+
+When it cannot hand a call to Go, the front door prints one line to stderr and
+exits like a shell would: **127** if the Go binary is not found (or
+`TFSTACKPLAN_GO_BIN` is a bare name), **126** if it is found but cannot be run
+(not executable, or it is the front door itself). Otherwise the exit code is Go's.
 
 ## Building locally
 
@@ -66,7 +71,7 @@ RUSTDOCFLAGS='-D warnings' cargo doc --workspace --no-deps --locked
 cargo nextest run --profile pr --workspace --locked
 cargo test --doc --workspace --locked
 cargo deny --locked check advisories bans licenses sources
-cargo run -p recorder && git diff --exit-code -- cases   # recordings still match Go
+cargo run -p recorder && git diff --exit-code -- cases replay-report.md   # recordings still match Go
 ```
 
 Unit tests live in a `tests.rs` beside the module (`#[cfg(test)] mod tests;`), not
@@ -79,6 +84,12 @@ Cases live in `cases/` in [trycmd](https://docs.rs/trycmd) format:
 - `<name>.toml` holds `bin.name`, `args` and the working directory (`fs.cwd`,
   relative to `cases/`). Most cases run from the repo root and point at fixtures
   in place, such as `internal/config/testdata/*.hcl` and `examples/.tfstackplan.hcl`.
+- Every case runs with a cleared environment, so its toml carries
+  `env.inherit = false` (the recorder adds it). A case that needs a variable sets
+  it under `[env.add]`. The run gets only `PATH`, an empty `HOME`, the Go binary
+  and the fallback log on top.
+- `wildcards = true` (top level, optional) lets the recorder write `[..]` where
+  Go's output varies between runs. Without it any variation fails the recording.
 - `<name>.stdout`, `<name>.stderr` and `status.code` in the toml are the recorded
   Go output.
 - Cases that write files (`--output`, `--emit-classification-json`) set
@@ -93,13 +104,22 @@ Cases live in `cases/` in [trycmd](https://docs.rs/trycmd) format:
   progress and `env_uniqueness` blocks) with made-up names.
 
 To add a case, write the `.toml` with `bin.name`, `args` and `fs.cwd`, then
-record it.
+record it. A case must not write into the repository: one that writes files
+(`--output`, `--emit-classification-json`) goes in a sandbox.
+
+**Format change for branches made before this one:** run the recorder once after
+rebasing. It adds `env.inherit = false` to each case and re-records it with the
+cleared environment. The report moved from `cases/replay-report.md` to
+`replay-report.md`.
 
 ### Record
 
-The recorder (crate `recorder/`) runs the Go binary on every case twice and
-writes the expected outputs. Where the two runs differ, such as a timestamp,
-it writes a `[..]` wildcard for that part of the line.
+The recorder (crate `recorder/`) runs the Go binary on every case three times,
+with the cleared environment and the case's `env.add`, and writes the expected
+outputs. The three runs must agree. In a case with `wildcards = true`, a line
+that differs keeps its common prefix and suffix with `[..]` between, and only if
+the varying part is at most 40 characters. A run that deletes a sandbox file
+fails, because `.out/` cannot record a deletion.
 
 ```bash
 cd rust
@@ -114,10 +134,20 @@ cd rust
 cargo nextest run   # uses TFSTACKPLAN_GO_BIN, else rust/.go/tfstackplan-go
 ```
 
-`tests/replay.rs` runs the front door against every case and writes
-`cases/replay-report.md` with cases passed and how many invocations fell back to
-Go. The report is committed. Today every case passes, the `render` cases are
-answered in Rust and the other subcommands fall back.
+`tests/replay.rs` runs the front door against every case through trycmd (stdout,
+stderr, exit code, `.out/` contents) and then checks what trycmd does not:
+
+- the case's fallback log has exactly one line when the subcommand should run in
+  Go (not ported, or a kill switch in its `env.add`) and none when it should run
+  in Rust, so a ported subcommand cannot silently pass by running Go;
+- a sandboxed case leaves exactly its base files plus its `.out/` files, so an
+  extra or deleted file fails;
+- a case that is not sandboxed leaves the checkout unchanged.
+
+It writes `replay-report.md` with cases passed and how many invocations fell back
+to Go. The report is committed. Today every case passes, the `render` cases
+(including no arguments and `-version`, which Go also dispatches to render) are
+answered in Rust, and the other subcommands fall back.
 
 ### Go parity property test
 
@@ -134,7 +164,8 @@ skipped, with a loud note, when the Go binary is absent, and fails instead when
 `PROPTEST_CASES` sets the number of cases (default 96).
 
 CI (`rust` job in `.github/workflows/ci.yml`) runs the checks in *Before you push*,
-then re-records the cases and fails if `rust/cases` changed. If a Go change
-alters output, re-record in the same PR.
+then re-records the cases and fails if `rust/cases` changed, and fails separately
+if `replay-report.md` changed. If a Go change alters output, re-record in the
+same PR.
 
 See [DECISIONS.md](DECISIONS.md) for why it is built this way.
