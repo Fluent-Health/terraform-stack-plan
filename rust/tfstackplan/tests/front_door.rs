@@ -51,7 +51,8 @@ fn hands_off_to_go_and_reports_why_it_cannot() {
     let log = dir.path().join("fallback.log");
     stub_go(&go, 0o755);
 
-    // Argv and the exit code pass through; the fallback is logged once.
+    // Argv and the exit code pass through; the fallback is logged once. The
+    // examples use `serve` because `render` is answered in Rust.
     let (code, stdout, _) = run(
         Path::new(FRONT_DOOR),
         &["serve", "--x", "y"],

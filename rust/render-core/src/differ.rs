@@ -63,8 +63,10 @@ fn detect(s: &str) -> ValueType {
     {
         return ValueType::Base64;
     }
+    // Go accepts only `map[string]any` and `[]any`: a mapping with a non-string
+    // key decodes to `map[any]any` and stays plain text.
     if let Ok(v) = yaml::load(s)
-        && matches!(v, Value::Map(_) | Value::AnyMap(_) | Value::Seq(_))
+        && matches!(v, Value::Map(_) | Value::Seq(_))
     {
         return ValueType::Yaml;
     }
