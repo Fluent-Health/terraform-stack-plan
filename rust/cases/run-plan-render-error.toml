@@ -1,0 +1,40 @@
+bin.name = "tfstackplan"
+args = ["run", "plan", "--dir", "project", "--changed=false"]
+fs.cwd = "fixtures/run-plan-apply"
+fs.base = "fixtures/run-plan-apply"
+fs.sandbox = true
+wildcards = true
+
+[harness]
+requires = ["terramate"]
+env = { TFSTACKPLAN_SERVER = "{fake}", TFSTACKPLAN_EXECUTION = "exec-1", TFSTACKPLAN_PR = "7", TFSTACKPLAN_ENVIRONMENT = "prod", FAKE_GARBLE = "1" }
+
+[[harness.route]]
+method = "POST"
+path = "/api/init"
+status = 200
+body = ''
+
+[[harness.route]]
+method = "POST"
+path = "/api/phase"
+status = 200
+body = ''
+
+[[harness.route]]
+method = "POST"
+path = "/api/finalize"
+status = 200
+body = ''
+
+[[harness.route]]
+method = "POST"
+path = "/api/logs"
+status = 200
+body = ''
+
+[status]
+code = 1
+
+[env]
+inherit = false

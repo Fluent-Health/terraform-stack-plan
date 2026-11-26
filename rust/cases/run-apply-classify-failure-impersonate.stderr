@@ -1,0 +1,6 @@
+Script 0 at /terramate.tm.hcl:10,1-15,2 having 1 job(s)
+/stacks/alpha (script:0 job:0.0)> sh ../../../fake.sh plan
+plan alpha
+Error: one or more commands failed
+> execution failed: running /usr/bin/sh ../../../fake.sh plan (in /stacks/alpha): exit status 3
+tfstackplan run apply: classify pass failed under --impersonate-requester; refusing to apply unelevated: exit status 1

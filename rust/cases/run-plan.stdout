@@ -1,0 +1,35 @@
+<!-- tfstackplan -->
+### Terraform plan  (2 stacks changed)
+
+| Stack | Add | Change |
+| --- | ---: | ---: |
+| stacks/alpha | 1 | 0 |
+| stacks/beta | 0 | 1 |
+
+<details><summary>📁&nbsp;<b>stacks/alpha</b> · 1 add</summary>
+
+>
+> <details open><summary>➕&nbsp;google_service_account.api<br>&nbsp;&nbsp;&nbsp;&nbsp;3 attrs</summary>
+>
+> ```diff
+> + account_id = "app-api"
+> + disabled   = false
+> ~ unique_id  = (known after apply)
+> ```
+>
+> </details>
+
+</details>
+
+<details><summary>📁&nbsp;<b>stacks/beta</b> · 1 change</summary>
+
+>
+> <details open><summary>✏️&nbsp;google_project_iam_member.editor<br>&nbsp;&nbsp;&nbsp;&nbsp;1 changed</summary>
+>
+> ```diff
+> ~ role = "roles/viewer" → "roles/editor"
+> ```
+>
+> </details>
+
+</details>

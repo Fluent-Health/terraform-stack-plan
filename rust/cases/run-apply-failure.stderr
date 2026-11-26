@@ -1,0 +1,12 @@
+Script 0 at /terramate.tm.hcl:10,1-15,2 having 1 job(s)
+/stacks/alpha (script:0 job:0.0)> sh ../../../fake.sh plan
+plan alpha
+/stacks/beta (script:0 job:0.0)> sh ../../../fake.sh plan
+plan beta
+tfstackplan run apply: classify gates: none
+Script 0 at /terramate.tm.hcl:17,1-22,2 having 1 job(s)
+/stacks/alpha (script:0 job:0.0)> sh ../../../fake.sh apply
+apply alpha
+Error: one or more commands failed
+> execution failed: running /usr/bin/sh ../../../fake.sh apply (in /stacks/alpha): exit status 3
+tfstackplan run apply: apply failed: exit status 1
