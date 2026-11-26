@@ -1,6 +1,6 @@
 //! Go's `strconv.IsPrint` tables (Unicode 15.0, Go 1.25), so quoting escapes exactly the
 //! runes Go escapes. Generated from Go's `strconv/isprint.go`, Copyright 2013 The Go Authors,
-//! BSD-style license.
+//! BSD-3-Clause; the licence text is in `rust/THIRD_PARTY_NOTICES`.
 
 pub(crate) const IS_PRINT16: &[u16] = &[
     0x0020, 0x007e, 0x00a1, 0x0377, 0x037a, 0x037f, 0x0384, 0x0556, 0x0559, 0x058a, 0x058d, 0x05c7,

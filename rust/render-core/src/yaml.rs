@@ -9,6 +9,8 @@
 //! decoded value can reach: block mappings and sequences at indent 4, `{}`/`[]` for empty ones,
 //! plain/single/double-quoted/literal scalars with v3's style choice. v3 sets no line width,
 //! so long scalars never fold.
+//!
+//! yaml.v3 is Apache-2.0 and its emitter MIT; licence and notice text: `rust/THIRD_PARTY_NOTICES`.
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::OnceLock;
