@@ -7,7 +7,7 @@
 //! - fall back to Go exactly when its subcommand is not ported (or a kill switch
 //!   in its env sends it there), checked through the fallback log;
 //! - when sandboxed, leave exactly its base files, less its `deletes`, plus its
-//!   `.out/` files;
+//!   `.out/` files, with every base file not in `.out/` unchanged;
 //! - when not sandboxed, leave the repository checkout as it found it.
 //!
 //! A case with a `[harness]` table gets its fake server (see the `casekit`
@@ -202,13 +202,20 @@ fn extra_checks(case: &Case, log: &Path, vars: &[(String, OsString)]) -> Option<
     want.retain(|f| !case.deletes.contains(f));
     want.extend(files(&case.out_dir));
     let got = files(sandbox.path());
-    (got != want).then(|| {
-        format!(
+    if got != want {
+        return Some(format!(
             "sandbox files differ from base - deletes + .out: extra {:?}, missing {:?}",
             got.difference(&want).collect::<Vec<_>>(),
             want.difference(&got).collect::<Vec<_>>()
-        )
-    })
+        ));
+    }
+    // Base files Go left alone must come out byte for byte the same.
+    let out = files(&case.out_dir);
+    files(base)
+        .into_iter()
+        .filter(|f| !case.deletes.contains(f) && !out.contains(f))
+        .find(|f| std::fs::read(sandbox.path().join(f)).ok() != std::fs::read(base.join(f)).ok())
+        .map(|f| format!("base file changed by Rust but not by Go: {}", f.display()))
 }
 
 #[test]
