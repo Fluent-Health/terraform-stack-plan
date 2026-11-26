@@ -1,0 +1,24 @@
+bin.name = "tfstackplan"
+args = ["run", "exec", "--phase", "testing", "--", "sh", "-c", "echo testing; exit 2"]
+fs.cwd = "../.."
+
+[harness]
+env = { TFSTACKPLAN_SERVER = "{fake}", TFSTACKPLAN_EXECUTION = "exec-1" }
+
+[[harness.route]]
+method = "POST"
+path = "/api/phase"
+status = 200
+body = ''
+
+[[harness.route]]
+method = "POST"
+path = "/api/finalize"
+status = 200
+body = ''
+
+[status]
+code = 2
+
+[env]
+inherit = false

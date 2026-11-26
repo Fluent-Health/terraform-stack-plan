@@ -10,6 +10,7 @@
 #![forbid(unsafe_code)]
 
 pub mod ansi;
+pub mod cache;
 pub mod catalog;
 pub mod claims;
 pub mod config;
@@ -20,8 +21,8 @@ pub mod gojson;
 pub mod goregex;
 pub mod gourl;
 pub mod hclx;
-mod isprint;
 pub mod jwt;
+pub mod run;
 pub mod statemove;
 pub mod uniqueness;
 pub mod wrap;

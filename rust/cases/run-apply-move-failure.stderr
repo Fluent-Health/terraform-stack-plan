@@ -1,0 +1,5 @@
+Script 0 at /terramate.tm.hcl:10,1-15,2 having 1 job(s)
+/stacks/alpha (script:0 job:0.0)> sh ../../../fake.sh plan
+plan alpha
+tfstackplan run apply: classify pass failed (continuing to gate check): xmove manifest xmove/stacks/alpha/_tfsp_xmove.PR-1.hcl: key mismatch (filename "PR-1" != header "PR-2")
+tfstackplan run apply: cross-state move failed: xmove manifest xmove/stacks/alpha/_tfsp_xmove.PR-1.hcl: key mismatch (filename "PR-1" != header "PR-2")

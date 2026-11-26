@@ -2,8 +2,6 @@
 //! float format, `MarshalIndent` layout. Objects keep the order they are built
 //! in; build a Go map's keys sorted, as Go does.
 
-use crate::gofmt::{format_e, format_f};
-
 /// A JSON value to encode.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Value {
@@ -109,8 +107,8 @@ fn write(out: &mut String, v: &Value, indent: Option<&str>, depth: usize) -> Res
     Ok(())
 }
 
-/// Go's float64 encoder: `'f'` between 1e-6 and 1e21, `'e'` outside, with a
-/// two-digit negative exponent trimmed to one ("1e-07" becomes "1e-7").
+/// Go's float64 encoder (`tfstackplan_render::gofmt::format_json_float`); NaN and
+/// infinities are errors, as in Go.
 fn float(f: f64) -> Result<String, String> {
     if !f.is_finite() {
         return Err(format!(
@@ -118,40 +116,12 @@ fn float(f: f64) -> Result<String, String> {
             crate::gofmt::format_v(f)
         ));
     }
-    let abs = f.abs();
-    if abs != 0.0 && !(1e-6..1e21).contains(&abs) {
-        let mut s = format_e(f);
-        let b = s.as_bytes();
-        let n = b.len();
-        if n >= 4 && b[n - 4] == b'e' && b[n - 3] == b'-' && b[n - 2] == b'0' {
-            s.remove(n - 2);
-        }
-        Ok(s)
-    } else {
-        Ok(format_f(f))
-    }
+    Ok(tfstackplan_render::gofmt::format_json_float(f))
 }
 
-/// A JSON string with Go's escapes: `<`, `>`, `&`, U+2028 and U+2029 as `\u` codes.
+/// A JSON string with Go's escapes (`tfstackplan_render::goval::json_string`).
 fn string(out: &mut String, s: &str) {
-    out.push('"');
-    for c in s.chars() {
-        match c {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            '\t' => out.push_str("\\t"),
-            '\u{8}' => out.push_str("\\b"),
-            '\u{c}' => out.push_str("\\f"),
-            '<' | '>' | '&' | '\u{2028}' | '\u{2029}' => {
-                out.push_str(&format!("\\u{:04x}", c as u32));
-            }
-            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
-            c => out.push(c),
-        }
-    }
-    out.push('"');
+    tfstackplan_render::goval::json_string(out, s);
 }
 
 #[cfg(test)]

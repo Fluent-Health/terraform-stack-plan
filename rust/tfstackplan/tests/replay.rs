@@ -150,7 +150,10 @@ fn load(path: &Path) -> Result<Case, String> {
                     .collect()
             })
             .unwrap_or_default(),
-        harness: casekit::Harness::from_case(&doc)?,
+        harness: casekit::Harness::from_case(
+            &doc,
+            path.parent().ok_or("case file has no parent dir")?,
+        )?,
     })
 }
 

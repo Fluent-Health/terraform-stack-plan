@@ -4,6 +4,6 @@ Written by `cargo test` (tests/replay.rs). Do not edit by hand.
 
 | | |
 |---|---|
-| Cases passed | 136/136 |
-| Fallbacks to Go | 31/136 |
-| Rust-handled | 105/136 |
+| Cases passed | 178/178 |
+| Fallbacks to Go | 3/178 |
+| Rust-handled | 175/178 |

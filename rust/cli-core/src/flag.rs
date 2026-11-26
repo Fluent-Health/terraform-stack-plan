@@ -14,6 +14,8 @@ enum Kind {
     Str,
     Bool,
     Int,
+    /// A repeatable string (`fs.Var` with an appending value).
+    List,
 }
 
 #[derive(Clone, Debug)]
@@ -29,6 +31,7 @@ enum Value {
     Str(String),
     Bool(bool),
     Int(i64),
+    List(Vec<String>),
 }
 
 /// One subcommand's flags, declared like Go's `flag.NewFlagSet(name, flag.ContinueOnError)`.
@@ -83,6 +86,14 @@ impl Parsed {
         }
     }
 
+    /// A list flag's values, in the order given.
+    pub fn list(&self, name: &str) -> &[String] {
+        match self.values.get(name) {
+            Some(Value::List(v)) => v,
+            _ => panic!("flag -{name} is not a declared list flag"),
+        }
+    }
+
     /// An int flag's value.
     pub fn int(&self, name: &str) -> i64 {
         match self.values.get(name) {
@@ -120,6 +131,11 @@ impl FlagSet {
     /// `fs.Int(name, default, usage)`.
     pub fn int(&mut self, name: &str, default: i64, usage: &str) -> &mut Self {
         self.add(name, Kind::Int, &default.to_string(), usage)
+    }
+
+    /// `fs.Var(&repeated, name, usage)`: a repeatable string flag.
+    pub fn list(&mut self, name: &str, usage: &str) -> &mut Self {
+        self.add(name, Kind::List, "[]", usage)
     }
 
     /// A custom `fs.Usage` that prints `header` and then `fs.PrintDefaults()`.
@@ -190,6 +206,7 @@ impl FlagSet {
                     Kind::Str => Value::Str(f.default.clone()),
                     Kind::Bool => Value::Bool(f.default == "true"),
                     Kind::Int => Value::Int(f.default.parse().unwrap_or(0)),
+                    Kind::List => Value::List(Vec::new()),
                 };
                 (n.clone(), v)
             })
@@ -241,7 +258,7 @@ impl FlagSet {
                         }
                     }
                 }
-                Kind::Str | Kind::Int => {
+                Kind::Str | Kind::Int | Kind::List => {
                     let v = match value {
                         Some(v) => v.to_string(),
                         None => match args.first() {
@@ -257,6 +274,10 @@ impl FlagSet {
                     };
                     if flag.kind == Kind::Str {
                         values.insert(name.to_string(), Value::Str(v));
+                    } else if flag.kind == Kind::List {
+                        if let Some(Value::List(l)) = values.get_mut(name) {
+                            l.push(v);
+                        }
                     } else {
                         match parse_int(&v) {
                             Ok(i) => {
@@ -298,6 +319,7 @@ fn unquote_usage(flag: &Flag) -> (String, String) {
     let name = match flag.kind {
         Kind::Bool => "",
         Kind::Int => "int",
+        Kind::List => "value",
         Kind::Str => "string",
     };
     (name.to_string(), u.clone())
@@ -308,11 +330,12 @@ fn is_zero(flag: &Flag) -> bool {
         Kind::Str => flag.default.is_empty(),
         Kind::Bool => flag.default == "false",
         Kind::Int => flag.default == "0",
+        Kind::List => true,
     }
 }
 
 /// `strconv.ParseBool`.
-fn parse_bool(s: &str) -> Option<bool> {
+pub(crate) fn parse_bool(s: &str) -> Option<bool> {
     match s {
         "1" | "t" | "T" | "TRUE" | "true" | "True" => Some(true),
         "0" | "f" | "F" | "FALSE" | "false" | "False" => Some(false),
@@ -351,9 +374,9 @@ fn underscore_ok(s: &str) -> bool {
     saw != b'_'
 }
 
-/// `strconv.ParseInt(s, 0, 64)` with the flag package's error words ("parse error",
-/// "value out of range"). Like Go, an overflow is reported as soon as it happens.
-fn parse_int(s0: &str) -> Result<i64, &'static str> {
+/// `strconv.ParseInt(s, 0, 64)`; the error is Go's flag wording ("parse error" or "value out of
+/// range").
+pub fn parse_int(s0: &str) -> Result<i64, &'static str> {
     const SYNTAX: &str = "parse error";
     const RANGE: &str = "value out of range";
     let (neg, s) = match s0.as_bytes().first() {

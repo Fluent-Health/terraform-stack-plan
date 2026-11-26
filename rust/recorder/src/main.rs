@@ -96,7 +96,7 @@ fn record(go: &Path, toml_path: &Path) -> Result<bool> {
     {
         return Err("cases run with a cleared environment; remove env.inherit = true".into());
     }
-    let mut harness = casekit::Harness::from_case(&doc)?;
+    let mut harness = casekit::Harness::from_case(&doc, dir)?;
     // trycmd's own `[env] add` applies to Go too (after the harness env).
     if let Some(add) = doc
         .get("env")

@@ -13,7 +13,8 @@
 //! method = "POST"
 //! path = "/api/claims/list"
 //! status = 200
-//! body = '[]'
+//! body = '[]'                                 # or body_file = "fixtures/x.tar.gz"
+//! then = ['…']                                # later answers, the last repeating
 //! ```
 //!
 //! A case with routes or `adc` gets a fake HTTP server on 127.0.0.1 for each
@@ -62,7 +63,9 @@ pub struct Route {
     /// Response status.
     pub status: u16,
     /// Response body.
-    pub body: String,
+    pub body: Vec<u8>,
+    /// Bodies for the second and later requests (the last repeats).
+    pub then: Vec<Vec<u8>>,
 }
 
 /// A case's `[harness]` table.
@@ -90,7 +93,8 @@ fn strings(item: Option<&toml_edit::Item>) -> Vec<String> {
 
 impl Harness {
     /// Reads `[harness]` from a case toml (absent: the default, empty harness).
-    pub fn from_case(doc: &toml_edit::DocumentMut) -> Result<Self, String> {
+    /// `base` is the case's directory: `body_file` paths are relative to it.
+    pub fn from_case(doc: &toml_edit::DocumentMut, base: &Path) -> Result<Self, String> {
         let Some(h) = doc.get("harness") else {
             return Ok(Self::default());
         };
@@ -123,11 +127,25 @@ impl Harness {
                         .and_then(|v| v.as_integer())
                         .and_then(|i| u16::try_from(i).ok())
                         .unwrap_or(200),
-                    body: r
-                        .get("body")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or_default()
-                        .to_string(),
+                    body: match r.get("body_file").and_then(|v| v.as_str()) {
+                        Some(f) => std::fs::read(base.join(f))
+                            .map_err(|e| format!("harness.route.body_file {f}: {e}"))?,
+                        None => r
+                            .get("body")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or_default()
+                            .as_bytes()
+                            .to_vec(),
+                    },
+                    then: r
+                        .get("then")
+                        .and_then(|v| v.as_array())
+                        .map(|a| {
+                            a.iter()
+                                .filter_map(|x| x.as_str().map(|s| s.as_bytes().to_vec()))
+                                .collect()
+                        })
+                        .unwrap_or_default(),
                 });
             }
         }
@@ -231,7 +249,9 @@ fn token_route() -> Route {
         status: 200,
         body: format!(
             r#"{{"access_token":"fake-access-token","id_token":"{FAKE_ID_TOKEN}","token_type":"Bearer","expires_in":3600}}"#
-        ),
+        )
+        .into_bytes(),
+        then: Vec::new(),
     }
 }
 
@@ -241,10 +261,26 @@ fn adc_json(kind: &str, url: &str) -> String {
     )
 }
 
+/// One request the fake server received.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Request {
+    /// HTTP method.
+    pub method: String,
+    /// Path and query, as sent.
+    pub target: String,
+    /// Request headers, names lower-cased.
+    pub headers: Vec<(String, String)>,
+    /// Body (de-chunked).
+    pub body: Vec<u8>,
+}
+
 /// A tiny HTTP/1.1 server answering canned routes, one thread per connection.
+/// A route with `then` bodies answers with `body` first, then each of `then` in
+/// turn, repeating the last.
 pub struct FakeServer {
     addr: std::net::SocketAddr,
     stop: Arc<AtomicBool>,
+    log: Arc<std::sync::Mutex<Vec<Request>>>,
 }
 
 impl FakeServer {
@@ -254,20 +290,28 @@ impl FakeServer {
         let addr = listener.local_addr()?;
         let stop = Arc::new(AtomicBool::new(false));
         let routes = Arc::new(routes);
+        let hits = Arc::new(std::sync::Mutex::new(vec![0usize; routes.len()]));
+        let log = Arc::new(std::sync::Mutex::new(Vec::new()));
         let flag = stop.clone();
+        let log2 = log.clone();
         std::thread::spawn(move || {
             for conn in listener.incoming() {
                 if flag.load(Ordering::SeqCst) {
                     break;
                 }
                 let Ok(conn) = conn else { continue };
-                let routes = routes.clone();
+                let (routes, hits, log) = (routes.clone(), hits.clone(), log2.clone());
                 std::thread::spawn(move || {
-                    let _ = serve(conn, &routes);
+                    let _ = serve(conn, &routes, &hits, &log);
                 });
             }
         });
-        Ok(Self { addr, stop })
+        Ok(Self { addr, stop, log })
+    }
+
+    /// Every request received so far, in arrival order.
+    pub fn requests(&self) -> Vec<Request> {
+        self.log.lock().map(|l| l.clone()).unwrap_or_default()
     }
 
     /// `http://127.0.0.1:<port>`.
@@ -284,7 +328,12 @@ impl Drop for FakeServer {
     }
 }
 
-fn serve(conn: TcpStream, routes: &[Route]) -> std::io::Result<()> {
+fn serve(
+    conn: TcpStream,
+    routes: &[Route],
+    hits: &std::sync::Mutex<Vec<usize>>,
+    log: &std::sync::Mutex<Vec<Request>>,
+) -> std::io::Result<()> {
     let mut reader = BufReader::new(conn.try_clone()?);
     let mut line = String::new();
     reader.read_line(&mut line)?;
@@ -293,31 +342,80 @@ fn serve(conn: TcpStream, routes: &[Route]) -> std::io::Result<()> {
     let target = parts.next().unwrap_or_default().to_string();
     let path = target.split('?').next().unwrap_or_default().to_string();
     let mut len = 0usize;
+    let mut chunked = false;
+    let mut headers = Vec::new();
     loop {
         let mut h = String::new();
         if reader.read_line(&mut h)? == 0 || h == "\r\n" || h == "\n" {
             break;
         }
-        if let Some((k, v)) = h.split_once(':')
-            && k.trim().eq_ignore_ascii_case("content-length")
-        {
-            len = v.trim().parse().unwrap_or(0);
+        if let Some((k, v)) = h.split_once(':') {
+            let (k, v) = (k.trim().to_ascii_lowercase(), v.trim().to_string());
+            if k == "content-length" {
+                len = v.parse().unwrap_or(0);
+            }
+            if k == "transfer-encoding" && v.eq_ignore_ascii_case("chunked") {
+                chunked = true;
+            }
+            headers.push((k, v));
         }
     }
-    let mut body = vec![0u8; len];
-    reader.read_exact(&mut body)?;
-    let (status, text) = routes
+    let mut body = Vec::new();
+    if chunked {
+        loop {
+            let mut size = String::new();
+            reader.read_line(&mut size)?;
+            let n = usize::from_str_radix(size.trim().split(';').next().unwrap_or("0"), 16)
+                .unwrap_or(0);
+            let mut chunk = vec![0u8; n + 2];
+            reader.read_exact(&mut chunk)?;
+            if n == 0 {
+                break;
+            }
+            body.extend_from_slice(&chunk[..n]);
+        }
+    } else {
+        body = vec![0u8; len];
+        reader.read_exact(&mut body)?;
+    }
+    if let Ok(mut l) = log.lock() {
+        l.push(Request {
+            method: method.clone(),
+            target: target.clone(),
+            headers,
+            body,
+        });
+    }
+    let found = routes
         .iter()
-        .find(|r| r.method == method && r.path == path)
-        .map(|r| (r.status, r.body.clone()))
-        .unwrap_or((404, "not found".to_string()));
+        .position(|r| r.method == method && r.path == path);
+    let (status, text) = match found {
+        Some(i) => {
+            let r = &routes[i];
+            let n = hits
+                .lock()
+                .map(|mut h| {
+                    h[i] += 1;
+                    h[i] - 1
+                })
+                .unwrap_or(0);
+            let body = if n == 0 || r.then.is_empty() {
+                r.body.clone()
+            } else {
+                r.then[(n - 1).min(r.then.len() - 1)].clone()
+            };
+            (r.status, body)
+        }
+        None => (404, b"not found".to_vec()),
+    };
     let mut w = conn;
     write!(
         w,
-        "HTTP/1.1 {status} {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{text}",
+        "HTTP/1.1 {status} {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
         reason(status),
         text.len()
     )?;
+    w.write_all(&text)?;
     w.flush()
 }
 

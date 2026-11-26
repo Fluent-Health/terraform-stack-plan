@@ -1,0 +1,6 @@
+Script 0 at /terramate.tm.hcl:10,1-15,2 having 1 job(s)
+/stacks/alpha (script:0 job:0.0)> sh ../../../fake.sh plan
+plan alpha
+/stacks/beta (script:0 job:0.0)> sh ../../../fake.sh plan
+plan beta
+tfstackplan run plan: stack "stacks/alpha": parse plan json: unexpected end of JSON input

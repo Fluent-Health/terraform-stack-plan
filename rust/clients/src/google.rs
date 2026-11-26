@@ -649,6 +649,44 @@ pub fn id_token_source_with(audience: &str, ep: Endpoints) -> Result<TokenFn, St
     }
 }
 
+/// A cloud-platform access token for `service_account`, minted through the IAM
+/// Credentials `generateAccessToken` API with the ambient ADC (Go's
+/// `mintAccessToken`, used by `run apply --impersonate-requester`). The ambient
+/// identity needs `roles/iam.serviceAccountTokenCreator` on it.
+pub fn impersonated_access_token(service_account: &str) -> Result<String, String> {
+    impersonated_access_token_with(service_account, Endpoints::from_env())
+}
+
+/// [`impersonated_access_token`] against explicit endpoints.
+pub fn impersonated_access_token_with(
+    service_account: &str,
+    ep: Endpoints,
+) -> Result<String, String> {
+    let iam = ep.iam_credentials.clone();
+    let ambient =
+        access_token_source_with(ep).map_err(|e| format!("iamcredentials service: {e}"))?;
+    let token = ambient().map_err(|e| format!("mint access token for {service_account}: {e}"))?;
+    let http = client()?;
+    let url = format!("{iam}/v1/projects/-/serviceAccounts/{service_account}:generateAccessToken");
+    let v = iam_post(
+        &http,
+        &url,
+        &token,
+        &serde_json::json!({ "scope": [CLOUD_PLATFORM] }),
+    )
+    .map_err(|e| format!("mint access token for {service_account}: {e}"))?;
+    let tok = v
+        .get("accessToken")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    if tok.is_empty() {
+        return Err(format!(
+            "mint access token for {service_account}: no accessToken in the response"
+        ));
+    }
+    Ok(tok.to_string())
+}
+
 /// Go's `metadata.OnGCE`, cached for the process: `$GCE_METADATA_HOST` set, or a
 /// probe of the metadata IP and its DNS name answers like Google.
 pub fn on_gce() -> bool {

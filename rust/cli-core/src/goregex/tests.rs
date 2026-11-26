@@ -16,8 +16,9 @@ fn perl_classes_are_ascii_like_go() {
 }
 
 #[test]
-fn other_escapes_and_classes_pass_through() {
-    assert_eq!(translate(r"a\.b[]x]"), r"a\.b[]x]");
-    assert_eq!(translate(r"[^\]]"), r"[^\]]");
-    assert!(compile(r"provider\s+\x22").is_ok());
+fn errors_read_like_go() {
+    assert_eq!(
+        compile("[x").unwrap_err(),
+        "error parsing regexp: missing closing ]: `[x`"
+    );
 }

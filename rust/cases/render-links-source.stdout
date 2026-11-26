@@ -1,0 +1,96 @@
+<!-- tfstackplan -->
+### Terraform plan  (2 stacks changed)
+
+[Build #7](https://cb/7) · [PR #42](https://gh/o/r/pull/42)
+
+| Stack | Add | Change | Destroy |
+| --- | ---: | ---: | ---: |
+| app | 1 | 1 | 0 |
+| net | 3 | 2 | 1 |
+
+<details open><summary>📁&nbsp;<b><a href="https://gh/o/r/tree/0123456789abcdef/app">app</a></b> · 1 add, 1 change</summary>
+
+>
+> <details open><summary>➕&nbsp;<a href="https://gh/o/r/blob/0123456789abcdef/app/service.tf#L1">google_service_account.api</a><br>&nbsp;&nbsp;&nbsp;&nbsp;2 attrs</summary>
+>
+> ```diff
+> + account_id   = "app-api"
+> + display_name = "API (SVC)"
+> ```
+>
+> </details>
+>
+> <details open><summary>✏️&nbsp;<a href="https://gh/o/r/blob/0123456789abcdef/app/service.tf#L6">google_storage_bucket.assets</a><br>&nbsp;&nbsp;&nbsp;&nbsp;1 changed</summary>
+>
+> ```diff
+> ~ labels (yaml):
+>  app: api
+> +tier: static
+>  
+> ```
+>
+> </details>
+
+</details>
+
+<details open><summary>📁&nbsp;<b><a href="https://gh/o/r/tree/0123456789abcdef/net">net</a></b> · 3 add, 2 change, 1 destroy</summary>
+
+>
+> <details open><summary>✏️&nbsp;<a href="https://gh/o/r/blob/0123456789abcdef/net/firewall.tf#L15">google_compute_network.main</a><br>&nbsp;&nbsp;&nbsp;&nbsp;1 changed</summary>
+>
+> ```diff
+> ~ description:
+>   -old
+>   +Shared VPC for test.
+>   +Managed by Terraform.
+>   +
+> ```
+>
+> </details>
+>
+> <details open><summary>➕&nbsp;<a href="https://gh/o/r/blob/0123456789abcdef/net/main.tf#L25">google_compute_router.nat["asia-south1"]</a><br>&nbsp;&nbsp;&nbsp;&nbsp;2 attrs</summary>
+>
+> ```diff
+> + name   = "nat-asia-south1"
+> + region = "asia-south1"
+> ```
+>
+> </details>
+>
+> <details open><summary>✏️&nbsp;<a href="https://gh/o/r/blob/0123456789abcdef/net/firewall.tf#L1">google_compute_firewall.allow_iap</a><br>&nbsp;&nbsp;&nbsp;&nbsp;1 changed</summary>
+>
+> ```diff
+> ~ target_tags (yaml):
+> -[]
+> +- iap
+>  
+> ```
+>
+> </details>
+>
+> <details open><summary>➕&nbsp;<a href="https://gh/o/r/blob/0123456789abcdef/net/modules/subnets/subnets.tf#L4">module.subnets.google_compute_subnetwork.this["asia-south1"]</a><br>&nbsp;&nbsp;&nbsp;&nbsp;2 attrs</summary>
+>
+> ```diff
+> + ip_cidr_range = "10.0.0.0/24"
+> + name          = "sub-asia-south1"
+> ```
+>
+> </details>
+>
+> <details open><summary>➕&nbsp;<a href="https://gh/o/r/tree/0123456789abcdef/net">module.remote.google_compute_address.ip</a><br>&nbsp;&nbsp;&nbsp;&nbsp;1 attrs</summary>
+>
+> ```diff
+> + name = "ip"
+> ```
+>
+> </details>
+>
+> <details open><summary>➖&nbsp;<a href="https://gh/o/r/tree/0123456789abcdef/net">google_compute_route.missing</a><br>&nbsp;&nbsp;&nbsp;&nbsp;1 attrs</summary>
+>
+> ```diff
+> - name = "gone"
+> ```
+>
+> </details>
+
+</details>

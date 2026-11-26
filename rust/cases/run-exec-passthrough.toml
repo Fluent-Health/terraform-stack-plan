@@ -1,0 +1,9 @@
+bin.name = "tfstackplan"
+args = ["run", "exec", "--", "sh", "-c", "echo out; echo err >&2; exit 3"]
+fs.cwd = "../.."
+
+[status]
+code = 3
+
+[env]
+inherit = false

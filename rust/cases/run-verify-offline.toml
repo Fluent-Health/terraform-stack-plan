@@ -1,0 +1,15 @@
+bin.name = "tfstackplan"
+args = ["run", "verify", "--dir", "project", "--changed=false"]
+fs.cwd = "fixtures/run-verbs"
+fs.base = "fixtures/run-verbs"
+fs.sandbox = true
+
+[harness]
+requires = ["terramate"]
+env = { TFSTACKPLAN_EXECUTION = "v-1" }
+
+[status]
+code = 0
+
+[env]
+inherit = false

@@ -16,26 +16,37 @@ mod fsx;
 mod proc;
 mod server;
 
+mod gofs;
+mod render;
+mod run;
+
 /// A ported subcommand: gets the arguments after the subcommand name.
-type Handler = fn(&[String]) -> ExitCode;
+type Handler = fn(&[OsString]) -> ExitCode;
+
+/// Go reads arguments as strings; the faces do too, with a non-UTF-8 byte as U+FFFD.
+/// (`render` takes the raw arguments: its paths may not be UTF-8.)
+fn strings(args: &[OsString]) -> Vec<String> {
+    args.iter()
+        .map(|a| a.to_string_lossy().into_owned())
+        .collect()
+}
 
 /// Subcommands that have a Rust implementation.
 const PORTED: &[(&str, Handler)] = &[
-    ("state", faces::state::run),
-    ("claims", faces::claims::run),
-    ("catalog", faces::catalog::run),
-    ("uniqueness", faces::uniqueness::run),
-    ("whoami", faces::whoami::run),
-    ("admin", faces::admin::run),
+    ("render", render::run),
+    ("state", |a| faces::state::run(&strings(a))),
+    ("claims", |a| faces::claims::run(&strings(a))),
+    ("catalog", |a| faces::catalog::run(&strings(a))),
+    ("uniqueness", |a| faces::uniqueness::run(&strings(a))),
+    ("whoami", |a| faces::whoami::run(&strings(a))),
+    ("admin", |a| faces::admin::run(&strings(a))),
+    ("run", run_verb),
 ];
 
-/// `run` subcommands that have a Rust implementation. The rest of `run` (the
-/// plan/apply orchestrator) still runs in Go.
-const PORTED_RUN: &[(&str, Handler)] = &[
-    ("wrap", faces::wrap::run),
-    ("claims", faces::claims::run),
-    ("whoami", faces::whoami::run),
-];
+/// `run` and every verb under it (`run::run` answers an unknown verb as Go does).
+fn run_verb(args: &[OsString]) -> ExitCode {
+    run::run(&strings(args))
+}
 
 /// Exit code when the Go binary cannot be found (as a shell does for a missing command).
 pub const EXIT_GO_NOT_FOUND: u8 = 127;
@@ -53,12 +64,7 @@ pub fn main() -> ExitCode {
     {
         // One rustls provider for every HTTP client the faces build.
         tfstackplan_clients::install_crypto_provider();
-        // Go reads arguments as strings; a non-UTF-8 byte becomes U+FFFD here.
-        let rest: Vec<String> = args[skip..]
-            .iter()
-            .map(|a| a.to_string_lossy().into_owned())
-            .collect();
-        return handler(&rest);
+        return handler(&args[skip..]);
     }
 
     let exe = std::env::current_exe().ok();
@@ -78,11 +84,6 @@ pub fn main() -> ExitCode {
 /// a render flag, so only a named subcommand is stripped.
 fn ported(name: &str, args: &[OsString]) -> Option<(Handler, usize)> {
     let named = args.first().is_some_and(|a| a == name);
-    if name == "run" && named {
-        let sub = args.get(1)?.to_string_lossy();
-        let (_, handler) = PORTED_RUN.iter().find(|(n, _)| *n == sub)?;
-        return Some((*handler, 2));
-    }
     let (_, handler) = PORTED.iter().find(|(n, _)| *n == name)?;
     Some((*handler, usize::from(named)))
 }

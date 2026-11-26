@@ -1,0 +1,18 @@
+bin.name = "tfstackplan"
+args = ["run", "tick", "--status", "running"]
+fs.cwd = "../.."
+
+[harness]
+env = { TFSTACKPLAN_SERVER = "{fake}", TFSTACKPLAN_EXECUTION = "exec-1", TFSTACKPLAN_STACK = "stacks/a" }
+
+[[harness.route]]
+method = "POST"
+path = "/api/update"
+status = 500
+body = 'boom'
+
+[status]
+code = 0
+
+[env]
+inherit = false

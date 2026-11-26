@@ -1,0 +1,6 @@
+Script 0 at /terramate.tm.hcl:24,1-29,2 having 1 job(s)
+/stacks/alpha (script:0 job:0.0)> sh -c echo failing $(basename $PWD); exit 3
+failing alpha
+Error: one or more commands failed
+> execution failed: running /usr/bin/sh -c echo failing $(basename $PWD); exit 3 (in /stacks/alpha): exit status 3
+tfstackplan run lint: lint failed: exit status 1

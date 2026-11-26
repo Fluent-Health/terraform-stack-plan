@@ -1,0 +1,9 @@
+Script 0 at /terramate.tm.hcl:10,1-15,2 having 1 job(s)
+/stacks/alpha (script:0 job:0.0)> sh ../../../fake.sh plan
+plan alpha
+/stacks/beta (script:0 job:0.0)> sh ../../../fake.sh plan
+plan beta
+tfstackplan run apply: classify gates: none
+tfstackplan run apply: refusing to apply — gate check: 503: grant state unconfirmable
+  state: GATE_UNREACHABLE — the approval server is degraded/unreachable.
+  next: see the break-glass local-apply runbook in docs/ci-cd.md.

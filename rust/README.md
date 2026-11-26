@@ -4,15 +4,17 @@
 holds the Rust side: a front door binary, a replay harness that checks it
 against the Go binary, and recorded cases.
 
-Ported to Rust: `state`, `claims`, `catalog`, `uniqueness`, `whoami`, `admin`,
-and `run wrap` (with `run claims` and `run whoami`, which are the same faces).
-Everything else, including the rest of `run` and `render`, still runs in Go.
+Ported to Rust: `render` (including the legacy form with a leading flag or no
+arguments), `state`, `claims`, `catalog`, `uniqueness`, `whoami`, `admin`, and
+`run wrap` (with `run claims` and `run whoami`, which are the same faces).
+Everything else, including the rest of `run`, still runs in Go.
 
 | Crate | Package | What it holds |
 |---|---|---|
-| `cli-core/` | `tfstackplan-cli` | The faces' logic, pure: no I/O, no clock, not async. Go-compatible helpers (`flag`, `%q`/`%v`, `encoding/json`, `filepath.Match`, RE2 classes), config parsing, state-move planning and the shim/xmove HCL, uniqueness, catalog. |
+| `render-core/` | `tfstackplan-render` | The pure render pipeline, no I/O, clock or async. One module per Go package under `internal/` (`plan`, `moveset`, `model`, `classify`, `differ`, `render`, `fit`, `links`, `ansi`, `codes`, `source`, and the render part of `config`), plus `gofmt`, `goval`, `gojson`, `goregex`, `difflib` and `yaml`, which reproduce the Go library behaviour the output depends on. |
+| `cli-core/` | `tfstackplan-cli` | The other faces' logic, pure: no I/O, no clock, not async. Go-compatible helpers (`flag`, `filepath.Match`, URL escaping), config parsing, state-move planning and the shim/xmove HCL, uniqueness, catalog. |
 | `clients/` | `tfstackplan-clients` | Blocking HTTP clients with connect and total timeouts: the control-plane server, GCS (state lock, objects), Google credentials (ADC, service-account keys, impersonation, the metadata server). |
-| `tfstackplan/` | `tfstackplan` | The binary: the front door and each face's shell (flags, files, terraform/terramate, printing). |
+| `tfstackplan/` | `tfstackplan` | The binary: the front door and each face's shell (flags, files, terraform/terramate, printing). `src/render.rs` is `render`'s shell (`goflag.rs`, `gofs.rs`). |
 | `casekit/` | `casekit` | What the recorder and the replay share: the hermetic environment and the fake server. |
 | `recorder/` | `recorder` | Records the replay cases from the Go binary. |
 
@@ -27,9 +29,12 @@ stdin, stdout and stderr, and exits with its exit code. On unix it replaces its
 own process with Go (`exec`), so signals, the tty and the exit code all belong
 to Go. On other platforms it spawns Go, waits and passes the exit code on.
 
-The front door does not parse flags. A ported face parses its own, with
-`cli-core`'s copy of Go's `flag` package, so usage text, error messages and exit
-code 2 match Go's.
+The front door does not parse flags for subcommands it passes on. A ported
+subcommand parses its own flags exactly as Go's `flag` package does, so usage
+text, error messages and exit code 2 match Go's.
+
+`-version` prints `tfstackplan dev`, or the value of `TFSTACKPLAN_VERSION` at
+build time (the Go release sets `main.version` the same way).
 
 | Variable | Effect |
 |---|---|
@@ -98,8 +103,12 @@ Cases live in `cases/` in [trycmd](https://docs.rs/trycmd) format:
   `fs.sandbox = true` with `fs.base = "fixtures"`; trycmd copies that directory
   to a temp dir, runs there, and compares the files in `<name>.out/`.
 - `cases/fixtures/` holds plan trees: `small/` (the plan fixtures from
-  `internal/plan/testdata`), and `big/` and `state-ops/` (the inputs behind the
-  `examples/*.md` goldens), plus `policy.hcl` for the sandboxed cases.
+  `internal/plan/testdata`), `big/` and `state-ops/` (the inputs behind the
+  `examples/*.md` goldens), and `links/` with its source tree `links-src/` (`.tf`
+  files, a local module and `.terraform/modules/modules.json`) for resource
+  `{file}#L{line}` links. Beside them are `policy.hcl` for the sandboxed cases and
+  `prod-like.hcl`, a policy file shaped like a production one (links, cache,
+  progress and `env_uniqueness` blocks) with made-up names.
 
 To add a case, write the `.toml` with `bin.name`, `args` and `fs.cwd`, then
 record it. A case must not write into the repository: one that writes files
@@ -183,6 +192,20 @@ stderr, exit code, `.out/` contents) and then checks what trycmd does not:
 It writes `replay-report.md` with cases passed and how many invocations fell back
 to Go. The report is committed. Every case must pass; the ported faces answer in
 Rust and the rest fall back to Go.
+
+### Go parity property test
+
+`tests/go_parity.rs` mutates the fixture plans at random (attribute values,
+including JSON and YAML strings, numbers and Unicode; sensitivity and
+known-after-apply markers; actions; dropped changes), renders each mutation with
+the Go binary and with the front door under random configs, budgets and
+`--details`, and requires identical stdout, stderr, exit code and
+classification JSON. Plans are written with object keys in sorted or reversed
+order, and every run resolves resource links against the `.tf` tree in
+`cases/fixtures/links-src/` (the `links` fixture set always has links on). It is
+skipped, with a loud note, when the Go binary is absent, and fails instead when
+`CI` is set.
+`PROPTEST_CASES` sets the number of cases (default 96).
 
 CI (`rust` job in `.github/workflows/ci.yml`) runs the checks in *Before you push*,
 then re-records the cases and fails if `rust/cases` changed, and fails separately

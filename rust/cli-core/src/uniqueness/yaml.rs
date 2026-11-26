@@ -1,28 +1,22 @@
-//! `yaml.Unmarshal(data, &map[string]any{})` as Go's `yaml.v3` does it, on
-//! `yaml-rust2`'s event parser. Plain scalars are resolved with yaml.v3's rules
-//! (YAML 1.2 core schema plus 1.1 octals, `0b`, underscores, timestamps as
-//! `time.Time`); quoted and block scalars stay strings.
+//! `yaml.Unmarshal(data, &map[string]any{})` as Go's `yaml.v3` does it.
 //!
-//! Syntax errors carry `yaml-rust2`'s wording, not yaml.v3's. Merge keys (`<<`)
-//! are kept as ordinary keys rather than merged.
+//! The values, merge keys included, are decoded by `tfstackplan_render::yaml`, the
+//! render port's yaml.v3 decoder. This module walks the document once more with
+//! line numbers, only to word yaml.v3's `unmarshal errors` the way Go prints them
+//! (a duplicate key, a non-scalar key, a root that is not a mapping). Syntax errors
+//! carry `yaml-rust2`'s wording, not yaml.v3's.
 
 use std::collections::BTreeMap;
-use std::sync::LazyLock;
+use yaml_rust2::parser::{Event, MarkedEventReceiver, Parser};
+use yaml_rust2::scanner::Marker;
 
-use regex::Regex;
-use yaml_rust2::parser::{Event, MarkedEventReceiver, Parser, Tag};
-use yaml_rust2::scanner::{Marker, TScalarStyle};
+use tfstackplan_render::goval::Value as GoValue;
 
 use super::value::{Timestamp, Value};
 
 #[derive(Clone, Debug)]
 enum Node {
-    Scalar {
-        value: String,
-        style: TScalarStyle,
-        tag: Option<Tag>,
-        line: usize,
-    },
+    Scalar { value: String, line: usize },
     Seq(Vec<Node>, usize),
     Map(Vec<(Node, Node)>, usize),
 }
@@ -58,11 +52,9 @@ impl Builder {
 impl MarkedEventReceiver for Builder {
     fn on_event(&mut self, ev: Event, mark: Marker) {
         match ev {
-            Event::Scalar(value, style, anchor, tag) => self.push(
+            Event::Scalar(value, _, anchor, _) => self.push(
                 Node::Scalar {
                     value,
-                    style,
-                    tag,
                     line: mark.line(),
                 },
                 anchor,
@@ -91,8 +83,6 @@ impl MarkedEventReceiver for Builder {
             Event::Alias(id) => {
                 let node = self.anchors.get(&id).cloned().unwrap_or(Node::Scalar {
                     value: String::new(),
-                    style: TScalarStyle::Plain,
-                    tag: None,
                     line: mark.line(),
                 });
                 self.push(node, 0);
@@ -102,229 +92,56 @@ impl MarkedEventReceiver for Builder {
     }
 }
 
-static YAML_STYLE_FLOAT: LazyLock<Regex> = LazyLock::new(|| {
-    #[expect(
-        clippy::expect_used,
-        reason = "a constant pattern; covered by the tests"
-    )]
-    Regex::new(r"^[-+]?(\.[0-9]+|[0-9]+(\.[0-9]*)?)([eE][-+]?[0-9]+)?$")
-        .expect("valid float pattern")
-});
-
-fn is_str_tag(tag: &Option<Tag>) -> bool {
-    tag.as_ref().is_some_and(|t| {
-        (t.handle == "!!" || t.handle == "tag:yaml.org,2002:") && t.suffix == "str"
-    })
-}
-
-fn indicated_string(style: TScalarStyle, tag: &Option<Tag>) -> bool {
-    style != TScalarStyle::Plain || is_str_tag(tag)
-}
-
-/// Go's `strconv.ParseInt(s, 0, 64)` / `ParseUint`, enough for yaml.v3's resolver.
-fn parse_go_int(s: &str) -> Option<Value> {
-    let (neg, body) = match s.as_bytes().first() {
-        Some(b'-') => (true, &s[1..]),
-        Some(b'+') => (false, &s[1..]),
-        _ => (false, s),
-    };
-    if body.is_empty() {
-        return None;
-    }
-    let (radix, digits) = if let Some(d) = body.strip_prefix("0x").or(body.strip_prefix("0X")) {
-        (16, d)
-    } else if let Some(d) = body.strip_prefix("0o").or(body.strip_prefix("0O")) {
-        (8, d)
-    } else if let Some(d) = body.strip_prefix("0b").or(body.strip_prefix("0B")) {
-        (2, d)
-    } else if body.len() > 1 && body.starts_with('0') {
-        (8, &body[1..])
-    } else {
-        (10, body)
-    };
-    if digits.is_empty() || !digits.chars().all(|c| c.is_digit(radix)) {
-        return None;
-    }
-    let mag = u128::from_str_radix(digits, radix).ok()?;
-    if neg {
-        let v = i128::try_from(mag).ok()?;
-        i64::try_from(-v).ok().map(Value::Int)
-    } else if let Ok(v) = i64::try_from(mag) {
-        Some(Value::Int(v))
-    } else {
-        u64::try_from(mag).ok().map(Value::Uint)
-    }
-}
-
-fn digits_1_2(s: &str) -> Option<(u32, &str)> {
-    let n = s.bytes().take(2).take_while(u8::is_ascii_digit).count();
-    if n == 0 {
-        return None;
-    }
-    Some((s[..n].parse().ok()?, &s[n..]))
-}
-
-fn days_in_month(y: i32, m: u32) -> u32 {
-    match m {
-        2 if (y % 4 == 0 && y % 100 != 0) || y % 400 == 0 => 29,
-        2 => 28,
-        4 | 6 | 9 | 11 => 30,
-        _ => 31,
-    }
-}
-
-/// yaml.v3's `parseTimestamp`: `time.Parse` against its four layouts.
-pub(crate) fn parse_timestamp(s: &str) -> Option<Timestamp> {
-    let b = s.as_bytes();
-    if b.len() < 5 || !b[..4].iter().all(u8::is_ascii_digit) || b[4] != b'-' {
-        return None;
-    }
-    let year: i32 = s[..4].parse().ok()?;
-    let (month, rest) = digits_1_2(&s[5..])?;
-    let rest = rest.strip_prefix('-')?;
-    let (day, rest) = digits_1_2(rest)?;
-    if !(1..=12).contains(&month) || day < 1 || day > days_in_month(year, month) {
-        return None;
-    }
-    let mut ts = Timestamp {
-        year,
-        month,
-        day,
-        hour: 0,
-        minute: 0,
-        second: 0,
-        nanos: 0,
-        offset: None,
-    };
-    if rest.is_empty() {
-        return Some(ts);
-    }
-    let sep = rest.chars().next()?;
-    let zoned = match sep {
-        'T' | 't' => true,
-        ' ' => false,
-        _ => return None,
-    };
-    let rest = &rest[1..];
-    let (hour, rest) = digits_1_2(rest)?;
-    let rest = rest.strip_prefix(':')?;
-    let (minute, rest) = digits_1_2(rest)?;
-    let rest = rest.strip_prefix(':')?;
-    let (second, mut rest) = digits_1_2(rest)?;
-    if hour > 23 || minute > 59 || second > 59 {
-        return None;
-    }
-    if let Some(frac) = rest.strip_prefix('.') {
-        let n = frac.bytes().take_while(u8::is_ascii_digit).count();
-        if n == 0 || n > 9 {
-            return None;
+/// Converts a value decoded by the render port's yaml.v3 decoder.
+fn from_go(v: GoValue) -> Value {
+    match v {
+        GoValue::Null => Value::Nil,
+        GoValue::Bool(b) => Value::Bool(b),
+        GoValue::Int(i) => Value::Int(i),
+        GoValue::Uint(u) => Value::Uint(u),
+        GoValue::Float(f) => Value::Float(f),
+        GoValue::Str(s) => Value::Str(s),
+        GoValue::Time(t) => {
+            let (year, month, day, hour, minute, second, nanos, off) = t.fields();
+            Value::Time(Timestamp {
+                year,
+                month,
+                day,
+                hour,
+                minute,
+                second,
+                nanos,
+                offset: (off != 0).then_some(off),
+            })
         }
-        let padded = format!("{:0<9}", &frac[..n]);
-        ts.nanos = padded.parse().ok()?;
-        rest = &frac[n..];
+        GoValue::Seq(items) => Value::Seq(items.into_iter().map(from_go).collect()),
+        GoValue::Map(m) => Value::Map(m.into_iter().map(|(k, v)| (k, from_go(v))).collect()),
+        GoValue::AnyMap(pairs) => Value::AnyMap(
+            pairs
+                .into_iter()
+                .map(|(k, v)| (from_go(k), from_go(v)))
+                .collect(),
+        ),
     }
-    ts.hour = hour;
-    ts.minute = minute;
-    ts.second = second;
-    if !zoned {
-        return rest.is_empty().then_some(ts);
-    }
-    if rest == "Z" {
-        return Some(ts);
-    }
-    let rb = rest.as_bytes();
-    if rb.len() != 6 || !(rb[0] == b'+' || rb[0] == b'-') || rb[3] != b':' {
-        return None;
-    }
-    let hh: i32 = rest[1..3].parse().ok()?;
-    let mm: i32 = rest[4..6].parse().ok()?;
-    if hh > 24 || mm > 59 {
-        return None;
-    }
-    let off = (hh * 3600 + mm * 60) * if rb[0] == b'-' { -1 } else { 1 };
-    ts.offset = Some(off);
-    Some(ts)
 }
 
-/// yaml.v3's `resolve` for an untagged plain scalar.
-fn resolve_plain(s: &str) -> Value {
-    match s {
-        "true" | "True" | "TRUE" => return Value::Bool(true),
-        "false" | "False" | "FALSE" => return Value::Bool(false),
-        "" | "~" | "null" | "Null" | "NULL" => return Value::Nil,
-        ".nan" | ".NaN" | ".NAN" => return Value::Float(f64::NAN),
-        ".inf" | ".Inf" | ".INF" | "+.inf" | "+.Inf" | "+.INF" => {
-            return Value::Float(f64::INFINITY);
+/// Fails with yaml.v3's text on a duplicate key anywhere in the tree.
+fn check_tree(n: &Node) -> Result<(), String> {
+    match n {
+        Node::Scalar { .. } => Ok(()),
+        Node::Seq(items, _) => items.iter().try_for_each(check_tree),
+        Node::Map(pairs, _) => {
+            check_unique_keys(pairs)?;
+            pairs
+                .iter()
+                .try_for_each(|(k, v)| check_tree(k).and_then(|()| check_tree(v)))
         }
-        "-.inf" | "-.Inf" | "-.INF" => return Value::Float(f64::NEG_INFINITY),
-        _ => {}
     }
-    match s.as_bytes()[0] {
-        b'.' => {
-            if let Ok(f) = s.parse::<f64>() {
-                return Value::Float(f);
-            }
-        }
-        b'0'..=b'9' | b'+' | b'-' => {
-            if let Some(t) = parse_timestamp(s) {
-                return Value::Time(t);
-            }
-            let plain = s.replace('_', "");
-            if let Some(v) = parse_go_int(&plain) {
-                return v;
-            }
-            if YAML_STYLE_FLOAT.is_match(&plain)
-                && let Ok(f) = plain.parse::<f64>()
-            {
-                return Value::Float(f);
-            }
-        }
-        _ => {}
-    }
-    Value::Str(s.to_string())
 }
 
 fn node_line(n: &Node) -> usize {
     match n {
         Node::Scalar { line, .. } | Node::Seq(_, line) | Node::Map(_, line) => *line,
-    }
-}
-
-/// Decodes a node into `any`.
-fn to_any(n: &Node) -> Result<Value, String> {
-    match n {
-        Node::Scalar {
-            value, style, tag, ..
-        } => {
-            if indicated_string(*style, tag) {
-                Ok(Value::Str(value.clone()))
-            } else {
-                Ok(resolve_plain(value))
-            }
-        }
-        Node::Seq(items, _) => Ok(Value::Seq(
-            items.iter().map(to_any).collect::<Result<Vec<_>, _>>()?,
-        )),
-        Node::Map(pairs, _) => {
-            check_unique_keys(pairs)?;
-            let mut keys = Vec::new();
-            for (k, v) in pairs {
-                keys.push((to_any(k)?, to_any(v)?));
-            }
-            if keys.iter().all(|(k, _)| matches!(k, Value::Str(_))) {
-                let mut m: Vec<(String, Value)> = keys
-                    .into_iter()
-                    .map(|(k, v)| match k {
-                        Value::Str(s) => (s, v),
-                        other => (other.sprint(), v),
-                    })
-                    .collect();
-                m.sort_by(|a, b| a.0.cmp(&b.0));
-                Ok(Value::Map(m))
-            } else {
-                Ok(Value::AnyMap(keys))
-            }
-        }
     }
 }
 
@@ -373,46 +190,32 @@ pub fn unmarshal_map(src: &str) -> Result<Option<Vec<(String, Value)>>, String> 
     };
     match &root {
         Node::Map(pairs, _) => {
-            check_unique_keys(pairs)?;
-            let mut out: Vec<(String, Value)> = Vec::new();
-            for (k, v) in pairs {
-                // A key decodes into `string` from its source text.
-                let key = match k {
-                    Node::Scalar {
-                        value, style, tag, ..
-                    } => {
-                        if !indicated_string(*style, tag) && resolve_plain(value) == Value::Nil {
-                            String::new()
+            check_tree(&root)?;
+            for (k, _) in pairs {
+                if let Node::Seq(..) | Node::Map(..) = k {
+                    return Err(format!(
+                        "yaml: unmarshal errors:\n  line {}: cannot unmarshal {} into string",
+                        node_line(k),
+                        if matches!(k, Node::Seq(..)) {
+                            "!!seq"
                         } else {
-                            value.clone()
+                            "!!map"
                         }
-                    }
-                    other => {
-                        return Err(format!(
-                            "yaml: unmarshal errors:\n  line {}: cannot unmarshal {} into string",
-                            node_line(other),
-                            if matches!(other, Node::Seq(..)) {
-                                "!!seq"
-                            } else {
-                                "!!map"
-                            }
-                        ));
-                    }
-                };
-                let val = to_any(v)?;
-                match out.iter_mut().find(|(k, _)| *k == key) {
-                    Some(slot) => slot.1 = val,
-                    None => out.push((key, val)),
+                    ));
                 }
             }
-            out.sort_by(|a, b| a.0.cmp(&b.0));
-            Ok(Some(out))
+            let m = tfstackplan_render::yaml::load_string_map(src)
+                .map_err(|e| format!("yaml: unmarshal errors:\n  {e}"))?
+                .unwrap_or_default();
+            Ok(Some(m.into_iter().map(|(k, v)| (k, from_go(v))).collect()))
         }
         Node::Seq(_, line) => Err(format!(
             "yaml: unmarshal errors:\n  line {line}: cannot unmarshal !!seq into map[string]interface {{}}"
         )),
         Node::Scalar { value, line, .. } => {
-            let v = to_any(&root)?;
+            let v = tfstackplan_render::yaml::load(src)
+                .map(from_go)
+                .map_err(|e| format!("yaml: {e}"))?;
             if v == Value::Nil {
                 return Ok(None);
             }

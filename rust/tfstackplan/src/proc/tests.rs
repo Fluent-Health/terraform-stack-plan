@@ -48,7 +48,7 @@ fn terramate_list_and_run_graph() {
 
 #[test]
 fn errors_read_like_go() {
-    let e = std::io::Error::from(std::io::ErrorKind::NotFound);
+    let e = std::io::Error::from_raw_os_error(2);
     assert_eq!(
         start_error("terramate", &e),
         "exec: \"terramate\": executable file not found in $PATH"
@@ -67,4 +67,47 @@ fn errors_read_like_go() {
 #[test]
 fn lines_trims_and_drops_blanks() {
     assert_eq!(lines(b" a \n\n b\r\n"), vec!["a", "b"]);
+}
+
+#[test]
+fn start_error_in_names_a_missing_dir_like_go() {
+    let e = std::io::Error::from(std::io::ErrorKind::NotFound);
+    // `sh` is on PATH, so the directory is what Go reports.
+    assert_eq!(
+        start_error_in("sh", Path::new("no-such-dir"), &e),
+        "chdir no-such-dir: no such file or directory"
+    );
+    // A missing program still wins, as Go looks it up first.
+    assert_eq!(
+        start_error_in("no-such-program-x", Path::new("no-such-dir"), &e),
+        "exec: \"no-such-program-x\": executable file not found in $PATH"
+    );
+}
+
+// Go's ProcessState.String for a signalled child: syscall.Signal names, and
+// " (core dumped)" when the wait status carries WCOREFLAG.
+#[cfg(unix)]
+#[test]
+fn exit_text_names_signals_like_go() {
+    use std::os::unix::process::ExitStatusExt;
+    use std::process::ExitStatus;
+    let cases = [
+        (0x100, "exit status 1"),
+        (6, "signal: aborted"),
+        (7, "signal: bus error"),
+        (9, "signal: killed"),
+        (10, "signal: user defined signal 1"),
+        (11, "signal: segmentation fault"),
+        (12, "signal: user defined signal 2"),
+        (13, "signal: broken pipe"),
+        (14, "signal: alarm clock"),
+        (15, "signal: terminated"),
+        (3, "signal: quit"),
+        (34, "signal: signal 34"),
+        (11 | 0x80, "signal: segmentation fault (core dumped)"),
+        (6 | 0x80, "signal: aborted (core dumped)"),
+    ];
+    for (raw, want) in cases {
+        assert_eq!(exit_text(&ExitStatus::from_raw(raw)), want, "raw {raw:#x}");
+    }
 }

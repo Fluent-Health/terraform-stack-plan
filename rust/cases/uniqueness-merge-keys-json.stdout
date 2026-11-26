@@ -1,0 +1,17 @@
+{
+  "Unjustified": [
+    {
+      "Unit": "svc/billing/instances/billing",
+      "Key": "billing_account_id",
+      "Value": "0123456789",
+      "Envs": [
+        "dev",
+        "prod"
+      ],
+      "Kind": "duplicate",
+      "Severity": "violation"
+    }
+  ],
+  "Stale": null,
+  "ReportOnly": null
+}

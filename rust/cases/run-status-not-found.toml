@@ -1,0 +1,18 @@
+bin.name = "tfstackplan"
+args = ["run", "status", "nope"]
+fs.cwd = "../.."
+
+[harness]
+env = { TFSTACKPLAN_SERVER = "{fake}" }
+
+[[harness.route]]
+method = "GET"
+path = "/api/execution/exec-1"
+status = 200
+body = '{"ID":"exec-1","Repo":"acme/infra","SHA":"abc123","PR":7,"Environment":"staging","CheckRunID":{"Int64":42,"Valid":true},"Rev":3,"ReportMarkdown":"report","LogURL":"","Status":"success","StatusContext":"plan/staging","Phase":"applying","CreatedAt":"2026-01-02T03:04:05.120Z","SupersededBy":"","graph":{"stacks":[{"path":"stacks/network","status":"safe","counts":{"add":3,"change":1}},{"path":"stacks/very/long/database/stack/path","status":"gated","categories":[{"name":"iam","icon":"I","attributes":{"project":["proj-a"]}}]}],"edges":[{"from":"stacks/network","to":"stacks/very/long/database/stack/path"}]},"gates":[{"Class":"iam","Target":"proj-a","GrantName":"g-1","State":"active","Requester":"sa@example.com"}],"Extra":"ignored"}'
+
+[status]
+code = 1
+
+[env]
+inherit = false

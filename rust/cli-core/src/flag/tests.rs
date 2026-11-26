@@ -111,6 +111,27 @@ fn custom_usage_header() {
         "Usage: t\n\nFlags:\n  -dir string\n    \troot\n"
     );
 }
+#[test]
+fn parse_int_like_strconv_base_0() {
+    assert_eq!(parse_int("42"), Ok(42));
+    assert_eq!(parse_int("-0x1F"), Ok(-31));
+    assert_eq!(parse_int("0o17"), Ok(15));
+    assert_eq!(parse_int("017"), Ok(15));
+    assert_eq!(parse_int("0b101"), Ok(5));
+    assert_eq!(parse_int("1_000"), Ok(1000));
+    assert_eq!(parse_int("1__0"), Err("parse error"));
+    assert_eq!(parse_int("0x"), Err("parse error"));
+    assert_eq!(parse_int("08"), Err("parse error"));
+    assert_eq!(parse_int("-9223372036854775808"), Ok(i64::MIN));
+    assert_eq!(parse_int("9223372036854775808"), Err("value out of range"));
+}
+
+#[test]
+fn parse_bool_like_strconv() {
+    assert_eq!(parse_bool("T"), Some(true));
+    assert_eq!(parse_bool("0"), Some(false));
+    assert_eq!(parse_bool("yes"), None);
+}
 
 #[test]
 fn non_ascii_flag_name_is_an_error_not_a_panic() {
