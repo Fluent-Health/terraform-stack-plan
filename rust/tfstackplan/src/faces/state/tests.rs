@@ -593,7 +593,7 @@ fn strip_stack_and_move_key() {
 
 #[test]
 fn rand_id_is_32_hex() {
-    let id = rand_id();
+    let id = rand_id().unwrap();
     assert_eq!(id.len(), 32);
     assert!(id.chars().all(|c| c.is_ascii_hexdigit()));
 }

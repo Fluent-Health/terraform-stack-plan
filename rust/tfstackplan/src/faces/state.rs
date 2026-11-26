@@ -509,7 +509,7 @@ impl exec::Locker for GcsLocker {
         };
         let object = format!("{prefix}/default.tflock");
         let info = tfstackplan_clients::gcs::LockInfo {
-            id: rand_id(),
+            id: rand_id()?,
             operation: "tfstackplan state apply".into(),
             who: who(),
             version: "tfstackplan".into(),
@@ -523,14 +523,15 @@ impl exec::Locker for GcsLocker {
     }
 }
 
-/// 16 random bytes, hex (Go's `randID`).
-fn rand_id() -> String {
+/// 16 random bytes, hex (Go's `randID`). Go's `crypto/rand` cannot fail quietly, so
+/// neither may this: a lock id of zeros would collide with the next one.
+fn rand_id() -> Result<String, String> {
     use std::io::Read;
     let mut b = [0u8; 16];
-    if let Ok(mut f) = std::fs::File::open("/dev/urandom") {
-        let _ = f.read_exact(&mut b);
-    }
-    b.iter().map(|x| format!("{x:02x}")).collect()
+    std::fs::File::open("/dev/urandom")
+        .and_then(|mut f| f.read_exact(&mut b))
+        .map_err(|e| format!("lock id: reading /dev/urandom: {e}"))?;
+    Ok(b.iter().map(|x| format!("{x:02x}")).collect())
 }
 
 /// `user@host`, as Go's `os/user` (pure Go: `/etc/passwd` by uid) and `os.Hostname`
