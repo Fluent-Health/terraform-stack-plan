@@ -43,6 +43,16 @@ struct Case {
     harness: casekit::Harness,
 }
 
+/// Variables the replay sets itself, which a case's `env.add` must not override.
+const RESERVED_ENV: &[&str] = &["TFSTACKPLAN_GO_BIN", "TFSTACKPLAN_FALLBACK_LOG", "HOME"];
+
+/// Whether recorded output holds a trycmd wildcard: `[..]` or a line that is just `...`.
+fn has_wildcard(b: &[u8]) -> bool {
+    b.windows(4).any(|w| w == b"[..]")
+        || b.split(|&c| c == b'\n')
+            .any(|l| l.strip_suffix(b"\r").unwrap_or(l) == b"...")
+}
+
 fn load(path: &Path) -> Result<Case, String> {
     let doc: toml_edit::DocumentMut = std::fs::read_to_string(path)
         .map_err(|e| e.to_string())?
@@ -68,7 +78,7 @@ fn load(path: &Path) -> Result<Case, String> {
                 .ok_or("`args` must be strings")
         })
         .collect::<Result<_, _>>()?;
-    let env_add = doc
+    let env_add: BTreeMap<String, String> = doc
         .get("env")
         .and_then(|t| t.get("add"))
         .and_then(|t| t.as_table_like())
@@ -78,6 +88,9 @@ fn load(path: &Path) -> Result<Case, String> {
                 .collect()
         })
         .unwrap_or_default();
+    if let Some(k) = RESERVED_ENV.iter().find(|k| env_add.contains_key(**k)) {
+        return Err(format!("env.add must not set {k}: the replay controls it"));
+    }
     let fs_get = |key: &str| doc.get("fs").and_then(|t| t.get(key));
     let fs_path = |key: &str| fs_get(key).and_then(|v| v.as_str()).map(|s| dir.join(s));
     let in_dir = path.with_extension("in");
@@ -99,6 +112,23 @@ fn load(path: &Path) -> Result<Case, String> {
         (true, None) => return Err("a sandbox needs fs.base".into()),
         (false, _) => None,
     };
+    let wildcards = doc
+        .get("wildcards")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    if !wildcards {
+        let mut expected = vec![path.with_extension("stdout"), path.with_extension("stderr")];
+        expected.extend(files(&out_dir).into_iter().map(|f| out_dir.join(f)));
+        if let Some(f) = expected
+            .iter()
+            .find(|f| std::fs::read(f).is_ok_and(|b| has_wildcard(&b)))
+        {
+            return Err(format!(
+                "{} has a wildcard (`[..]` or a `...` line) but the case lacks `wildcards = true`",
+                f.display()
+            ));
+        }
+    }
     Ok(Case {
         name: path
             .file_stem()
