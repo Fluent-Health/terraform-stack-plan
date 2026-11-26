@@ -69,3 +69,20 @@ markdown out. That keeps it testable case by case against the Go binary. Code th
 GitHub, GCS or terraform goes in a separate clients crate. The `tfstackplan` binary stays the
 thin shell that parses arguments, reads files and wires the two together.
 
+
+## Static musl on Linux, built with cargo-zigbuild
+
+Release archives and both images ship the front door and `tfstackplan-go` side
+by side. On Linux the front door targets `*-unknown-linux-musl`, so it is a
+static binary and runs on `gcr.io/distroless/static-debian12`, the same base the
+static Go binary already uses. The alternative was a glibc build on
+`distroless/cc`, which adds libc and libgcc to the image and gives Cloud Run and
+the runner image a second base to track, for no gain while the front door has
+no C dependencies. musl's allocator is slower than glibc's; that matters only
+once a hot path is ported, and a Rust allocator crate fixes it then.
+
+The release workflow builds every target on one Linux runner with
+cargo-zigbuild, using zig as the linker. Pure Rust needs zig only to link, but
+bundled SQLite (rusqlite with `bundled`) compiles C, and a musl or macOS target
+then needs a C cross toolchain. zig is that toolchain, so a port that adds
+SQLite keeps the same build, without musl-gcc or a macOS SDK.

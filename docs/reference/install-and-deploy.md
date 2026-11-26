@@ -21,8 +21,10 @@ go build -o tfstackplan ./cmd/tfstackplan
 
 Prebuilt binaries for **linux** and **darwin** on **amd64** and **arm64** are
 on the [Releases](https://github.com/Fluent-Health/terraform-stack-plan/releases)
-page. Download the binary for your platform, verify the `.sha256`, and place
-it on your `PATH`.
+page. Download the archive for your platform, verify the `.sha256`, and put
+both binaries it contains in the same directory on your `PATH`: `tfstackplan`
+is the front door you run, and it runs `tfstackplan-go` from its own directory
+(see [`rust/README.md`](../../rust/README.md)).
 
 ### Cloud Run container
 
@@ -32,8 +34,9 @@ The release also publishes a **multi-arch distroless container** to GHCR:
 ghcr.io/<owner>/terraform-stack-plan:<tag>
 ```
 
-Its entrypoint is `tfstackplan serve`. The binary is fully static (pure-Go
-SQLite, no cgo) and embeds its assets, so the image needs no runtime files.
+Its entrypoint is `tfstackplan serve`. Both binaries in it are fully static
+(the front door is musl; the Go binary uses pure-Go SQLite, no cgo) and the Go
+binary embeds its assets, so the image needs no runtime files.
 See [Deploy `serve` to Cloud Run](#deploy-serve-to-cloud-run) below.
 
 ### asdf
