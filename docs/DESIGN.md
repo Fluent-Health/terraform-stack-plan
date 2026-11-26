@@ -243,6 +243,14 @@ is in [`docs/guide/09-ci-integration.md`](guide/09-ci-integration.md).
 - **`run verify`** — runs the terramate `verify` script across changed stacks;
   no gate, read-only post-apply validation, reported under `verify/<env>`.
 
+**Rust port.** Every `run` verb is answered by the Rust front door (`rust/`, see
+§10): the verbs are in `rust/tfstackplan/src/run/`, their pure parts (event
+payloads, the run-graph and `--why` parsers, the sidecar→gates reader, gate
+verdicts) in `rust/cli-core`, and the server, GCS and Google calls in
+`rust/clients`. Terramate and terraform run as child processes with the same
+argv as Go; the classify pass renders through `rust/render-core` in process, as
+Go renders through `internal/render`.
+
 **Terramate exec adapter** (`internal/runner`) shells out to the `terramate`
 binary: list stacks, detect the changed set, derive the dependency DAG
 (`experimental run-graph` → a pure DOT parser → `events.Edge`s), and `script
@@ -262,8 +270,8 @@ raw edges would otherwise dangle and the UI graph render blank.
   It exists because terramate's parallel `script run` aborts on the first
   failing stack and never runs a *later* command, so a closing tick placed there
   would be silently skipped — putting the terminal tick inside the same command
-  closes that gap. `--tty` runs it under a PTY (`creack/pty`, Unix-only) so
-  terraform emits ANSI colour.
+  closes that gap. `--tty` runs it under a PTY (`creack/pty` in Go,
+  `portable-pty` in Rust; Unix-only) so terraform emits ANSI colour.
 - **`run tick`** posts a best-effort per-stack `update`; **`run exec`** and the read
   verbs (`run status`/`run claims`/`run whoami`) round out the group (see
   [`docs/reference/cli.md`](reference/cli.md#run)). All are no-ops offline.
@@ -785,8 +793,9 @@ hardening is in [`SECURITY.md`](../SECURITY.md).
   the front door; CI re-records and fails if the recording is stale. `render`
   (and Go's no-args and `-version` forms of it) runs in Rust from the pure
   `rust/render-core` crate, and `state`, `claims`, `catalog`, `uniqueness`,
-  `whoami`, `admin` and `run wrap`/`claims`/`whoami` run in Rust from
-  `rust/cli-core`; the rest of `run` and the other faces fall back to Go.
+  `whoami`, `admin` and every `run` verb run in Rust from `rust/cli-core` (with
+  `run plan`/`apply` rendering through `render-core` in process); `serve` and
+  `ui` fall back to Go.
   A proptest (`rust/tfstackplan/tests/go_parity.rs`) mutates plans and compares
   the two binaries' `render` end to end. Cases that talk to GitHub, GCS or
   Google run against local fake servers (`rust/casekit`) with an empty `HOME`
@@ -838,9 +847,9 @@ hardening is in [`SECURITY.md`](../SECURITY.md).
   `rust/DECISIONS.md`): output that Go orders by map iteration is sorted;
   HCL/YAML parse errors lack Go's file positions; `external_account`
   credentials are not supported; `uniqueness` compares expiry against the UTC
-  date and does not yet merge YAML `<<` keys; the `state` terraform runner skips
-  terraform-exec's version probe. `TFSTACKPLAN_IMPL_<FACE>=go` sends a face back
-  to Go.
+  date; the `state` terraform runner skips terraform-exec's version probe.
+  `TFSTACKPLAN_IMPL_<FACE>=go` sends a face back to Go (`TFSTACKPLAN_IMPL_RUN=go`
+  for every `run` verb).
 
 **Serve / state / approvals**
 
