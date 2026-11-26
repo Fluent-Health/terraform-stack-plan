@@ -13,11 +13,13 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 
+	"github.com/Fluent-Health/terraform-stack-plan/internal/cache"
 	"github.com/Fluent-Health/terraform-stack-plan/internal/statemove"
 )
 
@@ -88,13 +90,18 @@ type gcsLocker struct {
 	hc      *http.Client
 }
 
-// newGCSLocker builds a gcsLocker. An empty baseURL defaults to the real GCS
-// JSON API endpoint.
+// newGCSLocker builds a gcsLocker. An empty baseURL defaults to
+// cache.GCSBaseURL (the real GCS JSON API unless $TFSTACKPLAN_GCS_URL is set).
+// terraform's gcs backend ignores that override, so when it applies the
+// locker warns that the lock is not taken where terraform keeps state.
 func newGCSLocker(token func(context.Context) (string, error), baseURL string) *gcsLocker {
 	if baseURL == "" {
-		baseURL = "https://storage.googleapis.com"
+		baseURL = cache.GCSBaseURL
+		if baseURL != "https://storage.googleapis.com" {
+			fmt.Fprintf(os.Stderr, "tfstackplan: warning: TFSTACKPLAN_GCS_URL is set; the state lock is taken on %s, not on terraform's backend\n", baseURL)
+		}
 	}
-	return &gcsLocker{token: token, baseURL: baseURL, hc: http.DefaultClient}
+	return &gcsLocker{token: token, baseURL: strings.TrimRight(baseURL, "/"), hc: http.DefaultClient}
 }
 
 // lockInfo mirrors terraform's GCS backend lock object payload.

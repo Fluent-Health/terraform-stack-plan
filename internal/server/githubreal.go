@@ -9,12 +9,26 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 )
 
-// apiBase is the GitHub REST base; overridable in tests.
-var apiBase = "https://api.github.com"
+// EnvGitHubAPIURL overrides the GitHub REST base (e.g. a local fake server).
+const EnvGitHubAPIURL = "TFSTACKPLAN_GITHUB_API_URL"
+
+// apiBase is the GitHub REST base, read once from $TFSTACKPLAN_GITHUB_API_URL
+// (unset = the public API); overridable in tests.
+var apiBase = githubAPIBase()
+
+// githubAPIBase returns $TFSTACKPLAN_GITHUB_API_URL without a trailing slash,
+// or https://api.github.com when it is unset or empty.
+func githubAPIBase() string {
+	if v := strings.TrimRight(os.Getenv(EnvGitHubAPIURL), "/"); v != "" {
+		return v
+	}
+	return "https://api.github.com"
+}
 
 // RealClient is the production GitHub implementation. It mints a fresh App
 // installation token per request, so the token never goes stale on a
