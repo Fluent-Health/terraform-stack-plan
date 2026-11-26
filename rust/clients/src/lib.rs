@@ -36,6 +36,24 @@ pub fn http_client(timeout: Duration) -> Result<reqwest::blocking::Client, Strin
         .map_err(|e| e.to_string())
 }
 
+/// The client for the GCE metadata server: Go's metadata client (2 s dial, 5 s per request)
+/// and, like it, no proxy, whatever `HTTP_PROXY` says. Built once per process.
+pub fn metadata_client() -> Result<reqwest::blocking::Client, String> {
+    static CLIENT: std::sync::OnceLock<Result<reqwest::blocking::Client, String>> =
+        std::sync::OnceLock::new();
+    CLIENT
+        .get_or_init(|| {
+            install_crypto_provider();
+            reqwest::blocking::Client::builder()
+                .no_proxy()
+                .connect_timeout(Duration::from_secs(2))
+                .timeout(Duration::from_secs(5))
+                .build()
+                .map_err(|e| e.to_string())
+        })
+        .clone()
+}
+
 /// `$TFSTACKPLAN_GCS_URL` without a trailing slash, else the real GCS JSON API.
 pub fn gcs_base_url() -> String {
     let v = std::env::var("TFSTACKPLAN_GCS_URL").unwrap_or_default();

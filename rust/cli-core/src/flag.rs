@@ -231,9 +231,11 @@ impl FlagSet {
             }
             args = &args[1..];
             let mut value: Option<&str> = None;
-            if let Some(i) = name[1..].find('=') {
-                value = Some(&name[i + 2..]);
-                name = &name[..i + 1];
+            // Go looks for '=' from the second byte. '=' is ASCII, so the split is always on a
+            // character boundary, whatever the name starts with.
+            if let Some(i) = name.bytes().skip(1).position(|b| b == b'=').map(|p| p + 1) {
+                value = Some(&name[i + 1..]);
+                name = &name[..i];
             }
             let Some(flag) = self.flags.get(name) else {
                 if name == "help" || name == "h" {
@@ -341,8 +343,11 @@ pub(crate) fn parse_bool(s: &str) -> Option<bool> {
     }
 }
 
+/// Go's `underscoreOK`: underscores only between digits, where a base prefix counts as a
+/// digit (`0x_1F` is fine).
 fn underscore_ok(s: &str) -> bool {
     let s = s.strip_prefix(['+', '-']).unwrap_or(s).as_bytes();
+    // b'^' start, b'0' a digit or base prefix, b'_' an underscore, b'!' anything else.
     let mut saw = b'^';
     let mut i = 0;
     let mut hex = false;
@@ -351,12 +356,11 @@ fn underscore_ok(s: &str) -> bool {
         saw = b'0';
         hex = s[1].eq_ignore_ascii_case(&b'x');
     }
-    while i < s.len() {
-        let c = s[i];
-        if c.is_ascii_digit() || (hex && c.to_ascii_lowercase().is_ascii_hexdigit()) {
-            saw = b'1';
+    for &c in &s[i..] {
+        if c.is_ascii_digit() || (hex && c.is_ascii_hexdigit()) {
+            saw = b'0';
         } else if c == b'_' {
-            if saw != b'1' {
+            if saw != b'0' {
                 return false;
             }
             saw = b'_';
@@ -366,7 +370,6 @@ fn underscore_ok(s: &str) -> bool {
             }
             saw = b'!';
         }
-        i += 1;
     }
     saw != b'_'
 }

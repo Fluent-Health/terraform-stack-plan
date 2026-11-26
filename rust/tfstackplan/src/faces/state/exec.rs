@@ -90,7 +90,8 @@ fn write_private(path: &Path, data: &str) -> Result<(), String> {
 
 fn backup(dir: Option<&Path>, stack: &str, state: &str) -> Result<(), String> {
     let Some(dir) = dir else { return Ok(()) };
-    let bd = dir.join(stack);
+    // Go's filepath.Join: cleaned, and an absolute stack still lands under dir.
+    let bd = PathBuf::from(paths::join(&[&dir.to_string_lossy(), stack]));
     std::fs::create_dir_all(&bd).map_err(|e| os_error("mkdir", &bd, &e))?;
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

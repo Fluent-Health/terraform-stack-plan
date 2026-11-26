@@ -60,7 +60,6 @@ impl Terraform {
     }
 
     fn command(&self, args: &[&str]) -> Command {
-        use std::os::unix::process::CommandExt;
         let mut cmd = Command::new(&self.exec_path);
         cmd.args(args).current_dir(&self.working_dir);
         // terraform-exec's buildEnv: keep the caller's env, then override.
@@ -78,8 +77,10 @@ impl Terraform {
         cmd.env("TF_IN_AUTOMATION", "1");
         cmd.env_remove("TF_WORKSPACE");
         cmd.stdin(Stdio::null());
-        // Its own process group, as terraform-exec sets Setpgid.
-        cmd.process_group(0);
+        // terraform-exec also sets Setpgid with Pdeathsig=SIGKILL, so terraform dies with
+        // its parent. Pdeathsig needs unsafe code, and Setpgid alone would let terraform
+        // outlive a cancelled CI job. terraform stays in our process group instead, so
+        // the signal that stops us stops it too (DECISIONS.md).
         cmd
     }
 

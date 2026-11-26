@@ -74,15 +74,34 @@ impl Endpoints {
     }
 }
 
-/// A token and when it stops being usable.
+/// A token, when it expires, and how long before that it is refreshed.
 #[derive(Clone, Debug)]
 struct Token {
     value: String,
     expiry: Option<Instant>,
     id_token: Option<String>,
+    early: Duration,
 }
 
-/// Wraps a fetch in Go's `ReuseTokenSource`: reuse a token until 10 s before it expires.
+/// How early each Go library refreshes: `golang.org/x/oauth2` (access tokens, user
+/// credentials) 10 s; `cloud.google.com/go/auth` ID tokens 225 s (`defaultExpiryDelta`);
+/// its metadata-server ID tokens 5 min (`ExpireEarly`).
+const OAUTH2_EARLY: Duration = Duration::from_secs(10);
+const AUTH_ID_TOKEN_EARLY: Duration = Duration::from_secs(225);
+const METADATA_ID_TOKEN_EARLY: Duration = Duration::from_secs(5 * 60);
+const HOUR: Duration = Duration::from_secs(3600);
+
+/// When a JWT stops being valid, from its `exp` claim (seconds since the epoch). An
+/// `exp` already past gives "now"; a missing or unreadable one gives `None`.
+fn jwt_expiry(jwt: &str) -> Option<Instant> {
+    let payload = jwt.split('.').nth(1)?;
+    let claims: Value = serde_json::from_slice(&URL_SAFE_NO_PAD.decode(payload).ok()?).ok()?;
+    let exp = claims.get("exp")?.as_u64()?;
+    Some(Instant::now() + Duration::from_secs(exp.saturating_sub(now_secs())))
+}
+
+/// Wraps a fetch in Go's reuse-until-expiry cache: a token is reused until `early` before
+/// its expiry (forever when it has none).
 fn reuse(
     fetch: Box<dyn Fn() -> Result<Token, String> + Send + Sync>,
     first: Option<Token>,
@@ -93,10 +112,9 @@ fn reuse(
         let mut cur = cache
             .lock()
             .map_err(|e| format!("token cache poisoned: {e}"))?;
-        let fresh = cur.as_ref().is_some_and(|t| {
-            t.expiry
-                .is_none_or(|e| e > Instant::now() + Duration::from_secs(10))
-        });
+        let fresh = cur
+            .as_ref()
+            .is_some_and(|t| t.expiry.is_none_or(|e| e > Instant::now() + t.early));
         if !fresh {
             *cur = Some(fetch()?);
         }
@@ -186,11 +204,14 @@ fn parse_file(data: &[u8]) -> Result<CredFile, String> {
         "service_account" | "authorized_user" | "impersonated_service_account" => Ok(f),
         "external_account" | "external_account_authorized_user" | "gdch_service_account" => {
             Err(format!(
-                "credential type {:?} is not supported by the Rust port",
-                f.kind()
+                "credential type {} is not supported by the Rust port",
+                tfstackplan_cli::gofmt::quote(&f.kind())
             ))
         }
-        other => Err(format!("unknown credential type: {other:?}")),
+        other => Err(format!(
+            "unknown credential type: {}",
+            tfstackplan_cli::gofmt::quote(other)
+        )),
     }
 }
 
@@ -220,11 +241,11 @@ fn token_post(
         };
         let code = field("error");
         if !code.is_empty() {
-            let mut s = format!("oauth2: {code:?}");
+            let mut s = format!("oauth2: {}", tfstackplan_cli::gofmt::quote(&code));
             for k in ["error_description", "error_uri"] {
                 let v = field(k);
                 if !v.is_empty() {
-                    s.push_str(&format!(" {v:?}"));
+                    s.push_str(&format!(" {}", tfstackplan_cli::gofmt::quote(&v)));
                 }
             }
             return Err(s);
@@ -258,7 +279,20 @@ fn token_from(v: &Value, key: &str) -> Result<Token, String> {
         value,
         expiry: expiry_of(v),
         id_token: v.get("id_token").and_then(Value::as_str).map(str::to_owned),
+        early: OAUTH2_EARLY,
     })
+}
+
+/// A service account's ID token from the token endpoint. The reply carries no
+/// `expires_in`, so, as `cloud.google.com/go/auth` does, the expiry is the token's own
+/// `exp` claim, refreshed 225 s early.
+fn id_token_from(v: &Value) -> Result<Token, String> {
+    let mut t = token_from(v, "id_token")?;
+    if let Some(e) = jwt_expiry(&t.value) {
+        t.expiry = Some(e);
+    }
+    t.early = AUTH_ID_TOKEN_EARLY;
+    Ok(t)
 }
 
 fn now_secs() -> u64 {
@@ -346,7 +380,7 @@ fn file_fetch(
                 &[("grant_type", JWT_BEARER), ("assertion", &assertion)],
             )?;
             match audience {
-                Some(_) => token_from(&v, "id_token"),
+                Some(_) => id_token_from(&v),
                 None => token_from(&v, "access_token"),
             }
         }
@@ -373,8 +407,9 @@ fn file_fetch(
                         .to_string();
                     Ok(Token {
                         value,
-                        expiry: Some(Instant::now() + Duration::from_secs(3600)),
+                        expiry: Some(Instant::now() + HOUR),
                         id_token: None,
+                        early: OAUTH2_EARLY,
                     })
                 }
                 Some(a) => {
@@ -383,7 +418,10 @@ fn file_fetch(
                 }
             }
         }
-        other => Err(format!("unknown credential type: {other:?}")),
+        other => Err(format!(
+            "unknown credential type: {}",
+            tfstackplan_cli::gofmt::quote(other)
+        )),
     }
 }
 
@@ -445,21 +483,20 @@ fn id_token_via_iam(
         .and_then(Value::as_str)
         .unwrap_or_default()
         .to_string();
+    // cloud.google.com/go/auth sets an hour from now and refreshes 225 s early.
     Ok(Token {
         value,
-        expiry: Some(Instant::now() + Duration::from_secs(3600)),
+        expiry: Some(Instant::now() + HOUR),
         id_token: None,
+        early: AUTH_ID_TOKEN_EARLY,
     })
 }
 
-/// `metadata.Get(suffix)`.
-fn metadata_get(
-    http: &reqwest::blocking::Client,
-    ep: &Endpoints,
-    suffix: &str,
-) -> Result<String, String> {
+/// `metadata.Get(suffix)`. Goes through [`crate::metadata_client`], which, like Go's
+/// metadata client, ignores proxy settings.
+fn metadata_get(ep: &Endpoints, suffix: &str) -> Result<String, String> {
     let url = format!("http://{}/computeMetadata/v1/{suffix}", ep.metadata_host);
-    let resp = http
+    let resp = crate::metadata_client()?
         .get(url)
         .header("Metadata-Flavor", "Google")
         .send()
@@ -467,7 +504,10 @@ fn metadata_get(
     let status = resp.status().as_u16();
     let body = resp.text().unwrap_or_default();
     if status == 404 {
-        return Err(format!("metadata: GCE metadata {suffix:?} not defined"));
+        return Err(format!(
+            "metadata: GCE metadata {} not defined",
+            tfstackplan_cli::gofmt::quote(suffix)
+        ));
     }
     if status != 200 {
         return Err(format!("compute: Received {status} `{body}`"));
@@ -475,33 +515,31 @@ fn metadata_get(
     Ok(body)
 }
 
-fn metadata_access(http: &reqwest::blocking::Client, ep: &Endpoints) -> Result<Token, String> {
+fn metadata_access(ep: &Endpoints) -> Result<Token, String> {
     let suffix = format!(
         "instance/service-accounts/default/token?scopes={}",
         tfstackplan_cli::gourl::query_escape(CLOUD_PLATFORM)
     );
-    let body = metadata_get(http, ep, &suffix)?;
+    let body = metadata_get(ep, &suffix)?;
     let v: Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
     token_from(&v, "access_token")
 }
 
-fn metadata_identity(
-    http: &reqwest::blocking::Client,
-    ep: &Endpoints,
-    audience: &str,
-) -> Result<Token, String> {
+fn metadata_identity(ep: &Endpoints, audience: &str) -> Result<Token, String> {
     let suffix = format!(
         "instance/service-accounts/default/identity?audience={}&format=full",
         tfstackplan_cli::gourl::query_escape(audience)
     );
-    let value = metadata_get(http, ep, &suffix)?;
+    let value = metadata_get(ep, &suffix)?;
     if value.is_empty() {
         return Err("idtoken: invalid response from metadata service".to_string());
     }
+    // cloud.google.com/go/auth's compute ID tokens: an hour, refreshed 5 min early.
     Ok(Token {
         value,
-        expiry: Some(Instant::now() + Duration::from_secs(55 * 60)),
+        expiry: Some(Instant::now() + HOUR),
         id_token: None,
+        early: METADATA_ID_TOKEN_EARLY,
     })
 }
 
@@ -525,11 +563,7 @@ pub fn access_token_source_with(ep: Endpoints) -> Result<TokenFn, String> {
             None,
             access,
         )),
-        None if (ep.on_gce)() => Ok(reuse(
-            Box::new(move || metadata_access(&http, &ep)),
-            None,
-            access,
-        )),
+        None if (ep.on_gce)() => Ok(reuse(Box::new(move || metadata_access(&ep)), None, access)),
         None => Err(not_found()),
     }
 }
@@ -573,13 +607,12 @@ pub fn id_token_source_with(audience: &str, ep: Endpoints) -> Result<TokenFn, St
         }
     } else if let Ok(None) = &file
         && (ep.on_gce)()
-        && let Ok(first) = metadata_identity(&http, &ep, audience)
+        && let Ok(first) = metadata_identity(&ep, audience)
     {
         let aud = audience.to_string();
         let ep2 = ep.clone();
-        let http2 = http.clone();
         return Ok(reuse(
-            Box::new(move || metadata_identity(&http2, &ep2, &aud)),
+            Box::new(move || metadata_identity(&ep2, &aud)),
             Some(first),
             access,
         ));
@@ -587,7 +620,7 @@ pub fn id_token_source_with(audience: &str, ep: Endpoints) -> Result<TokenFn, St
     // 2. On GCE without a usable identity endpoint (Cloud Build): generateIdToken
     //    as the instance's own service account.
     if (ep.on_gce)() {
-        let email = metadata_get(&http, &ep, "instance/service-accounts/default/email")
+        let email = metadata_get(&ep, "instance/service-accounts/default/email")
             .map(|s| s.trim().to_string())
             .map_err(|e| {
                 format!("metadata identity endpoint unavailable and SA email lookup failed: {e}")
@@ -597,7 +630,7 @@ pub fn id_token_source_with(audience: &str, ep: Endpoints) -> Result<TokenFn, St
             Box::new(move || {
                 let tok = match find_file(&ep)? {
                     Some(f) => file_fetch(&http, &f, CLOUD_PLATFORM, None, &ep)?,
-                    None => metadata_access(&http, &ep)?,
+                    None => metadata_access(&ep)?,
                 };
                 id_token_via_iam(&http, &ep, &email, &aud, &tok.value)
             }),
@@ -671,15 +704,13 @@ fn probe_gce() -> bool {
     let (tx, rx) = mpsc::channel::<bool>();
     let tx2 = tx.clone();
     std::thread::spawn(move || {
-        let ok = crate::http_client(Duration::from_secs(5))
-            .ok()
-            .and_then(|c| {
-                c.get("http://169.254.169.254").send().ok().map(|r| {
-                    r.headers()
-                        .get("Metadata-Flavor")
-                        .is_some_and(|v| v == "Google")
-                })
-            });
+        let ok = crate::metadata_client().ok().and_then(|c| {
+            c.get("http://169.254.169.254").send().ok().map(|r| {
+                r.headers()
+                    .get("Metadata-Flavor")
+                    .is_some_and(|v| v == "Google")
+            })
+        });
         let _ = tx.send(ok.unwrap_or(false));
     });
     std::thread::spawn(move || {

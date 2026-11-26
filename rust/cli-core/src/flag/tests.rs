@@ -132,3 +132,44 @@ fn parse_bool_like_strconv() {
     assert_eq!(parse_bool("0"), Some(false));
     assert_eq!(parse_bool("yes"), None);
 }
+
+#[test]
+fn non_ascii_flag_name_is_an_error_not_a_panic() {
+    let err = whoami().parse(&args(&["-é"])).unwrap_err();
+    assert!(
+        err.stderr()
+            .starts_with("flag provided but not defined: -é\n")
+    );
+    let err = whoami().parse(&args(&["-é=x"])).unwrap_err();
+    assert!(
+        err.stderr()
+            .starts_with("flag provided but not defined: -é\n")
+    );
+    let mut fs = FlagSet::new("t");
+    fs.string("ün", "", "u");
+    assert_eq!(fs.parse(&args(&["--ün=v"])).unwrap().str("ün"), "v");
+}
+
+#[test]
+fn int_flags_parse_like_strconv_base_zero() {
+    let mut fs = FlagSet::new("t");
+    fs.int("n", 0, "n");
+    let n = |v: &str| fs.parse(&args(&["-n", v])).map(|p| p.int("n"));
+    assert_eq!(n("1_000").unwrap(), 1000);
+    assert_eq!(n("0_7").unwrap(), 7);
+    assert_eq!(n("0x_1F").unwrap(), 31);
+    assert_eq!(n("-0b101").unwrap(), -5);
+    assert_eq!(n("-9223372036854775808").unwrap(), i64::MIN);
+    for bad in ["1__0", "_1", "1_", "0x", "08", "1.5"] {
+        let e = n(bad).unwrap_err();
+        assert!(e.stderr().contains("parse error"), "{bad}: {}", e.stderr());
+    }
+    for big in ["9223372036854775808", "99999999999999999999x"] {
+        let e = n(big).unwrap_err();
+        assert!(
+            e.stderr().contains("value out of range"),
+            "{big}: {}",
+            e.stderr()
+        );
+    }
+}
