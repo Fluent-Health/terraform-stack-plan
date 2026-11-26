@@ -1980,6 +1980,7 @@ dependencies = [
  "tfstackplan-server",
  "tfstackplan-ui",
  "tokio",
+ "toml_edit",
  "trycmd",
 ]
 

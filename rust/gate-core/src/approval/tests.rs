@@ -14,9 +14,23 @@ fn grant_state_open() {
         GrantState::Revoked,
         GrantState::Expired,
         GrantState::Absent,
+        GrantState::Other("ACTIVATION_FAILED".into()),
     ] {
         assert!(!s.open(), "{s:?} should be closed");
     }
+}
+
+#[test]
+fn an_unknown_state_round_trips() {
+    let s: GrantState = serde_json::from_str(r#""WITHDRAWN""#).unwrap();
+    assert_eq!(s, GrantState::Other("WITHDRAWN".into()));
+    assert_eq!(serde_json::to_string(&s).unwrap(), r#""WITHDRAWN""#);
+    let known: GrantState = serde_json::from_str(r#""ACTIVE""#).unwrap();
+    assert_eq!(known, GrantState::Active);
+    assert_eq!(
+        serde_json::from_str::<GrantState>(r#""""#).unwrap(),
+        GrantState::Absent
+    );
 }
 
 #[test]

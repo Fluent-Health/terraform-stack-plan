@@ -5,7 +5,7 @@
 //! every case to both, and compares the status, the headers that matter, the body,
 //! the GitHub calls the case caused, and a dump of every table afterwards.
 //! Timestamps are masked; nothing else is. The report goes to
-//! `rust/cases/serve-replay-report.md`.
+//! `rust/serve-replay-report.md`.
 //!
 //! The Rust server runs as a child of this test binary (it re-executes itself with
 //! `TFSP_REPLAY_CHILD=1`), so the environment overrides reach it without mutating
@@ -560,7 +560,7 @@ async fn replay() -> ExitCode {
     for (name, d) in &mismatches {
         report.push_str(&format!("\n## {name}\n\n```\n{d}\n```\n"));
     }
-    let out = repo_root().join("rust/cases/serve-replay-report.md");
+    let out = repo_root().join("rust/serve-replay-report.md");
     std::fs::write(&out, &report).expect("write report");
     let _ = (go_side.name, rs_side.name);
     if mismatches.is_empty() {

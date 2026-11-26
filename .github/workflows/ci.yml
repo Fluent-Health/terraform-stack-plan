@@ -121,8 +121,18 @@ jobs:
         env:
           RUSTDOCFLAGS: -D warnings
 
+      # The store's compatibility test opens a database this Go code wrote, so a
+      # Go change that alters what the store reads fails here, not later.
+      - name: Write the Go database for the store's compatibility test
+        working-directory: .
+        run: go test -count=1 -run TestWriteRustCompatDB ./internal/server/
+        env:
+          TFSTACKPLAN_RUST_COMPAT_DB: ${{ runner.temp }}/go.db
+
       - name: cargo nextest
         run: cargo nextest run --profile pr --workspace --locked
+        env:
+          TFSTACKPLAN_RUST_COMPAT_DB: ${{ runner.temp }}/go.db
 
       - name: doctests
         run: cargo test --doc --workspace --locked
@@ -137,5 +147,12 @@ jobs:
           if ! git diff --exit-code -- cases || [ -n "$(git status --porcelain -- cases)" ]; then
             git status --short -- cases
             echo "rust/cases is stale: Go output changed. Re-record with: cargo run -p recorder (see rust/README.md)"
+            exit 1
+          fi
+
+      - name: Replay report is current
+        run: |
+          if ! git diff --exit-code -- replay-report.md || [ -n "$(git status --porcelain -- replay-report.md)" ]; then
+            echo "rust/replay-report.md is stale: commit the report cargo nextest wrote (see rust/README.md)"
             exit 1
           fi
