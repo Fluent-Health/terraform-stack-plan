@@ -35,6 +35,28 @@ fn a_long_difference_is_refused_even_with_opt_in() {
 }
 
 #[test]
+fn go_output_with_trycmd_tokens_is_refused() {
+    for out in [
+        "see [..] here\n",
+        "dir [CWD]/x\n",
+        "a\n...\nb\n",
+        "[ROOT]\n",
+        "[EXE]\n",
+    ] {
+        let err = merge("stdout", &[out; 3], false).unwrap_err();
+        assert!(
+            err.to_string().contains("trycmd would read as a wildcard"),
+            "{out:?}: {err}"
+        );
+    }
+    // Dots inside a line are plain text to trycmd.
+    assert_eq!(
+        merge("stdout", &["wait...\n"; 3], false).unwrap(),
+        "wait...\n"
+    );
+}
+
+#[test]
 fn different_line_counts_fail() {
     assert!(merge("stdout", &["a\n", "a\nb\n", "a\n"], true).is_err());
 }

@@ -67,6 +67,7 @@ target/release/tfstackplan -version
 Run the same checks as the CI `rust` job, from `rust/`, and confirm each exits 0:
 
 ```bash
+export TFSTACKPLAN_GO_BIN=$PWD/.go/tfstackplan-go
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
 RUSTDOCFLAGS='-D warnings' cargo doc --workspace --no-deps --locked
@@ -74,6 +75,7 @@ cargo nextest run --profile pr --workspace --locked
 cargo test --doc --workspace --locked
 cargo deny --locked check advisories bans licenses sources
 cargo run -p recorder && git diff --exit-code -- cases replay-report.md   # recordings still match Go
+test -z "$(git status --porcelain -- cases replay-report.md)"             # no new untracked recordings
 ```
 
 Unit tests live in a `tests.rs` beside the module (`#[cfg(test)] mod tests;`), not
@@ -162,6 +164,9 @@ outputs. The three runs must agree. In a case with `wildcards = true`, a line
 that differs keeps its common prefix and suffix with `[..]` between, and only if
 the varying part is at most 40 characters. `.out/` cannot hold a deletion, so
 base files a sandboxed run deletes are listed in the toml as `deletes`.
+Go output that contains one of trycmd's matching tokens (`[..]`, `[CWD]`,
+`[ROOT]`, `[EXE]`, or a line that is only `...`) fails the recording, because trycmd
+would treat it as a wildcard and the case would match more than Go printed.
 
 ```bash
 cd rust
