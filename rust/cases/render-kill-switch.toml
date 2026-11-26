@@ -1,0 +1,14 @@
+bin.name = "tfstackplan"
+args = ["render", "--plans-dir", "rust/cases/fixtures/small", "--config", "internal/config/testdata/derive.hcl", "--details", "closed"]
+fs.cwd = "../.."
+
+[env]
+inherit = false
+
+# render is ported, but the kill switch sends it to Go: the replay checks the
+# fallback log says "render".
+[env.add]
+TFSTACKPLAN_IMPL_RENDER = "go"
+
+[status]
+code = 0
