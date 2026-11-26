@@ -1978,6 +1978,7 @@ version = "0.0.0"
 dependencies = [
  "tempfile",
  "tfstackplan-server",
+ "tfstackplan-ui",
  "tokio",
  "trycmd",
 ]

@@ -15,21 +15,33 @@ use std::process::ExitCode;
 type Handler = fn(&[OsString]) -> ExitCode;
 
 /// Subcommands that have a Rust implementation.
-const PORTED: &[(&str, Handler)] = &[("serve", serve)];
+const PORTED: &[(&str, Handler)] = &[("serve", serve), ("ui", ui)];
 
-/// `tfstackplan serve` in Rust (`tfstackplan-server`), on a multi-threaded runtime.
+/// `tfstackplan serve` in Rust (`tfstackplan-server`).
 fn serve(args: &[OsString]) -> ExitCode {
-    let args: Vec<String> = args
-        .iter()
+    block_on("serve", tfstackplan_server::serve::run(strings(args)))
+}
+
+/// `tfstackplan ui` in Rust (`tfstackplan-ui`).
+fn ui(args: &[OsString]) -> ExitCode {
+    block_on("ui", tfstackplan_ui::run(strings(args)))
+}
+
+fn strings(args: &[OsString]) -> Vec<String> {
+    args.iter()
         .map(|a| a.to_string_lossy().into_owned())
-        .collect();
+        .collect()
+}
+
+/// Runs a subcommand's future on a multi-threaded runtime.
+fn block_on(name: &str, fut: impl Future<Output = ExitCode>) -> ExitCode {
     match tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
     {
-        Ok(rt) => rt.block_on(tfstackplan_server::serve::run(args)),
+        Ok(rt) => rt.block_on(fut),
         Err(e) => {
-            eprintln!("tfstackplan serve: start runtime: {e}");
+            eprintln!("tfstackplan {name}: start runtime: {e}");
             ExitCode::FAILURE
         }
     }
