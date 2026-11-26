@@ -10,7 +10,9 @@
 //! dir, and the case's `env.add`. Any difference between the runs fails the
 //! recording, unless the case sets `wildcards = true`: then a differing line keeps
 //! its common prefix and suffix with `[..]` between, and the varying part may be
-//! at most [`MAX_WILDCARD`] characters.
+//! at most [`MAX_WILDCARD`] characters. Go output that already contains one of
+//! trycmd's matching tokens ([`TRYCMD_TOKENS`], or a line that is only `...`)
+//! fails the recording, since trycmd would read it as a wildcard.
 //!
 //! Usage: `cargo run -p recorder [-- <case-name>...]` from `rust/`, with
 //! `TFSTACKPLAN_GO_BIN` pointing at the Go binary.
@@ -28,6 +30,10 @@ type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 const SAMPLES: usize = 3;
 /// The longest text a `[..]` may stand for, so a wildcard never hides a real difference.
 const MAX_WILDCARD: usize = 40;
+/// Text trycmd matches loosely in an expected output: `[..]` stands for any text
+/// on a line, and the rest are its default redactions. A line that is only `...`
+/// stands for any number of lines.
+const TRYCMD_TOKENS: &[&str] = &["[..]", "[CWD]", "[ROOT]", "[EXE]"];
 
 /// What one Go run produced.
 #[derive(PartialEq)]
@@ -269,6 +275,9 @@ fn run_go(
 /// itself. Otherwise, with `wildcards`, a differing line becomes its common prefix,
 /// `[..]` and its common suffix, if the varying part is short; without, it fails.
 fn merge(what: &str, runs: &[&str], wildcards: bool) -> Result<String> {
+    for run in runs {
+        no_trycmd_tokens(what, run)?;
+    }
     let first = runs[0];
     if runs.iter().all(|r| *r == first) {
         return Ok(first.to_owned());
@@ -297,6 +306,26 @@ fn merge(what: &str, runs: &[&str], wildcards: bool) -> Result<String> {
         out.push(wildcard(&variants).map_err(|e| format!("{what} line {}: {e}", i + 1))?);
     }
     Ok(out.join("\n"))
+}
+
+/// Fails if Go's `output` holds text trycmd would treat as a wildcard, so a
+/// recording never matches more than Go printed.
+fn no_trycmd_tokens(what: &str, output: &str) -> Result<()> {
+    for (i, line) in output.split('\n').enumerate() {
+        let token = TRYCMD_TOKENS
+            .iter()
+            .copied()
+            .find(|t| line.contains(t))
+            .or((line == "...").then_some("..."));
+        if let Some(token) = token {
+            return Err(format!(
+                "{what} line {}: Go printed {token}, which trycmd would read as a wildcard; change the case so Go doesn't print it",
+                i + 1
+            )
+            .into());
+        }
+    }
+    Ok(())
 }
 
 /// The common prefix and suffix of `variants` around `[..]`, if the part that

@@ -108,6 +108,9 @@ outputs. The three runs must agree. In a case with `wildcards = true`, a line
 that differs keeps its common prefix and suffix with `[..]` between, and only if
 the varying part is at most 40 characters. A run that deletes a sandbox file
 fails, because `.out/` cannot record a deletion.
+Go output that contains one of trycmd's matching tokens (`[..]`, `[CWD]`,
+`[ROOT]`, `[EXE]`, or a line that is only `...`) also fails, because trycmd
+would treat it as a wildcard and the case would match more than Go printed.
 
 ```bash
 cd rust
