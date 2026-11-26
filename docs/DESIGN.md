@@ -594,7 +594,10 @@ configured by the top-level `ui {}` block (`tier "<name>" { url }`, `oauth {}`,
   after); the callback spends the user's short-lived token on the single PAM
   `:approve`/`:deny` call and discards it — no user credential is ever stored,
   and the PAM audit log records the human. The reason is required (PAM rejects
-  empty). **Decisions push, not poll**: a successful call fires the tier's
+  empty). The start step only runs for same-origin requests (`Sec-Fetch-Site:
+  same-origin`, else a matching `Origin`/`Referer`); anything else is a `403`,
+  since the Lax session cookie alone would let another site start a decision.
+  **Decisions push, not poll**: a successful call fires the tier's
   `POST /api/gate/reconcile`, and the reconcile's render publishes on the SSE
   stream within seconds.
 

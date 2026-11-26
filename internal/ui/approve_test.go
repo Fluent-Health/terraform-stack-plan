@@ -113,6 +113,7 @@ const approveGrant = "projects/proj-1/locations/global/entitlements/iam/grants/g
 func startApprove(t *testing.T, h http.Handler, sess *http.Cookie, query string) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequest("GET", "/auth/approve?"+query, nil)
+	req.Header.Set("Sec-Fetch-Site", "same-origin") // what window.open from the SPA sends
 	req.AddCookie(sess)
 	rr := httptest.NewRecorder()
 	h.ServeHTTP(rr, req)
@@ -272,4 +273,45 @@ func mustState(t *testing.T, rr *httptest.ResponseRecorder) string {
 		t.Fatal(err)
 	}
 	return loc.Query().Get("state")
+}
+
+// TestApproveStartRefusesCrossSite: the start step must only run for requests
+// the SPA itself made; the session cookie alone (SameSite=Lax) is not enough.
+func TestApproveStartRefusesCrossSite(t *testing.T) {
+	h, sess, _, _ := approveTestApp(t)
+	target := "/auth/approve?tier=prod&decision=approve&grant=" + url.QueryEscape(approveGrant)
+	cases := []struct {
+		name    string
+		headers map[string]string
+		want    int
+	}{
+		{"cross-site fetch metadata", map[string]string{"Sec-Fetch-Site": "cross-site"}, http.StatusForbidden},
+		{"same-site fetch metadata", map[string]string{"Sec-Fetch-Site": "same-site"}, http.StatusForbidden},
+		{"typed into address bar", map[string]string{"Sec-Fetch-Site": "none"}, http.StatusForbidden},
+		{"cross-site metadata beats matching origin", map[string]string{"Sec-Fetch-Site": "cross-site", "Origin": "https://ui.example.com"}, http.StatusForbidden},
+		{"no headers", nil, http.StatusForbidden},
+		{"foreign referer", map[string]string{"Referer": "https://evil.example.net/page"}, http.StatusForbidden},
+		{"prefix-lookalike referer", map[string]string{"Referer": "https://ui.example.com.evil.example.net/"}, http.StatusForbidden},
+		{"foreign origin", map[string]string{"Origin": "https://evil.example.net"}, http.StatusForbidden},
+		{"wrong scheme origin", map[string]string{"Origin": "http://ui.example.com"}, http.StatusForbidden},
+		{"wrong port origin", map[string]string{"Origin": "https://ui.example.com:8443"}, http.StatusForbidden},
+		{"null origin", map[string]string{"Origin": "null"}, http.StatusForbidden},
+		{"same-origin fetch metadata", map[string]string{"Sec-Fetch-Site": "same-origin"}, http.StatusFound},
+		{"matching origin", map[string]string{"Origin": "https://ui.example.com"}, http.StatusFound},
+		{"matching referer", map[string]string{"Referer": "https://ui.example.com/approvals"}, http.StatusFound},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			req := httptest.NewRequest("GET", target, nil)
+			for k, v := range c.headers {
+				req.Header.Set(k, v)
+			}
+			req.AddCookie(sess)
+			rr := httptest.NewRecorder()
+			h.ServeHTTP(rr, req)
+			if rr.Code != c.want {
+				t.Errorf("want %d, got %d %s", c.want, rr.Code, rr.Body.String())
+			}
+		})
+	}
 }

@@ -7,6 +7,8 @@ import (
 	"html/template"
 	"log"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"golang.org/x/oauth2"
@@ -54,6 +56,14 @@ func (a *App) handleApproveStart(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "approvals are not configured (oauth + public_base_url required)", http.StatusNotImplemented)
 		return
 	}
+	// The session cookie is SameSite=Lax, so it rides cross-site top-level
+	// navigations too, and after the first consent Google's step can be a
+	// silent redirect. Only the SPA (same origin, via window.open) may start
+	// a decision.
+	if !a.sameOriginRequest(r) {
+		http.Error(w, "cross-site request refused", http.StatusForbidden)
+		return
+	}
 	q := r.URL.Query()
 	tier, grant, decision, reason := q.Get("tier"), q.Get("grant"), q.Get("decision"), q.Get("reason")
 	if _, ok := a.clients[tier]; !ok {
@@ -93,6 +103,29 @@ func (a *App) handleApproveStart(w http.ResponseWriter, r *http.Request) {
 	// consent, the popup round-trips silently.
 	authURL := a.consentOAuth().AuthCodeURL(sealed, oauth2.SetAuthURLParam("include_granted_scopes", "true"))
 	http.Redirect(w, r, authURL, http.StatusFound)
+}
+
+// sameOriginRequest reports whether r was initiated by a page on the UI's own
+// origin. Browsers send Sec-Fetch-Site on navigations and window.open; when it
+// is missing (older browsers), fall back to Origin, then Referer, compared by
+// exact origin with the configured public base URL.
+func (a *App) sameOriginRequest(r *http.Request) bool {
+	if site := r.Header.Get("Sec-Fetch-Site"); site != "" {
+		return site == "same-origin"
+	}
+	want, err := url.Parse(a.cfg.PublicBaseURL)
+	if err != nil || want.Host == "" {
+		return false
+	}
+	src := r.Header.Get("Origin")
+	if src == "" || src == "null" {
+		src = r.Header.Get("Referer")
+	}
+	got, err := url.Parse(src)
+	if err != nil || got.Host == "" {
+		return false
+	}
+	return strings.EqualFold(got.Scheme, want.Scheme) && strings.EqualFold(got.Host, want.Host)
 }
 
 // handleApproveCallback finishes it: validate the sealed intent, exchange the
