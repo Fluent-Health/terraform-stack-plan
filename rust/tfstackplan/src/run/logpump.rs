@@ -6,19 +6,22 @@ use std::collections::BTreeMap;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 use std::sync::mpsc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use tfstackplan_clients::server::LogChunk;
 
 /// Something that posts a log chunk (the server client).
 pub trait Poster: Sync {
-    /// Posts one chunk.
-    fn post(&self, chunk: &LogChunk) -> Result<(), String>;
+    /// Posts one chunk, within `timeout` when given (else the poster's default).
+    fn post(&self, chunk: &LogChunk, timeout: Option<Duration>) -> Result<(), String>;
 }
 
 impl Poster for tfstackplan_clients::server::Client {
-    fn post(&self, chunk: &LogChunk) -> Result<(), String> {
-        self.log_chunk(chunk)
+    fn post(&self, chunk: &LogChunk, timeout: Option<Duration>) -> Result<(), String> {
+        match timeout {
+            Some(t) => self.log_chunk_within(chunk, t),
+            None => self.log_chunk(chunk),
+        }
     }
 }
 
@@ -45,6 +48,11 @@ impl<'a> Pump<'a> {
 
     /// Posts what one stack's log gained since the last successful post.
     pub fn pump(&mut self, stack: &str) {
+        self.pump_within(stack, None);
+    }
+
+    /// [`Pump::pump`] with the post bounded by `timeout`.
+    fn pump_within(&mut self, stack: &str, timeout: Option<Duration>) {
         let path = Path::new(self.root).join(stack).join(self.file);
         let Ok(mut f) = std::fs::File::open(path) else {
             return;
@@ -62,16 +70,36 @@ impl<'a> Pump<'a> {
             stack: stack.to_string(),
             data: String::from_utf8_lossy(&data).into_owned(),
         };
-        if self.poster.post(&chunk).is_ok() {
+        if self.poster.post(&chunk, timeout).is_ok() {
             self.offsets
                 .insert(stack.to_string(), off + data.len() as u64);
         }
     }
 
-    /// Pumps every stack once.
-    pub fn pump_all(&mut self, stacks: &[String]) {
+    /// One tick: pumps every stack, stopping early (and returning when it was
+    /// told to stop) once `stopped` fires, as Go's cancelled context ends an
+    /// in-flight tick.
+    fn tick(&mut self, stacks: &[String], stopped: &mpsc::Receiver<Instant>) -> Option<Instant> {
         for s in stacks {
-            self.pump(s);
+            match stopped.try_recv() {
+                Ok(at) => return Some(at),
+                Err(mpsc::TryRecvError::Disconnected) => return Some(Instant::now()),
+                Err(mpsc::TryRecvError::Empty) => self.pump(s),
+            }
+        }
+        None
+    }
+
+    /// The final flush: every stack, all within one [`FLUSH_TIMEOUT`] counted
+    /// from `since` (Go's single 10 s flush context).
+    fn flush(&mut self, stacks: &[String], since: Instant) {
+        let deadline = since + FLUSH_TIMEOUT;
+        for s in stacks {
+            let left = deadline.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                return;
+            }
+            self.pump_within(s, Some(left));
         }
     }
 }
@@ -79,9 +107,14 @@ impl<'a> Pump<'a> {
 /// How often the pump polls.
 pub const INTERVAL: Duration = Duration::from_secs(2);
 
+/// The final flush's total budget, counted from the stop.
+pub const FLUSH_TIMEOUT: Duration = Duration::from_secs(10);
+
 /// Runs `work` while a pump tails the stacks' logs every `interval`, then flushes
 /// once more and returns `work`'s result (Go's `LogPump.Start` and its stop func).
-/// With `pump` `None`, just runs `work`.
+/// The stop ends an in-flight tick between stacks, and the final flush gets one
+/// [`FLUSH_TIMEOUT`] in total from the stop, so a blackholed server cannot stall
+/// the end of the run. With `pump` `None`, just runs `work`.
 pub fn while_pumping<R>(
     pump: Option<Pump<'_>>,
     stacks: &[String],
@@ -91,16 +124,23 @@ pub fn while_pumping<R>(
     let Some(mut pump) = pump else {
         return work();
     };
-    let (stop, stopped) = mpsc::channel::<()>();
+    let (stop, stopped) = mpsc::channel::<Instant>();
     std::thread::scope(|s| {
         s.spawn(move || {
-            while let Err(mpsc::RecvTimeoutError::Timeout) = stopped.recv_timeout(interval) {
-                pump.pump_all(stacks);
-            }
-            pump.pump_all(stacks);
+            let since = loop {
+                match stopped.recv_timeout(interval) {
+                    Ok(at) => break at,
+                    Err(mpsc::RecvTimeoutError::Disconnected) => break Instant::now(),
+                    Err(mpsc::RecvTimeoutError::Timeout) => {}
+                }
+                if let Some(at) = pump.tick(stacks, &stopped) {
+                    break at;
+                }
+            };
+            pump.flush(stacks, since);
         });
         let r = work();
-        let _ = stop.send(());
+        let _ = stop.send(Instant::now());
         r
     })
 }

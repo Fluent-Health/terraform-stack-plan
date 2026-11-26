@@ -107,6 +107,17 @@ impl Client {
         path: &str,
         body: &B,
     ) -> Result<Option<reqwest::blocking::Response>, String> {
+        self.send_within(path, body, None)
+    }
+
+    /// [`Client::send`] with the whole request bounded by `timeout` instead of
+    /// the client's default.
+    fn send_within<B: Serialize>(
+        &self,
+        path: &str,
+        body: &B,
+        timeout: Option<Duration>,
+    ) -> Result<Option<reqwest::blocking::Response>, String> {
         let Some(http) = &self.http else {
             return Ok(None);
         };
@@ -114,6 +125,9 @@ impl Client {
             .post(format!("{}{path}", self.base_url))
             .header("Content-Type", "application/json")
             .json(body);
+        if let Some(t) = timeout {
+            req = req.timeout(t);
+        }
         if let Some(tok) = &self.token {
             let t = tok().map_err(|e| format!("post {path}: api token: {e}"))?;
             req = req.bearer_auth(t);
@@ -275,6 +289,16 @@ impl Client {
     /// `/api/logs` (best effort; callers ignore the error).
     pub fn log_chunk(&self, lc: &LogChunk) -> Result<(), String> {
         self.post("/api/logs", lc).map(drop)
+    }
+
+    /// [`Client::log_chunk`] bounded by `timeout` in total (Go passes the log
+    /// pump's flush context, whose deadline caps the request).
+    pub fn log_chunk_within(&self, lc: &LogChunk, timeout: Duration) -> Result<(), String> {
+        let path = "/api/logs";
+        match self.send_within(path, lc, Some(timeout))? {
+            Some(resp) => self.finish(path, resp).map(drop),
+            None => Ok(()),
+        }
     }
 }
 
