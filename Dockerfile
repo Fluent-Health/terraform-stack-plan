@@ -16,7 +16,8 @@ COPY rust ./
 # Compiled in for ported subcommands that print the version (once render is
 # in Rust it answers -version); unused until then.
 ARG VERSION=dev
-ENV TFSTACKPLAN_VERSION=${VERSION}
+ARG GIT_SHA=unknown
+ENV TFSTACKPLAN_VERSION=${VERSION} TFSTACKPLAN_GIT_SHA=${GIT_SHA}
 RUN target="$(uname -m)-unknown-linux-musl" \
   && rustup target add "$target" \
   && cargo build --release --locked -p tfstackplan --target "$target" \

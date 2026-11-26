@@ -2,6 +2,8 @@
 # asdf hook: install the binaries extracted by bin/download into the asdf install
 # path, side by side: tfstackplan (the front door asdf shims onto PATH) runs
 # tfstackplan-go from its own directory for subcommands not ported to Rust.
+# tfstackplan is required; tfstackplan-go is copied only when present, since
+# releases cut before the front door ship tfstackplan alone (the Go binary).
 # asdf env: ASDF_INSTALL_VERSION, ASDF_INSTALL_PATH, ASDF_DOWNLOAD_PATH.
 set -euo pipefail
 
@@ -11,6 +13,7 @@ mkdir -p "$install_bin"
 for name in tfstackplan tfstackplan-go; do
   src="${ASDF_DOWNLOAD_PATH}/${name}"
   if [ ! -f "$src" ]; then
+    [ "$name" = tfstackplan-go ] && continue
     echo "tfstackplan: binary not found at ${src} (did bin/download run?)." >&2
     exit 1
   fi

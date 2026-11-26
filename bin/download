@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # asdf hook: fetch the released binary tarball for $ASDF_INSTALL_VERSION into
 # $ASDF_DOWNLOAD_PATH, verify its checksum, and extract the binaries there
-# (tfstackplan, the front door, and tfstackplan-go).
+# (tfstackplan, plus tfstackplan-go in releases that ship the front door).
 # asdf env: ASDF_INSTALL_TYPE (version|ref), ASDF_INSTALL_VERSION, ASDF_DOWNLOAD_PATH.
 set -euo pipefail
 

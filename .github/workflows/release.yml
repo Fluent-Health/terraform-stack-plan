@@ -109,6 +109,7 @@ jobs:
           # Compiled in for ported subcommands that print the version (once render is
           # in Rust it answers -version); unused until then.
           TFSTACKPLAN_VERSION: ${{ github.event.release.tag_name }}
+          TFSTACKPLAN_GIT_SHA: ${{ github.sha }}
         run: |
           rustup target add "$TARGET"
           cargo zigbuild --release --locked -p tfstackplan --target "$TARGET"
@@ -246,7 +247,8 @@ jobs:
           file: Dockerfile.release
           push: true
           platforms: linux/amd64,linux/arm64
-          # A pre-release (used to exercise this pipeline) never moves :latest;
+          # A pre-release (used to exercise this pipeline, tagged with a suffix
+          # such as v0.45.0-rc.1 so asdf never lists it) never moves :latest;
           # the empty line it leaves is ignored by the action.
           tags: |
             ${{ env.IMAGE }}:${{ github.event.release.tag_name }}
