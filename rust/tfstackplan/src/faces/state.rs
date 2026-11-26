@@ -621,7 +621,7 @@ fn state_apply(args: &[String]) -> ExitCode {
         }
     }
     let mut stdout = std::io::stdout();
-    if let Err(e) = apply_moves(dir, execute, locker.as_ref(), &mut stdout, None) {
+    if let Err(e) = apply_moves(dir, execute, locker.as_ref(), &[], &mut stdout, None) {
         return fail("state apply:", &e);
     }
     ExitCode::SUCCESS
@@ -639,11 +639,12 @@ pub(crate) fn state_lock() -> Result<StateLock, String> {
 
 /// Go's `applyPendingMoves` with the real terraform and backups: every pending
 /// xmove manifest under `dir`, executed or dry-run, each move line to `out` and
-/// `sink`.
+/// `sink`. terraform runs with `env` on top of the inherited environment.
 pub(crate) fn apply_moves(
     dir: &str,
     execute: bool,
     lock: Option<&StateLock>,
+    env: &[(String, String)],
     out: &mut dyn std::io::Write,
     sink: Option<exec::Sink<'_>>,
 ) -> Result<(), String> {
@@ -664,7 +665,8 @@ pub(crate) fn apply_moves(
         err(&format!("state backups: {}\n", backup_dir.display()));
         Ok(exec::ExecDeps {
             new_tf: Box::new(move |wd: &str| {
-                let t: Box<dyn exec::Runner> = Box::new(terraform::Terraform::new(&tf_path, wd)?);
+                let t: Box<dyn exec::Runner> =
+                    Box::new(terraform::Terraform::new(&tf_path, wd)?.with_env(env));
                 Ok(t)
             }),
             backup_dir: Some(backup_dir),

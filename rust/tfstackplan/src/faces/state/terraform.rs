@@ -39,6 +39,7 @@ pub fn look_path(name: &str) -> Result<String, String> {
 pub struct Terraform {
     exec_path: String,
     working_dir: String,
+    env: Vec<(String, String)>,
 }
 
 impl Terraform {
@@ -56,12 +57,21 @@ impl Terraform {
         Ok(Self {
             exec_path: exec_path.to_string(),
             working_dir: working_dir.to_string(),
+            env: Vec::new(),
         })
+    }
+
+    /// Adds `env` on top of the inherited environment, as if the caller had
+    /// `os.Setenv` it before terraform-exec's `buildEnv` copied `os.Environ`.
+    pub fn with_env(mut self, env: &[(String, String)]) -> Self {
+        self.env = env.to_vec();
+        self
     }
 
     fn command(&self, args: &[&str]) -> Command {
         let mut cmd = Command::new(&self.exec_path);
         cmd.args(args).current_dir(&self.working_dir);
+        cmd.envs(self.env.iter().map(|(k, v)| (k, v)));
         // terraform-exec's buildEnv: keep the caller's env, then override.
         if std::env::var_os("CHECKPOINT_DISABLE").is_none() {
             cmd.env("CHECKPOINT_DISABLE", "");

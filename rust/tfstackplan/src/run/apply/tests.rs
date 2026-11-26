@@ -86,6 +86,7 @@ struct Trace {
     classify_parallel: Cell<Option<i64>>,
     classify_at: Cell<Option<usize>>,
     minted: RefCell<Vec<String>>,
+    moves_env: RefCell<Vec<(String, String)>>,
 }
 
 struct Stubs {
@@ -131,7 +132,13 @@ fn run_apply(
             trace.classify_at.set(Some(srv.requests().len()));
             stubs.classify.clone()
         };
-    let moves = |_: &str, _: Option<&StateLock>, _: &mut dyn FnMut(&str, &str)| stubs.moves.clone();
+    let moves = |_: &str,
+                 _: Option<&StateLock>,
+                 env: &[(String, String)],
+                 _: &mut dyn FnMut(&str, &str)| {
+        *trace.moves_env.borrow_mut() = env.to_vec();
+        stubs.moves.clone()
+    };
     let mint = |sa: &str| {
         trace.minted.borrow_mut().push(sa.to_string());
         stubs.mint.clone()
@@ -523,11 +530,14 @@ fn impersonates_the_requester_in_the_scripts_env() {
         0
     );
     assert_eq!(*trace.minted.borrow(), vec!["poolA@x"]);
-    let env = tm.ran.borrow()[0].1.clone();
-    assert!(env.contains(&(
+    let token = (
         "GOOGLE_OAUTH_ACCESS_TOKEN".to_string(),
-        "tok-123".to_string()
-    )));
+        "tok-123".to_string(),
+    );
+    let env = tm.ran.borrow()[0].1.clone();
+    assert!(env.contains(&token));
+    // The move pre-phase (terraform state pull/push) runs as the requester too.
+    assert_eq!(*trace.moves_env.borrow(), vec![token]);
 }
 
 // Go: TestRunApplyMintFailClosedImpersonate.
@@ -571,6 +581,7 @@ fn no_impersonation_without_the_flag() {
         0
     );
     assert!(trace.minted.borrow().is_empty());
+    assert!(trace.moves_env.borrow().is_empty());
     assert!(
         tm.ran.borrow()[0]
             .1
@@ -630,5 +641,5 @@ fn pending_state_move_without_terraform_state_fails_closed() {
     let mut moved = Vec::new();
     let mut sink = |s: &str, l: &str| moved.push(format!("{s} {l}"));
     // No terraform on a stack without config or state: the pre-phase must error.
-    assert!(apply_moves(&dir, true, None, &mut std::io::sink(), Some(&mut sink)).is_err());
+    assert!(apply_moves(&dir, true, None, &[], &mut std::io::sink(), Some(&mut sink)).is_err());
 }

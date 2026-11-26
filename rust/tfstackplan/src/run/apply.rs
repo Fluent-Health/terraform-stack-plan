@@ -8,7 +8,8 @@
 //! 4. classify pass, then Finalize{gates, …}. Under `--impersonate-requester` a
 //!    classify failure aborts (fail closed).
 //! 5. gate check (fail closed): on refusal, guidance on stderr, exit 1.
-//! 6. optionally mint a token for the leased requester (into the scripts' env).
+//! 6. optionally mint a token for the leased requester (into the env of the move
+//!    pre-phase's terraform and of the scripts).
 //! 7. cross-state move pre-phase: on failure Finalize{failed} + exit 1.
 //! 8. the terramate apply script, with the log pump.
 //! 9. terminal Finalize{failed: apply failed}.
@@ -38,10 +39,15 @@ pub type ClassifyFn<'a> = &'a dyn Fn(
     i64,
 ) -> Result<ClassifyResult, String>;
 
-/// The cross-state move pre-phase (Go's `applyMovesFn`): dir, the state lock, and
-/// a sink for each move line with its destination stack.
-pub type MovesFn<'a> =
-    &'a dyn Fn(&str, Option<&StateLock>, &mut dyn FnMut(&str, &str)) -> Result<(), String>;
+/// The cross-state move pre-phase (Go's `applyMovesFn`): dir, the state lock, the
+/// extra terraform env (the impersonation token, which Go `os.Setenv`s), and a
+/// sink for each move line with its destination stack.
+pub type MovesFn<'a> = &'a dyn Fn(
+    &str,
+    Option<&StateLock>,
+    &[(String, String)],
+    &mut dyn FnMut(&str, &str),
+) -> Result<(), String>;
 
 /// The seams Go's apply tests replace.
 pub struct Seams<'a> {
@@ -57,8 +63,11 @@ pub struct Seams<'a> {
 
 /// The real seams.
 pub fn real_seams<R>(f: impl FnOnce(&Seams<'_>) -> R) -> R {
-    let moves = |dir: &str, lock: Option<&StateLock>, sink: &mut dyn FnMut(&str, &str)| {
-        apply_moves(dir, true, lock, &mut std::io::stderr(), Some(sink))
+    let moves = |dir: &str,
+                 lock: Option<&StateLock>,
+                 env: &[(String, String)],
+                 sink: &mut dyn FnMut(&str, &str)| {
+        apply_moves(dir, true, lock, env, &mut std::io::stderr(), Some(sink))
     };
     f(&Seams {
         classify: &classify_for_gate,
@@ -210,12 +219,13 @@ pub fn apply(args: &[String], os: &Os<'_>, seams: &Seams<'_>) -> i32 {
         return 1;
     }
 
-    // 6. Optionally run as the leased requester.
-    let mut script_env = vec![("TFSTACKPLAN_EXECUTION".to_string(), exec_id.clone())];
+    // 6. Optionally run as the leased requester: the token reaches both the move
+    //    pre-phase and the apply script, as Go's os.Setenv does.
+    let mut token_env = Vec::new();
     if impersonate && !verdict.requester.is_empty() {
         match (seams.mint)(&verdict.requester) {
             Ok(tok) => {
-                script_env.push(("GOOGLE_OAUTH_ACCESS_TOKEN".to_string(), tok));
+                token_env.push(("GOOGLE_OAUTH_ACCESS_TOKEN".to_string(), tok));
                 err(&format!(
                     "tfstackplan run apply: applying AS {}\n",
                     verdict.requester
@@ -261,7 +271,7 @@ pub fn apply(args: &[String], os: &Os<'_>, seams: &Seams<'_>) -> i32 {
             data: format!("{line}\n"),
         });
     };
-    if let Err(e) = (seams.moves)(dir, lock.as_ref(), &mut sink) {
+    if let Err(e) = (seams.moves)(dir, lock.as_ref(), &token_env, &mut sink) {
         err(&format!(
             "tfstackplan run apply: cross-state move failed: {e}\n"
         ));
@@ -277,6 +287,8 @@ pub fn apply(args: &[String], os: &Os<'_>, seams: &Seams<'_>) -> i32 {
     }
 
     // 8. The apply script, in dependency order.
+    let mut script_env = vec![("TFSTACKPLAN_EXECUTION".to_string(), exec_id.clone())];
+    script_env.extend(token_env);
     let _ = client.phase(&bare_phase(&exec_id, "applying", "", None));
     let applied = logpump::while_pumping(
         pump(&client, dir, p.str("log-file"), &exec_id),
