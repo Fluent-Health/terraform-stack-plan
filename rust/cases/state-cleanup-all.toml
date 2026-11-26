@@ -3,6 +3,10 @@ args = ["state", "cleanup", "--dir", ".", "--all"]
 fs.base = "fixtures/state/tree"
 fs.sandbox = true
 fs.cwd = "fixtures/state/tree"
+deletes = ["stacks/app/_tfsp_move.PR-1.tf", "stacks/app/_tfsp_move.PR-2.tf", "stacks/events/_tfsp_move.PR-2.tf", "tier/workloads/api/_tfsp_xmove.PR-3.hcl"]
 
 [status]
 code = 0
+
+[env]
+inherit = false

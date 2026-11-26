@@ -15,7 +15,10 @@ On unix the front door replaces itself with the Go binary through
 runs under a pty), signal delivery and the exit code, so nothing has to be
 forwarded and a fallback behaves exactly like running Go directly. Windows has
 no exec, so there the front door spawns Go with inherited stdio, waits, and
-exits with Go's code. That path does not forward signals.
+exits with Go's code. That path does not forward signals. On Windows, Ctrl-C
+reaches both processes in the console; the front door does not handle it, so it
+may exit before Go finishes cleaning up. This is left as is until the front door
+ships on Windows in earnest.
 
 ## Where the Go binary is found
 
@@ -23,7 +26,13 @@ exits with Go's code. That path does not forward signals.
 Otherwise the front door looks for `tfstackplan-go` in its own directory, which
 is how a release would ship the two binaries side by side. There is no `PATH`
 search: finding some other `tfstackplan` on `PATH` could be the front door
-itself and loop. A missing binary is one clear error and exit 1.
+itself and loop. For the same reason `TFSTACKPLAN_GO_BIN` must be a path, not a
+bare name (exec would search `PATH` for a name the front door had checked against
+the working directory), and the front door execs exactly the path it checked and
+refuses one that resolves to itself. The default lookup resolves symlinks to the
+front door first, so a `tfstackplan` linked onto `PATH` (macOS does not resolve
+`current_exe` for us) still finds the `tfstackplan-go` installed beside it.
+Failures use the shell's codes: 127 not found, 126 not runnable.
 
 ## Replay cases use trycmd
 
@@ -33,6 +42,13 @@ and easy to regenerate. trycmd already handles sandboxes, exit codes and `[..]`
 wildcards, which is all render needs. Our own recorder fills the files from the
 Go binary rather than from the Rust binary (trycmd's own overwrite mode), so the
 recording is always Go's behavior and Rust has to match it.
+
+The replay adds the checks trycmd lacks (fallback log per case, exact sandbox
+file set, untouched checkout), and both the recorder and the replay run with a
+cleared environment, so a variable on a developer's machine cannot change a
+recording or let a case pass. Wildcards are opt-in per case and capped in length,
+and the recorder takes three samples, so `[..]` cannot quietly cover a real
+difference.
 
 ## Conventions follow the organisation's other Rust services
 

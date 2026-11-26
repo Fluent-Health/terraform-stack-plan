@@ -4,3 +4,6 @@ fs.cwd = "fixtures/state/tree"
 
 [status]
 code = 1
+
+[env]
+inherit = false

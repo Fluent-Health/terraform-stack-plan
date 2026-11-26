@@ -3,6 +3,10 @@ args = ["state", "cleanup", "--dir", ".", "--applied"]
 fs.base = "fixtures/state/tree"
 fs.sandbox = true
 fs.cwd = "fixtures/state/tree"
+deletes = ["tier/workloads/api/_tfsp_xmove.PR-3.hcl"]
 
 [status]
 code = 0
+
+[env]
+inherit = false

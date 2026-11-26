@@ -13,3 +13,6 @@ body = 'forbidden'
 
 [status]
 code = 1
+
+[env]
+inherit = false

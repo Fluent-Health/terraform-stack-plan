@@ -13,3 +13,6 @@ body = '[{"environment":"dev","stack_path":"stacks/dev/network","owner_pr":42,"e
 
 [status]
 code = 0
+
+[env]
+inherit = false

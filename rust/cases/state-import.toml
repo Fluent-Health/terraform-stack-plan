@@ -6,3 +6,6 @@ fs.cwd = "fixtures/state/shims"
 
 [status]
 code = 0
+
+[env]
+inherit = false

@@ -4,3 +4,6 @@ fs.cwd = "fixtures/state/check-ok"
 
 [status]
 code = 0
+
+[env]
+inherit = false

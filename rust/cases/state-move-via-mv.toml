@@ -6,3 +6,6 @@ fs.cwd = "fixtures/state/via-mv"
 
 [status]
 code = 0
+
+[env]
+inherit = false
