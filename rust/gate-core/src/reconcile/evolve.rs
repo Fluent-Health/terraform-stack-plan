@@ -97,7 +97,7 @@ pub fn evolve(mut cs: ChangeSet, e: &Event) -> ChangeSet {
                     if !ev.name.is_empty() {
                         t.grant_name = ev.name.clone();
                     }
-                    t.grant = ev.state;
+                    t.grant = ev.state.clone();
                     if lease.requester.is_empty() && !ev.requester.is_empty() && ev.state.open() {
                         lease.requester = ev.requester.clone();
                     }
@@ -177,7 +177,7 @@ fn set_grant(gate: GateState, class: &str, target: &str, grant: GrantState) -> G
         .iter_mut()
         .filter(|t| t.class == class && t.target == target)
     {
-        t.grant = grant;
+        t.grant = grant.clone();
     }
     gate.with_targets(targets)
 }

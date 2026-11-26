@@ -68,7 +68,9 @@ The deciders keep Go's shape and names: `decide`, `evolve`, `react`, and the sam
 signal and action names, so the two can be read side by side. Each event is an enum variant
 wrapping a struct of the same name, which is what the codec serializes, and the struct's JSON
 field names are Go's (`ExecutionID`, `ByPR`, and so on). Go's nil slices and maps arrive as
-`null` and read as empty.
+`null` and read as empty. A grant state outside the normalised set, which Go's PAM backend
+passes through unchanged, reads as `GrantState::Other` and is written back as it came: closed,
+ranked with the terminal states, and never a block.
 
 ## SQLite through rusqlite with the bundled library
 

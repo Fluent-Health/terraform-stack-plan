@@ -187,3 +187,15 @@ fn writes_go_snapshot_json() {
         r#"{"pr":7,"environment":"nonprod","gate_kind":"Clean","gate":{}}"#
     );
 }
+
+#[test]
+fn reads_and_writes_an_unknown_grant_state() {
+    let data = br#"{"Class":"iam","Target":"p","Name":"g1","State":"ACTIVATION_FAILED","Requester":"sa0"}"#;
+    let e = unmarshal_event("GrantObserved", data).unwrap();
+    let Event::GrantObserved(ev) = &e else {
+        panic!("{e:?}")
+    };
+    assert_eq!(ev.state, GrantState::Other("ACTIVATION_FAILED".into()));
+    let (_, back) = marshal_event(&e).unwrap();
+    assert_eq!(back, data);
+}

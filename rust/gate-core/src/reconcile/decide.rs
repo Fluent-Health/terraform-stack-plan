@@ -165,7 +165,9 @@ fn decide_finalize(state: &ChangeSet, f: &RunnerFinalize) -> Vec<Event> {
 /// reports has lost its grant. Partial feedback (`GrantsObserved`) leaves
 /// unmentioned targets alone.
 fn decide_observe(state: &ChangeSet, obs: &[ObservedGrant], full_relist: bool) -> Vec<Event> {
-    let Some(targets) = state.gate.targets() else {
+    // Go returns early on a nil target slice, which is what a gate with no
+    // targets folds to.
+    let Some(targets) = state.gate.targets().filter(|t| !t.is_empty()) else {
         return vec![];
     };
     let mut lease = state.gate.lease();
@@ -211,7 +213,7 @@ fn decide_observe(state: &ChangeSet, obs: &[ObservedGrant], full_relist: bool) -
                 class: o.class.clone(),
                 target: o.target.clone(),
                 name: o.name.clone(),
-                state: o.state,
+                state: o.state.clone(),
                 requester: o.requester.clone(),
             }
             .into(),
@@ -219,7 +221,7 @@ fn decide_observe(state: &ChangeSet, obs: &[ObservedGrant], full_relist: bool) -
         if !o.name.is_empty() {
             t.grant_name = o.name.clone();
         }
-        t.grant = o.state;
+        t.grant = o.state.clone();
         if lease.requester.is_empty() && !o.requester.is_empty() && o.state.open() {
             lease.requester = o.requester.clone();
         }
@@ -313,14 +315,15 @@ fn decide_collision(lease: &Lease, o: &ObservedGrant) -> Vec<Event> {
 }
 
 /// Orders grant states when reducing several observations of one target: active,
-/// then the open pending states, then any terminal state, then absent.
-fn grant_state_rank(s: GrantState) -> u8 {
+/// then the open pending states, then any terminal or unknown state, then absent.
+fn grant_state_rank(s: &GrantState) -> u8 {
     match s {
         GrantState::Active => 4,
         GrantState::Activating => 3,
         GrantState::Awaiting => 2,
         GrantState::Absent => 0,
-        GrantState::Denied | GrantState::Revoked | GrantState::Expired => 1,
+        // Terminal, or a backend state outside the normalised set.
+        GrantState::Denied | GrantState::Revoked | GrantState::Expired | GrantState::Other(_) => 1,
     }
 }
 
@@ -328,7 +331,7 @@ fn grant_state_rank(s: GrantState) -> u8 {
 /// the one matching the pinned lease, then the greater name, so the choice does not
 /// depend on the backend's list order.
 fn fold_better(a: &ObservedGrant, b: &ObservedGrant, lease: &Lease) -> bool {
-    let (ra, rb) = (grant_state_rank(a.state), grant_state_rank(b.state));
+    let (ra, rb) = (grant_state_rank(&a.state), grant_state_rank(&b.state));
     if ra != rb {
         return ra > rb;
     }

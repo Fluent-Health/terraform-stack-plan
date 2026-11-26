@@ -2,35 +2,32 @@
 //! lists and revokes grants does I/O and belongs to the serve layer; the state a gate
 //! folds over lives here.
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// The lifecycle of an approval grant, normalised across backends. `Absent` is Go's
-/// empty string: no grant for this target.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+/// empty string: no grant for this target. A backend state outside the normalised
+/// set passes through as `Other`, as Go's PAM backend passes it through unchanged
+/// (for example `ACTIVATION_FAILED`): it is closed, and it does not block a gate.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
 pub enum GrantState {
     #[default]
-    #[serde(rename = "")]
     Absent,
     /// Requested; awaiting an approver.
-    #[serde(rename = "AWAITING")]
     Awaiting,
     /// Approved; becoming active.
-    #[serde(rename = "ACTIVATING")]
     Activating,
     /// Approved and active.
-    #[serde(rename = "ACTIVE")]
     Active,
-    #[serde(rename = "DENIED")]
     Denied,
-    #[serde(rename = "REVOKED")]
     Revoked,
-    #[serde(rename = "EXPIRED")]
     Expired,
+    /// A backend state outside the set above, kept as written.
+    Other(String),
 }
 
 impl GrantState {
     /// Whether the grant is live and not terminal.
-    pub fn open(self) -> bool {
+    pub fn open(&self) -> bool {
         matches!(
             self,
             GrantState::Awaiting | GrantState::Activating | GrantState::Active
@@ -38,7 +35,7 @@ impl GrantState {
     }
 
     /// The stored string, as Go writes it.
-    pub fn as_str(self) -> &'static str {
+    pub fn as_str(&self) -> &str {
         match self {
             GrantState::Absent => "",
             GrantState::Awaiting => "AWAITING",
@@ -47,7 +44,34 @@ impl GrantState {
             GrantState::Denied => "DENIED",
             GrantState::Revoked => "REVOKED",
             GrantState::Expired => "EXPIRED",
+            GrantState::Other(s) => s,
         }
+    }
+
+    /// The state a stored string names.
+    pub fn parse(raw: &str) -> GrantState {
+        match raw {
+            "" => GrantState::Absent,
+            "AWAITING" => GrantState::Awaiting,
+            "ACTIVATING" => GrantState::Activating,
+            "ACTIVE" => GrantState::Active,
+            "DENIED" => GrantState::Denied,
+            "REVOKED" => GrantState::Revoked,
+            "EXPIRED" => GrantState::Expired,
+            other => GrantState::Other(other.to_string()),
+        }
+    }
+}
+
+impl Serialize for GrantState {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for GrantState {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        Ok(GrantState::parse(&String::deserialize(deserializer)?))
     }
 }
 

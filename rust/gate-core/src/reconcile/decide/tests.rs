@@ -638,3 +638,64 @@ mod decide_inbound_build {
         assert!(decide(&state, &inbound(RUN_KIND_PLAN, "abc123abc123def", "")).is_empty());
     }
 }
+
+// --- a backend state outside the normalised set (Go passes it through) ---
+
+#[test]
+fn decide_observe_unknown_state_is_closed_and_does_not_block() {
+    let state = cs(
+        7,
+        "",
+        pending(vec![tgt("c", "t", "", GrantState::Absent)], "sa0"),
+    );
+    let unknown = GrantState::Other("ACTIVATION_FAILED".into());
+    let got = decide(
+        &state,
+        &grants_observed(vec![observed("c", "t", "g1", unknown.clone())]),
+    );
+    // Folded as observed, with no block, re-arm or satisfaction: the gate waits.
+    let obs = events_of!(got, GrantObserved);
+    assert_eq!(obs.len(), 1, "{got:?}");
+    assert_eq!(obs[0].state, unknown);
+    assert!(last_of!(got, GateBlocked).is_none(), "{got:?}");
+    assert!(events_of!(got, GateTargetRequested).is_empty(), "{got:?}");
+    assert!(last_of!(got, GateSatisfied).is_none(), "{got:?}");
+}
+
+#[test]
+fn decide_observe_prefers_an_open_grant_over_an_unknown_one() {
+    let state = cs(
+        7,
+        "",
+        pending(vec![tgt("c", "t", "", GrantState::Absent)], ""),
+    );
+    let got = decide(
+        &state,
+        &gate_tick(vec![
+            observed("c", "t", "g9", GrantState::Other("WITHDRAWN".into())),
+            observed("c", "t", "g1", GrantState::Awaiting),
+        ]),
+    );
+    let obs = events_of!(got, GrantObserved);
+    assert_eq!(obs.len(), 1, "{got:?}");
+    assert_eq!(
+        (obs[0].name.as_str(), &obs[0].state),
+        ("g1", &GrantState::Awaiting)
+    );
+}
+
+#[test]
+fn decide_observe_gate_without_targets_no_events() {
+    // Go's nil target slice: even a collision decides nothing.
+    let state = cs(7, "", pending(vec![], ""));
+    let got = decide(
+        &state,
+        &collision(Collision {
+            by_pr: 5,
+            by_env: "prod".into(),
+            by_self: false,
+            by_pr_abandoned: false,
+        }),
+    );
+    assert!(got.is_empty(), "{got:?}");
+}
