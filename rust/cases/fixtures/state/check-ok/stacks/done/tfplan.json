@@ -1,0 +1,20 @@
+{
+  "format_version": "1.2",
+  "resource_changes": [],
+  "prior_state": {
+    "format_version": "1.0",
+    "values": {
+      "root_module": {
+        "resources": [
+          {
+            "address": "module.cache.google_redis_instance.main",
+            "mode": "managed",
+            "type": "google_redis_instance",
+            "provider_name": "registry.terraform.io/hashicorp/google",
+            "values": {}
+          }
+        ]
+      }
+    }
+  }
+}

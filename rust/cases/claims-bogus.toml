@@ -1,0 +1,9 @@
+bin.name = "tfstackplan"
+args = ["claims", "bogus"]
+fs.cwd = "../.."
+
+[status]
+code = 2
+
+[env]
+inherit = false

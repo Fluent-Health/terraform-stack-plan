@@ -1,0 +1,8 @@
+flag provided but not defined: -nope
+Usage of uniqueness:
+  -config string
+    	HCL config (default: auto-discover .tfstackplan.hcl under --dir)
+  -dir string
+    	repo root to scan for Catalyst instance manifests (default ".")
+  -format string
+    	output format: text|json (default "text")

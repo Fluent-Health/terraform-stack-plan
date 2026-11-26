@@ -1,0 +1,9 @@
+bin.name = "tfstackplan"
+args = ["whoami", "--env", "staging"]
+fs.cwd = "fixtures/faces/config"
+
+[status]
+code = 1
+
+[env]
+inherit = false

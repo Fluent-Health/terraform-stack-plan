@@ -1,0 +1,18 @@
+bin.name = "tfstackplan"
+args = ["admin", "grants", "release", "--pr", "7", "--env", "dev", "--class", "iam", "--target", "proj-a"]
+fs.cwd = "../.."
+
+[harness]
+env = { TFSTACKPLAN_SERVER = "{fake}" }
+
+[[harness.route]]
+method = "POST"
+path = "/api/admin/grants/release"
+status = 200
+body = ''
+
+[status]
+code = 0
+
+[env]
+inherit = false

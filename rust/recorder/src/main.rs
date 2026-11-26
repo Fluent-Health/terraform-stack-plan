@@ -4,7 +4,8 @@
 //! stdin and env (mirroring trycmd's `fs.base` / `fs.cwd` / `fs.sandbox` rules),
 //! then writes `<name>.stdout`, `<name>.stderr`, `status.code` and
 //! `env.inherit = false` in the toml and, for sandboxed cases, the files Go
-//! created or changed into `<name>.out/`.
+//! created or changed into `<name>.out/` and the base files it deleted into the
+//! toml's `deletes` list.
 //!
 //! Go runs with a cleared environment: `PATH`, `HOME` pointed at an empty temp
 //! dir, and the case's `env.add`. Any difference between the runs fails the
@@ -13,6 +14,11 @@
 //! at most [`MAX_WILDCARD`] characters. Go output that already contains one of
 //! trycmd's matching tokens ([`TRYCMD_TOKENS`], or a line that is only `...`)
 //! fails the recording, since trycmd would read it as a wildcard.
+//!
+//! Every run gets the hermetic environment and, if the case has a `[harness]`
+//! table, its fake server (see the `casekit` crate). The fake server's URL is
+//! recorded as `[FAKE]`. A case whose `harness.requires` names a program that is
+//! not on PATH is skipped and its recording left as it is.
 //!
 //! Usage: `cargo run -p recorder [-- <case-name>...]` from `rust/`, with
 //! `TFSTACKPLAN_GO_BIN` pointing at the Go binary.
@@ -43,6 +49,8 @@ struct Run {
     stderr: String,
     /// Files the run created or changed in the sandbox, by relative path.
     files: BTreeMap<PathBuf, String>,
+    /// Base files the run deleted from the sandbox, recorded as `deletes`.
+    deleted: Vec<PathBuf>,
 }
 
 fn main() {
@@ -75,15 +83,46 @@ fn record_all() -> Result<()> {
         if !only.is_empty() && !only.contains(&name) {
             continue;
         }
-        record(&go, &toml).map_err(|e| format!("{name}: {e}"))?;
-        println!("recorded {name}");
+        if record(&go, &toml).map_err(|e| format!("{name}: {e}"))? {
+            println!("recorded {name}");
+        }
     }
     Ok(())
 }
 
-fn record(go: &Path, toml_path: &Path) -> Result<()> {
+/// Records one case; `false` when it was skipped.
+fn record(go: &Path, toml_path: &Path) -> Result<bool> {
     let mut doc: toml_edit::DocumentMut = fs::read_to_string(toml_path)?.parse()?;
     let dir = toml_path.parent().ok_or("case file has no parent dir")?;
+    if doc
+        .get("env")
+        .and_then(|t| t.get("inherit"))
+        .and_then(|v| v.as_bool())
+        == Some(true)
+    {
+        return Err("cases run with a cleared environment; remove env.inherit = true".into());
+    }
+    let mut harness = casekit::Harness::from_case(&doc)?;
+    // trycmd's own `[env] add` applies to Go too (after the harness env).
+    if let Some(add) = doc
+        .get("env")
+        .and_then(|e| e.get("add"))
+        .and_then(|a| a.as_table_like())
+    {
+        for (k, v) in add.iter() {
+            let v = v.as_str().ok_or("env.add values must be strings")?;
+            harness.env.push((k.to_string(), v.to_string()));
+        }
+    }
+    let missing = harness.missing_tools();
+    if !missing.is_empty() {
+        println!(
+            "skipped {}: {} not on PATH",
+            toml_path.file_stem().unwrap_or_default().to_string_lossy(),
+            missing.join(", ")
+        );
+        return Ok(false);
+    }
 
     let args: Vec<String> = doc
         .get("args")
@@ -122,38 +161,15 @@ fn record(go: &Path, toml_path: &Path) -> Result<()> {
         .get("wildcards")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
-    if doc
-        .get("env")
-        .and_then(|t| t.get("inherit"))
-        .and_then(|v| v.as_bool())
-        == Some(true)
-    {
-        return Err("cases run with a cleared environment; remove env.inherit = true".into());
-    }
-    let env_add: Vec<(String, String)> = doc
-        .get("env")
-        .and_then(|t| t.get("add"))
-        .and_then(|t| t.as_table_like())
-        .map(|t| {
-            t.iter()
-                .map(|(k, v)| {
-                    v.as_str()
-                        .map(|v| (k.to_string(), v.to_string()))
-                        .ok_or_else(|| format!("env.add.{k} must be a string"))
-                })
-                .collect::<std::result::Result<Vec<_>, _>>()
-        })
-        .transpose()?
-        .unwrap_or_default();
-    let home = tempfile::Builder::new().prefix("tfsp-home-").tempdir()?;
-    let env = Env {
-        home: home.path(),
-        add: &env_add,
-    };
 
-    let run = || -> Result<Run> {
+    let run_in_session = |go: &Path,
+                          args: &[String],
+                          cwd: &Path,
+                          stdin: Option<&Path>,
+                          session: &casekit::Session|
+     -> Result<Run> {
         if !sandbox {
-            return run_go(go, &args, &cwd, stdin.as_deref(), &env, None);
+            return run_go(go, args, cwd, stdin, &session.env, None);
         }
         let base = base
             .as_deref()
@@ -167,12 +183,27 @@ fn record(go: &Path, toml_path: &Path) -> Result<()> {
             .map_err(|e| format!("fs.cwd must be inside fs.base: {e}"))?;
         run_go(
             go,
-            &args,
+            args,
             &tmp.path().join(rel),
-            stdin.as_deref(),
-            &env,
+            stdin,
+            &session.env,
             Some((base, tmp.path())),
         )
+    };
+    let run = || -> Result<Run> {
+        let session = harness.start()?;
+        let run = run_in_session(go, &args, &cwd, stdin.as_deref(), &session)?;
+        Ok(Run {
+            code: run.code,
+            stdout: session.redact(&run.stdout),
+            stderr: session.redact(&run.stderr),
+            files: run
+                .files
+                .into_iter()
+                .map(|(k, v)| (k, session.redact(&v)))
+                .collect(),
+            deleted: run.deleted,
+        })
     };
     let runs = (0..SAMPLES).map(|_| run()).collect::<Result<Vec<_>>>()?;
     let first = &runs[0];
@@ -182,6 +213,9 @@ fn record(go: &Path, toml_path: &Path) -> Result<()> {
     }
     if runs.iter().any(|r| r.files.keys().ne(first.files.keys())) {
         return Err("the Go runs wrote different files".into());
+    }
+    if runs.iter().any(|r| r.deleted != first.deleted) {
+        return Err("the Go runs deleted different files".into());
     }
     let pick = |f: &dyn Fn(&Run) -> &str| runs.iter().map(f).collect::<Vec<_>>();
 
@@ -201,9 +235,23 @@ fn record(go: &Path, toml_path: &Path) -> Result<()> {
         for rel in first.files.keys() {
             let dest = out_dir.join(rel);
             fs::create_dir_all(dest.parent().ok_or("output path has no parent dir")?)?;
+            // trycmd compares written files after turning `\` into `/` (path
+            // normalisation) on the actual side only, so record them that way.
             let what = rel.display().to_string();
-            fs::write(dest, merge(&what, &pick(&|r| &r.files[rel]), wildcards)?)?;
+            let merged = merge(&what, &pick(&|r| &r.files[rel]), wildcards)?;
+            fs::write(dest, merged.replace('\\', "/"))?;
         }
+    }
+    // `.out/` cannot hold a deletion, so deleted base files are listed in the toml
+    // (trycmd ignores the key; the replay checks it).
+    doc.remove("deletes");
+    if !first.deleted.is_empty() {
+        let list: toml_edit::Array = first
+            .deleted
+            .iter()
+            .map(|p| p.to_string_lossy().replace('\\', "/"))
+            .collect();
+        doc["deletes"] = toml_edit::value(list);
     }
     doc["status"] = toml_edit::table();
     doc["status"]["code"] = toml_edit::value(i64::from(first.code));
@@ -212,50 +260,41 @@ fn record(go: &Path, toml_path: &Path) -> Result<()> {
     }
     doc["env"]["inherit"] = toml_edit::value(false);
     fs::write(toml_path, doc.to_string())?;
-    Ok(())
-}
-
-/// The environment Go runs with: nothing inherited except `PATH`.
-struct Env<'a> {
-    home: &'a Path,
-    add: &'a [(String, String)],
+    Ok(true)
 }
 
 /// Runs Go once. With a sandbox `(base, root)`, also collects every file under
-/// `root` that is new or differs from `base`, and fails if one was deleted.
+/// `root` that is new or differs from `base`, and every base file it deleted.
 fn run_go(
     go: &Path,
     args: &[String],
     cwd: &Path,
     stdin: Option<&Path>,
-    env: &Env<'_>,
+    env: &[(String, String)],
     sandbox: Option<(&Path, &Path)>,
 ) -> Result<Run> {
     let stdin = match stdin {
         Some(p) => Stdio::from(fs::File::open(p)?),
         None => Stdio::null(),
     };
+    // A cleared environment: only PATH, then the session's HOME, harness env and
+    // the case's env.add.
     let mut cmd = Command::new(go);
-    cmd.args(args)
-        .current_dir(cwd)
-        .stdin(stdin)
-        .env_clear()
-        .env("HOME", env.home);
+    cmd.args(args).current_dir(cwd).stdin(stdin).env_clear();
     if let Some(path) = std::env::var_os("PATH") {
         cmd.env("PATH", path);
     }
-    cmd.envs(env.add.iter().map(|(k, v)| (k, v)));
+    cmd.envs(env.iter().map(|(k, v)| (k, v)));
     let out = cmd.output()?;
     let mut files = BTreeMap::new();
+    let mut deleted = Vec::new();
     if let Some((base, root)) = sandbox {
         let after = list_files(root)?;
-        if let Some(gone) = list_files(base)?.iter().find(|p| !after.contains(p)) {
-            return Err(format!(
-                "Go deleted {}; .out/ cannot record a deletion",
-                gone.display()
-            )
-            .into());
-        }
+        deleted = list_files(base)?
+            .into_iter()
+            .filter(|p| !after.contains(p))
+            .collect();
+        deleted.sort();
         for rel in after {
             let now = fs::read(root.join(&rel))?;
             if fs::read(base.join(&rel)).ok().as_ref() != Some(&now) {
@@ -268,6 +307,7 @@ fn run_go(
         stdout: String::from_utf8(out.stdout)?,
         stderr: String::from_utf8(out.stderr)?,
         files,
+        deleted,
     })
 }
 
@@ -334,10 +374,19 @@ fn wildcard(variants: &[&str]) -> Result<String> {
     let chars: Vec<Vec<char>> = variants.iter().map(|v| v.chars().collect()).collect();
     let shortest = chars.iter().map(Vec::len).min().unwrap_or(0);
     let same_at = |f: &dyn Fn(&Vec<char>) -> char| chars.iter().all(|c| f(c) == f(&chars[0]));
-    let pre = (0..shortest).take_while(|&i| same_at(&|c| c[i])).count();
-    let suf = (0..shortest - pre)
+    let mut pre = (0..shortest).take_while(|&i| same_at(&|c| c[i])).count();
+    let mut suf = (0..shortest - pre)
         .take_while(|&i| same_at(&|c| c[c.len() - 1 - i]))
         .count();
+    // Widen to whole alphanumeric runs: random ids may share a first or last
+    // character by chance, and another run would not.
+    let c = &chars[0];
+    while pre > 0 && c[pre - 1].is_alphanumeric() {
+        pre -= 1;
+    }
+    while suf > 0 && c[c.len() - suf].is_alphanumeric() {
+        suf -= 1;
+    }
     let widest = chars.iter().map(|c| c.len() - pre - suf).max().unwrap_or(0);
     if widest > MAX_WILDCARD {
         return Err(format!(
@@ -345,7 +394,6 @@ fn wildcard(variants: &[&str]) -> Result<String> {
         )
         .into());
     }
-    let c = &chars[0];
     let prefix: String = c[..pre].iter().collect();
     let suffix: String = c[c.len() - suf..].iter().collect();
     Ok(format!("{prefix}[..]{suffix}"))

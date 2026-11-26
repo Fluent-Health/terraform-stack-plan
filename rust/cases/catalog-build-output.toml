@@ -1,0 +1,14 @@
+bin.name = "tfstackplan"
+args = ["catalog", "--dir", "project", "-o", "catalog.json"]
+fs.cwd = "fixtures/faces/catalog"
+fs.base = "fixtures/faces/catalog"
+fs.sandbox = true
+
+[harness]
+requires = ["terramate"]
+
+[status]
+code = 0
+
+[env]
+inherit = false

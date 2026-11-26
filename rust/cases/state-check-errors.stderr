@@ -1,0 +1,7 @@
+❌ xmove PR-7: xmove/source-not-planned — source stack "stacks/nowhere" has no tfplan.json; run 'run plan' first, or remove this manifest if the move is already complete
+❌ xmove PR-8: source stack "stacks/new-src" has no prior_state (stack is new — nothing to move)
+⚠️  xmove PR-9: xmove/data-source-orphan — "module.net.data.google_project.this" will remain in the source stack (run 'terraform state rm module.net.data.google_project.this' to clean up)
+❌ xmove PR-9: xmove/provider-missing — destination stack has no "aws" provider configured, but will receive resource "module.dns.aws_route53_zone.main" requiring it
+❌ xmove PR-9: xmove/dest-missing — address "module.dns.aws_route53_zone.main" not found in destination plan changes (manifest stale or target address incorrect)
+❌ xmove PR-9: xmove/source-missing — address "module.gone" not found in source plan (manifest stale or address renamed)
+❌ xmove PR-9: xmove/dest-missing — address "module.gone" not found in destination plan changes (manifest stale or target address incorrect)

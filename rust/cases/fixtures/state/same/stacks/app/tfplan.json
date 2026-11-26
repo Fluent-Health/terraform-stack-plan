@@ -1,0 +1,30 @@
+{
+  "format_version": "1.2",
+  "resource_changes": [
+    {
+      "address": "google_storage_bucket.old",
+      "mode": "managed",
+      "type": "google_storage_bucket",
+      "provider_name": "registry.terraform.io/hashicorp/google",
+      "change": {
+        "actions": [
+          "delete"
+        ],
+        "before": {
+          "id": "demo-assets"
+        }
+      }
+    },
+    {
+      "address": "google_storage_bucket.new",
+      "mode": "managed",
+      "type": "google_storage_bucket",
+      "provider_name": "registry.terraform.io/hashicorp/google",
+      "change": {
+        "actions": [
+          "create"
+        ]
+      }
+    }
+  ]
+}

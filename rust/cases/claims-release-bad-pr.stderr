@@ -1,0 +1,8 @@
+invalid value "seven" for flag -pr: parse error
+Usage of claims release:
+  -env string
+    	environment name (required)
+  -pr int
+    	PR number whose claim(s) to release (required)
+  -stack string
+    	stack path to release (omit to release all stacks for the PR)

@@ -1,0 +1,18 @@
+bin.name = "tfstackplan"
+args = ["claims", "list"]
+fs.cwd = "fixtures/faces/discover"
+
+[harness]
+env = { TFSTACKPLAN_SERVER = "{fake}" }
+
+[[harness.route]]
+method = "POST"
+path = "/api/claims/list"
+status = 200
+body = '[{"environment":"dev","stack_path":"stacks/dev/network","owner_pr":42,"expires_at":"2026-03-04T05:06:07Z"},{"environment":"dev","stack_path":"stacks/dev/very/long/path/to/a/database/stack","owner_pr":7,"expires_at":"2026-03-04T10:36:07.123+05:30"}]'
+
+[status]
+code = 0
+
+[env]
+inherit = false

@@ -1,0 +1,9 @@
+Usage of run wrap:
+  -on-success string
+    	status to report on a zero exit (e.g. safe, planned); empty = intermediate, report nothing on success
+  -running string
+    	status to report on start (default: running)
+  -stack string
+    	stack path (defaults to $TFSTACKPLAN_STACK)
+  -tty
+    	run the command under a PTY so it emits ANSI colour (graceful fallback to a pipe if unavailable)

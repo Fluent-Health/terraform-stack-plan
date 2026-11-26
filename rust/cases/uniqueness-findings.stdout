@@ -1,0 +1,11 @@
+Report-only findings (not blocking):
+  svc/api/instances/api: client_id duplicated across [dev staging] (duplicate)
+  svc/api/instances/api: hosts duplicated across [dev staging] (duplicate)
+Unjustified violations:
+  svc/api/instances/api: account_id across [dev prod] (duplicate)
+  svc/api/instances/api: big across [dev prod] (duplicate)
+  svc/api/instances/api: leak across [prod] (env-token)
+  svc/web/instances/web: account_id across [dev prod] (duplicate)
+  svc/web/instances/web: upstreams across [dev] (env-token)
+Stale allow rules (no longer match anything):
+  svc/api/instances/api: retired_id

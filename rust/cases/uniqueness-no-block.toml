@@ -1,0 +1,9 @@
+bin.name = "tfstackplan"
+args = ["uniqueness", "--config", ".tfstackplan.hcl"]
+fs.cwd = "fixtures/uniqueness/noblock"
+
+[status]
+code = 2
+
+[env]
+inherit = false

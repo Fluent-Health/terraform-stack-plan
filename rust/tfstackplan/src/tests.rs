@@ -30,9 +30,19 @@ fn subcommand_matches_go_dispatch() {
 }
 
 #[test]
-fn nothing_is_ported_yet() {
-    assert!(PORTED.is_empty());
-    assert!(!is_ported("render"));
+fn ported_faces_and_run_subcommands() {
+    let find = |a: &[&str]| ported(&subcommand(&args(a)), &args(a)).map(|(_, skip)| skip);
+    assert_eq!(find(&["state", "list"]), Some(1));
+    assert_eq!(find(&["whoami"]), Some(1));
+    assert_eq!(find(&["run", "wrap", "--", "true"]), Some(2));
+    assert_eq!(find(&["run", "claims", "list"]), Some(2));
+    assert_eq!(find(&["run", "plan"]), None);
+    assert_eq!(find(&["run"]), None);
+    assert_eq!(find(&["render"]), None);
+    assert_eq!(find(&["serve"]), None);
+    assert_eq!(find(&["--plans-dir", "x"]), None);
+    assert!(is_ported(&args(&["run", "wrap"])));
+    assert!(!is_ported(&args(&["run", "plan"])));
 }
 
 #[test]

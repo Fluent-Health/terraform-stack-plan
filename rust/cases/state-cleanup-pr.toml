@@ -1,0 +1,12 @@
+bin.name = "tfstackplan"
+args = ["state", "cleanup", "--dir", ".", "--pr", "2"]
+fs.base = "fixtures/state/tree"
+fs.sandbox = true
+fs.cwd = "fixtures/state/tree"
+deletes = ["stacks/app/_tfsp_move.PR-2.tf", "stacks/events/_tfsp_move.PR-2.tf"]
+
+[status]
+code = 0
+
+[env]
+inherit = false

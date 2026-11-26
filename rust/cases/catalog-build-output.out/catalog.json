@@ -1,0 +1,16 @@
+{
+  "components": [
+    {
+      "id": "dev/app",
+      "stacks": [
+        "stacks/dev/app/api",
+        "stacks/dev/app/worker"
+      ],
+      "watches": [
+        "../../../../modules/app",
+        "../../../../modules/shared"
+      ]
+    }
+  ],
+  "edges": null
+}

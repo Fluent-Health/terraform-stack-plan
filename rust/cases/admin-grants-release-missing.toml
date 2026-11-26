@@ -1,0 +1,9 @@
+bin.name = "tfstackplan"
+args = ["admin", "grants", "release", "--pr", "7"]
+fs.cwd = "../.."
+
+[status]
+code = 2
+
+[env]
+inherit = false

@@ -1,0 +1,18 @@
+bin.name = "tfstackplan"
+args = ["admin", "checks", "override", "--pr", "7", "--env", "dev", "--check", "plan/dev", "--conclusion", "success"]
+fs.cwd = "../.."
+
+[harness]
+env = { TFSTACKPLAN_SERVER = "{fake}" }
+
+[[harness.route]]
+method = "POST"
+path = "/api/admin/checks/override"
+status = 401
+body = 'not an admin'
+
+[status]
+code = 1
+
+[env]
+inherit = false

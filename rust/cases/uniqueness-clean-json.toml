@@ -1,0 +1,9 @@
+bin.name = "tfstackplan"
+args = ["uniqueness", "--format", "json"]
+fs.cwd = "fixtures/uniqueness/clean"
+
+[status]
+code = 0
+
+[env]
+inherit = false

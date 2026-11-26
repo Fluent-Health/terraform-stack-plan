@@ -1,0 +1,7 @@
+tfstackplan claims list error: dev: post /api/claims/list: 403: forbidden
+
+--- Authentication Failure Details ---
+Identity: anonymous (unauthenticated)
+Audience: [FAKE]
+Hint: Ensure that your identity is on the `api_admins` allowlist in the server's `.tfstackplan.hcl` configuration.
+Note: If you are using user ADC, ensure the client-side CLI version matches the server-side CLI version, and that TFSTACKPLAN_AUDIENCE is set to the server base URL.

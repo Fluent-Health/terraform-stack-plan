@@ -1,0 +1,9 @@
+bin.name = "tfstackplan"
+args = ["state", "cleanup", "--dir", "x"]
+fs.cwd = "../.."
+
+[status]
+code = 2
+
+[env]
+inherit = false

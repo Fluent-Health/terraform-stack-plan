@@ -4,26 +4,38 @@
 holds the Rust side: a front door binary, a replay harness that checks it
 against the Go binary, and recorded cases.
 
-Nothing is ported yet. Every subcommand still runs in Go.
+Ported to Rust: `state`, `claims`, `catalog`, `uniqueness`, `whoami`, `admin`,
+and `run wrap` (with `run claims` and `run whoami`, which are the same faces).
+Everything else, including the rest of `run` and `render`, still runs in Go.
+
+| Crate | Package | What it holds |
+|---|---|---|
+| `cli-core/` | `tfstackplan-cli` | The faces' logic, pure: no I/O, no clock, not async. Go-compatible helpers (`flag`, `%q`/`%v`, `encoding/json`, `filepath.Match`, RE2 classes), config parsing, state-move planning and the shim/xmove HCL, uniqueness, catalog. |
+| `clients/` | `tfstackplan-clients` | Blocking HTTP clients with connect and total timeouts: the control-plane server, GCS (state lock, objects), Google credentials (ADC, service-account keys, impersonation, the metadata server). |
+| `tfstackplan/` | `tfstackplan` | The binary: the front door and each face's shell (flags, files, terraform/terramate, printing). |
+| `casekit/` | `casekit` | What the recorder and the replay share: the hermetic environment and the fake server. |
+| `recorder/` | `recorder` | Records the replay cases from the Go binary. |
 
 ## The front door
 
 `tfstackplan` (crate `tfstackplan/`) looks at the first argument to pick the
 subcommand, the same way Go does: a leading flag or no arguments means
-`render`. If the subcommand is in the `PORTED` table in `src/lib.rs`, it runs
-in Rust. Otherwise the front door runs the Go binary with the same argv, env,
+`render`. If the subcommand is in the `PORTED` table in `tfstackplan/src/lib.rs`
+(or, for `run`, its second argument is in `PORTED_RUN`), it runs in Rust.
+Otherwise the front door runs the Go binary with the same argv, env,
 stdin, stdout and stderr, and exits with its exit code. On unix it replaces its
 own process with Go (`exec`), so signals, the tty and the exit code all belong
 to Go. On other platforms it spawns Go, waits and passes the exit code on.
 
-The front door does not parse flags. Go owns its flags until a subcommand is
-ported.
+The front door does not parse flags. A ported face parses its own, with
+`cli-core`'s copy of Go's `flag` package, so usage text, error messages and exit
+code 2 match Go's.
 
 | Variable | Effect |
 |---|---|
 | `TFSTACKPLAN_GO_BIN` | Path to the Go binary. It must be a path (absolute, or with a `/`), not a bare name, and must not be the front door itself. Default: `tfstackplan-go` next to the front door executable, with symlinks to the front door resolved first. |
 | `TFSTACKPLAN_IMPL=go` | Kill switch: send every subcommand to Go. The value is case-insensitive. |
-| `TFSTACKPLAN_IMPL_<SUBCOMMAND>=go` | Send one subcommand to Go, for example `TFSTACKPLAN_IMPL_RENDER=go`. |
+| `TFSTACKPLAN_IMPL_<SUBCOMMAND>=go` | Send one subcommand to Go, for example `TFSTACKPLAN_IMPL_STATE=go`. For `run wrap` the name is `RUN`. |
 | `TFSTACKPLAN_FALLBACK_LOG` | If set to a file path, append one line with the subcommand name each time the front door hands a call to Go (after it found the Go binary). |
 
 When it cannot hand a call to Go, the front door prints one line to stderr and
@@ -100,16 +112,60 @@ rebasing. It adds `env.inherit = false` to each case and re-records it with the
 cleared environment. The report moved from `cases/replay-report.md` to
 `replay-report.md`.
 
+### Environment, fake servers and tools
+
+On top of the cleared environment, `HOME` is a fresh empty directory per run,
+and the variables that point the binary at servers or credentials
+(`TFSTACKPLAN_SERVER`, `TFSTACKPLAN_AUDIENCE`, `GOOGLE_APPLICATION_CREDENTIALS`,
+`GCE_METADATA_HOST`, … see `casekit::HERMETIC_UNSET`) are set empty, so neither
+binary sees a developer's real credentials. A case can add a `[harness]` table,
+which trycmd ignores:
+
+```toml
+[harness]
+requires = ["terraform"]                    # skip when not on PATH
+env = { TFSTACKPLAN_SERVER = "{fake}" }     # {fake}: fake server URL, {fakehost}: host:port
+adc = "authorized_user"                     # ADC file in HOME, token_uri on the fake server
+
+[[harness.route]]                           # the fake server's canned answers
+method = "POST"
+path = "/api/claims/list"
+status = 200
+body = '[]'
+```
+
+Neither `env.add` nor `[harness] env` may set `HOME`, `TFSTACKPLAN_GO_BIN` or
+`TFSTACKPLAN_FALLBACK_LOG`, and they may set a credential variable
+(`GOOGLE_APPLICATION_CREDENTIALS`, `GOOGLE_OAUTH_ACCESS_TOKEN`, `CLOUDSDK_CONFIG`,
+`GCE_METADATA_HOST`) only to point it at the fake server (`{fake}` or
+`{fakehost}` in the value). The replay fails a case that does.
+
+A case with routes or `adc` gets a fake HTTP server on 127.0.0.1 for each run.
+Its URL differs per run, so recordings show it as `[FAKE]` (`[FAKEHOST]` for the
+bare host:port). With `adc`, the server also answers `POST /token` with an
+access token and an unsigned ID token for `ci-bot@example.com`.
+
+Cases with `requires` are skipped, with a message, when the program is not on
+PATH: the recorder leaves their recording alone and the replay lists them under
+*Skipped* in the report. `state apply` cases need terraform 1.13.3 and the
+`catalog` cases terramate 0.17.x (the versions in `.tool-versions`); CI installs
+both.
+
+The recorder also applies a case's trycmd `[env] add` to the Go runs, widens a
+`[..]` wildcard to the whole run of letters and digits that differs (random ids,
+temp-dir suffixes), and records written files with `\` turned into `/`, because
+trycmd normalises path separators in the files it compares.
+
 ### Record
 
 The recorder (crate `recorder/`) runs the Go binary on every case three times,
 with the cleared environment and the case's `env.add`, and writes the expected
 outputs. The three runs must agree. In a case with `wildcards = true`, a line
 that differs keeps its common prefix and suffix with `[..]` between, and only if
-the varying part is at most 40 characters. A run that deletes a sandbox file
-fails, because `.out/` cannot record a deletion.
+the varying part is at most 40 characters. `.out/` cannot hold a deletion, so
+base files a sandboxed run deletes are listed in the toml as `deletes`.
 Go output that contains one of trycmd's matching tokens (`[..]`, `[CWD]`,
-`[ROOT]`, `[EXE]`, or a line that is only `...`) also fails, because trycmd
+`[ROOT]`, `[EXE]`, or a line that is only `...`) fails the recording, because trycmd
 would treat it as a wildcard and the case would match more than Go printed.
 
 ```bash
@@ -129,15 +185,15 @@ cargo nextest run   # uses TFSTACKPLAN_GO_BIN, else rust/.go/tfstackplan-go
 stderr, exit code, `.out/` contents) and then checks what trycmd does not:
 
 - the case's fallback log has exactly one line when the subcommand should run in
-  Go (not ported, or a kill switch in its `env.add`) and none when it should run
+  Go (not ported, or a kill switch in its `env.add` or `[harness] env`) and none when it should run
   in Rust, so a ported subcommand cannot silently pass by running Go;
-- a sandboxed case leaves exactly its base files plus its `.out/` files, so an
-  extra or deleted file fails;
+- a sandboxed case leaves exactly its base files, less its `deletes`, plus its
+  `.out/` files, so an extra or unexpectedly deleted file fails;
 - a case that is not sandboxed leaves the checkout unchanged.
 
 It writes `replay-report.md` with cases passed and how many invocations fell back
-to Go. The report is committed. With nothing ported, the expected result is every
-case passing with every invocation falling back.
+to Go. The report is committed. Every case must pass; the ported faces answer in
+Rust and the rest fall back to Go.
 
 CI (`rust` job in `.github/workflows/ci.yml`) runs the checks in *Before you push*,
 then re-records the cases and fails if `rust/cases` changed, and fails separately

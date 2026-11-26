@@ -1,0 +1,15 @@
+{
+  "stacks/app": [
+    "google_pubsub_topic.events",
+    "google_storage_bucket.new"
+  ],
+  "stacks/events": [
+    "google_pubsub_topic.events"
+  ],
+  "tier/legacy": [
+    "module.perms"
+  ],
+  "tier/workloads/api": [
+    "module.access"
+  ]
+}

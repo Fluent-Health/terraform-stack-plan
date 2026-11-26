@@ -60,3 +60,18 @@ fn go_output_with_trycmd_tokens_is_refused() {
 fn different_line_counts_fail() {
     assert!(merge("stdout", &["a\n", "a\nb\n", "a\n"], true).is_err());
 }
+
+#[test]
+fn merge_wildcards_whole_random_tokens() {
+    let got = merge(
+        "stdout",
+        &[
+            "dir /tmp/x-12346\n",
+            "dir /tmp/x-98716\n",
+            "dir /tmp/x-55516\n",
+        ],
+        true,
+    )
+    .unwrap();
+    assert_eq!(got, "dir /tmp/x-[..]\n");
+}

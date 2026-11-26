@@ -1,0 +1,13 @@
+environments:
+  dev:
+    inputs:
+      tier_class: nonprod
+      shared_secret: "12345678-1234-1234-1234-123456789012"
+      project_id: acme-dev
+      replicas: 2
+  prod:
+    inputs:
+      tier_class: prod
+      shared_secret: "12345678-1234-1234-1234-123456789012"
+      project_id: acme-prod
+      replicas: 2

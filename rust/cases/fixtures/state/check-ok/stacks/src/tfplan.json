@@ -1,0 +1,20 @@
+{
+  "format_version": "1.2",
+  "resource_changes": [],
+  "prior_state": {
+    "format_version": "1.0",
+    "values": {
+      "root_module": {
+        "resources": [
+          {
+            "address": "module.db.google_sql_database.main",
+            "mode": "managed",
+            "type": "google_sql_database",
+            "provider_name": "registry.terraform.io/hashicorp/google",
+            "values": {}
+          }
+        ]
+      }
+    }
+  }
+}

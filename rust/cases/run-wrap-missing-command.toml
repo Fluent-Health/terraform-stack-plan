@@ -1,0 +1,9 @@
+bin.name = "tfstackplan"
+args = ["run", "wrap", "--", "definitely-not-a-command"]
+fs.cwd = "../.."
+
+[status]
+code = 1
+
+[env]
+inherit = false

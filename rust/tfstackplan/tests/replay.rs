@@ -2,12 +2,17 @@
 //! writes `rust/replay-report.md`.
 //!
 //! Each case runs with a cleared environment (`env.inherit = false` is required):
-//! `PATH`, an empty `HOME`, the Go binary, a fallback log of its own and the
-//! case's `env.add`. Beyond trycmd's output checks, each case must:
+//! `PATH`, the hermetic variables and empty `HOME` from `casekit`, the Go binary,
+//! a fallback log of its own and the case's `env.add`. Beyond trycmd's output checks, each case must:
 //! - fall back to Go exactly when its subcommand is not ported (or a kill switch
 //!   in its env sends it there), checked through the fallback log;
-//! - when sandboxed, leave exactly its base files plus its `.out/` files;
+//! - when sandboxed, leave exactly its base files, less its `deletes`, plus its
+//!   `.out/` files, with every base file not in `.out/` unchanged;
 //! - when not sandboxed, leave the repository checkout as it found it.
+//!
+//! A case with a `[harness]` table gets its fake server (see the `casekit`
+//! crate). A case that needs a program that is not on PATH is skipped and listed
+//! in the report.
 //!
 //! Needs the Go binary: `TFSTACKPLAN_GO_BIN`, else `rust/.go/tfstackplan-go`.
 #![expect(
@@ -33,6 +38,51 @@ struct Case {
     /// The sandbox base and the cwd inside it, for sandboxed cases.
     sandbox: Option<(PathBuf, PathBuf)>,
     out_dir: PathBuf,
+    /// Base files a sandboxed run deletes (the toml's `deletes`).
+    deletes: BTreeSet<PathBuf>,
+    harness: casekit::Harness,
+}
+
+/// Variables the replay sets itself, which a case's `env.add` and
+/// `[harness] env` must not override.
+const RESERVED_ENV: &[&str] = &["TFSTACKPLAN_GO_BIN", "TFSTACKPLAN_FALLBACK_LOG", "HOME"];
+
+/// Credential variables `casekit` blanks. A case may set one only to point it at
+/// the fake server (`{fake}` or `{fakehost}` in the value).
+const CREDENTIAL_ENV: &[&str] = &[
+    "GOOGLE_APPLICATION_CREDENTIALS",
+    "GOOGLE_OAUTH_ACCESS_TOKEN",
+    "CLOUDSDK_CONFIG",
+    "GCE_METADATA_HOST",
+];
+
+/// The first variable in `env` that a case must not set, if any.
+fn reserved_key<'a>(env: impl IntoIterator<Item = (&'a str, &'a str)>) -> Option<&'a str> {
+    env.into_iter()
+        .find(|(k, v)| {
+            RESERVED_ENV.contains(k) || (CREDENTIAL_ENV.contains(k) && !v.contains("{fake"))
+        })
+        .map(|(k, _)| k)
+}
+
+/// A case's value for `k`: its `env.add`, else its `[harness] env` (the order
+/// the run applies them in, last wins).
+fn case_var(
+    env_add: &BTreeMap<String, String>,
+    harness_env: &[(String, String)],
+    k: &str,
+) -> Option<OsString> {
+    env_add
+        .get(k)
+        .or_else(|| harness_env.iter().find(|(hk, _)| hk == k).map(|(_, v)| v))
+        .map(OsString::from)
+}
+
+/// Whether recorded output holds a trycmd wildcard: `[..]` or a line that is just `...`.
+fn has_wildcard(b: &[u8]) -> bool {
+    b.windows(4).any(|w| w == b"[..]")
+        || b.split(|&c| c == b'\n')
+            .any(|l| l.strip_suffix(b"\r").unwrap_or(l) == b"...")
 }
 
 fn load(path: &Path) -> Result<Case, String> {
@@ -60,7 +110,7 @@ fn load(path: &Path) -> Result<Case, String> {
                 .ok_or("`args` must be strings")
         })
         .collect::<Result<_, _>>()?;
-    let env_add = doc
+    let env_add: BTreeMap<String, String> = doc
         .get("env")
         .and_then(|t| t.get("add"))
         .and_then(|t| t.as_table_like())
@@ -70,6 +120,9 @@ fn load(path: &Path) -> Result<Case, String> {
                 .collect()
         })
         .unwrap_or_default();
+    if let Some(k) = reserved_key(env_add.iter().map(|(k, v)| (k.as_str(), v.as_str()))) {
+        return Err(format!("env.add must not set {k}: the replay controls it"));
+    }
     let fs_get = |key: &str| doc.get("fs").and_then(|t| t.get(key));
     let fs_path = |key: &str| fs_get(key).and_then(|v| v.as_str()).map(|s| dir.join(s));
     let in_dir = path.with_extension("in");
@@ -91,6 +144,29 @@ fn load(path: &Path) -> Result<Case, String> {
         (true, None) => return Err("a sandbox needs fs.base".into()),
         (false, _) => None,
     };
+    let wildcards = doc
+        .get("wildcards")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    if !wildcards {
+        let mut expected = vec![path.with_extension("stdout"), path.with_extension("stderr")];
+        expected.extend(files(&out_dir).into_iter().map(|f| out_dir.join(f)));
+        if let Some(f) = expected
+            .iter()
+            .find(|f| std::fs::read(f).is_ok_and(|b| has_wildcard(&b)))
+        {
+            return Err(format!(
+                "{} has a wildcard (`[..]` or a `...` line) but the case lacks `wildcards = true`",
+                f.display()
+            ));
+        }
+    }
+    let harness = casekit::Harness::from_case(&doc)?;
+    if let Some(k) = reserved_key(harness.env.iter().map(|(k, v)| (k.as_str(), v.as_str()))) {
+        return Err(format!(
+            "harness.env must not set {k}: the replay controls it"
+        ));
+    }
     Ok(Case {
         name: path
             .file_stem()
@@ -102,6 +178,17 @@ fn load(path: &Path) -> Result<Case, String> {
         cwd,
         sandbox,
         out_dir,
+        deletes: doc
+            .get("deletes")
+            .and_then(|v| v.as_array())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|v| v.as_str())
+                    .map(PathBuf::from)
+                    .collect()
+            })
+            .unwrap_or_default(),
+        harness,
     })
 }
 
@@ -137,21 +224,24 @@ fn files(root: &Path) -> BTreeSet<PathBuf> {
 }
 
 /// Runs the front door for `case` in `cwd` with the replay environment.
-fn run_front_door(case: &Case, cwd: &Path, vars: &[(&str, &Path)]) {
+fn run_front_door(case: &Case, cwd: &Path, vars: &[(String, OsString)]) {
     let mut cmd = Command::new(FRONT_DOOR);
     cmd.args(&case.args).current_dir(cwd).env_clear();
     if let Some(path) = std::env::var_os("PATH") {
         cmd.env("PATH", path);
     }
-    cmd.envs(vars.iter().copied()).envs(&case.env_add);
+    cmd.envs(vars.iter().map(|(k, v)| (k, v)))
+        .envs(&case.env_add);
     cmd.output().unwrap();
 }
 
 /// The checks trycmd does not make. Returns why the case failed, if it did.
-fn extra_checks(case: &Case, log: &Path, vars: &[(&str, &Path)]) -> Option<String> {
-    let name = tfstackplan::subcommand(&case.args.iter().map(OsString::from).collect::<Vec<_>>());
-    let forced = tfstackplan::forced_to_go(&name, |k| case.env_add.get(k).map(OsString::from));
-    let expect_go = forced || !tfstackplan::is_ported(&name);
+fn extra_checks(case: &Case, log: &Path, vars: &[(String, OsString)]) -> Option<String> {
+    let args: Vec<OsString> = case.args.iter().map(OsString::from).collect();
+    let name = tfstackplan::subcommand(&args);
+    let forced =
+        tfstackplan::forced_to_go(&name, |k| case_var(&case.env_add, &case.harness.env, k));
+    let expect_go = forced || !tfstackplan::is_ported(&args);
     let logged = std::fs::read_to_string(log).unwrap_or_default();
     let want = if expect_go {
         format!("{name}\n")
@@ -178,15 +268,23 @@ fn extra_checks(case: &Case, log: &Path, vars: &[(&str, &Path)]) -> Option<Strin
     }
     run_front_door(case, &sandbox.path().join(rel), vars);
     let mut want = files(base);
+    want.retain(|f| !case.deletes.contains(f));
     want.extend(files(&case.out_dir));
     let got = files(sandbox.path());
-    (got != want).then(|| {
-        format!(
-            "sandbox files differ from base + .out: extra {:?}, missing {:?}",
+    if got != want {
+        return Some(format!(
+            "sandbox files differ from base - deletes + .out: extra {:?}, missing {:?}",
             got.difference(&want).collect::<Vec<_>>(),
             want.difference(&got).collect::<Vec<_>>()
-        )
-    })
+        ));
+    }
+    // Base files Go left alone must come out byte for byte the same.
+    let out = files(&case.out_dir);
+    files(base)
+        .into_iter()
+        .filter(|f| !case.deletes.contains(f) && !out.contains(f))
+        .find(|f| std::fs::read(sandbox.path().join(f)).ok() != std::fs::read(base.join(f)).ok())
+        .map(|f| format!("base file changed by Rust but not by Go: {}", f.display()))
 }
 
 #[test]
@@ -210,8 +308,6 @@ fn replay() {
         .prefix("tfsp-replay-")
         .tempdir()
         .unwrap();
-    let home = scratch.path().join("home");
-    std::fs::create_dir(&home).unwrap();
 
     let mut cases: Vec<PathBuf> = std::fs::read_dir(&cases_dir)
         .unwrap()
@@ -222,6 +318,7 @@ fn replay() {
     assert!(!cases.is_empty(), "no cases in {}", cases_dir.display());
 
     let mut failed: Vec<(String, String)> = Vec::new();
+    let mut skipped = Vec::new();
     let mut fallbacks = 0;
     for (i, path) in cases.iter().enumerate() {
         let stem = path.file_stem().unwrap().to_string_lossy().into_owned();
@@ -232,21 +329,38 @@ fn replay() {
                 continue;
             }
         };
+        let missing = case.harness.missing_tools();
+        if !missing.is_empty() {
+            eprintln!("skipping {stem}: {} not on PATH", missing.join(", "));
+            skipped.push(format!("{stem} ({} not on PATH)", missing.join(", ")));
+            continue;
+        }
+        let session = case.harness.start().unwrap();
         let log = scratch.path().join(format!("fallback-{i}.log"));
-        let vars: [(&str, &Path); 3] = [
-            ("TFSTACKPLAN_GO_BIN", &go),
-            ("TFSTACKPLAN_FALLBACK_LOG", &log),
-            ("HOME", &home),
-        ];
+        let mut vars: Vec<(String, OsString)> = session
+            .env
+            .iter()
+            .map(|(k, v)| (k.clone(), v.into()))
+            .collect();
+        vars.push(("TFSTACKPLAN_GO_BIN".into(), go.clone().into()));
+        vars.push(("TFSTACKPLAN_FALLBACK_LOG".into(), log.clone().into()));
         let before = case.sandbox.is_none().then(|| tree(&repo));
 
         // One TestCases per case, so a failure is counted instead of ending the run.
         let ok = std::panic::catch_unwind(|| {
             let cases = trycmd::TestCases::new();
             cases.register_bin("tfstackplan", Path::new(FRONT_DOOR));
-            cases.env("PATH", &path_var);
-            for (k, v) in &vars {
-                cases.env(*k, v.to_string_lossy());
+            // A case's own env.add wins: trycmd would let these override it.
+            let mine = |k: &str| case.env_add.contains_key(k);
+            if !mine("PATH") {
+                cases.env("PATH", &path_var);
+            }
+            for (k, v) in vars.iter().filter(|(k, _)| !mine(k)) {
+                cases.env(k, v.to_string_lossy());
+            }
+            if let (Some(url), Some(host)) = (session.fake_url(), session.fake_host()) {
+                cases.insert_var(casekit::FAKE_VAR, url).unwrap();
+                cases.insert_var(casekit::FAKE_HOST_VAR, host).unwrap();
             }
             cases.case(path).run();
         })
@@ -274,7 +388,7 @@ fn replay() {
         }
     }
 
-    let total = cases.len();
+    let total = cases.len() - skipped.len();
     let passed = total - failed.len();
     let mut report = format!(
         "# Replay report\n\n\
@@ -285,6 +399,12 @@ fn replay() {
          | Rust-handled | {}/{total} |\n",
         total.saturating_sub(fallbacks)
     );
+    if !skipped.is_empty() {
+        report.push_str("\n## Skipped\n\n");
+        for name in &skipped {
+            report.push_str(&format!("- {name}\n"));
+        }
+    }
     if !failed.is_empty() {
         report.push_str("\n## Failed\n\n");
         for (name, why) in &failed {
@@ -294,4 +414,60 @@ fn replay() {
     std::fs::write(root.join("replay-report.md"), report).unwrap();
 
     assert!(failed.is_empty(), "replay failed: {failed:#?}");
+}
+
+#[test]
+fn reserved_keys_cover_env_add_and_harness_env() {
+    for k in CREDENTIAL_ENV {
+        assert!(casekit::HERMETIC_UNSET.contains(k), "{k} is not blanked");
+    }
+    assert_eq!(reserved_key([("HOME", "/tmp/x")]), Some("HOME"));
+    assert_eq!(
+        reserved_key([
+            ("TFSTACKPLAN_SERVER", "{fake}"),
+            ("TFSTACKPLAN_GO_BIN", "/bin/true")
+        ]),
+        Some("TFSTACKPLAN_GO_BIN")
+    );
+    assert_eq!(
+        reserved_key([("GOOGLE_APPLICATION_CREDENTIALS", "/home/me/key.json")]),
+        Some("GOOGLE_APPLICATION_CREDENTIALS")
+    );
+    assert_eq!(reserved_key([("GCE_METADATA_HOST", "{fakehost}")]), None);
+    assert_eq!(
+        reserved_key([("TFSTACKPLAN_SERVER", "https://x.example")]),
+        None
+    );
+
+    // load() runs the check over `[harness] env` as well as `env.add`.
+    let dir = tempfile::tempdir().unwrap();
+    let case = dir.path().join("c.toml");
+    std::fs::write(
+        &case,
+        "args = []\nfs.cwd = \".\"\n[env]\ninherit = false\n[harness]\nenv = { HOME = \"/root\" }\n",
+    )
+    .unwrap();
+    assert_eq!(
+        load(&case).err().as_deref(),
+        Some("harness.env must not set HOME: the replay controls it")
+    );
+}
+
+#[test]
+fn harness_env_kill_switch_forces_go() {
+    let none = BTreeMap::new();
+    let harness = vec![("TFSTACKPLAN_IMPL_WHOAMI".to_string(), "go".to_string())];
+    assert!(tfstackplan::forced_to_go("whoami", |k| case_var(
+        &none, &harness, k
+    )));
+    // env.add is applied after `[harness] env`, so it wins.
+    let add = BTreeMap::from([("TFSTACKPLAN_IMPL_WHOAMI".to_string(), "rust".to_string())]);
+    assert!(!tfstackplan::forced_to_go("whoami", |k| case_var(
+        &add, &harness, k
+    )));
+    assert!(!tfstackplan::forced_to_go("whoami", |k| case_var(
+        &none,
+        &[],
+        k
+    )));
 }

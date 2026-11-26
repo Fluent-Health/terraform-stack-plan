@@ -1,0 +1,19 @@
+bin.name = "tfstackplan"
+args = ["whoami"]
+fs.cwd = "../.."
+
+[harness]
+env = { TFSTACKPLAN_SERVER = "{fake}" }
+adc = "authorized_user"
+
+[[harness.route]]
+method = "POST"
+path = "/token"
+status = 400
+body = '{"error":"invalid_grant","error_description":"Token has been expired or revoked."}'
+
+[status]
+code = 1
+
+[env]
+inherit = false

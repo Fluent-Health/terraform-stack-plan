@@ -1,0 +1,8 @@
+invalid boolean value "maybe" for -execute: parse error
+Usage of state apply:
+  -dir string
+    	terramate project root (required)
+  -execute
+    	perform the moves (default: dry-run, print only)
+  -lock
+    	acquire a pessimistic GCS state lock around each move (fail-fast if already locked; requires ADC)

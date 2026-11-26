@@ -1,0 +1,11 @@
+Usage: tfstackplan state check --dir DIR
+
+Validates all pending xmove manifests against the local tfplan.json files
+produced by 'run plan'. Read-only: does not run terraform, does not mutate files.
+
+For each manifest reports: spent | valid | xmove/<error-code>
+Exit 0 when all manifests are valid or spent.
+
+Flags:
+  -dir string
+    	terramate project root (required)

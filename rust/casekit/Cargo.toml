@@ -1,0 +1,15 @@
+[package]
+name = "casekit"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "What the recorder and the replay share: a case's harness settings and its fake server."
+
+[dependencies]
+toml_edit.workspace = true
+tempfile.workspace = true
+
+[lints]
+workspace = true

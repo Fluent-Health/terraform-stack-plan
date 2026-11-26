@@ -1,0 +1,5 @@
+metadata:
+  name: solo
+spec:
+  inputs:
+    project_id: acme-dev

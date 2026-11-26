@@ -1,0 +1,9 @@
+Usage of state cleanup:
+  -all
+    	remove ALL tfstackplan move shims and xmove manifests in the tree
+  -applied
+    	remove all xmove manifests (cross-state move manifests whose apply has been verified); same-stack shims are left intact
+  -dir string
+    	terramate project root (required)
+  -pr string
+    	remove only this PR's shims

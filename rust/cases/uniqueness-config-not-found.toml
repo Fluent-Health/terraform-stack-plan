@@ -1,0 +1,9 @@
+bin.name = "tfstackplan"
+args = ["uniqueness", "--config", "nope.hcl"]
+fs.cwd = "fixtures/uniqueness/clean"
+
+[status]
+code = 2
+
+[env]
+inherit = false

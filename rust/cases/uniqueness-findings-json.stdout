@@ -1,0 +1,102 @@
+{
+  "Unjustified": [
+    {
+      "Unit": "svc/api/instances/api",
+      "Key": "account_id",
+      "Value": "111122223333",
+      "Envs": [
+        "dev",
+        "prod"
+      ],
+      "Kind": "duplicate",
+      "Severity": "violation"
+    },
+    {
+      "Unit": "svc/api/instances/api",
+      "Key": "big",
+      "Value": 1.2345678901234568e+24,
+      "Envs": [
+        "dev",
+        "prod"
+      ],
+      "Kind": "duplicate",
+      "Severity": "violation"
+    },
+    {
+      "Unit": "svc/api/instances/api",
+      "Key": "leak",
+      "Value": "https://api.acme-stg.example.com/v1",
+      "Envs": [
+        "prod"
+      ],
+      "Kind": "env-token",
+      "Severity": "violation"
+    },
+    {
+      "Unit": "svc/web/instances/web",
+      "Key": "account_id",
+      "Value": 999999999,
+      "Envs": [
+        "dev",
+        "prod"
+      ],
+      "Kind": "duplicate",
+      "Severity": "violation"
+    },
+    {
+      "Unit": "svc/web/instances/web",
+      "Key": "upstreams",
+      "Value": {
+        "Elems": [
+          "acme-prod.internal.example.com"
+        ]
+      },
+      "Envs": [
+        "dev"
+      ],
+      "Kind": "env-token",
+      "Severity": "violation"
+    }
+  ],
+  "Stale": [
+    {
+      "Unit": "svc/api/instances/api",
+      "Key": "retired_id",
+      "Envs": [
+        "dev",
+        "prod"
+      ],
+      "Reason": "kept for the migration window",
+      "Expires": ""
+    }
+  ],
+  "ReportOnly": [
+    {
+      "Unit": "svc/api/instances/api",
+      "Key": "client_id",
+      "Value": "shared-client-\u003cone\u003e\u0026two",
+      "Envs": [
+        "dev",
+        "staging"
+      ],
+      "Kind": "duplicate",
+      "Severity": "report-only"
+    },
+    {
+      "Unit": "svc/api/instances/api",
+      "Key": "hosts",
+      "Value": {
+        "Elems": [
+          "a.example.com",
+          "b.example.com"
+        ]
+      },
+      "Envs": [
+        "dev",
+        "staging"
+      ],
+      "Kind": "duplicate",
+      "Severity": "report-only"
+    }
+  ]
+}

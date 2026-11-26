@@ -104,6 +104,10 @@ fn hands_off_to_go_and_reports_why_it_cannot() {
     std::fs::create_dir(&bin_dir).unwrap();
     let link = bin_dir.join("tfstackplan");
     std::os::unix::fs::symlink(&installed, &link).unwrap();
-    let (code, stdout, stderr) = run(&link, &["whoami"], &[]);
-    assert_eq!((code, stdout.as_str()), (3, "go:whoami\n"), "{stderr}");
+    let (code, stdout, stderr) = run(&link, &["serve", "--help"], &[]);
+    assert_eq!(
+        (code, stdout.as_str()),
+        (3, "go:serve --help\n"),
+        "{stderr}"
+    );
 }

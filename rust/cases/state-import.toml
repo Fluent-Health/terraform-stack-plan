@@ -1,0 +1,11 @@
+bin.name = "tfstackplan"
+args = ["state", "import", "--dir", ".", "--stack", "stacks/app", "--pr", "3", "google_storage_bucket.main", "demo-bucket", "google_pubsub_topic.events", "projects/demo/topics/events"]
+fs.base = "fixtures/state/shims"
+fs.sandbox = true
+fs.cwd = "fixtures/state/shims"
+
+[status]
+code = 0
+
+[env]
+inherit = false
