@@ -263,12 +263,17 @@ fn tar_gz_dir(dir: &Path) -> Result<Vec<u8>, String> {
     gz.finish().map_err(|e| e.to_string())
 }
 
-/// Whether `target` (joined under `dest`) stays inside `dest`, as Go checks it:
-/// `Clean(target)+"/"` must start with `Clean(dest)+"/"`.
-fn inside(dest: &Path, name: &str) -> bool {
+/// Go's `filepath.Join(dest, name)`: `name` is appended and the result
+/// cleaned, so an absolute `name` still lands under `dest`. Returns `None`
+/// when the joined path leaves `dest`, as Go checks it: `Clean(target)+"/"`
+/// must start with `Clean(dest)+"/"`. The write must use the returned path,
+/// never `dest.join(name)` (which an absolute `name` would replace).
+fn target_in(dest: &Path, name: &str) -> Option<PathBuf> {
     let d = gofs::clean(&dest.to_string_lossy());
     let t = gofs::clean(&format!("{d}/{name}"));
-    format!("{t}/").starts_with(&format!("{d}/"))
+    format!("{t}/")
+        .starts_with(&format!("{d}/"))
+        .then(|| PathBuf::from(t))
 }
 
 #[cfg(unix)]
@@ -297,13 +302,12 @@ fn extract_tar_gz(r: impl Read, dest: &Path) -> Result<(), String> {
     for entry in ar.entries().map_err(|e| e.to_string())? {
         let mut entry = entry.map_err(|e| e.to_string())?;
         let name = String::from_utf8_lossy(&entry.path_bytes()).into_owned();
-        if !inside(dest, &name) {
+        let Some(target) = target_in(dest, &name) else {
             return Err(format!(
                 "archive entry {} escapes destination directory",
                 tfstackplan_cli::gofmt::quote(&name)
             ));
-        }
-        let target = dest.join(&name);
+        };
         if entry.header().entry_type().is_dir() {
             fs::create_dir_all(&target).map_err(|e| e.to_string())?;
             continue;
@@ -327,13 +331,12 @@ fn extract_zip(mut r: impl Read, dest: &Path) -> Result<(), String> {
     for i in 0..zr.len() {
         let mut file = zr.by_index(i).map_err(|e| e.to_string())?;
         let name = file.name().map_err(|e| e.to_string())?.into_owned();
-        if !inside(dest, &name) {
+        let Some(path) = target_in(dest, &name) else {
             return Err(format!(
                 "zip entry {} escapes destination directory",
                 tfstackplan_cli::gofmt::quote(&name)
             ));
-        }
-        let path = dest.join(&name);
+        };
         if file.is_dir() {
             fs::create_dir_all(&path).map_err(|e| e.to_string())?;
             continue;

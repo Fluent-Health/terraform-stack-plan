@@ -316,6 +316,34 @@ fn archives_cannot_escape() {
     assert_eq!(err, "zip entry \"../x\" escapes destination directory");
 }
 
+// An absolute entry name stays under dest, as Go's filepath.Join keeps it;
+// it must never be written at its absolute path.
+#[test]
+fn absolute_entries_stay_under_dest() {
+    const NAME: &str = "/tfstackplan-abs-test/x";
+    let dest = tempfile::tempdir().unwrap();
+    let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+    {
+        // tar::Builder strips the leading "/", so write the header by hand.
+        let mut hdr = tar::Header::new_gnu();
+        hdr.as_gnu_mut().unwrap().name[..NAME.len()].copy_from_slice(NAME.as_bytes());
+        hdr.set_size(0);
+        hdr.set_mode(0o644);
+        hdr.set_cksum();
+        gz.write_all(hdr.as_bytes()).unwrap();
+        gz.write_all(&[0u8; 1024]).unwrap();
+    }
+    extract_tar_gz(gz.finish().unwrap().as_slice(), dest.path()).unwrap();
+    assert!(dest.path().join("tfstackplan-abs-test/x").is_file());
+    assert!(!Path::new(NAME).exists());
+
+    let dest = tempfile::tempdir().unwrap();
+    extract_zip(io::Cursor::new(zip_of(NAME, "y")), dest.path()).unwrap();
+    let written = dest.path().join("tfstackplan-abs-test/x");
+    assert_eq!(fs::read_to_string(written).unwrap(), "y");
+    assert!(!Path::new(NAME).exists());
+}
+
 // Go: TestParseLockFile_MissingFile.
 #[test]
 fn parse_lock_file_missing() {
