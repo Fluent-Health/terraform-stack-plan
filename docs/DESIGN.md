@@ -782,8 +782,11 @@ hardening is in [`SECURITY.md`](../SECURITY.md).
 - **Rust port replay** — `rust/` holds a front door binary that runs a
   subcommand in Rust once it is ported and otherwise execs the Go binary. Every
   case in `rust/cases/` (trycmd format) is recorded from Go and replayed through
-  the front door; CI re-records and fails if the recording is stale. Nothing is
-  ported yet, so every case falls back to Go. See [`rust/README.md`](../rust/README.md).
+  the front door; CI re-records and fails if the recording is stale. `render`
+  (and Go's no-args and `-version` forms of it) runs in Rust from the pure
+  `rust/render-core` crate; every other subcommand falls back to Go. A proptest
+  (`rust/tfstackplan/tests/go_parity.rs`) mutates plans and compares the two
+  binaries end to end. See [`rust/README.md`](../rust/README.md).
 - **Wire goldens** pin the exact bytes of every `/api` response across
   versions. **gofmt CI gate**: the test job fails on any non-gofmt'd file
   (`gofmt -l .` catches what `vet` does not).
@@ -791,6 +794,20 @@ hardening is in [`SECURITY.md`](../SECURITY.md).
 ## 11. Known limitations / gotchas
 
 **Render / classification**
+
+- **The Go size budget (`internal/fit`) is quadratic**: it re-renders the whole
+  report after every one-step shrink, so a few MB of plans takes minutes. The
+  Rust `render` updates the size per row and gives byte-identical output in
+  milliseconds; `TFSTACKPLAN_IMPL_RENDER=go` brings back the Go path. The
+  speedup covers only the standalone `render` step. `tfstackplan run plan`
+  still fits in Go (`cmd/tfstackplan/classifypass.go`, default 60000-byte
+  budget), and so does `TFSTACKPLAN_IMPL_RENDER=go`; both keep the quadratic
+  fit until `run` is ported or the Go fit is fixed.
+- **Rust `render` differs from Go only on malformed input**: HCL syntax-error
+  wording, invalid UTF-8 replaced per sequence rather than per byte, JSON nested
+  deeper than 128 levels, Go-only regex syntax, and `server`/`serve`/`ui`/
+  `env_uniqueness` blocks accepted without validation (Go's `render` rejects an
+  invalid one). The full list is in `rust/DECISIONS.md` under "Known differences".
 
 - **`--plans-dir` couples a stack's name to its directory** (name = dir relative
   to the scan root; links resolve against `repo-root/name`), so the plans tree

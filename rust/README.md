@@ -4,7 +4,14 @@
 holds the Rust side: a front door binary, a replay harness that checks it
 against the Go binary, and recorded cases.
 
-Nothing is ported yet. Every subcommand still runs in Go.
+`render` (including the legacy form with a leading flag or no arguments) runs in
+Rust. Every other subcommand still runs in Go.
+
+| Crate | What it holds |
+|---|---|
+| `tfstackplan/` | The front door binary. `src/render.rs` is `render`'s shell: Go-compatible flag parsing (`goflag.rs`), the plans-dir walk, config discovery, source indexing for resource links and every file read and write (`gofs.rs`, with Go's error text). |
+| `render-core/` | Package `tfstackplan-render`: the pure render pipeline, no I/O, clock or async. One module per Go package under `internal/` (`plan`, `moveset`, `model`, `classify`, `differ`, `render`, `fit`, `links`, `ansi`, `codes`, `source`, and the render part of `config`), plus `gofmt`, `goval`, `gojson`, `goregex`, `difflib` and `yaml`, which reproduce the Go library behaviour the output depends on. |
+| `recorder/` | Records the replay cases from the Go binary. |
 
 ## The front door
 
@@ -16,8 +23,11 @@ stdin, stdout and stderr, and exits with its exit code. On unix it replaces its
 own process with Go (`exec`), so signals, the tty and the exit code all belong
 to Go. On other platforms it spawns Go, waits and passes the exit code on.
 
-The front door does not parse flags. Go owns its flags until a subcommand is
-ported.
+The front door does not parse flags for subcommands it passes on. A ported
+subcommand parses its own flags exactly as Go's `flag` package does.
+
+`-version` prints `tfstackplan dev`, or the value of `TFSTACKPLAN_VERSION` at
+build time (the Go release sets `main.version` the same way).
 
 | Variable | Effect |
 |---|---|
@@ -88,8 +98,12 @@ Cases live in `cases/` in [trycmd](https://docs.rs/trycmd) format:
   `fs.sandbox = true` with `fs.base = "fixtures"`; trycmd copies that directory
   to a temp dir, runs there, and compares the files in `<name>.out/`.
 - `cases/fixtures/` holds plan trees: `small/` (the plan fixtures from
-  `internal/plan/testdata`), and `big/` and `state-ops/` (the inputs behind the
-  `examples/*.md` goldens), plus `policy.hcl` for the sandboxed cases.
+  `internal/plan/testdata`), `big/` and `state-ops/` (the inputs behind the
+  `examples/*.md` goldens), and `links/` with its source tree `links-src/` (`.tf`
+  files, a local module and `.terraform/modules/modules.json`) for resource
+  `{file}#L{line}` links. Beside them are `policy.hcl` for the sandboxed cases and
+  `prod-like.hcl`, a policy file shaped like a production one (links, cache,
+  progress and `env_uniqueness` blocks) with made-up names.
 
 To add a case, write the `.toml` with `bin.name`, `args` and `fs.cwd`, then
 record it. A case must not write into the repository: one that writes files
@@ -136,8 +150,23 @@ stderr, exit code, `.out/` contents) and then checks what trycmd does not:
 - a case that is not sandboxed leaves the checkout unchanged.
 
 It writes `replay-report.md` with cases passed and how many invocations fell back
-to Go. The report is committed. With nothing ported, the expected result is every
-case passing with every invocation falling back.
+to Go. The report is committed. Today every case passes, the `render` cases
+(including no arguments and `-version`, which Go also dispatches to render) are
+answered in Rust, and the other subcommands fall back.
+
+### Go parity property test
+
+`tests/go_parity.rs` mutates the fixture plans at random (attribute values,
+including JSON and YAML strings, numbers and Unicode; sensitivity and
+known-after-apply markers; actions; dropped changes), renders each mutation with
+the Go binary and with the front door under random configs, budgets and
+`--details`, and requires identical stdout, stderr, exit code and
+classification JSON. Plans are written with object keys in sorted or reversed
+order, and every run resolves resource links against the `.tf` tree in
+`cases/fixtures/links-src/` (the `links` fixture set always has links on). It is
+skipped, with a loud note, when the Go binary is absent, and fails instead when
+`CI` is set.
+`PROPTEST_CASES` sets the number of cases (default 96).
 
 CI (`rust` job in `.github/workflows/ci.yml`) runs the checks in *Before you push*,
 then re-records the cases and fails if `rust/cases` changed, and fails separately

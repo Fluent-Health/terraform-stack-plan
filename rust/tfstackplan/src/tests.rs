@@ -30,9 +30,9 @@ fn subcommand_matches_go_dispatch() {
 }
 
 #[test]
-fn nothing_is_ported_yet() {
-    assert!(PORTED.is_empty());
-    assert!(!is_ported("render"));
+fn render_is_ported() {
+    assert!(PORTED.iter().any(|(n, _)| *n == "render"));
+    assert!(is_ported("render"));
 }
 
 #[test]

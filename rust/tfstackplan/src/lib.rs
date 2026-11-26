@@ -14,8 +14,12 @@ use std::process::ExitCode;
 /// A ported subcommand: gets the arguments after the subcommand name.
 type Handler = fn(&[OsString]) -> ExitCode;
 
-/// Subcommands that have a Rust implementation. Empty until the first port.
-const PORTED: &[(&str, Handler)] = &[];
+mod goflag;
+mod gofs;
+mod render;
+
+/// Subcommands that have a Rust implementation.
+const PORTED: &[(&str, Handler)] = &[("render", render::run)];
 
 /// Exit code when the Go binary cannot be found (as a shell does for a missing command).
 pub const EXIT_GO_NOT_FOUND: u8 = 127;
