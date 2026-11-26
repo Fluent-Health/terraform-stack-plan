@@ -74,7 +74,7 @@ fn record_all() -> Result<()> {
 fn record(go: &Path, toml_path: &Path) -> Result<bool> {
     let mut doc: toml_edit::DocumentMut = fs::read_to_string(toml_path)?.parse()?;
     let dir = toml_path.parent().ok_or("case file has no parent dir")?;
-    let mut harness = casekit::Harness::from_case(&doc)?;
+    let mut harness = casekit::Harness::from_case(&doc, dir)?;
     // trycmd's own `[env] add` applies to Go too (after the harness env).
     if let Some(add) = doc
         .get("env")

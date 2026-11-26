@@ -44,7 +44,7 @@ fn replay() {
     for case in &cases {
         let name = case.file_stem().unwrap().to_string_lossy().into_owned();
         let doc: toml_edit::DocumentMut = std::fs::read_to_string(case).unwrap().parse().unwrap();
-        let harness = casekit::Harness::from_case(&doc).unwrap();
+        let harness = casekit::Harness::from_case(&doc, &cases_dir).unwrap();
         let missing = harness.missing_tools();
         if !missing.is_empty() {
             eprintln!("skipping {name}: {} not on PATH", missing.join(", "));

@@ -18,7 +18,7 @@ body = '[]'
 "#
     .parse()
     .unwrap();
-    let h = Harness::from_case(&doc).unwrap();
+    let h = Harness::from_case(&doc, Path::new(".")).unwrap();
     assert_eq!(h.requires, vec!["terraform"]);
     assert_eq!(h.adc.as_deref(), Some("authorized_user"));
     assert_eq!(h.routes.len(), 1);
@@ -44,7 +44,8 @@ fn fake_server_answers_routes_and_404s() {
         method: "POST".into(),
         path: "/a".into(),
         status: 500,
-        body: "boom".into(),
+        body: b"boom".to_vec(),
+        then: vec![b"again".to_vec()],
     }])
     .unwrap();
     let call = |req: &str| {
@@ -57,6 +58,11 @@ fn fake_server_answers_routes_and_404s() {
     let r = call("POST /a?x=1 HTTP/1.1\r\nContent-Length: 2\r\n\r\n{}");
     assert!(r.starts_with("HTTP/1.1 500 "), "{r}");
     assert!(r.ends_with("boom"));
+    let r = call("POST /a HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nabc\r\n0\r\n\r\n");
+    assert!(r.ends_with("again"), "{r}");
+    let reqs = srv.requests();
+    assert_eq!(reqs[0].body, b"{}");
+    assert_eq!(reqs[1].body, b"abc");
     let r = call("GET /b HTTP/1.1\r\n\r\n");
     assert!(r.starts_with("HTTP/1.1 404 "), "{r}");
 }
@@ -64,7 +70,7 @@ fn fake_server_answers_routes_and_404s() {
 #[test]
 fn no_harness_means_no_server() {
     let doc: toml_edit::DocumentMut = "args = []\n".parse().unwrap();
-    let h = Harness::from_case(&doc).unwrap();
+    let h = Harness::from_case(&doc, Path::new(".")).unwrap();
     let s = h.start().unwrap();
     assert!(s.fake_url().is_none());
     assert!(
