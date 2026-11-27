@@ -19,7 +19,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::time::SystemTime;
 
 const FRONT_DOOR: &str = env!("CARGO_BIN_EXE_tfstackplan");
@@ -33,6 +33,8 @@ struct Case {
     /// The sandbox base and the cwd inside it, for sandboxed cases.
     sandbox: Option<(PathBuf, PathBuf)>,
     out_dir: PathBuf,
+    /// `<case>.stdin`, fed to the command when present.
+    stdin: Option<PathBuf>,
 }
 
 fn load(path: &Path) -> Result<Case, String> {
@@ -48,6 +50,13 @@ fn load(path: &Path) -> Result<Case, String> {
         != Some(false)
     {
         return Err("needs `env.inherit = false` (re-record it: cargo run -p recorder)".into());
+    }
+    for ext in ["stdout", "stderr"] {
+        if !path.with_extension(ext).is_file() {
+            return Err(format!(
+                "missing `.{ext}` file (re-record it: cargo run -p recorder)"
+            ));
+        }
     }
     let args = doc
         .get("args")
@@ -74,6 +83,7 @@ fn load(path: &Path) -> Result<Case, String> {
     let fs_path = |key: &str| fs_get(key).and_then(|v| v.as_str()).map(|s| dir.join(s));
     let in_dir = path.with_extension("in");
     let out_dir = path.with_extension("out");
+    let stdin = Some(path.with_extension("stdin")).filter(|p| p.exists());
     let cwd = fs_path("cwd");
     let base = fs_path("base").or_else(|| in_dir.exists().then_some(in_dir).or(cwd.clone()));
     let cwd = cwd.or(base.clone()).ok_or("set fs.cwd")?;
@@ -102,6 +112,7 @@ fn load(path: &Path) -> Result<Case, String> {
         cwd,
         sandbox,
         out_dir,
+        stdin,
     })
 }
 
@@ -144,7 +155,11 @@ fn run_front_door(case: &Case, cwd: &Path, vars: &[(&str, &Path)]) {
         cmd.env("PATH", path);
     }
     cmd.envs(vars.iter().copied()).envs(&case.env_add);
-    cmd.output().unwrap();
+    let stdin = match &case.stdin {
+        Some(p) => Stdio::from(std::fs::File::open(p).unwrap()),
+        None => Stdio::null(),
+    };
+    cmd.stdin(stdin).output().unwrap();
 }
 
 /// The checks trycmd does not make. Returns why the case failed, if it did.
@@ -223,6 +238,7 @@ fn replay() {
 
     let mut failed: Vec<(String, String)> = Vec::new();
     let mut fallbacks = 0;
+    let mut rust_handled = 0;
     for (i, path) in cases.iter().enumerate() {
         let stem = path.file_stem().unwrap().to_string_lossy().into_owned();
         let case = match load(path) {
@@ -251,10 +267,11 @@ fn replay() {
             cases.case(path).run();
         })
         .is_ok();
-        fallbacks += std::fs::read_to_string(&log)
-            .unwrap_or_default()
-            .lines()
-            .count();
+        let logged = std::fs::read_to_string(&log).unwrap_or_default();
+        fallbacks += logged.lines().count();
+        if logged.is_empty() {
+            rust_handled += 1;
+        }
 
         let mut why = (!ok).then(|| "output differs (see above)".to_string());
         if why.is_none() {
@@ -282,8 +299,7 @@ fn replay() {
          | | |\n|---|---|\n\
          | Cases passed | {passed}/{total} |\n\
          | Fallbacks to Go | {fallbacks}/{total} |\n\
-         | Rust-handled | {}/{total} |\n",
-        total.saturating_sub(fallbacks)
+         | Rust-handled | {rust_handled}/{total} |\n"
     );
     if !failed.is_empty() {
         report.push_str("\n## Failed\n\n");
