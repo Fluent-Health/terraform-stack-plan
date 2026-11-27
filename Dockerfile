@@ -1,7 +1,7 @@
 # Build a static tfstackplan and ship a minimal image whose entrypoint is the
 # server. The binary is CGO-free (pure-Go SQLite) and embeds its migrations, so
 # the runtime image needs no extra files.
-FROM golang:1.25 AS build
+FROM golang:1.26 AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
