@@ -95,6 +95,8 @@ jobs:
       TFSTACKPLAN_GO_BIN: ${{ github.workspace }}/rust/.go/tfstackplan-go
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       # The same Go as the release build, so the replay checks the Go that ships.
       - uses: actions/setup-go@v6
@@ -108,9 +110,12 @@ jobs:
         run: CGO_ENABLED=0 go build -o "$TFSTACKPLAN_GO_BIN" ./cmd/tfstackplan
 
       # Pinned like the toolchain, so CI and local runs use the same versions.
-      - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
+      # fallback: none fails the job if a pinned version is missing from the
+      # action's manifest, instead of building it with cargo-binstall.
+      - uses: taiki-e/install-action@18101caa61cb89118e2ee749786f33c6d1f8a8cb # v2.90.9
         with:
           tool: cargo-nextest@0.9.152,cargo-deny@0.22.1
+          fallback: none
 
       - name: cargo fmt
         run: cargo fmt --all -- --check
