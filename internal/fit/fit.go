@@ -16,21 +16,30 @@ func Fit(r *model.Report, budget int) (fits bool) {
 	if budget <= 0 {
 		return true
 	}
-	// Phase 1: per-attribute largest-first degradation.
-	for size(r) > budget {
-		f := largestDegradable(r)
+	// Phase 1: per-attribute largest-first degradation. Render once, then keep
+	// the size current from the one resource row each step changes: rendering
+	// the whole report after every step made this quadratic in the plan size.
+	n := size(r)
+	for n > budget {
+		s, c, f := largestDegradable(r)
 		if f == nil {
 			break // everything minimal; fall to cascade
 		}
+		if !s.Counts.AnyChange() { // stack not rendered, size unchanged
+			f.Selected++
+			continue
+		}
+		before := render.ResourceBytes(*c, r.DetailsOpen)
 		f.Selected++
+		n += render.ResourceBytes(*c, r.DetailsOpen) - before
 	}
-	if size(r) <= budget {
+	if n <= budget {
 		return true
 	}
 
 	// Phase 2: terminal cascade. Capture the pre-cascade size for the "needs"
 	// figure before mode changes shrink the rendered output.
-	need := size(r)
+	need := n
 
 	r.Mode = model.ModeSummaryOnly
 	r.Notice = "⚠️ Per-stack detail omitted to fit GitHub's size limit (see CI logs / artifact)."
@@ -55,11 +64,13 @@ func humanBytes(n int) string {
 // size renders r and returns its byte length.
 func size(r *model.Report) int { return len(render.Render(*r)) }
 
-// largestDegradable returns a pointer to the not-yet-minimal block field with
-// the largest current variant. Leaf-only fields are skipped. Iteration is in
-// (stack, change, field) order and ties keep the earliest, so selection is
-// deterministic.
-func largestDegradable(r *model.Report) *model.Field {
+// largestDegradable returns the not-yet-minimal block field with the largest
+// current variant, with the stack and change that hold it. Leaf-only fields
+// are skipped. Iteration is in (stack, change, field) order and ties keep the
+// earliest, so selection is deterministic.
+func largestDegradable(r *model.Report) (*model.Stack, *model.Change, *model.Field) {
+	var bestS *model.Stack
+	var bestC *model.Change
 	var best *model.Field
 	bestBytes := -1
 	for si := range r.Stacks {
@@ -71,11 +82,11 @@ func largestDegradable(r *model.Report) *model.Field {
 					continue
 				}
 				if bb := f.Sel().Bytes; bb > bestBytes {
-					best = f
+					bestS, bestC, best = &r.Stacks[si], &r.Stacks[si].Changes[ci], f
 					bestBytes = bb
 				}
 			}
 		}
 	}
-	return best
+	return bestS, bestC, best
 }

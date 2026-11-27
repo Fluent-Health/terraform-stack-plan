@@ -241,6 +241,14 @@ func blockquote(s string) string {
 	return strings.Join(lines, "\n") + "\n"
 }
 
+// ResourceBytes is how many bytes resource c takes in its stack's blockquoted
+// section, so a change in it is exactly the change in len(Render(r)) when only
+// c changes (in ModeFull, for a stack with changes). fit uses it to track the
+// report size without rendering the whole report after every step.
+func ResourceBytes(c model.Change, forceOpen bool) int {
+	return len(blockquote(renderResource(c, forceOpen)))
+}
+
 // renderResource returns one resource as a uniform <details> row (no trailing
 // newline). The row is open when its body is small (<= openThreshold lines) or
 // forceOpen is set; otherwise it collapses to a summary line. The body holds the
