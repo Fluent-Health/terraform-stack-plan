@@ -104,7 +104,8 @@ the errors tfstackplan itself words. The shims and xmove manifests are built as 
 as Go builds them. YAML (uniqueness manifests) is parsed with `yaml-rust2` and converted to
 the values Go's yaml.v3 yields for `map[string]any`; a YAML syntax error is worded by
 `yaml-rust2`. Merge keys (`<<`) in uniqueness manifests are kept as ordinary keys where
-yaml.v3 merges them; the `run` port branch closes that gap.
+yaml.v3 merges them; the `run` port branch closes that gap. Until it merges, no release may
+be cut from main: `uniqueness` defaults to Rust and would misread a manifest that uses `<<`.
 
 ## HTTP clients are blocking
 
