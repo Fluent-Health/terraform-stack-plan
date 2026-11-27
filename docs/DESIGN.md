@@ -192,7 +192,9 @@ also carries optional `links {}` (URL templates) and the control-plane blocks
 
 `fit` starts every attribute at its preferred variant, measures the assembled
 document, and while it is over `--max-bytes` advances the currently-largest
-attribute one rung lossier. A stable sort (bytes desc, then stack, then address)
+attribute one rung lossier. The document is rendered once; after each step the
+size moves by the change in that one resource row (`render.ResourceBytes`), so
+the result is the same as re-measuring the whole document. A stable sort (bytes desc, then stack, then address)
 makes output **byte-identical across re-runs** of an unchanged plan, so CI comment
 upserts don't churn. Collapsing inside `<details>` is *not* a size lever —
 GitHub's 65,536-byte cap counts hidden content in full — so fitting means
@@ -803,6 +805,10 @@ hardening is in [`SECURITY.md`](../SECURITY.md).
   notable case is `forget` (`removed {}`), which drops a resource from state
   while leaving the live binding — real drift the guard intentionally does not
   surface.
+
+- **Picking the largest attribute is a scan over every attribute per step**,
+  so `fit` on a very large plan still takes seconds (about 20 s for 60 stacks ×
+  100 changed buckets, 12 MB of plans). Normal PRs are well under a second.
 
 **Run / logs**
 

@@ -1,6 +1,8 @@
 package fit
 
 import (
+	"fmt"
+	"math/rand"
 	"strings"
 	"testing"
 
@@ -118,4 +120,116 @@ func itoa(n int) string {
 		n /= 10
 	}
 	return string(d)
+}
+
+// refFit is Fit as it was before the size was tracked incrementally: it
+// renders the whole report after every step. TestMatchesFullRender checks the
+// two make the same choices.
+func refFit(r *model.Report, budget int) bool {
+	if budget <= 0 {
+		return true
+	}
+	for size(r) > budget {
+		_, _, f := largestDegradable(r)
+		if f == nil {
+			break
+		}
+		f.Selected++
+	}
+	if size(r) <= budget {
+		return true
+	}
+	need := size(r)
+	r.Mode = model.ModeSummaryOnly
+	r.Notice = "⚠️ Per-stack detail omitted to fit GitHub's size limit (see CI logs / artifact)."
+	if size(r) <= budget {
+		return true
+	}
+	r.Mode = model.ModeMinimal
+	r.Notice = fmt.Sprintf("⚠️ Per-stack table omitted: report needs ~%s, budget %s.", humanBytes(need), humanBytes(budget))
+	return size(r) <= budget
+}
+
+// randomReport builds a report with several stacks (some with no changes),
+// leaf and block fields, multi-line and blank-line variant content, and ties
+// in variant sizes.
+func randomReport(rng *rand.Rand) *model.Report {
+	lines := func(n int) string {
+		var b strings.Builder
+		for i := 0; i < n; i++ {
+			if rng.Intn(5) == 0 {
+				b.WriteString("\n") // blank line inside the diff
+				continue
+			}
+			b.WriteString(strings.Repeat("y", 1+rng.Intn(40)) + "\n")
+		}
+		return b.String()
+	}
+	r := &model.Report{Title: "t", Marker: "m", DetailsOpen: rng.Intn(2) == 0}
+	for si := 0; si < 1+rng.Intn(5); si++ {
+		s := model.Stack{Name: "stack-" + itoa(si)}
+		if rng.Intn(5) != 0 {
+			s.Counts = model.Counts{Change: 1}
+		}
+		for ci := 0; ci < rng.Intn(6); ci++ {
+			c := model.Change{Address: "res." + itoa(ci), Type: "t", Action: model.ActionChange}
+			if rng.Intn(3) == 0 {
+				c.Fields = append(c.Fields, model.Field{Name: "leaf", Leaves: []model.Leaf{{Op: model.OpChange, Path: "x", Old: "1", New: "2"}}})
+			}
+			for fi := 0; fi < rng.Intn(4); fi++ {
+				var vs []model.Variant
+				for vi := 0; vi < 1+rng.Intn(4); vi++ {
+					content := lines(rng.Intn(15))
+					vs = append(vs, model.Variant{Level: model.LevelStructural, Content: content, Bytes: len(content) / (1 + rng.Intn(2))})
+				}
+				vs = append(vs, model.Variant{Level: model.LevelHidden})
+				c.Fields = append(c.Fields, model.Field{Name: "f" + itoa(fi), Variants: vs})
+			}
+			s.Changes = append(s.Changes, c)
+		}
+		r.Stacks = append(r.Stacks, s)
+	}
+	return r
+}
+
+func TestMatchesFullRender(t *testing.T) {
+	rng := rand.New(rand.NewSource(1))
+	for i := 0; i < 3000; i++ {
+		a := randomReport(rng)
+		full := len(render.Render(*a))
+		budget := rng.Intn(full + 200)
+		want := deepCopy(a)
+		wantFits := refFit(want, budget)
+		gotFits := Fit(a, budget)
+		if gotFits != wantFits || render.Render(*a) != render.Render(*want) || !sameSelection(a, want) {
+			t.Fatalf("case %d (budget %d): incremental fit differs from full-render fit", i, budget)
+		}
+	}
+}
+
+func deepCopy(r *model.Report) *model.Report {
+	c := *r
+	c.Stacks = make([]model.Stack, len(r.Stacks))
+	for si, s := range r.Stacks {
+		c.Stacks[si] = s
+		c.Stacks[si].Changes = make([]model.Change, len(s.Changes))
+		for ci, ch := range s.Changes {
+			c.Stacks[si].Changes[ci] = ch
+			c.Stacks[si].Changes[ci].Fields = append([]model.Field(nil), ch.Fields...)
+		}
+	}
+	return &c
+}
+
+func sameSelection(a, b *model.Report) bool {
+	for si := range a.Stacks {
+		for ci := range a.Stacks[si].Changes {
+			for fi := range a.Stacks[si].Changes[ci].Fields {
+				if a.Stacks[si].Changes[ci].Fields[fi].Selected != b.Stacks[si].Changes[ci].Fields[fi].Selected {
+					return false
+				}
+			}
+		}
+	}
+	return true
 }
