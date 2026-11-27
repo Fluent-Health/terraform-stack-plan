@@ -65,7 +65,8 @@ async fn locker_acquire_conflict_and_release() {
         .respond_with(bucket.clone())
         .mount(&srv)
         .await;
-    let url = srv.uri();
+    // A trailing slash on an explicit base URL is trimmed, as in Go.
+    let url = format!("{}/", srv.uri());
     blocking(move || {
         let lk = Locker::new(token(), &url).unwrap();
         let first = lk
@@ -106,6 +107,19 @@ async fn locker_reports_unexpected_status() {
     })
     .await;
     assert_eq!(err, "acquire lock: unexpected status 403: denied");
+}
+
+// Go: TestNewGCSLockerWarnsOnGCSOverride. Locker::new prints this warning only
+// for the default base URL, read from $TFSTACKPLAN_GCS_URL.
+#[test]
+fn locker_warns_on_gcs_override() {
+    assert_eq!(override_warning("https://storage.googleapis.com"), None);
+    assert_eq!(
+        override_warning("http://fake-gcs").as_deref(),
+        Some(
+            "tfstackplan: warning: TFSTACKPLAN_GCS_URL is set; the state lock is taken on http://fake-gcs, not on terraform's backend\n"
+        )
+    );
 }
 
 /// An object bucket keyed by object name.

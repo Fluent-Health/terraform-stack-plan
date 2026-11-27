@@ -56,12 +56,18 @@ pub struct Lock<'a> {
 }
 
 impl Locker {
-    /// A locker against `base_url` (empty: [`crate::gcs_base_url`]).
+    /// A locker against `base_url` (empty: [`crate::gcs_base_url`]); a trailing
+    /// slash is trimmed. terraform's gcs backend ignores `$TFSTACKPLAN_GCS_URL`,
+    /// so when that override applies the locker warns on stderr, as Go does.
     pub fn new(token: TokenFn, base_url: &str) -> Result<Self, String> {
         let base_url = if base_url.is_empty() {
-            crate::gcs_base_url()
+            let base_url = crate::gcs_base_url();
+            if let Some(w) = override_warning(&base_url) {
+                eprint!("{w}");
+            }
+            base_url
         } else {
-            base_url.to_string()
+            base_url.trim_end_matches('/').to_string()
         };
         Ok(Self {
             token,
@@ -140,6 +146,16 @@ impl Lock<'_> {
             .map_err(|e| format!("release lock: {e}"))?;
         Ok(())
     }
+}
+
+/// Go's warning when the default GCS URL is overridden: the lock is then not
+/// taken where terraform keeps state.
+fn override_warning(base_url: &str) -> Option<String> {
+    (base_url != "https://storage.googleapis.com").then(|| {
+        format!(
+            "tfstackplan: warning: TFSTACKPLAN_GCS_URL is set; the state lock is taken on {base_url}, not on terraform's backend\n"
+        )
+    })
 }
 
 fn read_limited(resp: reqwest::blocking::Response, limit: usize) -> String {
