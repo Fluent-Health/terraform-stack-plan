@@ -779,6 +779,11 @@ hardening is in [`SECURITY.md`](../SECURITY.md).
   Google issuer (`gauth/gauthtest`: a throwaway RSA key drives the *real*
   client-library minting + verification loop), and a vendored real-terramate
   fixture (skips cleanly when terramate isn't installed).
+- **Rust port replay** — `rust/` holds a front door binary that runs a
+  subcommand in Rust once it is ported and otherwise execs the Go binary. Every
+  case in `rust/cases/` (trycmd format) is recorded from Go and replayed through
+  the front door; CI re-records and fails if the recording is stale. Nothing is
+  ported yet, so every case falls back to Go. See [`rust/README.md`](../rust/README.md).
 - **Wire goldens** pin the exact bytes of every `/api` response across
   versions. **gofmt CI gate**: the test job fails on any non-gofmt'd file
   (`gofmt -l .` catches what `vet` does not).

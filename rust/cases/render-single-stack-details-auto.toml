@@ -1,0 +1,9 @@
+bin.name = "tfstackplan"
+args = ["render", "--plans-dir", "rust/cases/fixtures/big/security", "--details", "auto"]
+fs.cwd = "../.."
+
+[status]
+code = 0
+
+[env]
+inherit = false

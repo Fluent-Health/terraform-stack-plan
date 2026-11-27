@@ -1,0 +1,9 @@
+bin.name = "tfstackplan"
+args = ["render", "--plans-dir", "rust/cases/fixtures/small", "--config", "internal/config/testdata/emit.hcl", "--state-moves", "internal/moveset/testdata/moves.json"]
+fs.cwd = "../.."
+
+[status]
+code = 0
+
+[env]
+inherit = false

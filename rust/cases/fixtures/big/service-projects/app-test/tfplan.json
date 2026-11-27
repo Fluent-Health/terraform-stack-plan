@@ -1,0 +1,213 @@
+{
+ "format_version": "1.2",
+ "resource_changes": [
+  {
+   "address": "google_storage_bucket.b0",
+   "change": {
+    "actions": [
+     "update"
+    ],
+    "after": {
+     "labels": {
+      "env": "nonprod",
+      "team": "platform"
+     },
+     "retention_days": 34
+    },
+    "after_sensitive": {},
+    "after_unknown": {},
+    "before": {
+     "labels": {
+      "env": "nonprod"
+     },
+     "retention_days": 11
+    },
+    "before_sensitive": {}
+   },
+   "name": "b0",
+   "type": "google_storage_bucket"
+  },
+  {
+   "address": "google_storage_bucket.b1",
+   "change": {
+    "actions": [
+     "update"
+    ],
+    "after": {
+     "labels": {
+      "env": "nonprod",
+      "team": "platform"
+     },
+     "retention_days": 35
+    },
+    "after_sensitive": {},
+    "after_unknown": {},
+    "before": {
+     "labels": {
+      "env": "nonprod"
+     },
+     "retention_days": 12
+    },
+    "before_sensitive": {}
+   },
+   "name": "b1",
+   "type": "google_storage_bucket"
+  },
+  {
+   "address": "google_storage_bucket.b2",
+   "change": {
+    "actions": [
+     "update"
+    ],
+    "after": {
+     "labels": {
+      "env": "nonprod",
+      "team": "platform"
+     },
+     "retention_days": 36
+    },
+    "after_sensitive": {},
+    "after_unknown": {},
+    "before": {
+     "labels": {
+      "env": "nonprod"
+     },
+     "retention_days": 13
+    },
+    "before_sensitive": {}
+   },
+   "name": "b2",
+   "type": "google_storage_bucket"
+  },
+  {
+   "address": "google_storage_bucket.b3",
+   "change": {
+    "actions": [
+     "update"
+    ],
+    "after": {
+     "labels": {
+      "env": "nonprod",
+      "team": "platform"
+     },
+     "retention_days": 37
+    },
+    "after_sensitive": {},
+    "after_unknown": {},
+    "before": {
+     "labels": {
+      "env": "nonprod"
+     },
+     "retention_days": 14
+    },
+    "before_sensitive": {}
+   },
+   "name": "b3",
+   "type": "google_storage_bucket"
+  },
+  {
+   "address": "google_storage_bucket.b4",
+   "change": {
+    "actions": [
+     "update"
+    ],
+    "after": {
+     "labels": {
+      "env": "nonprod",
+      "team": "platform"
+     },
+     "retention_days": 38
+    },
+    "after_sensitive": {},
+    "after_unknown": {},
+    "before": {
+     "labels": {
+      "env": "nonprod"
+     },
+     "retention_days": 15
+    },
+    "before_sensitive": {}
+   },
+   "name": "b4",
+   "type": "google_storage_bucket"
+  },
+  {
+   "address": "google_storage_bucket.b5",
+   "change": {
+    "actions": [
+     "update"
+    ],
+    "after": {
+     "labels": {
+      "env": "nonprod",
+      "team": "platform"
+     },
+     "retention_days": 39
+    },
+    "after_sensitive": {},
+    "after_unknown": {},
+    "before": {
+     "labels": {
+      "env": "nonprod"
+     },
+     "retention_days": 16
+    },
+    "before_sensitive": {}
+   },
+   "name": "b5",
+   "type": "google_storage_bucket"
+  },
+  {
+   "address": "google_storage_bucket.b6",
+   "change": {
+    "actions": [
+     "update"
+    ],
+    "after": {
+     "labels": {
+      "env": "nonprod",
+      "team": "platform"
+     },
+     "retention_days": 40
+    },
+    "after_sensitive": {},
+    "after_unknown": {},
+    "before": {
+     "labels": {
+      "env": "nonprod"
+     },
+     "retention_days": 17
+    },
+    "before_sensitive": {}
+   },
+   "name": "b6",
+   "type": "google_storage_bucket"
+  },
+  {
+   "address": "google_storage_bucket.b7",
+   "change": {
+    "actions": [
+     "update"
+    ],
+    "after": {
+     "labels": {
+      "env": "nonprod",
+      "team": "platform"
+     },
+     "retention_days": 41
+    },
+    "after_sensitive": {},
+    "after_unknown": {},
+    "before": {
+     "labels": {
+      "env": "nonprod"
+     },
+     "retention_days": 18
+    },
+    "before_sensitive": {}
+   },
+   "name": "b7",
+   "type": "google_storage_bucket"
+  }
+ ]
+}

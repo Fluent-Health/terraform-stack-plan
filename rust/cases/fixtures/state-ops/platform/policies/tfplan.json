@@ -1,0 +1,81 @@
+{
+ "format_version": "1.2",
+ "resource_changes": [
+  {
+   "address": "aws_iam_policy.small",
+   "change": {
+    "actions": [
+     "update"
+    ],
+    "after": {
+     "policy": "{\"Statement\":[{\"Action\":[\"s3:GetObject\"],\"Effect\":\"Allow\",\"Resource\":\"arn:aws:s3:::bucket-new-00/*\",\"Sid\":\"Stmt00\"},{\"Action\":[\"s3:GetObject\"],\"Effect\":\"Allow\",\"Resource\":\"arn:aws:s3:::bucket-old-01/*\",\"Sid\":\"Stmt01\"},{\"Action\":[\"s3:GetObject\"],\"Effect\":\"Allow\",\"Resource\":\"arn:aws:s3:::bucket-old-02/*\",\"Sid\":\"Stmt02\"},{\"Action\":[\"s3:GetObject\"],\"Effect\":\"Allow\",\"Resource\":\"arn:aws:s3:::bucket-old-03/*\",\"Sid\":\"Stmt03\"},{\"Action\":[\"s3:GetObject\"],\"Effect\":\"Allow\",\"Resource\":\"arn:aws:s3:::bucket-old-04/*\",\"Sid\":\"Stmt04\"},{\"Action\":[\"s3:GetObject\"],\"Effect\":\"Allow\",\"Resource\":\"arn:aws:s3:::bucket-old-05/*\",\"Sid\":\"Stmt05\"},{\"Action\":[\"s3:GetObject\"],\"Effect\":\"Allow\",\"Resource\":\"arn:aws:s3:::bucket-old-06/*\",\"Sid\":\"Stmt06\"},{\"Action\":[\"s3:GetObject\"],\"Effect\":\"Allow\",\"Resource\":\"arn:aws:s3:::bucket-old-07/*\",\"Sid\":\"Stmt07\"},{\"Action\":[\"s3:GetObject\"],\"Effect\":\"Allow\",\"Resource\":\"arn:aws:s3:::bucket-old-08/*\",\"Sid\":\"Stmt08\"},{\"Action\":[\"s3:GetObject\"],\"Effect\":\"Allow\",\"Resource\":\"arn:aws:s3:::bucket-old-09/*\",\"Sid\":\"Stmt09\"},{\"Action\":[\"s3:GetObject\"],\"Effect\":\"Allow\",\"Resource\":\"arn:aws:s3:::bucket-old-10/*\",\"Sid\":\"Stmt10\"},{\"Action\":[\"s3:GetObject\"],\"Effect\":\"Allow\",\"Resource\":\"arn:aws:s3:::bucket-old-11/*\",\"Sid\":\"Stmt11\"}],\"Version\":\"2012-10-17\"}"
+    },
+    "after_sensitive": {},
+    "after_unknown": {},
+    "before": {
+     "policy": "{\"Statement\":[{\"Action\":[\"s3:GetObject\"],\"Effect\":\"Allow\",\"Resource\":\"arn:aws:s3:::bucket-old-00/*\",\"Sid\":\"Stmt00\"},{\"Action\":[\"s3:GetObject\"],\"Effect\":\"Allow\",\"Resource\":\"arn:aws:s3:::bucket-old-01/*\",\"Sid\":\"Stmt01\"},{\"Action\":[\"s3:GetObject\"],\"Effect\":\"Allow\",\"Resource\":\"arn:aws:s3:::bucket-old-02/*\",\"Sid\":\"Stmt02\"},{\"Action\":[\"s3:GetObject\"],\"Effect\":\"Allow\",\"Resource\":\"arn:aws:s3:::bucket-old-03/*\",\"Sid\":\"Stmt03\"},{\"Action\":[\"s3:GetObject\"],\"Effect\":\"Allow\",\"Resource\":\"arn:aws:s3:::bucket-old-04/*\",\"Sid\":\"Stmt04\"},{\"Action\":[\"s3:GetObject\"],\"Effect\":\"Allow\",\"Resource\":\"arn:aws:s3:::bucket-old-05/*\",\"Sid\":\"Stmt05\"},{\"Action\":[\"s3:GetObject\"],\"Effect\":\"Allow\",\"Resource\":\"arn:aws:s3:::bucket-old-06/*\",\"Sid\":\"Stmt06\"},{\"Action\":[\"s3:GetObject\"],\"Effect\":\"Allow\",\"Resource\":\"arn:aws:s3:::bucket-old-07/*\",\"Sid\":\"Stmt07\"},{\"Action\":[\"s3:GetObject\"],\"Effect\":\"Allow\",\"Resource\":\"arn:aws:s3:::bucket-old-08/*\",\"Sid\":\"Stmt08\"},{\"Action\":[\"s3:GetObject\"],\"Effect\":\"Allow\",\"Resource\":\"arn:aws:s3:::bucket-old-09/*\",\"Sid\":\"Stmt09\"},{\"Action\":[\"s3:GetObject\"],\"Effect\":\"Allow\",\"Resource\":\"arn:aws:s3:::bucket-old-10/*\",\"Sid\":\"Stmt10\"},{\"Action\":[\"s3:GetObject\"],\"Effect\":\"Allow\",\"Resource\":\"arn:aws:s3:::bucket-old-11/*\",\"Sid\":\"Stmt11\"}],\"Version\":\"2012-10-17\"}"
+    },
+    "before_sensitive": {}
+   },
+   "name": "small",
+   "type": "aws_iam_policy"
+  },
+  {
+   "address": "aws_iam_policy.big",
+   "change": {
+    "actions": [
+     "update"
+    ],
+    "after": {
+     "policy": "{\"Statement\":[{\"Action\":[\"s3:GetObject\"],\"Effect\":\"Allow\",\"Resource\":\"arn:aws:s3:::bucket-new-00/*\",\"Sid\":\"Stmt00\"},{\"Action\":[\"s3:GetObject\"],\"Effect\":\"Allow\",\"Resource\":\"arn:aws:s3:::bucket-new-01/*\",\"Sid\":\"Stmt01\"},{\"Action\":[\"s3:GetObject\"],\"Effect\":\"Allow\",\"Resource\":\"arn:aws:s3:::bucket-new-02/*\",\"Sid\":\"Stmt02\"},{\"Action\":[\"s3:GetObject\"],\"Effect\":\"Allow\",\"Resource\":\"arn:aws:s3:::bucket-new-03/*\",\"Sid\":\"Stmt03\"},{\"Action\":[\"s3:GetObject\"],\"Effect\":\"Allow\",\"Resource\":\"arn:aws:s3:::bucket-new-04/*\",\"Sid\":\"Stmt04\"},{\"Action\":[\"s3:GetObject\"],\"Effect\":\"Allow\",\"Resource\":\"arn:aws:s3:::bucket-new-05/*\",\"Sid\":\"Stmt05\"},{\"Action\":[\"s3:GetObject\"],\"Effect\":\"Allow\",\"Resource\":\"arn:aws:s3:::bucket-new-06/*\",\"Sid\":\"Stmt06\"},{\"Action\":[\"s3:GetObject\"],\"Effect\":\"Allow\",\"Resource\":\"arn:aws:s3:::bucket-new-07/*\",\"Sid\":\"Stmt07\"},{\"Action\":[\"s3:GetObject\"],\"Effect\":\"Allow\",\"Resource\":\"arn:aws:s3:::bucket-new-08/*\",\"Sid\":\"Stmt08\"},{\"Action\":[\"s3:GetObject\"],\"Effect\":\"Allow\",\"Resource\":\"arn:aws:s3:::bucket-new-09/*\",\"Sid\":\"Stmt09\"},{\"Action\":[\"s3:GetObject\"],\"Effect\":\"Allow\",\"Resource\":\"arn:aws:s3:::bucket-new-10/*\",\"Sid\":\"Stmt10\"},{\"Action\":[\"s3:GetObject\"],\"Effect\":\"Allow\",\"Resource\":\"arn:aws:s3:::bucket-new-11/*\",\"Sid\":\"Stmt11\"}],\"Version\":\"2012-10-17\"}"
+    },
+    "after_sensitive": {},
+    "after_unknown": {},
+    "before": {
+     "policy": "{\"Statement\":[{\"Action\":[\"s3:GetObject\"],\"Effect\":\"Allow\",\"Resource\":\"arn:aws:s3:::bucket-old-00/*\",\"Sid\":\"Stmt00\"},{\"Action\":[\"s3:GetObject\"],\"Effect\":\"Allow\",\"Resource\":\"arn:aws:s3:::bucket-old-01/*\",\"Sid\":\"Stmt01\"},{\"Action\":[\"s3:GetObject\"],\"Effect\":\"Allow\",\"Resource\":\"arn:aws:s3:::bucket-old-02/*\",\"Sid\":\"Stmt02\"},{\"Action\":[\"s3:GetObject\"],\"Effect\":\"Allow\",\"Resource\":\"arn:aws:s3:::bucket-old-03/*\",\"Sid\":\"Stmt03\"},{\"Action\":[\"s3:GetObject\"],\"Effect\":\"Allow\",\"Resource\":\"arn:aws:s3:::bucket-old-04/*\",\"Sid\":\"Stmt04\"},{\"Action\":[\"s3:GetObject\"],\"Effect\":\"Allow\",\"Resource\":\"arn:aws:s3:::bucket-old-05/*\",\"Sid\":\"Stmt05\"},{\"Action\":[\"s3:GetObject\"],\"Effect\":\"Allow\",\"Resource\":\"arn:aws:s3:::bucket-old-06/*\",\"Sid\":\"Stmt06\"},{\"Action\":[\"s3:GetObject\"],\"Effect\":\"Allow\",\"Resource\":\"arn:aws:s3:::bucket-old-07/*\",\"Sid\":\"Stmt07\"},{\"Action\":[\"s3:GetObject\"],\"Effect\":\"Allow\",\"Resource\":\"arn:aws:s3:::bucket-old-08/*\",\"Sid\":\"Stmt08\"},{\"Action\":[\"s3:GetObject\"],\"Effect\":\"Allow\",\"Resource\":\"arn:aws:s3:::bucket-old-09/*\",\"Sid\":\"Stmt09\"},{\"Action\":[\"s3:GetObject\"],\"Effect\":\"Allow\",\"Resource\":\"arn:aws:s3:::bucket-old-10/*\",\"Sid\":\"Stmt10\"},{\"Action\":[\"s3:GetObject\"],\"Effect\":\"Allow\",\"Resource\":\"arn:aws:s3:::bucket-old-11/*\",\"Sid\":\"Stmt11\"}],\"Version\":\"2012-10-17\"}"
+    },
+    "before_sensitive": {}
+   },
+   "name": "big",
+   "type": "aws_iam_policy"
+  },
+  {
+   "address": "kubernetes_manifest.app",
+   "change": {
+    "actions": [
+     "update"
+    ],
+    "after": {
+     "manifest": "apiVersion: apps/v1\nkind: Deployment\nspec:\n  replicas: 4\n  template:\n    spec:\n      containers:\n        - name: app\n          image: app:1.5\n          env:\n            - name: VAR_0\n              value: old\n            - name: VAR_1\n              value: old\n            - name: VAR_2\n              value: old\n            - name: VAR_3\n              value: old\n            - name: VAR_4\n              value: old\n            - name: VAR_5\n              value: old\n            - name: VAR_6\n              value: old\n            - name: VAR_7\n              value: old\n"
+    },
+    "after_sensitive": {},
+    "after_unknown": {},
+    "before": {
+     "manifest": "apiVersion: apps/v1\nkind: Deployment\nspec:\n  replicas: 2\n  template:\n    spec:\n      containers:\n        - name: app\n          image: app:1.4\n          env:\n            - name: VAR_0\n              value: old\n            - name: VAR_1\n              value: old\n            - name: VAR_2\n              value: old\n            - name: VAR_3\n              value: old\n            - name: VAR_4\n              value: old\n            - name: VAR_5\n              value: old\n            - name: VAR_6\n              value: old\n            - name: VAR_7\n              value: old\n"
+    },
+    "before_sensitive": {}
+   },
+   "name": "app",
+   "type": "kubernetes_manifest"
+  },
+  {
+   "address": "kubernetes_manifest.platform",
+   "change": {
+    "actions": [
+     "update"
+    ],
+    "after": {
+     "manifest": "apiVersion: apps/v1\nkind: Deployment\nspec:\n  replicas: 4\n  template:\n    spec:\n      containers:\n        - name: app\n          image: app:1.5\n          env:\n            - name: VAR_0\n              value: new\n            - name: VAR_1\n              value: new\n            - name: VAR_2\n              value: new\n            - name: VAR_3\n              value: new\n            - name: VAR_4\n              value: new\n            - name: VAR_5\n              value: new\n            - name: VAR_6\n              value: new\n            - name: VAR_7\n              value: new\n"
+    },
+    "after_sensitive": {},
+    "after_unknown": {},
+    "before": {
+     "manifest": "apiVersion: apps/v1\nkind: Deployment\nspec:\n  replicas: 2\n  template:\n    spec:\n      containers:\n        - name: app\n          image: app:1.4\n          env:\n            - name: VAR_0\n              value: old\n            - name: VAR_1\n              value: old\n            - name: VAR_2\n              value: old\n            - name: VAR_3\n              value: old\n            - name: VAR_4\n              value: old\n            - name: VAR_5\n              value: old\n            - name: VAR_6\n              value: old\n            - name: VAR_7\n              value: old\n"
+    },
+    "before_sensitive": {}
+   },
+   "name": "platform",
+   "type": "kubernetes_manifest"
+  }
+ ]
+}

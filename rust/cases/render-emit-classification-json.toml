@@ -1,0 +1,10 @@
+bin.name = "tfstackplan"
+args = ["render", "--plans-dir", "small", "--config", "policy.hcl", "--emit-classification-json", "classes.json"]
+fs.base = "fixtures"
+fs.sandbox = true
+
+[status]
+code = 0
+
+[env]
+inherit = false

@@ -1,0 +1,9 @@
+bin.name = "tfstackplan"
+args = ["render", "--plans-dir", "rust/cases/fixtures/state-ops", "--config", "internal/config/testdata/full.hcl", "--title", "Terraform plan: state ops", "--marker", "tfstackplan:state-ops"]
+fs.cwd = "../.."
+
+[status]
+code = 0
+
+[env]
+inherit = false

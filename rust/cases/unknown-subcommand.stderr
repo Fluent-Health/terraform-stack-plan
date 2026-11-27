@@ -1,0 +1,2 @@
+tfstackplan: unknown subcommand "bogus"
+usage: tfstackplan [render|serve|ui|run|state|claims|admin|catalog|whoami|uniqueness] [flags]

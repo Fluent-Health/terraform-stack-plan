@@ -1,0 +1,113 @@
+{
+ "format_version": "1.2",
+ "resource_changes": [
+  {
+   "address": "google_project_iam_member.legacy_admins",
+   "change": {
+    "actions": [
+     "delete"
+    ],
+    "after": null,
+    "after_sensitive": {},
+    "after_unknown": {},
+    "before": {
+     "location": "us-central1",
+     "name": "legacy_admins"
+    },
+    "before_sensitive": {}
+   },
+   "name": "legacy_admins",
+   "type": "google_project_iam_member"
+  },
+  {
+   "address": "google_bigquery_dataset.legacy_users",
+   "change": {
+    "actions": [
+     "delete"
+    ],
+    "after": null,
+    "after_sensitive": {},
+    "after_unknown": {},
+    "before": {
+     "location": "us-central1",
+     "name": "legacy_users"
+    },
+    "before_sensitive": {}
+   },
+   "name": "legacy_users",
+   "type": "google_bigquery_dataset"
+  },
+  {
+   "address": "google_storage_bucket.legacy_exports",
+   "change": {
+    "actions": [
+     "delete"
+    ],
+    "after": null,
+    "after_sensitive": {},
+    "after_unknown": {},
+    "before": {
+     "location": "us-central1",
+     "name": "legacy_exports"
+    },
+    "before_sensitive": {}
+   },
+   "name": "legacy_exports",
+   "type": "google_storage_bucket"
+  },
+  {
+   "address": "google_storage_bucket.legacy_imports",
+   "change": {
+    "actions": [
+     "delete"
+    ],
+    "after": null,
+    "after_sensitive": {},
+    "after_unknown": {},
+    "before": {
+     "location": "us-central1",
+     "name": "legacy_imports"
+    },
+    "before_sensitive": {}
+   },
+   "name": "legacy_imports",
+   "type": "google_storage_bucket"
+  },
+  {
+   "address": "google_pubsub_topic.legacy_stream",
+   "change": {
+    "actions": [
+     "delete"
+    ],
+    "after": null,
+    "after_sensitive": {},
+    "after_unknown": {},
+    "before": {
+     "location": "us-central1",
+     "name": "legacy_stream"
+    },
+    "before_sensitive": {}
+   },
+   "name": "legacy_stream",
+   "type": "google_pubsub_topic"
+  },
+  {
+   "address": "google_pubsub_subscription.legacy_sub",
+   "change": {
+    "actions": [
+     "delete"
+    ],
+    "after": null,
+    "after_sensitive": {},
+    "after_unknown": {},
+    "before": {
+     "location": "us-central1",
+     "name": "legacy_sub"
+    },
+    "before_sensitive": {}
+   },
+   "name": "legacy_sub",
+   "type": "google_pubsub_subscription"
+  }
+ ]
+}

@@ -1,0 +1,14 @@
+# Clippy configuration for the workspace, the same as the organisation's other Rust services.
+# The lint levels are in Cargo.toml's [workspace.lints]; this file only tunes them.
+
+# Tests may unwrap and expect: a panic is how a test fails.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true
+allow-indexing-slicing-in-tests = true
+
+disallowed-methods = [
+    { path = "reqwest::Client::new", reason = "a client with no timeouts waits forever on a stalled peer; build one with connect and read timeouts" },
+    { path = "std::thread::sleep", reason = "blocks a Tokio worker; use tokio::time::sleep, or say why with #[expect]" },
+    { path = "std::env::temp_dir", reason = "a hand-made temp path is left behind when the test fails or is killed; use tempfile::Builder (removed on drop), or say why with #[expect]" },
+]

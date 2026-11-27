@@ -1,0 +1,9 @@
+bin.name = "tfstackplan"
+args = ["render", "--help"]
+fs.cwd = "../.."
+
+[status]
+code = 0
+
+[env]
+inherit = false

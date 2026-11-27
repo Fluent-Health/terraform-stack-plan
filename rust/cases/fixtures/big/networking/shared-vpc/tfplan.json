@@ -1,0 +1,175 @@
+{
+ "format_version": "1.2",
+ "resource_changes": [
+  {
+   "address": "google_compute_subnetwork.s0",
+   "change": {
+    "actions": [
+     "update"
+    ],
+    "after": {
+     "labels": {
+      "env": "nonprod",
+      "team": "platform"
+     },
+     "retention_days": 46
+    },
+    "after_sensitive": {},
+    "after_unknown": {},
+    "before": {
+     "labels": {
+      "env": "nonprod"
+     },
+     "retention_days": 23
+    },
+    "before_sensitive": {}
+   },
+   "name": "s0",
+   "type": "google_storage_bucket"
+  },
+  {
+   "address": "google_compute_subnetwork.s1",
+   "change": {
+    "actions": [
+     "update"
+    ],
+    "after": {
+     "labels": {
+      "env": "nonprod",
+      "team": "platform"
+     },
+     "retention_days": 47
+    },
+    "after_sensitive": {},
+    "after_unknown": {},
+    "before": {
+     "labels": {
+      "env": "nonprod"
+     },
+     "retention_days": 24
+    },
+    "before_sensitive": {}
+   },
+   "name": "s1",
+   "type": "google_storage_bucket"
+  },
+  {
+   "address": "google_compute_subnetwork.s2",
+   "change": {
+    "actions": [
+     "update"
+    ],
+    "after": {
+     "labels": {
+      "env": "nonprod",
+      "team": "platform"
+     },
+     "retention_days": 48
+    },
+    "after_sensitive": {},
+    "after_unknown": {},
+    "before": {
+     "labels": {
+      "env": "nonprod"
+     },
+     "retention_days": 25
+    },
+    "before_sensitive": {}
+   },
+   "name": "s2",
+   "type": "google_storage_bucket"
+  },
+  {
+   "address": "google_compute_firewall.allow_internal",
+   "change": {
+    "actions": [
+     "update"
+    ],
+    "after": {
+     "labels": {
+      "env": "nonprod",
+      "team": "platform"
+     },
+     "retention_days": 49
+    },
+    "after_sensitive": {},
+    "after_unknown": {},
+    "before": {
+     "labels": {
+      "env": "nonprod"
+     },
+     "retention_days": 26
+    },
+    "before_sensitive": {}
+   },
+   "name": "allow_internal",
+   "type": "google_storage_bucket"
+  },
+  {
+   "address": "google_compute_firewall.allow_health",
+   "change": {
+    "actions": [
+     "update"
+    ],
+    "after": {
+     "labels": {
+      "env": "nonprod",
+      "team": "platform"
+     },
+     "retention_days": 50
+    },
+    "after_sensitive": {},
+    "after_unknown": {},
+    "before": {
+     "labels": {
+      "env": "nonprod"
+     },
+     "retention_days": 27
+    },
+    "before_sensitive": {}
+   },
+   "name": "allow_health",
+   "type": "google_storage_bucket"
+  },
+  {
+   "address": "google_compute_instance.bastion",
+   "change": {
+    "actions": [
+     "delete",
+     "create"
+    ],
+    "after": {
+     "machine_type": "e2-medium"
+    },
+    "after_sensitive": {},
+    "after_unknown": {},
+    "before": {
+     "machine_type": "e2-small"
+    },
+    "before_sensitive": {}
+   },
+   "name": "bastion",
+   "type": "google_compute_instance"
+  },
+  {
+   "address": "google_compute_address.nat",
+   "change": {
+    "actions": [
+     "delete",
+     "create"
+    ],
+    "after": {
+     "address_type": "EXTERNAL"
+    },
+    "after_sensitive": {},
+    "after_unknown": {},
+    "before": {
+     "address_type": "INTERNAL"
+    },
+    "before_sensitive": {}
+   },
+   "name": "nat",
+   "type": "google_compute_address"
+  }
+ ]
+}
