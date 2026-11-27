@@ -43,28 +43,6 @@ struct Case {
     harness: casekit::Harness,
 }
 
-/// Variables the replay sets itself, which a case's `env.add` and
-/// `[harness] env` must not override.
-const RESERVED_ENV: &[&str] = &["TFSTACKPLAN_GO_BIN", "TFSTACKPLAN_FALLBACK_LOG", "HOME"];
-
-/// Credential variables `casekit` blanks. A case may set one only to point it at
-/// the fake server (`{fake}` or `{fakehost}` in the value).
-const CREDENTIAL_ENV: &[&str] = &[
-    "GOOGLE_APPLICATION_CREDENTIALS",
-    "GOOGLE_OAUTH_ACCESS_TOKEN",
-    "CLOUDSDK_CONFIG",
-    "GCE_METADATA_HOST",
-];
-
-/// The first variable in `env` that a case must not set, if any.
-fn reserved_key<'a>(env: impl IntoIterator<Item = (&'a str, &'a str)>) -> Option<&'a str> {
-    env.into_iter()
-        .find(|(k, v)| {
-            RESERVED_ENV.contains(k) || (CREDENTIAL_ENV.contains(k) && !v.contains("{fake"))
-        })
-        .map(|(k, _)| k)
-}
-
 /// A case's value for `k`: its `env.add`, else its `[harness] env` (the order
 /// the run applies them in, last wins).
 fn case_var(
@@ -120,9 +98,6 @@ fn load(path: &Path) -> Result<Case, String> {
                 .collect()
         })
         .unwrap_or_default();
-    if let Some(k) = reserved_key(env_add.iter().map(|(k, v)| (k.as_str(), v.as_str()))) {
-        return Err(format!("env.add must not set {k}: the replay controls it"));
-    }
     let fs_get = |key: &str| doc.get("fs").and_then(|t| t.get(key));
     let fs_path = |key: &str| fs_get(key).and_then(|v| v.as_str()).map(|s| dir.join(s));
     let in_dir = path.with_extension("in");
@@ -161,12 +136,8 @@ fn load(path: &Path) -> Result<Case, String> {
             ));
         }
     }
+    // Also refuses env.add or `[harness] env` setting a variable the replay controls.
     let harness = casekit::Harness::from_case(&doc)?;
-    if let Some(k) = reserved_key(harness.env.iter().map(|(k, v)| (k.as_str(), v.as_str()))) {
-        return Err(format!(
-            "harness.env must not set {k}: the replay controls it"
-        ));
-    }
     Ok(Case {
         name: path
             .file_stem()
@@ -417,29 +388,7 @@ fn replay() {
 }
 
 #[test]
-fn reserved_keys_cover_env_add_and_harness_env() {
-    for k in CREDENTIAL_ENV {
-        assert!(casekit::HERMETIC_UNSET.contains(k), "{k} is not blanked");
-    }
-    assert_eq!(reserved_key([("HOME", "/tmp/x")]), Some("HOME"));
-    assert_eq!(
-        reserved_key([
-            ("TFSTACKPLAN_SERVER", "{fake}"),
-            ("TFSTACKPLAN_GO_BIN", "/bin/true")
-        ]),
-        Some("TFSTACKPLAN_GO_BIN")
-    );
-    assert_eq!(
-        reserved_key([("GOOGLE_APPLICATION_CREDENTIALS", "/home/me/key.json")]),
-        Some("GOOGLE_APPLICATION_CREDENTIALS")
-    );
-    assert_eq!(reserved_key([("GCE_METADATA_HOST", "{fakehost}")]), None);
-    assert_eq!(
-        reserved_key([("TFSTACKPLAN_SERVER", "https://x.example")]),
-        None
-    );
-
-    // load() runs the check over `[harness] env` as well as `env.add`.
+fn load_refuses_reserved_env() {
     let dir = tempfile::tempdir().unwrap();
     let case = dir.path().join("c.toml");
     std::fs::write(
@@ -449,7 +398,7 @@ fn reserved_keys_cover_env_add_and_harness_env() {
     .unwrap();
     assert_eq!(
         load(&case).err().as_deref(),
-        Some("harness.env must not set HOME: the replay controls it")
+        Some("harness.env must not set HOME: the recorder and the replay set it")
     );
 }
 

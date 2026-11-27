@@ -73,3 +73,48 @@ fn no_harness_means_no_server() {
             .any(|(k, v)| k == "TFSTACKPLAN_SERVER" && v.is_empty())
     );
 }
+
+#[test]
+fn reserved_keys_cover_env_add_and_harness_env() {
+    for k in CREDENTIAL_ENV {
+        assert!(HERMETIC_UNSET.contains(k), "{k} is not blanked");
+    }
+    assert_eq!(reserved_key([("HOME", "/tmp/x")]), Some("HOME"));
+    assert_eq!(
+        reserved_key([
+            ("TFSTACKPLAN_SERVER", "{fake}"),
+            ("TFSTACKPLAN_GO_BIN", "/bin/true")
+        ]),
+        Some("TFSTACKPLAN_GO_BIN")
+    );
+    assert_eq!(
+        reserved_key([("GOOGLE_APPLICATION_CREDENTIALS", "/home/me/key.json")]),
+        Some("GOOGLE_APPLICATION_CREDENTIALS")
+    );
+    // The value must start with the placeholder, not just contain it.
+    assert_eq!(
+        reserved_key([("GOOGLE_APPLICATION_CREDENTIALS", "/home/me/{fake}.json")]),
+        Some("GOOGLE_APPLICATION_CREDENTIALS")
+    );
+    assert_eq!(reserved_key([("GCE_METADATA_HOST", "{fakehost}")]), None);
+    assert_eq!(
+        reserved_key([("TFSTACKPLAN_SERVER", "https://x.example")]),
+        None
+    );
+
+    // from_case runs the check over `[harness] env` and `env.add`, with or
+    // without a `[harness]` table.
+    let err = |toml: &str| Harness::from_case(&toml.parse().unwrap()).unwrap_err();
+    assert_eq!(
+        err("[harness]\nenv = { HOME = \"/root\" }\n"),
+        "harness.env must not set HOME: the recorder and the replay set it"
+    );
+    assert_eq!(
+        err("[env]\nadd = { TFSTACKPLAN_FALLBACK_LOG = \"/tmp/log\" }\n"),
+        "env.add must not set TFSTACKPLAN_FALLBACK_LOG: the recorder and the replay set it"
+    );
+    assert_eq!(
+        err("[env]\nadd = { CLOUDSDK_CONFIG = \"/home/me/.config/gcloud\" }\n"),
+        "env.add may set CLOUDSDK_CONFIG only to the fake server (a value starting with {fake} or {fakehost})"
+    );
+}

@@ -52,6 +52,28 @@ pub const HERMETIC_UNSET: &[&str] = &[
     "GCE_METADATA_HOST",
 ];
 
+/// Variables the recorder and the replay set themselves, which a case's
+/// `env.add` and `[harness] env` must not override.
+pub const RESERVED_ENV: &[&str] = &["TFSTACKPLAN_GO_BIN", "TFSTACKPLAN_FALLBACK_LOG", "HOME"];
+
+/// Credential variables in [`HERMETIC_UNSET`]. A case may set one only to point
+/// it at the fake server (a value starting with `{fake}` or `{fakehost}`).
+pub const CREDENTIAL_ENV: &[&str] = &[
+    "GOOGLE_APPLICATION_CREDENTIALS",
+    "GOOGLE_OAUTH_ACCESS_TOKEN",
+    "CLOUDSDK_CONFIG",
+    "GCE_METADATA_HOST",
+];
+
+/// The first variable in `env` that a case must not set, if any.
+pub fn reserved_key<'a>(env: impl IntoIterator<Item = (&'a str, &'a str)>) -> Option<&'a str> {
+    env.into_iter()
+        .find(|(k, v)| {
+            RESERVED_ENV.contains(k) || (CREDENTIAL_ENV.contains(k) && !v.starts_with("{fake"))
+        })
+        .map(|(k, _)| k)
+}
+
 /// One canned response.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Route {
@@ -90,10 +112,38 @@ fn strings(item: Option<&toml_edit::Item>) -> Vec<String> {
 
 impl Harness {
     /// Reads `[harness]` from a case toml (absent: the default, empty harness).
+    /// Fails if `[harness] env` or the case's `env.add` sets a variable the
+    /// recorder and the replay control (see [`reserved_key`]).
     pub fn from_case(doc: &toml_edit::DocumentMut) -> Result<Self, String> {
-        let Some(h) = doc.get("harness") else {
-            return Ok(Self::default());
+        let out = match doc.get("harness") {
+            Some(h) => Self::parse(h)?,
+            None => Self::default(),
         };
+        let env_add: Vec<(String, String)> = doc
+            .get("env")
+            .and_then(|e| e.get("add"))
+            .and_then(|a| a.as_table_like())
+            .map(|t| {
+                t.iter()
+                    .filter_map(|(k, v)| Some((k.to_string(), v.as_str()?.to_string())))
+                    .collect()
+            })
+            .unwrap_or_default();
+        for (table, env) in [("harness.env", &out.env), ("env.add", &env_add)] {
+            if let Some(k) = reserved_key(env.iter().map(|(k, v)| (k.as_str(), v.as_str()))) {
+                return Err(if RESERVED_ENV.contains(&k) {
+                    format!("{table} must not set {k}: the recorder and the replay set it")
+                } else {
+                    format!(
+                        "{table} may set {k} only to the fake server (a value starting with {{fake}} or {{fakehost}})"
+                    )
+                });
+            }
+        }
+        Ok(out)
+    }
+
+    fn parse(h: &toml_edit::Item) -> Result<Self, String> {
         let mut out = Self {
             requires: strings(h.get("requires")),
             adc: h.get("adc").and_then(|v| v.as_str()).map(str::to_owned),
